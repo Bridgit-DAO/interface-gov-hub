@@ -174,7 +174,31 @@ def deploy(env, branch=None):
     if env not in ENV_CONFIG:
         log(f"Invalid environment: {env}. Must be 'dev' or 'prod'", 'ERROR')
         return False
-    
+
+    # PRODUCTION SAFETY CHECK
+    if env == 'prod':
+        print("\n" + "="*60)
+        print("🚨 PRODUCTION DEPLOYMENT REQUESTED")
+        print("="*60)
+        print("This will deploy to PRODUCTION environment")
+        print("URL: https://rfc.themetalayer.org")
+        print("Service: datatracker.service")
+        print("="*60)
+
+        # Check for recent production backup
+        backup_check = run_command("find backups/ -name 'prod-working-*' -mmin -60 | wc -l", capture_output=True)
+        if backup_check.strip() == '0':
+            log("No recent production backup found (< 1 hour old)", 'ERROR')
+            log("Please create a backup before deploying to production", 'ERROR')
+            return False
+
+        response = input("\nType 'DEPLOY_PRODUCTION' to confirm: ").strip()
+        if response != 'DEPLOY_PRODUCTION':
+            log("Production deployment cancelled by user", 'INFO')
+            return False
+
+        log("✅ Production deployment confirmed", 'INFO')
+
     config = ENV_CONFIG[env]
     target_branch = branch or config['branch']
     service_name = config['service']

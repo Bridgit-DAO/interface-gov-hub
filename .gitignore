@@ -37,3 +37,15 @@ __pycache__
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Database files - NEVER COMMIT
+instance/*.db
+instance_dev/*.db
+*.db
+
+# Production safety lock
+.production_lock
+
+# Deployment flags
+.deployment_*
+

@@ -395,7 +395,14 @@ def get_current_user():
                 'name': user.name,
                 'email': user.email,
                 'role': user.role,
-                'theme': user.theme
+                'theme': user.theme,
+                # Web3Auth fields
+                'displayName': user.displayName,
+                'oauthName': user.oauthName,
+                'profileImage': user.profileImage,
+                'typeOfLogin': user.typeOfLogin,
+                'evmAddress': user.evmAddress,
+                'solanaAddress': user.solanaAddress
             }
     return None
 
@@ -406,10 +413,16 @@ def generate_user_menu():
         user_role = current_user.get('role', 'user')
         is_admin = user_role in ['admin', 'editor'] or current_user['name'] in ['admin', 'Admin User']
         admin_link = '<li><a class="dropdown-item" href="/admin/">Admin Dashboard</a></li>' if is_admin else ''
+        # Display name priority: displayName > oauthName > name > username
+        display_name = (current_user.get('displayName') or
+                       current_user.get('oauthName') or
+                       current_user.get('name') or
+                       current_user['username'])
+
         return f"""
         <div class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                {current_user['name']}
+                {display_name}
             </a>
             <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="/submit/status/">My Submissions</a></li>
@@ -422,10 +435,7 @@ def generate_user_menu():
     else:
         return """
         <div class="nav-item">
-            <a class="nav-link" href="/login/">Sign In</a>
-        </div>
-        <div class="nav-item">
-            <a class="nav-link" href="/register/">Register</a>
+            <a class="nav-link" href="#" onclick="event.preventDefault(); loginWithWeb3Auth(); return false;">Sign In</a>
         </div>
         """
 
@@ -1392,6 +1402,163 @@ BASE_TEMPLATE = """
                 setTimeout(() => msg.remove(), 300);
             }});
         }}, 5000);
+
+        // Web3Auth Integration
+        let web3auth = null;
+
+        // Function to load script dynamically
+        function loadScript(src) {{
+            return new Promise((resolve, reject) => {{
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = () => resolve();
+                script.onerror = (e) => reject(e);
+                document.head.appendChild(script);
+            }});
+        }}
+
+        // Initialize Web3Auth after ensuring scripts are loaded
+        async function initWeb3Auth() {{
+            try {{
+                await loadScript('https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js');
+                await loadScript('https://unpkg.com/@web3auth/modal@10.13.1/dist/modal.umd.min.js');
+
+                await new Promise(resolve => {{
+                    const checkWeb3Auth = () => {{
+                        if (window.Modal && window.Modal.Web3Auth) {{
+                            resolve();
+                        }} else {{
+                            setTimeout(checkWeb3Auth, 100);
+                        }}
+                    }};
+                    checkWeb3Auth();
+                }});
+
+                const Web3AuthConstructor = window.Modal.Web3Auth;
+                const web3AuthConfig = {{
+                    clientId: "BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk",
+                    web3AuthNetwork: 'sapphire_devnet',
+                    chainConfig: {{
+                        chainNamespace: 'eip155',
+                        chainId: '0x1',
+                        rpcTarget: 'https://rpc.ankr.com/eth',
+                        displayName: 'Ethereum Mainnet',
+                        blockExplorerUrl: 'https://etherscan.io',
+                        ticker: 'ETH',
+                        tickerName: 'Ethereum',
+                    }},
+                    uiConfig: {{
+                        mode: 'dark',
+                        theme: {{
+                            primary: '#1d9bf0'
+                        }},
+                        loginMethodsOrder: ['google', 'twitter', 'email_passwordless', 'wallet'],
+                        defaultLanguage: 'en',
+                    }},
+                }};
+
+                web3auth = new Web3AuthConstructor(web3AuthConfig);
+                await web3auth.init();
+                console.log('Web3Auth initialized successfully');
+
+                // Check if we should trigger login modal
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('show_login') === '1') {{
+                    // Remove the parameter from URL
+                    window.history.replaceState({{}}, '', window.location.pathname);
+                    // Show login modal
+                    await loginWithWeb3Auth();
+                }}
+            }} catch (error) {{
+                console.error('Web3Auth initialization failed:', error);
+            }}
+        }}
+
+        async function loginWithWeb3Auth() {{
+            if (!web3auth) {{
+                alert("Web3Auth not initialized. Please refresh the page.");
+                return;
+            }}
+
+            try {{
+                // Logout first to ensure clean state
+                try {{
+                    await web3auth.logout();
+                }} catch (e) {{
+                    // Ignore if not logged in
+                }}
+
+                // Connect without specifying a provider - shows modal with all options
+                const web3authProvider = await web3auth.connect();
+                const userInfo = await web3auth.getUserInfo();
+                
+                console.log('User info received:', userInfo);
+                
+                // Get wallet address - with retry and error handling
+                let evmAddress = '';
+                try {{
+                    if (web3authProvider) {{
+                        const web3 = new Web3(web3authProvider);
+                        // Wait a bit for provider to be ready
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        const accounts = await web3.eth.getAccounts();
+                        if (accounts && accounts.length > 0) {{
+                            evmAddress = accounts[0];
+                        }}
+                    }}
+                }} catch (addrError) {{
+                    console.warn('Could not get EVM address:', addrError);
+                    // Not critical for social logins
+                }}
+
+                // Build the payload - handle different structures
+                // For email_passwordless, verifierId might be different
+                const finalVerifierId = userInfo.verifierId || userInfo.email || evmAddress || 'unknown';
+                const finalTypeOfLogin = userInfo.typeOfLogin || 'unknown';
+                
+                const payload = {{
+                    verifierId: finalVerifierId,
+                    typeOfLogin: finalTypeOfLogin,
+                    email: userInfo.email || '',
+                    name: userInfo.name || userInfo.email?.split('@')[0] || '',
+                    profileImage: userInfo.profileImage || '',
+                    evmAddress: evmAddress || '',
+                }};
+
+                console.log('Sending payload:', payload);
+                console.log('typeOfLogin:', finalTypeOfLogin);
+
+                // Send to backend
+                const response = await fetch('/api/auth/web3auth', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(payload)
+                }});
+
+                const result = await response.json();
+                if (response.ok) {{
+                    window.location.href = '/';
+                }} else {{
+                    console.error('Backend error:', result);
+                    alert('Login failed: ' + (result.error || 'Unknown error'));
+                }}
+            }} catch (error) {{
+                console.error('Login failed:', error);
+                if (error.message && !error.message.includes('user closed')) {{
+                    alert('Login failed: ' + error.message);
+                }}
+            }}
+        }}
+
+        // Initialize Web3Auth on page load
+        if (document.readyState === 'loading') {{
+            document.addEventListener('DOMContentLoaded', initWeb3Auth);
+        }} else {{
+            initWeb3Auth();
+        }}
+
+        // Make loginWithWeb3Auth available globally
+        window.loginWithWeb3Auth = loginWithWeb3Auth;
     </script>
 </body>
 </html>
@@ -2017,30 +2184,231 @@ LOGIN_TEMPLATE = """
                 </div>
                 <div class="card-body">
                     <div id="flash-messages"></div>
-                    
-                    <form method="POST" action="/login/">
-                        <div class="mb-3">
-                            <label for="username" class="form-label">Username</label>
-                            <input type="text" class="form-control" id="username" name="username" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="password" class="form-label">Password</label>
-                            <input type="password" class="form-control" id="password" name="password" required>
-                        </div>
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">Sign In</button>
-                        </div>
-                    </form>
-                    
-                    <hr>
-                    <div class="text-center">
-                        <p class="mb-0">Don't have an account? <a href="/register/">Create one</a></p>
+
+                    <!-- Single Web3Auth Sign In Button -->
+                    <div class="mb-4 text-center">
+                        <p class="text-muted mb-3">Connect your account to continue</p>
+                        <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" onclick="loginWithWeb3Auth()">
+                            <svg width="20" height="20" class="me-2" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;">
+                                <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
+                            </svg>
+                            Sign In with Web3Auth
+                        </button>
+                        <p class="text-muted mt-3 small">Sign in with Google, Twitter, Email, or connect your wallet</p>
                     </div>
+
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+// Web3Auth Integration
+let web3auth = null;
+
+// Function to load script dynamically
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = (e) => reject(e);
+        document.head.appendChild(script);
+    });
+}
+
+// Initialize Web3Auth after ensuring scripts are loaded
+async function initWeb3Auth() {
+    try {
+        // Load Web3 first
+        await loadScript('https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js');
+
+        // Load Web3Auth Modal
+        await loadScript('https://unpkg.com/@web3auth/modal@10.13.1/dist/modal.umd.min.js');
+
+        // Wait for Web3Auth to be available
+        await new Promise(resolve => {
+            const checkWeb3Auth = () => {
+                if (window.Modal && window.Modal.Web3Auth) {
+                    resolve();
+                } else {
+                    setTimeout(checkWeb3Auth, 100);
+                }
+            };
+            checkWeb3Auth();
+        });
+
+        const Web3AuthConstructor = window.Modal.Web3Auth;
+
+        const web3AuthConfig = {
+            clientId: "BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk",
+            web3AuthNetwork: 'sapphire_devnet',
+            chainConfig: {
+                chainNamespace: 'eip155',
+                chainId: '0x1',
+                rpcTarget: 'https://rpc.ankr.com/eth',
+                displayName: 'Ethereum Mainnet',
+                blockExplorerUrl: 'https://etherscan.io',
+                ticker: 'ETH',
+                tickerName: 'Ethereum',
+            },
+            // Disable modal for direct provider login
+            modal: false,
+            uiConfig: {
+                theme: 'dark',
+                loginMethodsOrder: ['google', 'twitter', 'email_passwordless', 'wallet'],
+                defaultLanguage: 'en',
+            },
+            // Force account selection for Google OAuth
+            loginConfig: {
+                google: {
+                    verifier: 'web3auth-google-sapphire-devnet',
+                    typeOfLogin: 'google',
+                    clientId: 'BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk',
+                    // Force account selection and re-authentication
+                    extraLoginOptions: {
+                        prompt: 'login select_account',
+                        access_type: 'offline'
+                    },
+                    // Also try query parameters
+                    queryParameters: {
+                        prompt: 'login select_account',
+                        access_type: 'offline'
+                    }
+                }
+            },
+        };
+
+        web3auth = new Web3AuthConstructor(web3AuthConfig);
+        await web3auth.init();
+
+        console.log('Web3Auth initialized successfully');
+
+    } catch (error) {
+        console.error('Web3Auth initialization failed:', error);
+    }
+}
+
+async function loginWithWeb3Auth(buttonType) {
+    if (!web3auth) {
+        alert("Web3Auth not initialized. Please refresh the page.");
+        return;
+    }
+
+    try {
+        // Update button to show loading
+        const btn = document.getElementById(buttonType + '-login-btn');
+        if (btn) {
+            btn.innerHTML = 'Connecting...';
+        }
+
+        // Connect to Web3Auth with specific login provider
+        let loginProvider = null;
+        if (buttonType === 'google') loginProvider = 'google';
+        else if (buttonType === 'twitter') loginProvider = 'twitter';
+        else if (buttonType === 'email') loginProvider = 'email_passwordless';
+        else if (buttonType === 'wallet') loginProvider = 'wallet';
+
+        // Connect directly to provider with forced auth
+        console.log("Connecting directly to:", loginProvider);
+        const web3authProvider = await web3auth.connect({
+            loginProvider,
+            extraLoginOptions: {
+                prompt: 'login select_account',
+                access_type: 'offline'
+            }
+        });
+
+        if (web3authProvider) {
+            // Get user info
+            const userInfo = await web3auth.getUserInfo();
+
+            // Get wallet address for wallet logins
+            let walletAddress = null;
+            try {
+                const web3 = new Web3(web3authProvider);
+                const accounts = await web3.eth.getAccounts();
+                walletAddress = accounts[0];
+            } catch (walletError) {
+                console.log("No wallet address available:", walletError.message);
+            }
+
+            // Determine login type
+            let loginType = 'unknown';
+            if (userInfo.groupedAuthConnectionId) {
+                if (userInfo.groupedAuthConnectionId.includes('google')) {
+                    loginType = 'google';
+                } else if (userInfo.groupedAuthConnectionId.includes('twitter')) {
+                    loginType = 'twitter';
+                } else if (userInfo.groupedAuthConnectionId.includes('email')) {
+                    loginType = 'email';
+                } else if (userInfo.groupedAuthConnectionId.includes('wallet')) {
+                    loginType = 'wallet';
+                }
+            } else if (walletAddress) {
+                loginType = 'wallet';
+            }
+
+            // Send user data to backend
+            const requestData = {
+                verifierId: userInfo.verifierId || userInfo.groupedAuthConnectionId || `user_${Date.now()}`,
+                typeOfLogin: loginType,
+                email: userInfo.email,
+                name: userInfo.name,
+                profileImage: userInfo.profileImage,
+                oauthName: userInfo.name,
+                evmAddress: walletAddress
+            };
+
+            const response = await fetch('/api/auth/web3auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+
+            if (response.ok) {
+                // Update button to show final success
+                if (btn) {
+                    btn.innerHTML = 'Success! Redirecting...';
+                }
+                // Redirect after a short delay
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1000);
+            } else {
+                const error = await response.json().catch(() => ({}));
+                alert('Login failed: ' + (error.error || 'Unknown error'));
+
+                // Reset button
+                if (btn) {
+                    if (buttonType === 'google') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Continue with Google';
+                    else if (buttonType === 'twitter') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>Continue with X (Twitter)';
+                    else if (buttonType === 'email') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>Continue with Email';
+                    else if (buttonType === 'wallet') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M21 7.28V5c0-1.1-.9-2-2-2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-2.28c.59-.35 1-.98 1-1.72V9c0-.74-.41-1.37-1-1.72zM20 9v6h-7V9h7zM5 7h14v10H5V7z"/><circle cx="16" cy="12" r="1.5"/></svg>Connect Wallet';
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Web3Auth login error:', error);
+        alert('Login failed: ' + error.message);
+
+        // Reset button
+        const btn = document.getElementById(buttonType + '-login-btn');
+        if (btn) {
+            if (buttonType === 'google') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Continue with Google';
+            else if (buttonType === 'twitter') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>Continue with X (Twitter)';
+            else if (buttonType === 'email') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>Continue with Email';
+            else if (buttonType === 'wallet') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M21 7.28V5c0-1.1-.9-2-2-2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-2.28c.59-.35 1-.98 1-1.72V9c0-.74-.41-1.37-1-1.72zM20 9v6h-7V9h7zM5 7h14v10H5V7z"/><circle cx="16" cy="12" r="1.5"/></svg>Connect Wallet';
+        }
+    }
+}
+
+// Initialize Web3Auth when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    initWeb3Auth();
+});
+</script>
 """
 
 REGISTER_TEMPLATE = """
@@ -2173,33 +2541,10 @@ PROFILE_TEMPLATE = """
 """
 
 # Authentication routes
-@app.route('/login/', methods=['GET', 'POST'])
+@app.route('/login/', methods=['GET'])
 def login():
-    """User login"""
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
-        
-        user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password_hash, password):
-            session['user'] = username
-            # Set user's preferred theme in session
-            session['theme'] = user.theme
-            # Update last login
-            user.last_login = datetime.utcnow()
-            db.session.commit()
-            flash(f'Welcome back, {user.name}!', 'success')
-            return redirect(url_for('home'))
-        else:
-            flash('Invalid username or password.', 'error')
-    
-    # Generate user menu for login page
-    user_menu = """
-    <div class="nav-item">
-        <a class="nav-link" href="/register/">Register</a>
-    </div>
-    """
-    return render_template_string(BASE_TEMPLATE.format(title="Login - MLTF", theme="light", user_menu=user_menu, content=LOGIN_TEMPLATE))
+    """Redirect to home and trigger Web3Auth modal"""
+    return redirect(url_for('home') + '?show_login=1')
 
 @app.route('/logout/')
 def logout():
@@ -2279,10 +2624,29 @@ def web3auth_login():
         # Check if user exists in database
         user = User.query.filter_by(web3authVerifierId=verifierId).first()
 
-        # If not, create user
-        if not user:
+        # If not found by verifierId, check by email
+        if not user and email:
+            user = User.query.filter_by(email=email).first()
+
+        # If user exists, update their Web3Auth info
+        if user:
+            # Update existing user with new Web3Auth data
+            user.web3authVerifierId = verifierId
+            user.typeOfLogin = typeOfLogin
+            if name:
+                user.displayName = name
+                user.displayNameSetAt = datetime.utcnow()
+                user.oauthName = name
+            if profileImage:
+                user.profileImage = profileImage
+            if evmAddress:
+                user.evmAddress = evmAddress
+            if solanaAddress:
+                user.solanaAddress = solanaAddress
+            db.session.commit()
+        else:
+            # Create new user
             # Generate handle (use email or wallet address)
-            # Use a more secure approach to check existing handles
             existing_handles = db.session.query(User.username).all()
             existing_handles = [handle[0] for handle in existing_handles]
             if typeOfLogin == 'wallet' and evmAddress:
@@ -2309,15 +2673,15 @@ def web3auth_login():
             user = User(
                 web3authVerifierId=verifierId,
                 typeOfLogin=typeOfLogin,
-                displayName=name if name else None,  # OAuth name for social login, null for wallet
+                displayName=name if name else None,
                 displayNameSetAt=datetime.utcnow() if name else None,
-                oauthName=name,  # Store original OAuth name
+                oauthName=name,
                 email=email,
                 profileImage=profileImage,
                 evmAddress=evmAddress,
                 solanaAddress=solanaAddress,
-                username=handle,  # Use generated handle as username
-                handle=handle,  # Also store in handle field
+                username=handle,
+                handle=handle,
                 role='user',
                 theme='dark'
             )
@@ -2358,9 +2722,13 @@ def web3auth_login():
         return jsonify({'success': True, 'user': safe_user_data})
 
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         print(f"Web3Auth login error: {e}")
+        print(f"Traceback: {error_details}")
+        print(f"Request data: {data if 'data' in locals() else 'N/A'}")
         db.session.rollback()
-        return jsonify({'error': 'Authentication failed'}), 500
+        return jsonify({'error': f'Authentication failed: {str(e)}'}), 500
 
 @app.route('/api/user/me', methods=['GET'])
 def get_user_profile():
@@ -3869,7 +4237,7 @@ def delete_chair(chair_id):
 def home():
     # Generate user menu
     current_user = get_current_user()
-    current_theme = current_user.get('theme', 'dark') if current_user else 'light'
+    current_theme = current_user.get('theme', 'dark') if current_user else 'dark'  # Default to dark
     user_menu = generate_user_menu()
     
     # Count documents: DRAFTS + approved/published submissions
