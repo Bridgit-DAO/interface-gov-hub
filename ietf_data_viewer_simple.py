@@ -16,6 +16,7 @@ import os
 import re
 import json
 import uuid
+import requests
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -2846,6 +2847,123 @@ def web3auth_login():
         print(f"Request data: {data if 'data' in locals() else 'N/A'}")
         db.session.rollback()
         return jsonify({'error': f'Authentication failed: {str(e)}'}), 500
+
+# Ordinals API routes
+@app.route('/api/ordinal/preview', methods=['POST'])
+def preview_ordinal():
+    """Preview ordinal content and fetch metadata"""
+    try:
+        data = request.get_json()
+        inscription_id = data.get('inscriptionId', '').strip()
+        
+        if not inscription_id:
+            return jsonify({'success': False, 'error': 'Inscription ID is required'}), 400
+        
+        # Validate inscription ID format (basic validation)
+        if len(inscription_id) < 10 or not all(c.isalnum() or c in 'i-_' for c in inscription_id):
+            return jsonify({'success': False, 'error': 'Invalid inscription ID format'}), 400
+        
+        # Build content URL
+        content_url = f"https://ordinals.com/content/{inscription_id}"
+        
+        # Check size and content type with HEAD request
+        try:
+            head_response = requests.head(content_url, timeout=10, allow_redirects=True)
+            
+            if head_response.status_code == 404:
+                return jsonify({'success': False, 'error': 'Inscription not found'}), 404
+            
+            if head_response.status_code != 200:
+                return jsonify({'success': False, 'error': f'Failed to fetch inscription (status: {head_response.status_code})'}), 400
+            
+            # Get content length
+            content_length = int(head_response.headers.get('Content-Length', 0))
+            max_size = 50 * 1024  # 50KB
+            
+            if content_length > max_size:
+                size_kb = content_length / 1024
+                return jsonify({
+                    'success': False, 
+                    'error': f'Content too large: {size_kb:.1f}KB (max 50KB)'
+                }), 400
+            
+            # Get content type
+            content_type = head_response.headers.get('Content-Type', 'unknown').lower()
+            
+            # Check if supported type
+            supported_types = [
+                'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 
+                'image/svg+xml', 'image/webp',
+                'text/plain', 'text/markdown', 'text/html'
+            ]
+            
+            is_supported = any(st in content_type for st in supported_types)
+            
+            if not is_supported:
+                return jsonify({
+                    'success': False,
+                    'error': f'Unsupported content type: {content_type}. Supported: images, text, markdown, HTML'
+                }), 400
+            
+            # Try to fetch metadata from ordinals.com inscription page
+            # Note: This may need adjustment based on actual ordinals.com API
+            inscription_number = None
+            block_height = None
+            timestamp = None
+            
+            try:
+                # Attempt to fetch metadata (this is a placeholder - adjust based on actual API)
+                metadata_url = f"https://ordinals.com/inscription/{inscription_id}"
+                # For now, we'll leave metadata as None and can enhance later
+                # when we know the exact API structure
+            except:
+                pass  # Metadata fetch failed, continue without it
+            
+            return jsonify({
+                'success': True,
+                'contentUrl': content_url,
+                'contentType': content_type,
+                'contentSize': content_length,
+                'inscriptionId': inscription_id,
+                'inscriptionNumber': inscription_number,
+                'blockHeight': block_height,
+                'timestamp': timestamp
+            })
+            
+        except requests.Timeout:
+            return jsonify({'success': False, 'error': 'Request timed out. Please try again.'}), 408
+        except requests.ConnectionError:
+            return jsonify({'success': False, 'error': 'Ordinals service unavailable. Please try again later.'}), 503
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to fetch content: {str(e)}'}), 500
+            
+    except Exception as e:
+        print(f"Ordinal preview error: {e}")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+@app.route('/api/ordinal/convert-markdown', methods=['POST'])
+def convert_markdown():
+    """Convert markdown to HTML"""
+    try:
+        data = request.get_json()
+        markdown_text = data.get('markdown', '')
+        
+        if not markdown_text:
+            return jsonify({'success': False, 'error': 'No markdown provided'}), 400
+        
+        # Convert markdown to HTML (using simple approach for now)
+        # TODO: Add markdown2 or mistune library for better conversion
+        import html
+        
+        # For now, just escape HTML and preserve line breaks
+        # This will be enhanced with proper markdown library
+        html_content = html.escape(markdown_text).replace('\n', '<br>')
+        
+        return jsonify({'success': True, 'html': html_content})
+        
+    except Exception as e:
+        print(f"Markdown conversion error: {e}")
+        return jsonify({'success': False, 'error': 'Conversion failed'}), 500
 
 @app.route('/api/user/me', methods=['GET'])
 def get_user_profile():
