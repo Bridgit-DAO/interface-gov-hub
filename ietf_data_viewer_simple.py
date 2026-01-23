@@ -370,15 +370,26 @@ def require_auth(f):
     return decorated_function
 
 def require_role(required_role):
-    """Decorator to require a specific role"""
+    """Decorator to require a specific role (admin or editor can access admin features)"""
     def decorator(f):
         def decorated_function(*args, **kwargs):
             if 'user' not in session:
                 flash('Please log in to access this page.', 'error')
                 return redirect(url_for('login'))
             current_user = get_current_user()
-            if not current_user or current_user.get('role') != required_role:
-                return "Access denied", 403
+            if not current_user:
+                return "Access denied: Not logged in", 403
+            
+            user_role = current_user.get('role', 'user')
+            
+            # Admin and editor can access admin pages
+            if required_role == 'admin':
+                if user_role not in ['admin', 'editor']:
+                    return "Access denied: Admin or Editor role required", 403
+            # For other roles, exact match required
+            elif user_role != required_role:
+                return f"Access denied: {required_role} role required", 403
+            
             return f(*args, **kwargs)
         decorated_function.__name__ = f.__name__
         return decorated_function
@@ -1138,6 +1149,112 @@ BASE_TEMPLATE = """
             border-radius: 12px;
             font-weight: 500;
             padding: 4px 8px;
+        }}
+
+        /* Tables */
+        .table {{
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }}
+
+        .table thead th {{
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+            font-weight: 600;
+            padding: 12px;
+        }}
+
+        .table tbody td {{
+            background-color: var(--card-bg);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+            padding: 12px;
+        }}
+
+        .table-hover tbody tr:hover td {{
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }}
+        
+        .table-hover tbody tr:hover td * {{
+            color: var(--text-primary);
+        }}
+
+        .table-responsive {{
+            border-radius: 8px;
+            overflow: hidden;
+        }}
+
+        /* Pagination */
+        .pagination .page-link {{
+            background-color: var(--card-bg);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }}
+
+        .pagination .page-link:hover {{
+            background-color: var(--bg-secondary);
+            color: var(--accent-color);
+            border-color: var(--border-hover);
+        }}
+
+        .pagination .page-item.active .page-link {{
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+            color: white;
+        }}
+
+        .pagination .page-item.disabled .page-link {{
+            background-color: var(--bg-secondary);
+            color: var(--text-muted);
+            border-color: var(--border-color);
+        }}
+
+        /* Dropdown menus in tables */
+        .table .dropdown {{
+            position: relative;
+        }}
+
+        .table .dropdown-menu {{
+            background-color: var(--card-bg);
+            border-color: var(--border-color);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            min-width: 120px;
+            z-index: 1050;
+            margin-top: 4px;
+        }}
+
+        .table .dropdown-item {{
+            color: var(--text-primary);
+            padding: 8px 16px;
+            cursor: pointer;
+        }}
+
+        .table .dropdown-item:hover {{
+            background-color: var(--bg-secondary);
+            color: var(--accent-color);
+        }}
+
+        .table .dropdown-toggle {{
+            background-color: transparent;
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+        }}
+
+        .table .dropdown-toggle:hover {{
+            background-color: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }}
+
+        /* Ensure table doesn't clip dropdowns */
+        .table-responsive {{
+            overflow: visible !important;
+        }}
+
+        .card-body {{
+            overflow: visible !important;
         }}
 
         /* Breadcrumbs */
@@ -3188,11 +3305,18 @@ def admin_users():
             <td>{user.created_at.strftime('%Y-%m-%d')}</td>
             <td>{last_login}</td>
             <td>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary btn-sm" onclick="changeRole('{user.username}', '{user.role}')">
-                        <i class="fas fa-user-edit"></i>
-                    </button>
-                    <button class="btn btn-outline-danger btn-sm" onclick="deleteUser('{user.username}')">
+                <div class="btn-group btn-group-sm" role="group">
+                    <div class="dropdown">
+                        <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" id="roleDropdown{user.username}" data-bs-toggle="dropdown" aria-expanded="false" data-bs-offset="0,4">
+                            <i class="fas fa-user-edit"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="roleDropdown{user.username}">
+                            <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'user'); return false;">User</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'editor'); return false;">Editor</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'admin'); return false;">Admin</a></li>
+                        </ul>
+                    </div>
+                    <button class="btn btn-outline-danger btn-sm ms-1" onclick="deleteUser('{user.username}')">
                         <i class="fas fa-trash"></i>
                     </button>
                 </div>
@@ -3259,7 +3383,7 @@ def admin_users():
             <div class="card-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
-                        <thead class="table-light">
+                        <thead>
                             <tr>
                                 <th>Name</th>
                                 <th>Email</th>
@@ -3291,53 +3415,59 @@ def admin_users():
         </div>
 
     <script>
-        function changeRole(username, currentRole) {{
-            const roles = ['user', 'editor', 'admin'];
-            const currentIndex = roles.indexOf(currentRole);
-            const nextRole = roles[(currentIndex + 1) % roles.length];
-
-            if (confirm('Change ' + username + '\'s role from ' + currentRole + ' to ' + nextRole + '?')) {{
-                fetch('/admin/users/' + username + '/role', {{
-                    method: 'POST',
-                    headers: {{
-                        'Content-Type': 'application/json',
-                    }},
-                    body: JSON.stringify({{ role: nextRole }})
-                }})
-                .then(response => response.json())
-                .then(data => {{
-                    if (data.success) {{
-                        location.reload();
-                    }} else {{
-                        alert('Error: ' + data.message);
-                    }}
-                }})
-                .catch(error => {{
-                    console.error('Error:', error);
-                    alert('Error updating role');
-                }});
-            }}
+        function changeRole(username, newRole) {{
+            console.log('Changing role for', username, 'to', newRole);
+            
+            fetch('/admin/users/' + username + '/role', {{
+                method: 'POST',
+                headers: {{
+                    'Content-Type': 'application/json',
+                }},
+                body: JSON.stringify({{ role: newRole }})
+            }})
+            .then(response => {{
+                console.log('Response status:', response.status);
+                return response.json();
+            }})
+            .then(data => {{
+                console.log('Response data:', data);
+                if (data.success) {{
+                    location.reload();
+                }} else {{
+                    alert('Error: ' + (data.message || 'Unknown error'));
+                }}
+            }})
+            .catch(error => {{
+                console.error('Error:', error);
+                alert('Error updating role: ' + error.message);
+            }});
         }}
 
         function deleteUser(username) {{
-            if (confirm('Are you sure you want to delete user ' + username + '? This action cannot be undone.')) {{
+            if (confirm("Are you sure you want to delete user " + username + "? This action cannot be undone.")) {{
+                console.log('Deleting user:', username);
                 fetch('/admin/users/' + username + '/delete', {{
                     method: 'POST',
                     headers: {{
                         'Content-Type': 'application/json',
                     }}
                 }})
-                .then(response => response.json())
+                .then(response => {{
+                    console.log('Delete response status:', response.status);
+                    return response.json();
+                }})
                 .then(data => {{
+                    console.log('Delete response data:', data);
                     if (data.success) {{
+                        // Just reload without alert
                         location.reload();
                     }} else {{
-                        alert('Error: ' + data.message);
+                        alert('Error: ' + (data.message || 'Unknown error'));
                     }}
                 }})
                 .catch(error => {{
                     console.error('Error:', error);
-                    alert('Error deleting user');
+                    alert('Error deleting user: ' + error.message);
                 }});
             }}
         }}
