@@ -7,8 +7,12 @@ This displays the Meta-Layer Task Force data so you can see it working.
 If you see "IETF Data Viewer" in the docstring, this file has been reverted incorrectly.
 The correct version should say "MLTF Data Viewer" and "Meta-Layer Task Force".
 
-Version: 2026-01-17-final (includes "Welcome to the Meta-Layer Governance Hub" and visible red test box)
+BUILD: 1
+Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
+
+# Build number for cache busting and version tracking
+BUILD_NUMBER = 19
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -16,9 +20,12 @@ import os
 import re
 import json
 import uuid
+import requests
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from collections import defaultdict
+import time
 
 # Import file processing libraries
 try:
@@ -33,11 +40,41 @@ try:
 except ImportError:
     DOCX_SUPPORT = False
 
+try:
+    import markdown2
+    import bleach
+    MARKDOWN_SUPPORT = True
+except ImportError:
+    MARKDOWN_SUPPORT = False
+
+# Rate limiting for security
+rate_limit_store = defaultdict(list)
+
+def check_rate_limit(identifier, max_requests=5, window_seconds=300):
+    """Simple in-memory rate limiting"""
+    now = time.time()
+    key = f"{identifier}"
+
+    # Clean old entries
+    rate_limit_store[key] = [timestamp for timestamp in rate_limit_store[key]
+                           if now - timestamp < window_seconds]
+
+    # Check if under limit
+    if len(rate_limit_store[key]) >= max_requests:
+        return False
+
+    # Add current request
+    rate_limit_store[key].append(now)
+    return True
+
 # Database initialization
 def init_db():
     """Initialize database and create tables"""
     with app.app_context():
         db.create_all()
+
+        # Run database migrations for ordinals support
+        migrate_ordinals_support()
 
         # Migrate hardcoded users to database if not already done
         if User.query.count() == 0:
@@ -62,6 +99,48 @@ def init_db():
             DRAFTS.append(draft_entry)
 
         print(f"Database initialized: {User.query.count()} users, {len(published_drafts)} published drafts loaded")
+
+def migrate_ordinals_support():
+    """Add ordinals support columns to existing submission table"""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if ordinals columns exist
+        cursor.execute("PRAGMA table_info(submission)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        ordinals_columns = {
+            'sourceType': ('TEXT', 'file'),
+            'ordinalId': ('TEXT', None),
+            'ordinalContentUrl': ('TEXT', None),
+            'ordinalContentType': ('TEXT', None),
+            'inscriptionNumber': ('INTEGER', None),
+            'blockHeight': ('INTEGER', None),
+            'inscriptionTimestamp': ('DATETIME', None)
+        }
+        
+        added_columns = []
+        for col_name, (col_type, default_value) in ordinals_columns.items():
+            if col_name not in columns:
+                if default_value:
+                    cursor.execute(f"ALTER TABLE submission ADD COLUMN {col_name} {col_type} DEFAULT '{default_value}'")
+                else:
+                    cursor.execute(f"ALTER TABLE submission ADD COLUMN {col_name} {col_type}")
+                added_columns.append(col_name)
+        
+        conn.commit()
+        conn.close()
+        
+        if added_columns:
+            print(f"✅ Added ordinals columns to submission table: {', '.join(added_columns)}")
+        else:
+            print("✅ Ordinals columns already exist in submission table")
+    except Exception as e:
+        print(f"⚠️  Error migrating ordinals support: {e}")
+        # Non-fatal - table might already have columns
 
 def migrate_hardcoded_users():
     """Migrate hardcoded users to database"""
@@ -162,6 +241,12 @@ DB_PATH = os.path.join(INSTANCE_DIR, DB_NAME)
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['DEBUG'] = DEBUG
+
+# Session security configuration
+app.config['SESSION_COOKIE_SECURE'] = not IS_DEVELOPMENT  # HTTPS only in production
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent XSS access to session cookie
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
+
 db = SQLAlchemy(app)
 
 # Database Models
@@ -180,6 +265,14 @@ class Submission(db.Model):
     approved_at = db.Column(db.DateTime, nullable=True)
     rejected_at = db.Column(db.DateTime, nullable=True)
     ml_number = db.Column(db.String(10), nullable=True)  # ML-0001, ML-0002, etc.
+    # Ordinal integration fields
+    sourceType = db.Column(db.String(20), default='file')  # 'file' or 'ordinal'
+    ordinalId = db.Column(db.String(255), nullable=True)  # Inscription ID
+    ordinalContentUrl = db.Column(db.String(500), nullable=True)  # URL to content
+    ordinalContentType = db.Column(db.String(100), nullable=True)  # MIME type
+    inscriptionNumber = db.Column(db.Integer, nullable=True)  # Ordinal inscription number
+    blockHeight = db.Column(db.Integer, nullable=True)  # Bitcoin block height
+    inscriptionTimestamp = db.Column(db.DateTime, nullable=True)  # When inscribed
 
 class PublishedDraft(db.Model):
     """Store published/approved drafts separately from original test data"""
@@ -230,8 +323,29 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, index=True)
     password_hash = db.Column(db.String(255))
-    name = db.Column(db.String(100))
+
+    # Web3Auth fields
+    web3authVerifierId = db.Column(db.String(255), unique=True, index=True)  # Web3Auth unique identifier
+    typeOfLogin = db.Column(db.String(50))  # 'google', 'wallet', 'twitter', 'email_passwordless'
+
+    # Display name system (user-editable)
+    displayName = db.Column(db.String(50))  # User's chosen display name
+    displayNameSetAt = db.Column(db.DateTime)  # When user first set/changed it
+
+    # OAuth data (read-only reference)
+    oauthName = db.Column(db.String(100))  # Original name from OAuth provider
+    name = db.Column(db.String(100))  # Legacy field - will be deprecated
     email = db.Column(db.String(100), unique=True, index=True)
+    profileImage = db.Column(db.String(500))  # Avatar URL
+
+    # Wallet data (always visible)
+    evmAddress = db.Column(db.String(42), unique=True, index=True)  # EVM wallet address
+    solanaAddress = db.Column(db.String(44), unique=True, index=True)  # Solana wallet address
+
+    # Handle (unique identifier)
+    handle = db.Column(db.String(50), unique=True, index=True)  # Unique handle for user
+
+    # Other fields
     role = db.Column(db.String(20), default='user')  # admin, editor, user
     theme = db.Column(db.String(10), default='dark')  # light, dark, auto
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -321,15 +435,26 @@ def require_auth(f):
     return decorated_function
 
 def require_role(required_role):
-    """Decorator to require a specific role"""
+    """Decorator to require a specific role (admin or editor can access admin features)"""
     def decorator(f):
         def decorated_function(*args, **kwargs):
             if 'user' not in session:
                 flash('Please log in to access this page.', 'error')
                 return redirect(url_for('login'))
             current_user = get_current_user()
-            if not current_user or current_user.get('role') != required_role:
-                return "Access denied", 403
+            if not current_user:
+                return "Access denied: Not logged in", 403
+            
+            user_role = current_user.get('role', 'user')
+            
+            # Admin and editor can access admin pages
+            if required_role == 'admin':
+                if user_role not in ['admin', 'editor']:
+                    return "Access denied: Admin or Editor role required", 403
+            # For other roles, exact match required
+            elif user_role != required_role:
+                return f"Access denied: {required_role} role required", 403
+            
             return f(*args, **kwargs)
         decorated_function.__name__ = f.__name__
         return decorated_function
@@ -340,13 +465,22 @@ def get_current_user():
     if 'user' in session:
         user = User.query.filter_by(username=session['user']).first()
         if user:
+            # Use displayName or oauthName as fallback if name is not set
+            user_name = user.name or user.displayName or user.oauthName or user.username
             return {
                 'id': user.id,
                 'username': user.username,
-                'name': user.name,
+                'name': user_name,
                 'email': user.email,
                 'role': user.role,
-                'theme': user.theme
+                'theme': user.theme,
+                # Web3Auth fields
+                'displayName': user.displayName,
+                'oauthName': user.oauthName,
+                'profileImage': user.profileImage,
+                'typeOfLogin': user.typeOfLogin,
+                'evmAddress': user.evmAddress,
+                'solanaAddress': user.solanaAddress
             }
     return None
 
@@ -357,10 +491,16 @@ def generate_user_menu():
         user_role = current_user.get('role', 'user')
         is_admin = user_role in ['admin', 'editor'] or current_user['name'] in ['admin', 'Admin User']
         admin_link = '<li><a class="dropdown-item" href="/admin/">Admin Dashboard</a></li>' if is_admin else ''
+        # Display name priority: displayName > oauthName > name > username
+        display_name = (current_user.get('displayName') or
+                       current_user.get('oauthName') or
+                       current_user.get('name') or
+                       current_user['username'])
+
         return f"""
         <div class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                {current_user['name']}
+                {display_name}
             </a>
             <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="/submit/status/">My Submissions</a></li>
@@ -373,10 +513,7 @@ def generate_user_menu():
     else:
         return """
         <div class="nav-item">
-            <a class="nav-link" href="/login/">Sign In</a>
-        </div>
-        <div class="nav-item">
-            <a class="nav-link" href="/register/">Register</a>
+            <a class="nav-link" href="#" onclick="event.preventDefault(); loginWithWeb3Auth(); return false;">Sign In</a>
         </div>
         """
 
@@ -1081,6 +1218,112 @@ BASE_TEMPLATE = """
             padding: 4px 8px;
         }}
 
+        /* Tables */
+        .table {{
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }}
+
+        .table thead th {{
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+            font-weight: 600;
+            padding: 12px;
+        }}
+
+        .table tbody td {{
+            background-color: var(--card-bg);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+            padding: 12px;
+        }}
+
+        .table-hover tbody tr:hover td {{
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }}
+        
+        .table-hover tbody tr:hover td * {{
+            color: var(--text-primary);
+        }}
+
+        .table-responsive {{
+            border-radius: 8px;
+            overflow: hidden;
+        }}
+
+        /* Pagination */
+        .pagination .page-link {{
+            background-color: var(--card-bg);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }}
+
+        .pagination .page-link:hover {{
+            background-color: var(--bg-secondary);
+            color: var(--accent-color);
+            border-color: var(--border-hover);
+        }}
+
+        .pagination .page-item.active .page-link {{
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+            color: white;
+        }}
+
+        .pagination .page-item.disabled .page-link {{
+            background-color: var(--bg-secondary);
+            color: var(--text-muted);
+            border-color: var(--border-color);
+        }}
+
+        /* Dropdown menus in tables */
+        .table .dropdown {{
+            position: relative;
+        }}
+
+        .table .dropdown-menu {{
+            background-color: var(--card-bg);
+            border-color: var(--border-color);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            min-width: 120px;
+            z-index: 1050;
+            margin-top: 4px;
+        }}
+
+        .table .dropdown-item {{
+            color: var(--text-primary);
+            padding: 8px 16px;
+            cursor: pointer;
+        }}
+
+        .table .dropdown-item:hover {{
+            background-color: var(--bg-secondary);
+            color: var(--accent-color);
+        }}
+
+        .table .dropdown-toggle {{
+            background-color: transparent;
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+        }}
+
+        .table .dropdown-toggle:hover {{
+            background-color: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }}
+
+        /* Ensure table doesn't clip dropdowns */
+        .table-responsive {{
+            overflow: visible !important;
+        }}
+
+        .card-body {{
+            overflow: visible !important;
+        }}
+
         /* Breadcrumbs */
         .breadcrumb {{
             background-color: transparent;
@@ -1343,6 +1586,163 @@ BASE_TEMPLATE = """
                 setTimeout(() => msg.remove(), 300);
             }});
         }}, 5000);
+
+        // Web3Auth Integration
+        let web3auth = null;
+
+        // Function to load script dynamically
+        function loadScript(src) {{
+            return new Promise((resolve, reject) => {{
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = () => resolve();
+                script.onerror = (e) => reject(e);
+                document.head.appendChild(script);
+            }});
+        }}
+
+        // Initialize Web3Auth after ensuring scripts are loaded
+        async function initWeb3Auth() {{
+            try {{
+                await loadScript('https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js');
+                await loadScript('https://unpkg.com/@web3auth/modal@10.13.1/dist/modal.umd.min.js');
+
+                await new Promise(resolve => {{
+                    const checkWeb3Auth = () => {{
+                        if (window.Modal && window.Modal.Web3Auth) {{
+                            resolve();
+                        }} else {{
+                            setTimeout(checkWeb3Auth, 100);
+                        }}
+                    }};
+                    checkWeb3Auth();
+                }});
+
+                const Web3AuthConstructor = window.Modal.Web3Auth;
+                const web3AuthConfig = {{
+                    clientId: "BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk",
+                    web3AuthNetwork: 'sapphire_devnet',
+                    chainConfig: {{
+                        chainNamespace: 'eip155',
+                        chainId: '0x1',
+                        rpcTarget: 'https://rpc.ankr.com/eth',
+                        displayName: 'Ethereum Mainnet',
+                        blockExplorerUrl: 'https://etherscan.io',
+                        ticker: 'ETH',
+                        tickerName: 'Ethereum',
+                    }},
+                    uiConfig: {{
+                        mode: 'dark',
+                        theme: {{
+                            primary: '#1d9bf0'
+                        }},
+                        loginMethodsOrder: ['google', 'twitter', 'email_passwordless', 'wallet'],
+                        defaultLanguage: 'en',
+                    }},
+                }};
+
+                web3auth = new Web3AuthConstructor(web3AuthConfig);
+                await web3auth.init();
+                console.log('Web3Auth initialized successfully');
+
+                // Check if we should trigger login modal
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('show_login') === '1') {{
+                    // Remove the parameter from URL
+                    window.history.replaceState({{}}, '', window.location.pathname);
+                    // Show login modal
+                    await loginWithWeb3Auth();
+                }}
+            }} catch (error) {{
+                console.error('Web3Auth initialization failed:', error);
+            }}
+        }}
+
+        async function loginWithWeb3Auth() {{
+            if (!web3auth) {{
+                alert("Web3Auth not initialized. Please refresh the page.");
+                return;
+            }}
+
+            try {{
+                // Logout first to ensure clean state
+                try {{
+                    await web3auth.logout();
+                }} catch (e) {{
+                    // Ignore if not logged in
+                }}
+
+                // Connect without specifying a provider - shows modal with all options
+                const web3authProvider = await web3auth.connect();
+                const userInfo = await web3auth.getUserInfo();
+                
+                console.log('User info received:', userInfo);
+                
+                // Get wallet address - with retry and error handling
+                let evmAddress = '';
+                try {{
+                    if (web3authProvider) {{
+                        const web3 = new Web3(web3authProvider);
+                        // Wait a bit for provider to be ready
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        const accounts = await web3.eth.getAccounts();
+                        if (accounts && accounts.length > 0) {{
+                            evmAddress = accounts[0];
+                        }}
+                    }}
+                }} catch (addrError) {{
+                    console.warn('Could not get EVM address:', addrError);
+                    // Not critical for social logins
+                }}
+
+                // Build the payload - handle different structures
+                // For email_passwordless, verifierId might be different
+                const finalVerifierId = userInfo.verifierId || userInfo.email || evmAddress || 'unknown';
+                const finalTypeOfLogin = userInfo.typeOfLogin || 'unknown';
+                
+                const payload = {{
+                    verifierId: finalVerifierId,
+                    typeOfLogin: finalTypeOfLogin,
+                    email: userInfo.email || '',
+                    name: userInfo.name || userInfo.email?.split('@')[0] || '',
+                    profileImage: userInfo.profileImage || '',
+                    evmAddress: evmAddress || '',
+                }};
+
+                console.log('Sending payload:', payload);
+                console.log('typeOfLogin:', finalTypeOfLogin);
+
+                // Send to backend
+                const response = await fetch('/api/auth/web3auth', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(payload)
+                }});
+
+                const result = await response.json();
+                if (response.ok) {{
+                    window.location.href = '/';
+                }} else {{
+                    console.error('Backend error:', result);
+                    alert('Login failed: ' + (result.error || 'Unknown error'));
+                }}
+            }} catch (error) {{
+                console.error('Login failed:', error);
+                if (error.message && !error.message.includes('user closed')) {{
+                    alert('Login failed: ' + error.message);
+                }}
+            }}
+        }}
+
+        // Initialize Web3Auth on page load
+        if (document.readyState === 'loading') {{
+            document.addEventListener('DOMContentLoaded', initWeb3Auth);
+        }} else {{
+            initWeb3Auth();
+        }}
+
+        // Make loginWithWeb3Auth available globally
+        window.loginWithWeb3Auth = loginWithWeb3Auth;
     </script>
 </body>
 </html>
@@ -1369,58 +1769,182 @@ SUBMIT_TEMPLATE = """
                 <div class="card-body">
                     <div id="flash-messages"></div>
                     
-                    <form method="POST" enctype="multipart/form-data">
-                        <div class="mb-3">
-                            <label for="title" class="form-label">Document Title *</label>
-                            <input type="text" class="form-control" id="title" name="title" required 
-                                   placeholder="Enter the document title">
+                    <!-- Tabs for Upload File vs From Ordinal -->
+                    <ul class="nav nav-tabs mb-3" id="submissionTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="upload-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#upload" type="button" role="tab">
+                                <i class="bi bi-upload"></i> Upload File
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="ordinal-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#ordinal" type="button" role="tab">
+                                <i class="bi bi-coin"></i> From Ordinal
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content" id="submissionTabContent">
+                        <!-- Upload File Tab -->
+                        <div class="tab-pane fade show active" id="upload" role="tabpanel">
+                            <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                                <input type="hidden" name="sourceType" value="file">
+                                
+                                <div class="mb-3">
+                                    <label for="title" class="form-label">Document Title *</label>
+                                    <input type="text" class="form-control" id="title" name="title" required 
+                                           placeholder="Enter the document title">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="authors" class="form-label">Authors *</label>
+                                    <input type="text" class="form-control" id="authors" name="authors" required 
+                                           placeholder="Comma-separated list of authors (e.g., John Doe, Jane Smith)">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="abstract" class="form-label">Abstract</label>
+                                    <textarea class="form-control" id="abstract" name="abstract" rows="4" 
+                                              placeholder="Brief description of the document"></textarea>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="group" class="form-label">Working Group (Optional)</label>
+                                    <select class="form-select" id="group" name="group">
+                                        <option value="">Select a Working Group</option>
+                                        <option value="httpbis">HTTP</option>
+                                        <option value="quic">QUIC</option>
+                                        <option value="tls">TLS</option>
+                                        <option value="dnsop">DNSOP</option>
+                                        <option value="rtgwg">RTGWG</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="file" class="form-label">Document File *</label>
+                                    <input type="file" class="form-control" id="file" name="file" required 
+                                           accept=".pdf,.txt,.xml,.doc,.docx">
+                                    <div class="form-text">Supported formats: PDF, TXT, XML, DOC, DOCX (max 16MB)</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="terms" required>
+                                        <label class="form-check-label" for="terms">
+                                            I agree to the <a href="#" target="_blank">MLTF submission terms</a>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                    <button type="submit" class="btn btn-primary">Submit Draft</button>
+                                    <a href="/" class="btn btn-secondary">Cancel</a>
+                                </div>
+                            </form>
                         </div>
                         
-                        <div class="mb-3">
-                            <label for="authors" class="form-label">Authors *</label>
-                            <input type="text" class="form-control" id="authors" name="authors" required 
-                                   placeholder="Comma-separated list of authors (e.g., John Doe, Jane Smith)">
+                        <!-- From Ordinal Tab -->
+                        <div class="tab-pane fade" id="ordinal" role="tabpanel">
+                            <form method="POST" id="ordinalForm">
+                                <input type="hidden" name="sourceType" value="ordinal">
+                                <input type="hidden" name="ordinalContentUrl" id="ordinalContentUrl">
+                                <input type="hidden" name="ordinalContentType" id="ordinalContentType">
+                                <input type="hidden" name="inscriptionNumber" id="inscriptionNumber">
+                                <input type="hidden" name="blockHeight" id="blockHeight">
+                                <input type="hidden" name="inscriptionTimestamp" id="inscriptionTimestamp">
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalId" class="form-label">Inscription ID *</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="ordinalId" name="ordinalId" required 
+                                               placeholder="Enter Bitcoin Ordinal inscription ID">
+                                        <button class="btn btn-outline-secondary" type="button" id="previewBtn">
+                                            <i class="bi bi-eye"></i> Preview
+                                        </button>
+                                    </div>
+                                    <div class="form-text">Enter the inscription ID from ordinals.com</div>
+                                </div>
+                                
+                                <!-- Preview Area -->
+                                <div id="ordinalPreview" class="mb-3" style="display: none;">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h6 class="mb-0">Ordinal Preview</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div id="previewLoading" style="display: none;">
+                                                <div class="text-center">
+                                                    <div class="spinner-border text-primary" role="status">
+                                                        <span class="visually-hidden">Loading...</span>
+                                                    </div>
+                                                    <p class="mt-2">Loading ordinal content...</p>
+                                                </div>
+                                            </div>
+                                            <div id="previewError" class="alert alert-danger" style="display: none;"></div>
+                                            <div id="previewContent"></div>
+                                            <div id="previewMetadata" class="mt-3" style="display: none;">
+                                                <hr>
+                                                <h6>Metadata:</h6>
+                                                <ul class="list-unstyled small">
+                                                    <li><strong>Inscription ID:</strong> <span id="metaInscriptionId"></span></li>
+                                                    <li><strong>Inscription Number:</strong> <span id="metaInscriptionNumber"></span></li>
+                                                    <li><strong>Block Height:</strong> <span id="metaBlockHeight"></span></li>
+                                                    <li><strong>Timestamp:</strong> <span id="metaTimestamp"></span></li>
+                                                    <li><strong>Content Type:</strong> <span id="metaContentType"></span></li>
+                                                    <li><strong>Content Size:</strong> <span id="metaContentSize"></span></li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalTitle" class="form-label">Document Title *</label>
+                                    <input type="text" class="form-control" id="ordinalTitle" name="title" required 
+                                           placeholder="Enter the document title">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalAuthors" class="form-label">Authors *</label>
+                                    <input type="text" class="form-control" id="ordinalAuthors" name="authors" required 
+                                           placeholder="Comma-separated list of authors">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalAbstract" class="form-label">Abstract</label>
+                                    <textarea class="form-control" id="ordinalAbstract" name="abstract" rows="4" 
+                                              placeholder="Brief description of the document"></textarea>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalGroup" class="form-label">Working Group (Optional)</label>
+                                    <select class="form-select" id="ordinalGroup" name="group">
+                                        <option value="">Select a Working Group</option>
+                                        <option value="httpbis">HTTP</option>
+                                        <option value="quic">QUIC</option>
+                                        <option value="tls">TLS</option>
+                                        <option value="dnsop">DNSOP</option>
+                                        <option value="rtgwg">RTGWG</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="ordinalTerms" required>
+                                        <label class="form-check-label" for="ordinalTerms">
+                                            I agree to the <a href="#" target="_blank">MLTF submission terms</a>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                    <button type="submit" class="btn btn-primary" id="ordinalSubmitBtn" disabled>Submit Draft</button>
+                                    <a href="/" class="btn btn-secondary">Cancel</a>
+                                </div>
+                            </form>
                         </div>
-                        
-                        <div class="mb-3">
-                            <label for="abstract" class="form-label">Abstract</label>
-                            <textarea class="form-control" id="abstract" name="abstract" rows="4" 
-                                      placeholder="Brief description of the document"></textarea>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="group" class="form-label">Working Group (Optional)</label>
-                            <select class="form-select" id="group" name="group">
-                                <option value="">Select a Working Group</option>
-                                <option value="httpbis">HTTP</option>
-                                <option value="quic">QUIC</option>
-                                <option value="tls">TLS</option>
-                                <option value="dnsop">DNSOP</option>
-                                <option value="rtgwg">RTGWG</option>
-                            </select>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="file" class="form-label">Document File *</label>
-                            <input type="file" class="form-control" id="file" name="file" required 
-                                   accept=".pdf,.txt,.xml,.doc,.docx">
-                            <div class="form-text">Supported formats: PDF, TXT, XML, DOC, DOCX (max 16MB)</div>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="terms" required>
-                                <label class="form-check-label" for="terms">
-                                    I agree to the <a href="#" target="_blank">MLTF submission terms</a>
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                            <button type="submit" class="btn btn-primary">Submit Draft</button>
-                            <a href="/" class="btn btn-secondary">Cancel</a>
-                        </div>
-                    </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1436,6 +1960,13 @@ SUBMIT_TEMPLATE = """
                         <li>PDF format preferred</li>
                         <li>Maximum 16MB file size</li>
                         <li>Use standard MLTF formatting</li>
+                    </ul>
+                    
+                    <h6>Ordinal Requirements:</h6>
+                    <ul class="small">
+                        <li>Content must be < 50KB</li>
+                        <li>Supported: Images, Text, Markdown, HTML</li>
+                        <li>Valid inscription ID required</li>
                     </ul>
                     
                     <h6>Content Requirements:</h6>
@@ -1458,6 +1989,236 @@ SUBMIT_TEMPLATE = """
         </div>
     </div>
 </div>
+
+<script>
+// Ordinal preview functionality
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🔨 BUILD """ + str(BUILD_NUMBER) + """ - Ordinals Module Loaded');
+    
+    const previewBtn = document.getElementById('previewBtn');
+    const ordinalIdInput = document.getElementById('ordinalId');
+    const ordinalPreview = document.getElementById('ordinalPreview');
+    const previewLoading = document.getElementById('previewLoading');
+    const previewError = document.getElementById('previewError');
+    const previewContent = document.getElementById('previewContent');
+    const previewMetadata = document.getElementById('previewMetadata');
+    const ordinalSubmitBtn = document.getElementById('ordinalSubmitBtn');
+    
+    let previewData = null;
+    
+    previewBtn.addEventListener('click', async function() {
+        const inscriptionId = ordinalIdInput.value.trim();
+        
+        if (!inscriptionId) {
+            alert('Please enter an inscription ID');
+            return;
+        }
+        
+        // Show preview area and loading
+        ordinalPreview.style.display = 'block';
+        previewLoading.style.display = 'block';
+        previewError.style.display = 'none';
+        previewContent.innerHTML = '';
+        previewMetadata.style.display = 'none';
+        ordinalSubmitBtn.disabled = true;
+        
+        try {
+            const response = await fetch('/api/ordinal/preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ inscriptionId })
+            });
+            
+            const data = await response.json();
+            
+            previewLoading.style.display = 'none';
+            
+            if (!data.success) {
+                previewError.textContent = data.error || 'Failed to load ordinal';
+                previewError.style.display = 'block';
+                return;
+            }
+            
+            // Store preview data
+            previewData = data;
+            
+            // Populate hidden fields
+            document.getElementById('ordinalContentUrl').value = data.contentUrl;
+            document.getElementById('ordinalContentType').value = data.contentType;
+            document.getElementById('inscriptionNumber').value = data.inscriptionNumber || '';
+            document.getElementById('blockHeight').value = data.blockHeight || '';
+            document.getElementById('inscriptionTimestamp').value = data.timestamp || '';
+            
+            // Display content based on type
+            displayOrdinalContent(data);
+            
+            // Display metadata
+            displayMetadata(data);
+            
+            // Enable submit button
+            ordinalSubmitBtn.disabled = false;
+            
+        } catch (error) {
+            previewLoading.style.display = 'none';
+            previewError.textContent = 'Error: ' + error.message;
+            previewError.style.display = 'block';
+        }
+    });
+    
+    function displayOrdinalContent(data) {
+        const contentType = data.contentType;
+        const contentUrl = data.contentUrl;
+        
+        console.log('=== displayOrdinalContent DEBUG ===');
+        console.log('contentType:', contentType);
+        console.log('contentUrl:', contentUrl);
+        console.log('startsWith image:', contentType.startsWith('image/'));
+        console.log('includes text/plain:', contentType.includes('text/plain'));
+        console.log('includes text/javascript:', contentType.includes('text/javascript'));
+        console.log('includes application/json:', contentType.includes('application/json'));
+        console.log('includes text/markdown:', contentType.includes('text/markdown'));
+        console.log('includes text/html:', contentType.includes('text/html'));
+        
+        if (contentType.startsWith('image/')) {
+            console.log('→ RENDERING AS IMAGE');
+            // Display image
+            previewContent.innerHTML = `<img src="${contentUrl}" class="img-fluid" alt="Ordinal content" style="max-height: 400px;">`;
+        } else if (contentType.includes('text/plain') || contentType.includes('text/javascript') || contentType.includes('application/json')) {
+            console.log('→ RENDERING AS TEXT/PLAIN (checking for markdown)');
+            // Display plain text (handles charset parameters), but check if it's actually markdown
+            fetch(contentUrl)
+                .then(res => {
+                    console.log('Fetch response status:', res.status);
+                    return res.text();
+                })
+                .then(text => {
+                    console.log('Text content length:', text.length);
+                    console.log('First 100 chars:', text.substring(0, 100));
+                    
+                    // Check if text looks like markdown
+                    const markdownPatterns = [
+                        /^#{1,6}\s+.+$/m,              // Headers: # Header
+                        /\[.+\]\(.+\)/,                // Links: [text](url)
+                        /!\[.*\]\(.+\)/,               // Images: ![alt](url)
+                        /^\s*[-*+]\s+.+$/m,            // Unordered lists
+                        /^\s*\d+\.\s+.+$/m,            // Ordered lists
+                        /```[\s\S]*?```/,              // Code blocks
+                        /^\s*>\s+.+$/m,                // Blockquotes
+                        /\*\*.+?\*\*/,                 // Bold
+                        /__(.+?)__/,                   // Bold (alt)
+                        /\*.+?\*/,                     // Italic
+                        /_(.+?)_/                      // Italic (alt)
+                    ];
+                    
+                    const looksLikeMarkdown = markdownPatterns.some(pattern => pattern.test(text));
+                    
+                    if (looksLikeMarkdown) {
+                        console.log('→ DETECTED MARKDOWN in text/plain, converting...');
+                        // Treat as markdown
+                        fetch('/api/ordinal/convert-markdown', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ markdown: text })
+                        })
+                        .then(res => {
+                            console.log('✅ Markdown API response status:', res.status);
+                            return res.json();
+                        })
+                        .then(result => {
+                            console.log('✅ Markdown API result:', result);
+                            if (result.success) {
+                                console.log('✅ HTML length:', result.html.length);
+                                console.log('📄 HTML first 500 chars:', result.html.substring(0, 500));
+                                // Fix relative image URLs
+                                let html = result.html;
+                                const beforeFix = html;
+                                html = html.replace(/src="\/content\//g, 'src="https://ordinals.com/content/');
+                                html = html.replace(/src='\/content\//g, "src='https://ordinals.com/content/");
+                                if (html !== beforeFix) {
+                                    console.log('✅ FIXED relative image URLs in frontend');
+                                    console.log('📄 Fixed HTML first 500 chars:', html.substring(0, 500));
+                                } else {
+                                    console.log('⚠️  No relative URLs found to fix in frontend');
+                                }
+                                previewContent.innerHTML = `<div class="border p-3" style="max-height: 400px; overflow-y: auto;">${html}</div>`;
+                                console.log('✅ HTML injected into DOM');
+                            } else {
+                                console.error('❌ Markdown conversion failed:', result.error);
+                                // Fallback to plain text
+                                previewContent.innerHTML = `<pre class="border p-3" style="max-height: 400px; overflow-y: auto;">${escapeHtml(text)}</pre>`;
+                            }
+                        })
+                        .catch(err => {
+                            console.error('❌ Error calling markdown API:', err);
+                            // Fallback to plain text
+                            previewContent.innerHTML = `<pre class="border p-3" style="max-height: 400px; overflow-y: auto;">${escapeHtml(text)}</pre>`;
+                        });
+                    } else {
+                        console.log('→ DISPLAYING AS PLAIN TEXT');
+                        previewContent.innerHTML = `<pre class="border p-3" style="max-height: 400px; overflow-y: auto;">${escapeHtml(text)}</pre>`;
+                    }
+                })
+                .catch(err => {
+                    console.error('Error fetching text:', err);
+                    previewContent.innerHTML = `<div class="alert alert-danger">Error loading text: ${err.message}</div>`;
+                });
+        } else if (contentType.includes('text/markdown')) {
+            console.log('→ RENDERING AS MARKDOWN');
+            // Display markdown (convert to HTML)
+            fetch(contentUrl)
+                .then(res => res.text())
+                .then(markdown => {
+                    return fetch('/api/ordinal/convert-markdown', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ markdown })
+                    });
+                })
+                .then(res => res.json())
+                .then(result => {
+                    if (result.success) {
+                        // Fix relative image URLs to ordinals.com
+                        let html = result.html;
+                        html = html.replace(/src="\/content\//g, 'src="https://ordinals.com/content/');
+                        html = html.replace(/src='\/content\//g, "src='https://ordinals.com/content/");
+                        previewContent.innerHTML = `<div class="border p-3" style="max-height: 400px; overflow-y: auto;">${html}</div>`;
+                    }
+                });
+        } else if (contentType.includes('text/html')) {
+            console.log('→ RENDERING AS HTML');
+            // Display HTML in sandboxed iframe
+            previewContent.innerHTML = `<iframe src="${contentUrl}" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: 1px solid var(--card-border);"></iframe>`;
+        } else {
+            console.log('→ UNSUPPORTED TYPE');
+            previewContent.innerHTML = `<div class="alert alert-info">Content type: ${contentType}<br>Cannot preview this content type.</div>`;
+        }
+    }
+    
+    function displayMetadata(data) {
+        document.getElementById('metaInscriptionId').textContent = data.inscriptionId;
+        document.getElementById('metaInscriptionNumber').textContent = data.inscriptionNumber || 'N/A';
+        document.getElementById('metaBlockHeight').textContent = data.blockHeight || 'N/A';
+        document.getElementById('metaTimestamp').textContent = data.timestamp || 'N/A';
+        document.getElementById('metaContentType').textContent = data.contentType;
+        document.getElementById('metaContentSize').textContent = formatBytes(data.contentSize);
+        previewMetadata.style.display = 'block';
+    }
+    
+    function formatBytes(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+});
+</script>
 """
 
 @app.before_request
@@ -1485,63 +2246,114 @@ def submit_draft():
     for group in GROUPS:
         group_options += f'<option value="{group["acronym"]}">{group["name"]}</option>'
 
-    # Replace the hardcoded options in the template
-    submit_template = SUBMIT_TEMPLATE.replace(
-        '''<option value="">Select a Working Group</option>
-                                <option value="httpbis">HTTP</option>
-                                <option value="quic">QUIC</option>
-                                <option value="tls">TLS</option>
-                                <option value="dnsop">DNSOP</option>
-                                <option value="rtgwg">RTGWG</option>''',
-        group_options
-    )
+    # Replace the hardcoded options in the template (multiple occurrences for both tabs)
+    submit_template = SUBMIT_TEMPLATE
+    for _ in range(2):  # Replace in both upload and ordinal tabs
+        submit_template = submit_template.replace(
+            '''<option value="">Select a Working Group</option>
+                                        <option value="httpbis">HTTP</option>
+                                        <option value="quic">QUIC</option>
+                                        <option value="tls">TLS</option>
+                                        <option value="dnsop">DNSOP</option>
+                                        <option value="rtgwg">RTGWG</option>''',
+            group_options,
+            1  # Replace only one occurrence at a time
+        )
 
     if request.method == 'POST':
-        # Handle form submission
+        # Get common fields
         title = request.form.get('title', '').strip()
         authors = request.form.get('authors', '').strip()
         abstract = request.form.get('abstract', '').strip()
         group = request.form.get('group', '').strip()
-        file = request.files.get('file')
-
-        # Validation
-        if not title or not authors or not file:
-            flash('Title, authors, and file are required', 'error')
-            return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
-
+        source_type = request.form.get('sourceType', 'file').strip()
+        
         # Process authors (comma-separated)
         authors_list = [a.strip() for a in authors.split(',') if a.strip()]
-
-        # Generate submission ID (simple increment)
+        
+        # Generate submission ID
         import random
         import string
         submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-
-        # Save file
-        filename = f"{submission_id}-{file.filename}"
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-
-        # Create submission record
-        submission = Submission(
-            id=submission_id,
-            title=title,
-            authors=authors_list,
-            abstract=abstract,
-            group=group,
-            filename=filename,
-            file_path=file_path,
-            submitted_by=get_current_user()['name']
-        )
-
+        
+        # Handle based on source type
+        if source_type == 'ordinal':
+            # Ordinal submission
+            ordinal_id = request.form.get('ordinalId', '').strip()
+            ordinal_content_url = request.form.get('ordinalContentUrl', '').strip()
+            ordinal_content_type = request.form.get('ordinalContentType', '').strip()
+            inscription_number = request.form.get('inscriptionNumber', '').strip()
+            block_height = request.form.get('blockHeight', '').strip()
+            inscription_timestamp = request.form.get('inscriptionTimestamp', '').strip()
+            
+            # Validation
+            if not title or not authors or not ordinal_id:
+                flash('Title, authors, and inscription ID are required', 'error')
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+            
+            if not ordinal_content_url:
+                flash('Please preview the ordinal before submitting', 'error')
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+            
+            # Create submission record with ordinal data
+            current_user_info = get_current_user()
+            app.logger.info(f"📝 CREATING SUBMISSION:")
+            app.logger.info(f"   current_user_info: {current_user_info}")
+            app.logger.info(f"   submitted_by will be: {current_user_info['name']}")
+            
+            submission = Submission(
+                id=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                submitted_by=current_user_info['name'],
+                sourceType='ordinal',
+                ordinalId=ordinal_id,
+                ordinalContentUrl=ordinal_content_url,
+                ordinalContentType=ordinal_content_type,
+                inscriptionNumber=int(inscription_number) if inscription_number else None,
+                blockHeight=int(block_height) if block_height else None,
+                inscriptionTimestamp=datetime.strptime(inscription_timestamp.replace(' UTC', ''), '%Y-%m-%d %H:%M:%S') if inscription_timestamp else None
+            )
+            
+        else:
+            # File upload submission
+            file = request.files.get('file')
+            
+            # Validation
+            if not title or not authors or not file:
+                flash('Title, authors, and file are required', 'error')
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+            
+            # Save file
+            filename = f"{submission_id}-{file.filename}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+            
+            # Create submission record with file data
+            submission = Submission(
+                id=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                filename=filename,
+                file_path=file_path,
+                submitted_by=get_current_user()['name'],
+                sourceType='file'
+            )
+        
+        # Save to database
         db.session.add(submission)
         db.session.commit()
 
         # Log the action
-        add_to_document_history(f"draft-{submission_id}", "submitted", get_current_user()['name'], f"New draft submitted: {title}")
+        source_desc = f"from ordinal {submission.ordinalId}" if source_type == 'ordinal' else "via file upload"
+        add_to_document_history(f"draft-{submission_id}", "submitted", get_current_user()['name'], f"New draft submitted {source_desc}: {title}")
 
         flash('Draft submitted successfully!', 'success')
-        return redirect(f'/submit/status/')
+        return redirect(f'/submit/status/{submission_id}/')
 
     return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
 
@@ -1575,6 +2387,11 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <div class="col-sm-3"><strong>Status:</strong></div>
                         <div class="col-sm-9">
                             <span class="badge bg-primary">{{ submission_status_title }}</span>
+                            {% if is_ordinal %}
+                            <span class="badge bg-info ms-2"><i class="bi bi-coin"></i> Ordinal</span>
+                            {% else %}
+                            <span class="badge bg-secondary ms-2"><i class="bi bi-file-earmark"></i> File</span>
+                            {% endif %}
                         </div>
                     </div>
                     <div class="row mb-3">
@@ -1593,6 +2410,7 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <div class="col-sm-3"><strong>Submitted:</strong></div>
                         <div class="col-sm-9">{{ submission_submitted_at }}</div>
                     </div>
+                    {% if is_file %}
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>File:</strong></div>
                         <div class="col-sm-9">
@@ -1600,6 +2418,7 @@ SUBMISSION_STATUS_TEMPLATE = """
                             <a href="/download/{{ submission_id }}" class="btn btn-sm btn-outline-primary ms-2">Download</a>
                         </div>
                     </div>
+                    {% endif %}
                     {% if submission_abstract %}
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>Abstract:</strong></div>
@@ -1607,10 +2426,57 @@ SUBMISSION_STATUS_TEMPLATE = """
                     </div>
                     {% endif %}
 
-                    <h6 class="mt-4">File Preview</h6>
+                    {% if is_ordinal %}
+                    <h6 class="mt-4">Ordinal Metadata</h6>
+                    <div class="card mb-3" style="background-color: var(--bg-secondary);">
+                        <div class="card-body">
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Inscription ID:</strong></div>
+                                <div class="col-sm-8"><code style="font-size: 0.85em;">{{ ordinal_id }}</code></div>
+                            </div>
+                            {% if inscription_number %}
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Inscription Number:</strong></div>
+                                <div class="col-sm-8">{{ inscription_number }}</div>
+                            </div>
+                            {% endif %}
+                            {% if block_height %}
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Block Height:</strong></div>
+                                <div class="col-sm-8">{{ block_height }}</div>
+                            </div>
+                            {% endif %}
+                            {% if inscription_timestamp %}
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Timestamp:</strong></div>
+                                <div class="col-sm-8">{{ inscription_timestamp }}</div>
+                            </div>
+                            {% endif %}
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Content Type:</strong></div>
+                                <div class="col-sm-8"><code>{{ ordinal_content_type }}</code></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-sm-12">
+                                    <a href="https://ordinals.com/inscription/{{ ordinal_id }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-box-arrow-up-right"></i> View on Ordinals.com
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <h6 class="mt-4">Content Preview</h6>
+                    {% if content_preview_html %}
+                    <div class="border rounded p-3" style="background-color: var(--input-bg); border-color: var(--input-border);">
+                        {{ content_preview_html|safe }}
+                    </div>
+                    {% else %}
                     <div class="border rounded p-3" style="background-color: var(--input-bg); border-color: var(--input-border);">
                         <pre class="mb-0" style="font-size: 0.9em; max-height: 400px; overflow-y: auto; color: var(--text-primary);">{{ file_content }}</pre>
                     </div>
+                    {% endif %}
 
                     {% if is_submitted and is_admin %}
                     <div class="row mb-3">
@@ -1773,6 +2639,24 @@ def submission_status():
             'rejected': 'badge bg-danger',
             'published': 'badge bg-info'
         }.get(submission.status, 'badge bg-secondary')
+        
+        # Get source type
+        source_type = getattr(submission, 'sourceType', 'file')
+        source_badge = '<span class="badge bg-info ms-2"><i class="bi bi-coin"></i> Ordinal</span>' if source_type == 'ordinal' else '<span class="badge bg-secondary ms-2"><i class="bi bi-file-earmark"></i> File</span>'
+        
+        # Get source info (inscription number or filename)
+        if source_type == 'ordinal':
+            inscription_number = getattr(submission, 'inscriptionNumber', None)
+            ordinal_id = getattr(submission, 'ordinalId', None)
+            if inscription_number:
+                source_info = f'<p class="mb-2"><strong>Inscription:</strong> #{inscription_number}</p>'
+            elif ordinal_id:
+                source_info = f'<p class="mb-2"><strong>Inscription ID:</strong> {ordinal_id[:16]}...</p>'
+            else:
+                source_info = ''
+        else:
+            filename = getattr(submission, 'filename', None)
+            source_info = f'<p class="mb-2"><strong>File:</strong> {filename}</p>' if filename else '<p class="mb-2 text-muted"><em>No file</em></p>'
 
         submissions_html += f"""
         <div class="submission-item">
@@ -1783,7 +2667,10 @@ def submission_status():
                             {submission.title}
                         </a>
                     </h6>
-                    <span class="{status_badge}">{submission.status.title()}</span>
+                    <div>
+                        <span class="{status_badge}">{submission.status.title()}</span>
+                        {source_badge}
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="row">
@@ -1791,6 +2678,7 @@ def submission_status():
                             <p class="mb-2"><strong>Authors:</strong> {', '.join(submission.authors)}</p>
                             <p class="mb-2"><strong>Group:</strong> {submission.group or 'None'}</p>
                             <p class="mb-2"><strong>Submitted:</strong> {submission.submitted_at.strftime('%Y-%m-%d %H:%M')}</p>
+                            {source_info}
                             {f'<p class="mb-2"><strong>Abstract:</strong> {submission.abstract[:100]}...</p>' if submission.abstract else ''}
                         </div>
                         <div class="col-md-4 text-end">
@@ -1840,13 +2728,84 @@ def submission_detail(submission_id):
         return "Submission not found", 404
 
     # Check if user owns this submission or is admin
+    app.logger.info(f"🔐 ACCESS CHECK:")
+    app.logger.info(f"   submission.submitted_by: {submission.submitted_by}")
+    app.logger.info(f"   current_user['name']: {current_user['name']}")
+    app.logger.info(f"   current_user.get('role'): {current_user.get('role')}")
+    app.logger.info(f"   Match: {submission.submitted_by == current_user['name']}")
+    
     if submission.submitted_by != current_user['name'] and current_user.get('role') not in ['admin', 'editor']:
+        app.logger.warning(f"❌ ACCESS DENIED!")
         return "Access denied", 403
+    
+    app.logger.info(f"✅ ACCESS GRANTED")
 
-    # Try to read file content for preview
+    # Handle content preview based on source type
     file_content = "File preview not available"
-    if submission.file_path and os.path.exists(submission.file_path):
-        # Get file extension to determine how to handle preview
+    content_preview_html = ""
+    source_type = getattr(submission, 'sourceType', 'file')
+    
+    print(f"=== BACKEND DEBUG: submission_detail ===")
+    print(f"source_type: {source_type}")
+    
+    if source_type == 'ordinal':
+        # Ordinal content - generate preview HTML
+        ordinal_content_type = getattr(submission, 'ordinalContentType', '')
+        ordinal_content_url = getattr(submission, 'ordinalContentUrl', '')
+        
+        print(f"ordinal_content_type: {ordinal_content_type}")
+        print(f"ordinal_content_url: {ordinal_content_url}")
+        
+        if ordinal_content_type.startswith('image/'):
+            print("→ Rendering as image")
+            content_preview_html = f'<img src="{ordinal_content_url}" class="img-fluid" style="max-height: 400px;" alt="Ordinal content">'
+        elif 'text/plain' in ordinal_content_type or 'text/javascript' in ordinal_content_type or 'application/json' in ordinal_content_type or 'application/javascript' in ordinal_content_type:
+            print("→ Rendering as text/plain or text/javascript or application/json")
+            # Fetch and display text-based content (handles charset parameters)
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                text_content = response.text
+                print(f"Text content length: {len(text_content)}")
+                print(f"First 100 chars: {text_content[:100]}")
+                if len(text_content) > 2000:
+                    file_content = text_content[:2000] + "..."
+                else:
+                    file_content = text_content
+                print(f"file_content set, length: {len(file_content)}")
+            except Exception as e:
+                print(f"ERROR fetching text content: {e}")
+                file_content = "Error loading ordinal text content"
+        elif 'text/markdown' in ordinal_content_type:
+            # Fetch, convert, and display markdown
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                markdown_text = response.text
+                if MARKDOWN_SUPPORT:
+                    html_content = markdown2.markdown(
+                        markdown_text,
+                        extras=['fenced-code-blocks', 'tables', 'break-on-newline']
+                    )
+                    content_preview_html = f'<div class="border p-3" style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                else:
+                    file_content = markdown_text[:2000] + ("..." if len(markdown_text) > 2000 else "")
+            except:
+                file_content = "Error loading ordinal markdown content"
+        elif 'text/html' in ordinal_content_type:
+            print("→ Rendering as HTML iframe")
+            # Display HTML in iframe (handles charset parameters)
+            content_preview_html = f'<iframe src="{ordinal_content_url}" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: 1px solid var(--card-border);"></iframe>'
+        else:
+            print(f"→ UNSUPPORTED content type")
+            file_content = f"Ordinal content type: {ordinal_content_type}\\nPreview not available for this content type."
+    
+    elif submission.file_path and os.path.exists(submission.file_path):
+        # File upload - extract text for preview
         _, ext = os.path.splitext(submission.filename.lower())
 
         try:
@@ -1932,6 +2891,7 @@ def submission_detail(submission_id):
         'submission': submission,
         'current_user': current_user,
         'file_content': file_content,
+        'content_preview_html': content_preview_html,
         'submission_id': submission.id,
         'submission_status': submission.status,
         'submission_status_title': submission.status.title(),
@@ -1948,7 +2908,17 @@ def submission_detail(submission_id):
         'is_approved': submission.status == 'approved',
         'is_rejected': submission.status == 'rejected',
         'is_approved_or_rejected': submission.status in ['approved', 'rejected'],
-        'is_submitted': submission.status == 'submitted'
+        'is_submitted': submission.status == 'submitted',
+        # Ordinal-specific fields
+        'source_type': source_type,
+        'is_ordinal': source_type == 'ordinal',
+        'is_file': source_type == 'file',
+        'ordinal_id': getattr(submission, 'ordinalId', ''),
+        'ordinal_content_url': getattr(submission, 'ordinalContentUrl', ''),
+        'ordinal_content_type': getattr(submission, 'ordinalContentType', ''),
+        'inscription_number': getattr(submission, 'inscriptionNumber', None),
+        'block_height': getattr(submission, 'blockHeight', None),
+        'inscription_timestamp': getattr(submission, 'inscriptionTimestamp', None)
     }
     
     # Render the submission status template using Flask's Jinja2 engine
@@ -1968,30 +2938,231 @@ LOGIN_TEMPLATE = """
                 </div>
                 <div class="card-body">
                     <div id="flash-messages"></div>
-                    
-                    <form method="POST" action="/login/">
-                        <div class="mb-3">
-                            <label for="username" class="form-label">Username</label>
-                            <input type="text" class="form-control" id="username" name="username" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="password" class="form-label">Password</label>
-                            <input type="password" class="form-control" id="password" name="password" required>
-                        </div>
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">Sign In</button>
-                        </div>
-                    </form>
-                    
-                    <hr>
-                    <div class="text-center">
-                        <p class="mb-0">Don't have an account? <a href="/register/">Create one</a></p>
+
+                    <!-- Single Web3Auth Sign In Button -->
+                    <div class="mb-4 text-center">
+                        <p class="text-muted mb-3">Connect your account to continue</p>
+                        <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" onclick="loginWithWeb3Auth()">
+                            <svg width="20" height="20" class="me-2" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;">
+                                <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
+                            </svg>
+                            Sign In with Web3Auth
+                        </button>
+                        <p class="text-muted mt-3 small">Sign in with Google, Twitter, Email, or connect your wallet</p>
                     </div>
+
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+// Web3Auth Integration
+let web3auth = null;
+
+// Function to load script dynamically
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = (e) => reject(e);
+        document.head.appendChild(script);
+    });
+}
+
+// Initialize Web3Auth after ensuring scripts are loaded
+async function initWeb3Auth() {
+    try {
+        // Load Web3 first
+        await loadScript('https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js');
+
+        // Load Web3Auth Modal
+        await loadScript('https://unpkg.com/@web3auth/modal@10.13.1/dist/modal.umd.min.js');
+
+        // Wait for Web3Auth to be available
+        await new Promise(resolve => {
+            const checkWeb3Auth = () => {
+                if (window.Modal && window.Modal.Web3Auth) {
+                    resolve();
+                } else {
+                    setTimeout(checkWeb3Auth, 100);
+                }
+            };
+            checkWeb3Auth();
+        });
+
+        const Web3AuthConstructor = window.Modal.Web3Auth;
+
+        const web3AuthConfig = {
+            clientId: "BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk",
+            web3AuthNetwork: 'sapphire_devnet',
+            chainConfig: {
+                chainNamespace: 'eip155',
+                chainId: '0x1',
+                rpcTarget: 'https://rpc.ankr.com/eth',
+                displayName: 'Ethereum Mainnet',
+                blockExplorerUrl: 'https://etherscan.io',
+                ticker: 'ETH',
+                tickerName: 'Ethereum',
+            },
+            // Disable modal for direct provider login
+            modal: false,
+            uiConfig: {
+                theme: 'dark',
+                loginMethodsOrder: ['google', 'twitter', 'email_passwordless', 'wallet'],
+                defaultLanguage: 'en',
+            },
+            // Force account selection for Google OAuth
+            loginConfig: {
+                google: {
+                    verifier: 'web3auth-google-sapphire-devnet',
+                    typeOfLogin: 'google',
+                    clientId: 'BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk',
+                    // Force account selection and re-authentication
+                    extraLoginOptions: {
+                        prompt: 'login select_account',
+                        access_type: 'offline'
+                    },
+                    // Also try query parameters
+                    queryParameters: {
+                        prompt: 'login select_account',
+                        access_type: 'offline'
+                    }
+                }
+            },
+        };
+
+        web3auth = new Web3AuthConstructor(web3AuthConfig);
+        await web3auth.init();
+
+        console.log('Web3Auth initialized successfully');
+
+    } catch (error) {
+        console.error('Web3Auth initialization failed:', error);
+    }
+}
+
+async function loginWithWeb3Auth(buttonType) {
+    if (!web3auth) {
+        alert("Web3Auth not initialized. Please refresh the page.");
+        return;
+    }
+
+    try {
+        // Update button to show loading
+        const btn = document.getElementById(buttonType + '-login-btn');
+        if (btn) {
+            btn.innerHTML = 'Connecting...';
+        }
+
+        // Connect to Web3Auth with specific login provider
+        let loginProvider = null;
+        if (buttonType === 'google') loginProvider = 'google';
+        else if (buttonType === 'twitter') loginProvider = 'twitter';
+        else if (buttonType === 'email') loginProvider = 'email_passwordless';
+        else if (buttonType === 'wallet') loginProvider = 'wallet';
+
+        // Connect directly to provider with forced auth
+        console.log("Connecting directly to:", loginProvider);
+        const web3authProvider = await web3auth.connect({
+            loginProvider,
+            extraLoginOptions: {
+                prompt: 'login select_account',
+                access_type: 'offline'
+            }
+        });
+
+        if (web3authProvider) {
+            // Get user info
+            const userInfo = await web3auth.getUserInfo();
+
+            // Get wallet address for wallet logins
+            let walletAddress = null;
+            try {
+                const web3 = new Web3(web3authProvider);
+                const accounts = await web3.eth.getAccounts();
+                walletAddress = accounts[0];
+            } catch (walletError) {
+                console.log("No wallet address available:", walletError.message);
+            }
+
+            // Determine login type
+            let loginType = 'unknown';
+            if (userInfo.groupedAuthConnectionId) {
+                if (userInfo.groupedAuthConnectionId.includes('google')) {
+                    loginType = 'google';
+                } else if (userInfo.groupedAuthConnectionId.includes('twitter')) {
+                    loginType = 'twitter';
+                } else if (userInfo.groupedAuthConnectionId.includes('email')) {
+                    loginType = 'email';
+                } else if (userInfo.groupedAuthConnectionId.includes('wallet')) {
+                    loginType = 'wallet';
+                }
+            } else if (walletAddress) {
+                loginType = 'wallet';
+            }
+
+            // Send user data to backend
+            const requestData = {
+                verifierId: userInfo.verifierId || userInfo.groupedAuthConnectionId || `user_${Date.now()}`,
+                typeOfLogin: loginType,
+                email: userInfo.email,
+                name: userInfo.name,
+                profileImage: userInfo.profileImage,
+                oauthName: userInfo.name,
+                evmAddress: walletAddress
+            };
+
+            const response = await fetch('/api/auth/web3auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+
+            if (response.ok) {
+                // Update button to show final success
+                if (btn) {
+                    btn.innerHTML = 'Success! Redirecting...';
+                }
+                // Redirect after a short delay
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1000);
+            } else {
+                const error = await response.json().catch(() => ({}));
+                alert('Login failed: ' + (error.error || 'Unknown error'));
+
+                // Reset button
+                if (btn) {
+                    if (buttonType === 'google') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Continue with Google';
+                    else if (buttonType === 'twitter') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>Continue with X (Twitter)';
+                    else if (buttonType === 'email') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>Continue with Email';
+                    else if (buttonType === 'wallet') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M21 7.28V5c0-1.1-.9-2-2-2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-2.28c.59-.35 1-.98 1-1.72V9c0-.74-.41-1.37-1-1.72zM20 9v6h-7V9h7zM5 7h14v10H5V7z"/><circle cx="16" cy="12" r="1.5"/></svg>Connect Wallet';
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Web3Auth login error:', error);
+        alert('Login failed: ' + error.message);
+
+        // Reset button
+        const btn = document.getElementById(buttonType + '-login-btn');
+        if (btn) {
+            if (buttonType === 'google') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Continue with Google';
+            else if (buttonType === 'twitter') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>Continue with X (Twitter)';
+            else if (buttonType === 'email') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>Continue with Email';
+            else if (buttonType === 'wallet') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M21 7.28V5c0-1.1-.9-2-2-2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-2.28c.59-.35 1-.98 1-1.72V9c0-.74-.41-1.37-1-1.72zM20 9v6h-7V9h7zM5 7h14v10H5V7z"/><circle cx="16" cy="12" r="1.5"/></svg>Connect Wallet';
+        }
+    }
+}
+
+// Initialize Web3Auth when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    initWeb3Auth();
+});
+</script>
 """
 
 REGISTER_TEMPLATE = """
@@ -2124,33 +3295,10 @@ PROFILE_TEMPLATE = """
 """
 
 # Authentication routes
-@app.route('/login/', methods=['GET', 'POST'])
+@app.route('/login/', methods=['GET'])
 def login():
-    """User login"""
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
-        
-        user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password_hash, password):
-            session['user'] = username
-            # Set user's preferred theme in session
-            session['theme'] = user.theme
-            # Update last login
-            user.last_login = datetime.utcnow()
-            db.session.commit()
-            flash(f'Welcome back, {user.name}!', 'success')
-            return redirect(url_for('home'))
-        else:
-            flash('Invalid username or password.', 'error')
-    
-    # Generate user menu for login page
-    user_menu = """
-    <div class="nav-item">
-        <a class="nav-link" href="/register/">Register</a>
-    </div>
-    """
-    return render_template_string(BASE_TEMPLATE.format(title="Login - MLTF", theme="light", user_menu=user_menu, content=LOGIN_TEMPLATE))
+    """Redirect to home and trigger Web3Auth modal"""
+    return redirect(url_for('home') + '?show_login=1')
 
 @app.route('/logout/')
 def logout():
@@ -2201,6 +3349,468 @@ def register():
     </div>
     """
     return render_template_string(BASE_TEMPLATE.format(title="Register - MLTF", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE))
+
+# Web3Auth API routes
+@app.route('/api/auth/web3auth', methods=['POST'])
+def web3auth_login():
+    """Web3Auth login endpoint"""
+    # Rate limiting: 10 requests per 5 minutes per IP
+    client_ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
+    if not check_rate_limit(f"web3auth_{client_ip}", max_requests=10, window_seconds=300):
+        return jsonify({'error': 'Rate limit exceeded. Try again later.'}), 429
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        verifierId = data.get('verifierId')
+        typeOfLogin = data.get('typeOfLogin')
+        email = data.get('email')
+        name = data.get('name')
+        profileImage = data.get('profileImage')
+        evmAddress = data.get('evmAddress')
+        solanaAddress = data.get('solanaAddress')
+
+        if not verifierId:
+            return jsonify({'error': 'verifierId required'}), 400
+
+        # Check if user exists in database
+        user = User.query.filter_by(web3authVerifierId=verifierId).first()
+
+        # If not found by verifierId, check by email
+        if not user and email:
+            user = User.query.filter_by(email=email).first()
+
+        # If user exists, update their Web3Auth info
+        if user:
+            # Update existing user with new Web3Auth data
+            user.web3authVerifierId = verifierId
+            user.typeOfLogin = typeOfLogin
+            if name:
+                user.displayName = name
+                user.displayNameSetAt = datetime.utcnow()
+                user.oauthName = name
+            if profileImage:
+                user.profileImage = profileImage
+            if evmAddress:
+                user.evmAddress = evmAddress
+            if solanaAddress:
+                user.solanaAddress = solanaAddress
+            db.session.commit()
+        else:
+            # Create new user
+            # Generate handle (use email or wallet address)
+            existing_handles = db.session.query(User.username).all()
+            existing_handles = [handle[0] for handle in existing_handles]
+            if typeOfLogin == 'wallet' and evmAddress:
+                # For wallet login, generate handle from wallet address
+                short_address = f"{evmAddress[:6]}...{evmAddress[-4:]}"
+                handle = f"wallet_{short_address}"
+                counter = 1
+                while handle in existing_handles:
+                    handle = f"wallet_{short_address}_{counter}"
+                    counter += 1
+            else:
+                # For social login, generate from email
+                base_handle = email.split('@')[0] if email else 'user'
+                base_handle = re.sub(r'[^a-zA-Z0-9_]', '', base_handle)
+                if len(base_handle) < 3:
+                    base_handle = 'user'
+                handle = base_handle
+                counter = 1
+                while handle in existing_handles:
+                    handle = f"{base_handle}{counter}"
+                    counter += 1
+
+            # Create user
+            user = User(
+                web3authVerifierId=verifierId,
+                typeOfLogin=typeOfLogin,
+                displayName=name if name else None,
+                displayNameSetAt=datetime.utcnow() if name else None,
+                oauthName=name,
+                email=email,
+                profileImage=profileImage,
+                evmAddress=evmAddress,
+                solanaAddress=solanaAddress,
+                username=handle,
+                handle=handle,
+                role='user',
+                theme='dark'
+            )
+            db.session.add(user)
+            db.session.commit()
+
+        # Create session
+        session['user'] = user.username
+        session['theme'] = user.theme
+
+        # Return user data (excluding sensitive info)
+        user_data = {
+            'id': user.id,
+            'username': user.username,
+            'displayName': user.displayName,
+            'oauthName': user.oauthName,
+            'email': user.email,
+            'profileImage': user.profileImage,
+            'evmAddress': user.evmAddress,
+            'typeOfLogin': user.typeOfLogin,
+            'theme': user.theme
+        }
+
+        # Return sanitized user data (exclude sensitive fields)
+        safe_user_data = {
+            'id': user.id,
+            'username': user.username,
+            'displayName': user.displayName,
+            'oauthName': user.oauthName,
+            'email': user.email,
+            'profileImage': user.profileImage,
+            'evmAddress': user.evmAddress,
+            'solanaAddress': user.solanaAddress,
+            'typeOfLogin': user.typeOfLogin,
+            'theme': user.theme
+        }
+
+        return jsonify({'success': True, 'user': safe_user_data})
+
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Web3Auth login error: {e}")
+        print(f"Traceback: {error_details}")
+        print(f"Request data: {data if 'data' in locals() else 'N/A'}")
+        db.session.rollback()
+        return jsonify({'error': f'Authentication failed: {str(e)}'}), 500
+
+# Ordinals API routes
+@app.route('/api/ordinal/preview', methods=['POST'])
+def preview_ordinal():
+    """Preview ordinal content and fetch metadata"""
+    try:
+        data = request.get_json()
+        inscription_id = data.get('inscriptionId', '').strip()
+        
+        if not inscription_id:
+            return jsonify({'success': False, 'error': 'Inscription ID is required'}), 400
+        
+        # Validate inscription ID format (basic validation)
+        if len(inscription_id) < 10 or not all(c.isalnum() or c in 'i-_' for c in inscription_id):
+            return jsonify({'success': False, 'error': 'Invalid inscription ID format'}), 400
+        
+        # Build content URL
+        content_url = f"https://ordinals.com/content/{inscription_id}"
+        
+        # Check size and content type with HEAD request
+        try:
+            # Add headers to avoid 403 errors from ordinals.com
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive'
+            }
+            
+            head_response = requests.head(content_url, headers=headers, timeout=10, allow_redirects=True)
+            
+            if head_response.status_code == 404:
+                return jsonify({'success': False, 'error': 'Inscription not found'}), 404
+            
+            if head_response.status_code == 403:
+                return jsonify({
+                    'success': False, 
+                    'error': 'Access denied by ordinals.com. The inscription exists but cannot be accessed from the server. You can view it directly at: ' + content_url
+                }), 403
+            
+            if head_response.status_code != 200:
+                return jsonify({'success': False, 'error': f'Failed to fetch inscription (status: {head_response.status_code})'}), 400
+            
+            # Get content length
+            content_length = int(head_response.headers.get('Content-Length', 0))
+            max_size = 50 * 1024  # 50KB
+            
+            # If HEAD doesn't return Content-Length, try a GET request with streaming
+            if content_length == 0:
+                try:
+                    get_response = requests.get(content_url, headers=headers, timeout=10, stream=True)
+                    # Read just enough to check size
+                    content_chunk = get_response.raw.read(max_size + 1)
+                    content_length = len(content_chunk)
+                    content_type = get_response.headers.get('Content-Type', 'unknown').lower()
+                except:
+                    # If we can't determine size, allow it but note it
+                    content_length = 1  # Set to non-zero to proceed
+            
+            if content_length > max_size:
+                size_kb = content_length / 1024
+                return jsonify({
+                    'success': False, 
+                    'error': f'Content too large: {size_kb:.1f}KB (max 50KB)'
+                }), 400
+            
+            # Get content type
+            content_type = head_response.headers.get('Content-Type', 'unknown').lower()
+            
+            # Check if supported type
+            supported_types = [
+                'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 
+                'image/svg+xml', 'image/webp',
+                'text/plain', 'text/markdown', 'text/html', 'text/javascript',
+                'application/json', 'application/javascript'
+            ]
+            
+            is_supported = any(st in content_type for st in supported_types)
+            
+            if not is_supported:
+                return jsonify({
+                    'success': False,
+                    'error': f'Unsupported content type: {content_type}. Supported: images, text, markdown, HTML'
+                }), 400
+            
+            # Fetch metadata from ordinals.com HTML (JSON API is disabled on public instance - returns 406)
+            inscription_number = None
+            block_height = None
+            timestamp = None
+            
+            try:
+                import re
+                
+                # Fetch HTML page
+                page_url = f"https://ordinals.com/inscription/{inscription_id}"
+                page_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                app.logger.info(f"🔍 Scraping metadata from HTML: {page_url}")
+                
+                page_response = requests.get(page_url, headers=page_headers, timeout=10)
+                app.logger.info(f"📡 HTML Response status: {page_response.status_code}")
+                
+                if page_response.status_code == 200:
+                    html = page_response.text
+                    
+                    # Extract inscription number from title: <title>Inscription 117530382</title>
+                    number_match = re.search(r'<title>Inscription (\d+)</title>', html)
+                    if number_match:
+                        inscription_number = int(number_match.group(1))
+                        app.logger.info(f"   ✅ Inscription number: {inscription_number}")
+                    
+                    # Extract block height: <dt>height</dt><dd><a href=/block/933535>933535</a></dd>
+                    height_match = re.search(r'<dt>height</dt>\s*<dd><a[^>]*>(\d+)</a></dd>', html)
+                    if height_match:
+                        block_height = int(height_match.group(1))
+                        app.logger.info(f"   ✅ Block height: {block_height}")
+                    
+                    # Extract timestamp: <dt>timestamp</dt><dd><time>2026-01-23 15:15:43 UTC</time></dd>
+                    time_match = re.search(r'<dt>timestamp</dt>\s*<dd><time[^>]*>([^<]+)</time></dd>', html)
+                    if time_match:
+                        timestamp = time_match.group(1).strip()
+                        app.logger.info(f"   ✅ Timestamp: {timestamp}")
+                    
+                    app.logger.info(f"✅ Metadata scraped: number={inscription_number}, height={block_height}, time={timestamp}")
+                else:
+                    app.logger.warning(f"⚠️  HTML fetch failed ({page_response.status_code})")
+            except Exception as e:
+                app.logger.error(f"❌ Error scraping metadata: {e}")
+                import traceback
+                app.logger.error(traceback.format_exc())
+                pass  # Metadata fetch failed, continue without it
+            
+            return jsonify({
+                'success': True,
+                'contentUrl': content_url,
+                'contentType': content_type,
+                'contentSize': content_length,
+                'inscriptionId': inscription_id,
+                'inscriptionNumber': inscription_number,
+                'blockHeight': block_height,
+                'timestamp': timestamp
+            })
+            
+        except requests.Timeout:
+            return jsonify({'success': False, 'error': 'Request timed out. Please try again.'}), 408
+        except requests.ConnectionError:
+            return jsonify({'success': False, 'error': 'Ordinals service unavailable. Please try again later.'}), 503
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to fetch content: {str(e)}'}), 500
+            
+    except Exception as e:
+        print(f"Ordinal preview error: {e}")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+@app.route('/api/ordinal/convert-markdown', methods=['POST'])
+def convert_markdown():
+    """Convert markdown to HTML with sanitization"""
+    try:
+        data = request.get_json()
+        markdown_text = data.get('markdown', '')
+        
+        app.logger.info(f"📝 MARKDOWN CONVERSION REQUEST")
+        app.logger.info(f"   Input length: {len(markdown_text)} chars")
+        app.logger.info(f"   First 200 chars: {markdown_text[:200]}")
+        
+        if not markdown_text:
+            return jsonify({'success': False, 'error': 'No markdown provided'}), 400
+        
+        if MARKDOWN_SUPPORT:
+            app.logger.info(f"   ✅ Markdown support enabled")
+            # Convert markdown to HTML using markdown2
+            html_content = markdown2.markdown(
+                markdown_text,
+                extras=['fenced-code-blocks', 'tables', 'break-on-newline']
+            )
+            app.logger.info(f"   📄 Converted HTML length: {len(html_content)} chars")
+            app.logger.info(f"   📄 HTML first 300 chars: {html_content[:300]}")
+            
+            # Sanitize HTML to prevent XSS
+            allowed_tags = [
+                'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img',
+                'table', 'thead', 'tbody', 'tr', 'th', 'td'
+            ]
+            allowed_attrs = {
+                'a': ['href', 'title'],
+                'img': ['src', 'alt', 'title'],
+                'code': ['class']
+            }
+            
+            html_content = bleach.clean(
+                html_content,
+                tags=allowed_tags,
+                attributes=allowed_attrs,
+                strip=True
+            )
+            app.logger.info(f"   🧹 Sanitized HTML length: {len(html_content)} chars")
+            app.logger.info(f"   📄 Sanitized HTML first 500 chars: {html_content[:500]}")
+            
+            # Fix relative image URLs (prepend https://ordinals.com)
+            import re
+            original_html = html_content
+            
+            # Count how many img tags before
+            img_count_before = html_content.count('<img')
+            src_count_before = html_content.count('src=')
+            app.logger.info(f"   🔍 BEFORE URL fix: {img_count_before} img tags, {src_count_before} src attributes")
+            
+            # Search for the pattern
+            matches = re.findall(r'src="(/content/[^"]+)"', html_content)
+            app.logger.info(f"   🔍 Found {len(matches)} relative /content/ URLs to fix")
+            if matches:
+                for match in matches[:3]:  # Log first 3
+                    app.logger.info(f"      - {match}")
+            
+            html_content = re.sub(
+                r'src="(/content/[^"]+)"',
+                r'src="https://ordinals.com\1"',
+                html_content
+            )
+            
+            app.logger.info(f"   📄 AFTER URL fix - First 500 chars: {html_content[:500]}")
+            
+            if html_content != original_html:
+                app.logger.info(f"   ✅ FIXED {len(matches)} relative image URLs")
+            else:
+                app.logger.info(f"   ⚠️  HTML unchanged - no relative URLs found")
+        else:
+            # Fallback: simple HTML escape and line breaks
+            import html
+            html_content = html.escape(markdown_text).replace('\n', '<br>')
+        
+        return jsonify({'success': True, 'html': html_content})
+        
+    except Exception as e:
+        print(f"Markdown conversion error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Conversion failed'}), 500
+
+@app.route('/api/user/me', methods=['GET'])
+def get_user_profile():
+    """Get current user profile"""
+    username = session.get('user')
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    user_data = {
+        'id': user.id,
+        'username': user.username,
+        'displayName': user.displayName,
+        'displayNameSetAt': user.displayNameSetAt.isoformat() if user.displayNameSetAt else None,
+        'oauthName': user.oauthName,
+        'email': user.email,
+        'profileImage': user.profileImage,
+        'evmAddress': user.evmAddress,
+        'solanaAddress': user.solanaAddress,
+        'typeOfLogin': user.typeOfLogin,
+        'theme': user.theme
+    }
+
+    # Return sanitized user data (exclude sensitive fields)
+    safe_user_data = {
+        'id': user.id,
+        'username': user.username,
+        'displayName': user.displayName,
+        'displayNameSetAt': user.displayNameSetAt.isoformat() if user.displayNameSetAt else None,
+        'oauthName': user.oauthName,
+        'email': user.email,
+        'profileImage': user.profileImage,
+        'evmAddress': user.evmAddress,
+        'solanaAddress': user.solanaAddress,
+        'typeOfLogin': user.typeOfLogin,
+        'theme': user.theme
+    }
+
+    return jsonify({'user': safe_user_data})
+
+@app.route('/api/user/display-name', methods=['PUT'])
+def update_display_name():
+    """Update user display name"""
+    username = session.get('user')
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    data = request.get_json()
+    if not data or 'displayName' not in data:
+        return jsonify({'error': 'Display name required'}), 400
+
+    displayName = data['displayName'].strip()
+
+    # Validation
+    if not displayName:
+        return jsonify({'error': 'Display name cannot be empty'}), 400
+
+    if len(displayName) > 50:
+        return jsonify({'error': 'Display name must be 50 characters or less'}), 400
+
+    # Optional: Check for allowed characters
+    import re
+    if not re.match(r'^[a-zA-Z0-9\s\-_]+$', displayName):
+        return jsonify({'error': 'Display name can only contain letters, numbers, spaces, hyphens, and underscores'}), 400
+
+    # Update user
+    user.displayName = displayName
+    user.displayNameSetAt = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({'success': True, 'user': {
+        'id': user.id,
+        'displayName': user.displayName,
+        'displayNameSetAt': user.displayNameSetAt.isoformat()
+    }})
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    """API logout endpoint"""
+    session.pop('user', None)
+    return jsonify({'success': True})
 
 @app.route('/profile/', methods=['GET', 'POST'])
 @require_auth
@@ -2572,11 +4182,18 @@ def admin_users():
             <td>{user.created_at.strftime('%Y-%m-%d')}</td>
             <td>{last_login}</td>
             <td>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary btn-sm" onclick="changeRole('{user.username}', '{user.role}')">
-                        <i class="fas fa-user-edit"></i>
-                    </button>
-                    <button class="btn btn-outline-danger btn-sm" onclick="deleteUser('{user.username}')">
+                <div class="btn-group btn-group-sm" role="group">
+                    <div class="dropdown">
+                        <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" id="roleDropdown{user.username}" data-bs-toggle="dropdown" aria-expanded="false" data-bs-offset="0,4">
+                            <i class="fas fa-user-edit"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="roleDropdown{user.username}">
+                            <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'user'); return false;">User</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'editor'); return false;">Editor</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'admin'); return false;">Admin</a></li>
+                        </ul>
+                    </div>
+                    <button class="btn btn-outline-danger btn-sm ms-1" onclick="deleteUser('{user.username}')">
                         <i class="fas fa-trash"></i>
                     </button>
                 </div>
@@ -2643,7 +4260,7 @@ def admin_users():
             <div class="card-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
-                        <thead class="table-light">
+                        <thead>
                             <tr>
                                 <th>Name</th>
                                 <th>Email</th>
@@ -2675,53 +4292,59 @@ def admin_users():
         </div>
 
     <script>
-        function changeRole(username, currentRole) {{
-            const roles = ['user', 'editor', 'admin'];
-            const currentIndex = roles.indexOf(currentRole);
-            const nextRole = roles[(currentIndex + 1) % roles.length];
-
-            if (confirm('Change ' + username + '\'s role from ' + currentRole + ' to ' + nextRole + '?')) {{
-                fetch('/admin/users/' + username + '/role', {{
-                    method: 'POST',
-                    headers: {{
-                        'Content-Type': 'application/json',
-                    }},
-                    body: JSON.stringify({{ role: nextRole }})
-                }})
-                .then(response => response.json())
-                .then(data => {{
-                    if (data.success) {{
-                        location.reload();
-                    }} else {{
-                        alert('Error: ' + data.message);
-                    }}
-                }})
-                .catch(error => {{
-                    console.error('Error:', error);
-                    alert('Error updating role');
-                }});
-            }}
+        function changeRole(username, newRole) {{
+            console.log('Changing role for', username, 'to', newRole);
+            
+            fetch('/admin/users/' + username + '/role', {{
+                method: 'POST',
+                headers: {{
+                    'Content-Type': 'application/json',
+                }},
+                body: JSON.stringify({{ role: newRole }})
+            }})
+            .then(response => {{
+                console.log('Response status:', response.status);
+                return response.json();
+            }})
+            .then(data => {{
+                console.log('Response data:', data);
+                if (data.success) {{
+                    location.reload();
+                }} else {{
+                    alert('Error: ' + (data.message || 'Unknown error'));
+                }}
+            }})
+            .catch(error => {{
+                console.error('Error:', error);
+                alert('Error updating role: ' + error.message);
+            }});
         }}
 
         function deleteUser(username) {{
-            if (confirm('Are you sure you want to delete user ' + username + '? This action cannot be undone.')) {{
+            if (confirm("Are you sure you want to delete user " + username + "? This action cannot be undone.")) {{
+                console.log('Deleting user:', username);
                 fetch('/admin/users/' + username + '/delete', {{
                     method: 'POST',
                     headers: {{
                         'Content-Type': 'application/json',
                     }}
                 }})
-                .then(response => response.json())
+                .then(response => {{
+                    console.log('Delete response status:', response.status);
+                    return response.json();
+                }})
                 .then(data => {{
+                    console.log('Delete response data:', data);
                     if (data.success) {{
+                        // Just reload without alert
                         location.reload();
                     }} else {{
-                        alert('Error: ' + data.message);
+                        alert('Error: ' + (data.message || 'Unknown error'));
                     }}
                 }})
                 .catch(error => {{
                     console.error('Error:', error);
-                    alert('Error deleting user');
+                    alert('Error deleting user: ' + error.message);
                 }});
             }}
         }}
@@ -2812,10 +4435,25 @@ def admin_submissions():
             'published': 'badge bg-info'
         }.get(submission.status, 'badge bg-secondary')
 
-        # Get file size if file exists
-        file_size = "N/A"
-        if submission.file_path and os.path.exists(submission.file_path):
-            file_size = f"{os.path.getsize(submission.file_path) / 1024:.1f} KB"
+        # Get source info (file or ordinal)
+        source_type = getattr(submission, 'sourceType', 'file')
+        if source_type == 'ordinal':
+            inscription_number = getattr(submission, 'inscriptionNumber', None)
+            ordinal_id = getattr(submission, 'ordinalId', None)
+            block_height = getattr(submission, 'blockHeight', None)
+            if inscription_number:
+                source_info = f'<span class="badge bg-info"><i class="bi bi-coin"></i> Ordinal</span> Inscription #{inscription_number}'
+                if block_height:
+                    source_info += f' (Block {block_height})'
+            elif ordinal_id:
+                source_info = f'<span class="badge bg-info"><i class="bi bi-coin"></i> Ordinal</span> {ordinal_id[:16]}...'
+            else:
+                source_info = '<span class="badge bg-info"><i class="bi bi-coin"></i> Ordinal</span>'
+        else:
+            file_size = "N/A"
+            if submission.file_path and os.path.exists(submission.file_path):
+                file_size = f"{os.path.getsize(submission.file_path) / 1024:.1f} KB"
+            source_info = f'<span class="badge bg-secondary"><i class="bi bi-file-earmark"></i> File</span> {submission.filename} ({file_size})'
 
         action_buttons = ""
         if submission.status == 'submitted':
@@ -2856,7 +4494,7 @@ def admin_submissions():
                         <p class="mb-2"><strong>Authors:</strong> {', '.join(submission.authors)}</p>
                         <p class="mb-2"><strong>Group:</strong> {submission.group or 'None'}</p>
                         <p class="mb-2"><strong>Submitted:</strong> {submission.submitted_at.strftime('%Y-%m-%d %H:%M')} by {submission.submitted_by}</p>
-                        <p class="mb-2"><strong>File:</strong> {submission.filename} ({file_size})</p>
+                        <p class="mb-2"><strong>Source:</strong> {source_info}</p>
                         {f'<p class="mb-2"><strong>Abstract:</strong> {submission.abstract[:200]}...</p>' if submission.abstract else ''}
                     </div>
                     <div class="col-md-4">
@@ -3621,7 +5259,7 @@ def delete_chair(chair_id):
 def home():
     # Generate user menu
     current_user = get_current_user()
-    current_theme = current_user.get('theme', 'dark') if current_user else 'light'
+    current_theme = current_user.get('theme', 'dark') if current_user else 'dark'  # Default to dark
     user_menu = generate_user_menu()
     
     # Count documents: DRAFTS + approved/published submissions
@@ -5472,7 +7110,8 @@ if __name__ == '__main__':
     init_deployment_safety()
     # Initialize database on startup
     init_db()
-    print(f"Starting MLTF Datatracker in {ENV} mode on port {PORT}")
+    print(f"🚀 Starting MLTF Datatracker - BUILD {BUILD_NUMBER}")
+    print(f"Environment: {ENV} mode on port {PORT}")
     print(f"Database: {DB_PATH}")
     # Disable reloader when running under systemd (detected by systemd environment)
     # The reloader can cause hanging in systemd services
