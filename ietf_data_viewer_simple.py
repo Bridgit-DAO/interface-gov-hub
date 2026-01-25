@@ -4969,12 +4969,26 @@ def approve_submission(submission_id):
 
     # Assign ML number if not already assigned
     if not submission.ml_number:
-        doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
-        submission.ml_number = get_next_ml_number(doc_type)
+        try:
+            doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+            ml_number = get_next_ml_number(doc_type)
+            submission.ml_number = ml_number
+            app.logger.info(f"✅ Assigned ML number {ml_number} to submission {submission_id}")
+        except Exception as e:
+            app.logger.error(f"❌ Failed to assign ML number to submission {submission_id}: {e}")
+            # Continue with approval even if ML assignment fails
     
     submission.status = 'approved'
     submission.approved_at = datetime.utcnow()
-    db.session.commit()
+    
+    try:
+        db.session.commit()
+        app.logger.info(f"✅ Successfully approved submission {submission_id}")
+    except Exception as e:
+        app.logger.error(f"❌ Failed to commit approval for submission {submission_id}: {e}")
+        db.session.rollback()
+        flash(f'Failed to approve submission: {str(e)}', 'error')
+        return redirect('/admin/submissions/')
 
     # Log the action
     admin_user = get_current_user()
