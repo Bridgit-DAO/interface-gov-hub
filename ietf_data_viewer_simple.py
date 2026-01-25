@@ -208,6 +208,8 @@ class Submission(db.Model):
     approved_at = db.Column(db.DateTime, nullable=True)
     rejected_at = db.Column(db.DateTime, nullable=True)
     ml_number = db.Column(db.String(10), nullable=True)  # ML-0001, ML-0002, etc.
+    pages = db.Column(db.Integer, default=1)  # Calculated page count
+    words = db.Column(db.Integer, default=0)  # Calculated word count
 
 class PublishedDraft(db.Model):
     """Store published/approved drafts separately from original test data"""
@@ -1807,6 +1809,81 @@ def deployment_safety_check():
         from flask import jsonify
         return jsonify({'error': 'Data modifications disabled during deployment'}), 403
 
+def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_seconds=30):
+    """
+    Calculate pages and words from a file.
+    Returns: (pages, words) tuple
+    Defaults to (1, 0) if calculation fails
+    
+    Security features:
+    - File size limit (default 50MB)
+    - Processing timeout (default 30s)
+    - Safe error handling
+    """
+    try:
+        # Check file size (security: prevent memory exhaustion)
+        file_size = os.path.getsize(file_path)
+        max_size_bytes = max_size_mb * 1024 * 1024
+        if file_size > max_size_bytes:
+            print(f"[WARNING] File too large: {file_size} bytes (max {max_size_bytes})")
+            return (1, 0)
+        
+        _, ext = os.path.splitext(filename.lower())
+        words = 0
+        pages = 1
+        
+        # Use signal for timeout (Unix-like systems only)
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("File processing timeout")
+        
+        # Set timeout alarm (if supported)
+        if hasattr(signal, 'SIGALRM'):
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout_seconds)
+        
+        try:
+            if ext in ['.txt', '.xml']:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                words = len(content.split())
+                pages = max(1, (words + 499) // 500)  # ~500 words per page
+                
+            elif ext == '.docx' and DOCX_SUPPORT:
+                doc = docx.Document(file_path)
+                content_parts = []
+                for paragraph in doc.paragraphs:
+                    if paragraph.text.strip():
+                        content_parts.append(paragraph.text)
+                content = '\n\n'.join(content_parts)
+                words = len(content.split())
+                pages = max(1, (words + 499) // 500)
+                
+            elif ext == '.pdf' and PDF_SUPPORT:
+                reader = PyPDF2.PdfReader(file_path)
+                content_parts = []
+                for page in reader.pages:
+                    text = page.extract_text()
+                    if text.strip():
+                        content_parts.append(text)
+                content = '\n\n'.join(content_parts)
+                words = len(content.split())
+                pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
+        finally:
+            # Cancel timeout alarm
+            if hasattr(signal, 'SIGALRM'):
+                signal.alarm(0)
+        
+        return (pages, words)
+        
+    except TimeoutError:
+        print(f"[WARNING] File processing timeout for {filename}")
+        return (1, 0)
+    except Exception as e:
+        print(f"[WARNING] Failed to calculate pages/words for {filename}: {e}")
+        return (1, 0)  # Default fallback
+
 @app.route('/submit/', methods=['GET', 'POST'])
 @require_auth
 def submit_draft():
@@ -1842,6 +1919,15 @@ def submit_draft():
             flash('Title, authors, and file are required', 'error')
             return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
 
+        # Security: Check file size (max 50MB)
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        max_size = 50 * 1024 * 1024  # 50MB
+        if file_size > max_size:
+            flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
+            return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+
         # Process authors (comma-separated)
         authors_list = [a.strip() for a in authors.split(',') if a.strip()]
 
@@ -1855,6 +1941,9 @@ def submit_draft():
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
+        # Calculate pages and words
+        pages, words = calculate_pages_and_words(file_path, filename)
+
         # Create submission record
         submission = Submission(
             id=submission_id,
@@ -1864,7 +1953,9 @@ def submit_draft():
             group=group,
             filename=filename,
             file_path=file_path,
-            submitted_by=get_current_user()['name']
+            submitted_by=get_current_user()['name'],
+            pages=pages,
+            words=words
         )
 
         db.session.add(submission)
@@ -4465,40 +4556,9 @@ def all_documents():
     # Add approved/published submissions from database
     approved_submissions = Submission.query.filter(Submission.status.in_(['approved', 'published'])).all()
     for submission in approved_submissions:
-        # Calculate pages and words if needed
-        pages = 1
-        words = 0
-        if submission.file_path and os.path.exists(submission.file_path):
-            _, ext = os.path.splitext(submission.filename.lower())
-            try:
-                if ext in ['.txt', '.xml']:
-                    with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
-                        content = f.read()
-                    words = len(content.split())
-                    pages = max(1, (words + 499) // 500)
-                elif ext == '.docx':
-                    from docx import Document
-                    doc = Document(submission.file_path)
-                    content_parts = []
-                    for paragraph in doc.paragraphs:
-                        if paragraph.text.strip():
-                            content_parts.append(paragraph.text)
-                    content = '\n\n'.join(content_parts)
-                    words = len(content.split())
-                    pages = max(1, (words + 499) // 500)
-                elif ext == '.pdf':
-                    from PyPDF2 import PdfReader
-                    reader = PdfReader(submission.file_path)
-                    content_parts = []
-                    for page in reader.pages:
-                        text = page.extract_text()
-                        if text.strip():
-                            content_parts.append(text)
-                    content = '\n\n'.join(content_parts)
-                    words = len(content.split())
-                    pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
-            except Exception:
-                pass
+        # Use stored pages and words values (calculated on submission)
+        pages = submission.pages if submission.pages else 1
+        words = submission.words if submission.words else 0
         
         all_docs.append({
             'name': submission.id,
