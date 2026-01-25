@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 19
+BUILD_NUMBER = 33
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -119,7 +119,8 @@ def migrate_ordinals_support():
             'ordinalContentType': ('TEXT', None),
             'inscriptionNumber': ('INTEGER', None),
             'blockHeight': ('INTEGER', None),
-            'inscriptionTimestamp': ('DATETIME', None)
+            'inscriptionTimestamp': ('DATETIME', None),
+            'doc_type': ('TEXT', 'draft')
         }
         
         added_columns = []
@@ -131,13 +132,32 @@ def migrate_ordinals_support():
                     cursor.execute(f"ALTER TABLE submission ADD COLUMN {col_name} {col_type}")
                 added_columns.append(col_name)
         
+        # Migrate existing ML numbers to new format (ML-001 -> ML-Draft-001)
+        cursor.execute("SELECT id, ml_number FROM submission WHERE ml_number IS NOT NULL")
+        submissions = cursor.fetchall()
+        migrated_count = 0
+        for sub_id, ml_num in submissions:
+            if ml_num and not ml_num.startswith('ML-Draft-') and not ml_num.startswith('ML-RFC-'):
+                # Old format: ML-001, ML-002, etc.
+                # Extract number and convert to ML-Draft-XXX
+                try:
+                    num_part = ml_num.split('-')[-1]
+                    new_ml_num = f"ML-Draft-{num_part}"
+                    cursor.execute("UPDATE submission SET ml_number = ? WHERE id = ?", (new_ml_num, sub_id))
+                    migrated_count += 1
+                except (ValueError, IndexError):
+                    pass
+        
         conn.commit()
         conn.close()
         
         if added_columns:
-            print(f"✅ Added ordinals columns to submission table: {', '.join(added_columns)}")
+            print(f"✅ Added columns to submission table: {', '.join(added_columns)}")
         else:
-            print("✅ Ordinals columns already exist in submission table")
+            print("✅ All columns already exist in submission table")
+        
+        if migrated_count > 0:
+            print(f"✅ Migrated {migrated_count} ML numbers to new format (ML-Draft-XXX)")
     except Exception as e:
         print(f"⚠️  Error migrating ordinals support: {e}")
         # Non-fatal - table might already have columns
@@ -264,7 +284,8 @@ class Submission(db.Model):
     submitted_by = db.Column(db.String(100), default='Anonymous User')
     approved_at = db.Column(db.DateTime, nullable=True)
     rejected_at = db.Column(db.DateTime, nullable=True)
-    ml_number = db.Column(db.String(10), nullable=True)  # ML-0001, ML-0002, etc.
+    ml_number = db.Column(db.String(20), nullable=True)  # ML-Draft-001, ML-RFC-001, etc.
+    doc_type = db.Column(db.String(10), default='draft')  # 'draft' or 'rfc'
     # Ordinal integration fields
     sourceType = db.Column(db.String(20), default='file')  # 'file' or 'ordinal'
     ordinalId = db.Column(db.String(255), nullable=True)  # Inscription ID
@@ -459,6 +480,27 @@ def require_role(required_role):
         decorated_function.__name__ = f.__name__
         return decorated_function
     return decorator
+
+def shorten_inscription_id(inscription_id, chars_each_side=8):
+    """
+    Shorten an inscription ID to show first N chars...last N chars
+    Example: 8e24de515cc0dc305188f3c4a0e563466723bf9cf8d4576184bf3d13e287615bi0
+    becomes: 8e24de51....7615bi0 (with chars_each_side=8)
+    
+    Always includes the 'i0' at the end as it's part of the ordinal identifier.
+    """
+    if not inscription_id:
+        return ''
+    
+    # Ensure we have enough characters
+    if len(inscription_id) <= (chars_each_side * 2 + 4):
+        return inscription_id
+    
+    # Extract parts
+    start = inscription_id[:chars_each_side]
+    end = inscription_id[-chars_each_side:]
+    
+    return f'{start}....{end}'
 
 def get_current_user():
     """Get current logged in user"""
@@ -2301,6 +2343,11 @@ def submit_draft():
             app.logger.info(f"   current_user_info: {current_user_info}")
             app.logger.info(f"   submitted_by will be: {current_user_info['name']}")
             
+            # Get doc_type from form (default to 'draft')
+            doc_type = request.form.get('doc_type', 'draft').strip() or 'draft'
+            if doc_type not in ['draft', 'rfc']:
+                doc_type = 'draft'
+            
             submission = Submission(
                 id=submission_id,
                 title=title,
@@ -2309,6 +2356,7 @@ def submit_draft():
                 group=group,
                 submitted_by=current_user_info['name'],
                 sourceType='ordinal',
+                doc_type=doc_type,
                 ordinalId=ordinal_id,
                 ordinalContentUrl=ordinal_content_url,
                 ordinalContentType=ordinal_content_type,
@@ -2343,6 +2391,12 @@ def submit_draft():
                 submitted_by=get_current_user()['name'],
                 sourceType='file'
             )
+        
+        # Assign ML number in development mode (auto-approve for testing)
+        if ENV == 'development':
+            doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+            submission.ml_number = get_next_ml_number(doc_type)
+            app.logger.info(f"📝 Auto-assigned ML number in dev: {submission.ml_number}")
         
         # Save to database
         db.session.add(submission)
@@ -2402,9 +2456,15 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <div class="col-sm-3"><strong>Authors:</strong></div>
                         <div class="col-sm-9">{{ submission_authors_joined }}</div>
                     </div>
+                    {% if ml_number %}
                     <div class="row mb-3">
-                        <div class="col-sm-3"><strong>Draft Name:</strong></div>
-                        <div class="col-sm-9"><code>{{ submission_draft_name }}</code></div>
+                        <div class="col-sm-3"><strong>ML Number:</strong></div>
+                        <div class="col-sm-9"><code>{{ ml_number }}</code></div>
+                    </div>
+                    {% endif %}
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>Draft ID:</strong></div>
+                        <div class="col-sm-9"><code>{{ submission_id }}</code></div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>Submitted:</strong></div>
@@ -2432,7 +2492,11 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <div class="card-body">
                             <div class="row mb-2">
                                 <div class="col-sm-4"><strong>Inscription ID:</strong></div>
-                                <div class="col-sm-8"><code style="font-size: 0.85em;">{{ ordinal_id }}</code></div>
+                                <div class="col-sm-8">
+                                    <a href="https://ordinals.com/inscription/{{ ordinal_id }}" target="_blank" class="text-decoration-none" style="color: var(--accent-color);">
+                                        <code style="font-size: 0.85em;">{{ ordinal_id_short }}</code>
+                                    </a>
+                                </div>
                             </div>
                             {% if inscription_number %}
                             <div class="row mb-2">
@@ -2651,7 +2715,8 @@ def submission_status():
             if inscription_number:
                 source_info = f'<p class="mb-2"><strong>Inscription:</strong> #{inscription_number}</p>'
             elif ordinal_id:
-                source_info = f'<p class="mb-2"><strong>Inscription ID:</strong> {ordinal_id[:16]}...</p>'
+                shortened_id = shorten_inscription_id(ordinal_id, 8)
+                source_info = f'<p class="mb-2"><strong>Inscription:</strong> <a href="https://ordinals.com/inscription/{ordinal_id}" target="_blank" class="text-decoration-none"><code>{shortened_id}</code></a></p>'
             else:
                 source_info = ''
         else:
@@ -2763,6 +2828,9 @@ def submission_detail(submission_id):
             print("→ Rendering as text/plain or text/javascript or application/json")
             # Fetch and display text-based content (handles charset parameters)
             try:
+                import markdown2
+                import bleach
+                import re
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
@@ -2770,11 +2838,53 @@ def submission_detail(submission_id):
                 text_content = response.text
                 print(f"Text content length: {len(text_content)}")
                 print(f"First 100 chars: {text_content[:100]}")
-                if len(text_content) > 2000:
-                    file_content = text_content[:2000] + "..."
+                
+                # Check if content is markdown
+                is_markdown = False
+                if 'text/plain' in ordinal_content_type:
+                    # Detect markdown patterns
+                    markdown_patterns = [
+                        r'^#{1,6}\s+.+$',  # Headers
+                        r'\*\*.+\*\*',      # Bold
+                        r'\*.+\*',          # Italic
+                        r'^\s*[-*+]\s+',    # Lists
+                        r'^\s*\d+\.\s+',    # Numbered lists
+                        r'\[.+\]\(.+\)',    # Links
+                        r'!\[.*\]\(.+\)'    # Images
+                    ]
+                    for pattern in markdown_patterns:
+                        if re.search(pattern, text_content, re.MULTILINE):
+                            is_markdown = True
+                            print(f"→ DETECTED MARKDOWN (pattern: {pattern})")
+                            break
+                
+                if is_markdown:
+                    # Convert markdown to HTML
+                    html_content = markdown2.markdown(text_content, extras=['fenced-code-blocks', 'tables', 'break-on-newline'])
+                    
+                    # Sanitize HTML
+                    allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                                  'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
+                                  'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span']
+                    allowed_attrs = {'a': ['href', 'title', 'target'], 'img': ['src', 'alt', 'title', 'width', 'height']}
+                    html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+                    
+                    # Fix relative image URLs to point to ordinals.com
+                    html_content = re.sub(
+                        r'src="(/content/[^"]+)"',
+                        r'src="https://ordinals.com\1"',
+                        html_content
+                    )
+                    
+                    content_preview_html = f'<div class="border p-3" style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                    file_content = ""  # Clear file_content since we're using content_preview_html
                 else:
-                    file_content = text_content
-                print(f"file_content set, length: {len(file_content)}")
+                    # Display as plain text
+                    if len(text_content) > 2000:
+                        file_content = text_content[:2000] + "..."
+                    else:
+                        file_content = text_content
+                print(f"file_content set, length: {len(file_content) if file_content else 0}")
             except Exception as e:
                 print(f"ERROR fetching text content: {e}")
                 file_content = "Error loading ordinal text content"
@@ -2845,28 +2955,27 @@ def submission_detail(submission_id):
                     file_content = "DOCX file appears to be empty or contains no extractable text."
 
             elif ext == '.pdf':
-                # Extract text from PDF files
-                from PyPDF2 import PdfReader
-                reader = PdfReader(submission.file_path)
-                content = ""
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text.strip():
-                        content += text + "\n"
-
-                if content.strip():
-                    # Clean up the text (remove excessive whitespace)
-                    import re
-                    content = re.sub(r'\n+', '\n', content)  # Remove multiple newlines
-                    content = re.sub(r' +', ' ', content)    # Remove multiple spaces
-
-                    # Limit preview to first 2000 characters
-                    if len(content) > 2000:
-                        file_content = content[:2000] + "..."
-                    else:
-                        file_content = content
-                else:
-                    file_content = "PDF file appears to be empty or contains no extractable text (may be image-based)."
+                # For PDFs, use embedded viewer instead of text extraction
+                file_size = os.path.getsize(submission.file_path)
+                file_size_kb = file_size / 1024
+                
+                # Create an embedded PDF viewer
+                content_preview_html = f'''
+                <div class="pdf-viewer-container">
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-file-pdf"></i> PDF Document ({file_size_kb:.1f} KB) - 
+                        <a href="/download/{submission.id}" class="alert-link">Download PDF</a> for best viewing experience
+                    </div>
+                    <iframe src="/view/{submission.id}" 
+                            type="application/pdf" 
+                            style="width: 100%; height: 600px; border: 1px solid var(--card-border);"
+                            title="PDF Preview">
+                        <p>Your browser does not support PDF preview. 
+                           <a href="/download/{submission.id}">Download the PDF</a> to view it.</p>
+                    </iframe>
+                </div>
+                '''
+                file_content = ""  # Clear file_content since we're using content_preview_html
 
             elif ext == '.doc':
                 # Legacy DOC files - show file info
@@ -2914,11 +3023,13 @@ def submission_detail(submission_id):
         'is_ordinal': source_type == 'ordinal',
         'is_file': source_type == 'file',
         'ordinal_id': getattr(submission, 'ordinalId', ''),
+        'ordinal_id_short': shorten_inscription_id(getattr(submission, 'ordinalId', ''), 8),
         'ordinal_content_url': getattr(submission, 'ordinalContentUrl', ''),
         'ordinal_content_type': getattr(submission, 'ordinalContentType', ''),
         'inscription_number': getattr(submission, 'inscriptionNumber', None),
         'block_height': getattr(submission, 'blockHeight', None),
-        'inscription_timestamp': getattr(submission, 'inscriptionTimestamp', None)
+        'inscription_timestamp': getattr(submission, 'inscriptionTimestamp', None),
+        'ml_number': submission.ml_number
     }
     
     # Render the submission status template using Flask's Jinja2 engine
@@ -4704,14 +4815,25 @@ def update_submission_status(submission_id):
 
     return jsonify({'success': True, 'message': f'Status updated to {new_status}'})
 
-def get_next_ml_number():
-    """Get the next ML number (ML-001 to ML-999, then ML-1000+)"""
-    # Find the highest existing ML number
-    max_ml = db.session.query(db.func.max(Submission.ml_number)).filter(Submission.ml_number.isnot(None)).scalar()
+def get_next_ml_number(doc_type='draft'):
+    """Get the next ML number (ML-Draft-001 or ML-RFC-001)
+    
+    Args:
+        doc_type: 'draft' or 'rfc'
+    
+    Returns:
+        str: ML-Draft-001, ML-RFC-001, etc.
+    """
+    # Find the highest existing ML number for this document type
+    prefix = f"ML-{doc_type.capitalize()}-"
+    max_ml = db.session.query(db.func.max(Submission.ml_number)).filter(
+        Submission.ml_number.like(f"{prefix}%")
+    ).scalar()
+    
     if max_ml:
-        # Extract number from ML-XXXX or ML-XXX format
+        # Extract number from ML-Draft-XXX or ML-RFC-XXX format
         try:
-            current_num = int(max_ml.split('-')[1])
+            current_num = int(max_ml.split('-')[-1])
             next_num = current_num + 1
         except (ValueError, IndexError):
             next_num = 1
@@ -4720,9 +4842,9 @@ def get_next_ml_number():
     
     # Use 3 digits for 1-999, 4 digits for 1000+
     if next_num < 1000:
-        return f"ML-{next_num:03d}"
+        return f"{prefix}{next_num:03d}"
     else:
-        return f"ML-{next_num:04d}"
+        return f"{prefix}{next_num:04d}"
 
 @app.route('/submit/approve/<submission_id>', methods=['POST'])
 @require_role('admin')
@@ -4734,7 +4856,8 @@ def approve_submission(submission_id):
 
     # Assign ML number if not already assigned
     if not submission.ml_number:
-        submission.ml_number = get_next_ml_number()
+        doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+        submission.ml_number = get_next_ml_number(doc_type)
     
     submission.status = 'approved'
     submission.approved_at = datetime.utcnow()
@@ -4768,9 +4891,29 @@ def reject_submission(submission_id):
     flash(f'Submission {submission.id} rejected!', 'warning')
     return redirect(f'/submit/status/{submission_id}/')
 
+@app.route('/view/<submission_id>')
+@require_auth
+def view_submission(submission_id):
+    """View a submission file inline (for PDFs and other viewable files)"""
+    submission = Submission.query.filter_by(id=submission_id).first()
+    if not submission:
+        return "Submission not found", 404
+
+    # Check if user owns this submission or is admin
+    current_user = get_current_user()
+    if submission.submitted_by != current_user['name'] and current_user.get('role') not in ['admin', 'editor']:
+        return "Access denied", 403
+
+    if not submission.file_path or not os.path.exists(submission.file_path):
+        return "File not found", 404
+
+    # Serve file inline (not as attachment) for viewing in browser
+    return send_file(submission.file_path, as_attachment=False, download_name=submission.filename)
+
 @app.route('/download/<submission_id>')
 @require_auth
 def download_submission(submission_id):
+    """Download a submission file"""
     submission = Submission.query.filter_by(id=submission_id).first()
     if not submission:
         return "Submission not found", 404
@@ -5579,12 +5722,43 @@ def draft_detail(draft_name):
     # First try to find in DRAFTS (published documents)
     draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
 
-    # If not found in DRAFTS, try to find as a submission ID
+    # If not found in DRAFTS, try to find as a submission ID or ML number
     submission = None
     if not draft:
-        # Submission is already imported at module level
+        # Try to find by submission ID first
         submission = Submission.query.filter_by(id=draft_name).first()
+        
+        # If not found by ID, try to find by ML number
+        if not submission:
+            submission = Submission.query.filter_by(ml_number=draft_name).first()
         if submission:
+            # Calculate pages and words for ordinals
+            source_type = getattr(submission, 'sourceType', 'file')
+            pages_count = 1
+            words_count = 0
+            ordinal_content_url = getattr(submission, 'ordinalContentUrl', None)
+            ordinal_content_type = getattr(submission, 'ordinalContentType', '')
+            
+            if source_type == 'ordinal':
+                # Fetch ordinal content to calculate words and pages
+                
+                if ordinal_content_url and ('text/' in ordinal_content_type or 'application/json' in ordinal_content_type):
+                    try:
+                        import requests
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                        }
+                        response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                        if response.status_code == 200:
+                            text_content = response.text
+                            words_count = len(text_content.split())
+                            # Estimate pages (assuming ~500 words per page)
+                            pages_count = max(1, (words_count + 499) // 500)
+                    except Exception as e:
+                        app.logger.warning(f"Failed to fetch ordinal content for word/page count: {e}")
+                        # Keep defaults
+                        pass
+            
             # Create a draft-like object from the submission
             draft = {
                 'name': submission.id,
@@ -5595,10 +5769,17 @@ def draft_detail(draft_name):
                 'group': submission.group,
                 'date': submission.submitted_at.strftime('%Y-%m-%d') if submission.submitted_at else '',
                 'rev': '00',  # Default revision for submissions
-                'pages': 1,   # Default pages for submissions
-                'words': 0,   # Default words for submissions
+                'pages': pages_count,
+                'words': words_count,
                 'stream': 'mltf',  # Default stream
-                'ml_number': submission.ml_number
+                'ml_number': submission.ml_number,
+                # Ordinal metadata
+                'sourceType': source_type,
+                'ordinalId': getattr(submission, 'ordinalId', None),
+                'inscriptionNumber': getattr(submission, 'inscriptionNumber', None),
+                'blockHeight': getattr(submission, 'blockHeight', None),
+                'inscriptionTimestamp': getattr(submission, 'inscriptionTimestamp', None),
+                'ordinalContentType': ordinal_content_type
             }
 
     if not draft:
@@ -5609,8 +5790,81 @@ def draft_detail(draft_name):
     calculated_pages = draft.get('pages', 1)
     calculated_words = draft.get('words', 0)
 
-    # Try to get content from submission file first
-    if submission and submission.file_path and os.path.exists(submission.file_path):
+    # Try to get content from ordinal first
+    if submission and draft.get('sourceType') == 'ordinal':
+        ordinal_content_url = getattr(submission, 'ordinalContentUrl', None)
+        ordinal_content_type = getattr(submission, 'ordinalContentType', '')
+        
+        if ordinal_content_url and ('text/' in ordinal_content_type or 'application/json' in ordinal_content_type):
+            try:
+                import requests
+                import markdown2
+                import bleach
+                import re
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    raw_content = response.text
+                    # Calculate words and pages from ordinal text
+                    words = len(raw_content.split())
+                    calculated_pages = max(1, (words + 499) // 500)
+                    calculated_words = words
+                    # Update draft with calculated values
+                    draft['pages'] = calculated_pages
+                    draft['words'] = calculated_words
+                    
+                    # Check if content is markdown
+                    is_markdown = False
+                    if 'text/plain' in ordinal_content_type or 'text/markdown' in ordinal_content_type:
+                        # Detect markdown patterns
+                        markdown_patterns = [
+                            r'^#{1,6}\s+.+$',  # Headers
+                            r'\*\*.+\*\*',      # Bold
+                            r'\*.+\*',          # Italic
+                            r'^\s*[-*+]\s+',    # Lists
+                            r'^\s*\d+\.\s+',    # Numbered lists
+                            r'\[.+\]\(.+\)',    # Links
+                            r'!\[.*\]\(.+\)'    # Images
+                        ]
+                        for pattern in markdown_patterns:
+                            if re.search(pattern, raw_content, re.MULTILINE):
+                                is_markdown = True
+                                break
+                    
+                    if is_markdown:
+                        # Convert markdown to HTML
+                        html_content = markdown2.markdown(raw_content, extras=['fenced-code-blocks', 'tables', 'break-on-newline'])
+                        
+                        # Sanitize HTML
+                        allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                                      'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
+                                      'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span']
+                        allowed_attrs = {'a': ['href', 'title', 'target'], 'img': ['src', 'alt', 'title', 'width', 'height']}
+                        html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+                        
+                        # Fix relative image URLs to point to ordinals.com
+                        html_content = re.sub(
+                            r'src="(/content/[^"]+)"',
+                            r'src="https://ordinals.com\1"',
+                            html_content
+                        )
+                        
+                        document_content = html_content
+                    else:
+                        # Display as plain text
+                        document_content = raw_content
+            except Exception as e:
+                app.logger.warning(f"Failed to fetch ordinal content for display: {e}")
+                document_content = f"Error loading ordinal content: {str(e)}"
+        elif ordinal_content_url and ordinal_content_type.startswith('image/'):
+            document_content = f'<img src="{ordinal_content_url}" class="img-fluid" style="max-width: 100%;" alt="Ordinal image content">'
+        else:
+            document_content = f"Ordinal content type: {ordinal_content_type}\nPreview not available for this content type."
+    
+    # Try to get content from submission file
+    elif submission and submission.file_path and os.path.exists(submission.file_path):
         _, ext = os.path.splitext(submission.filename.lower())
         try:
             if ext in ['.txt', '.xml']:
@@ -5639,22 +5893,31 @@ def draft_detail(draft_name):
                 calculated_pages = max(1, (words + 499) // 500)
                 calculated_words = words
             elif ext == '.pdf':
+                # For PDFs, extract metadata but display with embedded viewer
                 from PyPDF2 import PdfReader
                 reader = PdfReader(submission.file_path)
-                content_parts = []
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text.strip():
-                        content_parts.append(text)
-                document_content = '\n\n'.join(content_parts)
-                # Clean up PDF text
-                import re
-                document_content = re.sub(r'\n+', '\n', document_content)
-                document_content = re.sub(r' +', ' ', document_content)
-                # Calculate words and pages
-                words = len(document_content.split())
-                calculated_pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
-                calculated_words = words
+                # Get page count and estimate words
+                calculated_pages = len(reader.pages) if reader.pages else 1
+                # Estimate words (roughly 250-300 words per page for PDFs)
+                calculated_words = calculated_pages * 275
+                
+                # Create embedded PDF viewer for display
+                file_size = os.path.getsize(submission.file_path)
+                file_size_kb = file_size / 1024
+                document_content = f'''
+<div class="pdf-viewer-container">
+    <div class="alert alert-info mb-3">
+        <i class="bi bi-file-pdf"></i> PDF Document ({calculated_pages} pages, ~{calculated_words} words, {file_size_kb:.1f} KB)
+    </div>
+    <iframe src="/view/{draft_name}" 
+            type="application/pdf" 
+            style="width: 100%; height: 800px; border: 1px solid var(--card-border); border-radius: 4px;"
+            title="PDF Document Viewer">
+        <p>Your browser does not support PDF preview. 
+           <a href="/download/{draft_name}">Download the PDF</a> to view it.</p>
+    </iframe>
+</div>
+'''
             else:
                 document_content = f"Document content cannot be displayed for {ext.upper()} files. Please download to view."
         except Exception as e:
@@ -5719,7 +5982,11 @@ Meta-Layer Initiative
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
-    display_id = draft.get('ml_number') or draft['name']
+    # Show ML number only if approved, otherwise show submission ID
+    if draft.get('status') == 'approved' and draft.get('ml_number'):
+        display_id = draft.get('ml_number')
+    else:
+        display_id = draft['name']
     content = f"""
     <div class="container mt-4">
         <h1>{display_id}</h1>
@@ -5735,13 +6002,16 @@ Meta-Layer Initiative
                         <table class="table" style="color: var(--text-primary) !important;">
                             <tr><td style="color: var(--text-secondary) !important;"><strong>ID:</strong></td><td style="color: var(--text-primary) !important;">{display_id}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Title:</strong></td><td style="color: var(--text-primary) !important;">{draft['title']}</td></tr>
-                            <tr><td style="color: var(--text-secondary) !important;"><strong>Revision:</strong></td><td style="color: var(--text-primary) !important;">{draft['rev']}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Status:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-secondary">{draft['status']}</span></td></tr>
-                            <tr><td style="color: var(--text-secondary) !important;"><strong>Pages:</strong></td><td style="color: var(--text-primary) !important;">{draft['pages']}</td></tr>
-                            <tr><td style="color: var(--text-secondary) !important;"><strong>Words:</strong></td><td style="color: var(--text-primary) !important;">{draft['words']}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Authors:</strong></td><td style="color: var(--text-primary) !important;">{', '.join(draft['authors'])}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Group:</strong></td><td style="color: var(--text-primary) !important;">{draft['group'] or 'N/A'}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Date:</strong></td><td style="color: var(--text-primary) !important;">{draft['date']}</td></tr>
+                            {f'<tr><td colspan="2" style="padding-top: 15px;"><hr style="border-color: var(--border-color);"></td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Source:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-info"><i class="bi bi-coin"></i> Bitcoin Ordinal</span></td></tr>' if draft.get('sourceType') == 'ordinal' else f'<tr><td style="color: var(--text-secondary) !important;"><strong>Revision:</strong></td><td style="color: var(--text-primary) !important;">{draft["rev"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Pages:</strong></td><td style="color: var(--text-primary) !important;">{draft["pages"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Words:</strong></td><td style="color: var(--text-primary) !important;">{draft["words"]}</td></tr>'}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Inscription #:</strong></td><td style="color: var(--text-primary) !important;">{draft["inscriptionNumber"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('inscriptionNumber') else ''}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Block Height:</strong></td><td style="color: var(--text-primary) !important;">{draft["blockHeight"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('blockHeight') else ''}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Timestamp:</strong></td><td style="color: var(--text-primary) !important;">{draft["inscriptionTimestamp"].strftime("%Y-%m-%d %H:%M UTC") if draft.get("inscriptionTimestamp") else "N/A"}</td></tr>' if draft.get('sourceType') == 'ordinal' else ''}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Content Type:</strong></td><td style="color: var(--text-primary) !important;">{draft["ordinalContentType"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('ordinalContentType') else ''}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Inscription ID:</strong></td><td style="color: var(--text-primary) !important;"><a href="https://ordinals.com/inscription/{draft["ordinalId"]}" target="_blank" class="text-decoration-none" style="color: var(--accent-color) !important;"><code style="font-family: monospace; font-size: 0.85em;">{shorten_inscription_id(draft["ordinalId"], 8)}</code></a></td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('ordinalId') else ''}
                         </table>
                     </div>
                 </div>
@@ -5760,12 +6030,14 @@ Meta-Layer Initiative
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Document Content</h5>
                         <div>
+                            {'' if draft.get('sourceType') == 'ordinal' else f'''
                             <a href="/download/{draft['name']}" class="btn btn-sm btn-outline-primary" target="_blank">
                                 <i class="fas fa-download me-1"></i>Download
                             </a>
                             <a href="/doc/draft/{draft['name']}.txt" class="btn btn-sm btn-outline-secondary" target="_blank">
                                 <i class="fas fa-external-link-alt me-1"></i>View TXT
                             </a>
+                            '''}
                         </div>
                     </div>
                     <div class="card-body">
@@ -5782,18 +6054,18 @@ Meta-Layer Initiative
                         <h5>Actions</h5>
                     </div>
                     <div class="card-body">
-                        <a href="/doc/draft/{draft['name']}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>
+                        {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>' if draft.get('status') == 'approved' else ''}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
                         <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
-                        <a href="/download/{draft['name']}" class="btn btn-outline-primary w-100 mb-2">Download Document</a>
-                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/follow/" style="display: inline;" class="mb-2"><select name="notification_level" class="form-select form-select-sm mb-1"><option value="all">All changes & comments</option><option value="significant">Significant changes only</option><option value="major">Major changes only</option><option value="comments">Comments only</option><option value="none">No notifications</option></select><button type="submit" class="btn btn-success w-100"><i class="fas fa-bell me-1"></i>Follow Document</button></form>' if current_user and not is_user_following_draft(draft_name, current_user) else ''}
-                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/unfollow/" style="display: inline;" class="mb-2"><button type="submit" class="btn btn-warning w-100"><i class="fas fa-bell-slash me-1"></i>Unfollow Document</button></form>' if current_user and is_user_following_draft(draft_name, current_user) else ''}
-                        {get_notification_controls(draft_name, current_user) if current_user and is_user_following_draft(draft_name, current_user) else ''}
+                        {'' if draft.get('sourceType') == 'ordinal' else f'<a href="/download/{draft["name"]}" class="btn btn-outline-primary w-100 mb-2">Download Document</a>'}
+                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/follow/" style="display: inline;" class="mb-2"><select name="notification_level" class="form-select form-select-sm mb-1"><option value="all">All changes & comments</option><option value="significant">Significant changes only</option><option value="major">Major changes only</option><option value="comments">Comments only</option><option value="none">No notifications</option></select><button type="submit" class="btn btn-success w-100"><i class="fas fa-bell me-1"></i>Follow Document</button></form>' if current_user and draft.get('status') == 'approved' and not is_user_following_draft(draft_name, current_user) else ''}
+                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/unfollow/" style="display: inline;" class="mb-2"><button type="submit" class="btn btn-warning w-100"><i class="fas fa-bell-slash me-1"></i>Unfollow Document</button></form>' if current_user and draft.get('status') == 'approved' and is_user_following_draft(draft_name, current_user) else ''}
+                        {get_notification_controls(draft_name, current_user) if current_user and draft.get('status') == 'approved' and is_user_following_draft(draft_name, current_user) else ''}
                         {'' if not current_user else ''}
                     </div>
                 </div>
                 
-                <div class="card mt-3">
+                {f'''<div class="card mt-3">
                     <div class="card-header">
                         <h5>Quick Comment</h5>
                     </div>
@@ -5805,7 +6077,7 @@ Meta-Layer Initiative
                             <button type="submit" class="btn btn-success btn-sm w-100">Post Comment</button>
                         </form>
         </div>
-    </div>
+    </div>''' if draft.get('status') == 'approved' else ''}
     
                 <div class="card mt-3">
                     <div class="card-header">
@@ -5823,7 +6095,12 @@ Meta-Layer Initiative
     # Add document_content to the template
     content = content.replace('{document_content}', document_content)
 
-    return BASE_TEMPLATE.format(title=f"{draft['name']} - MLTF", theme=current_theme, user_menu=user_menu, content=content)
+    # Use ML number for title if approved and available, otherwise use draft name (submission ID)
+    if draft.get('status') == 'approved' and draft.get('ml_number'):
+        title_id = draft.get('ml_number')
+    else:
+        title_id = draft['name']
+    return BASE_TEMPLATE.format(title=f"{title_id} - MLTF", theme=current_theme, user_menu=user_menu, content=content)
 
 @app.route('/doc/draft/<draft_name>/comments/', methods=['GET', 'POST'])
 @require_auth
