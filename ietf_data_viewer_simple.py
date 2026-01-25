@@ -2419,8 +2419,8 @@ def submit_draft():
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': '*/*',
-                    'Accept-Encoding': 'gzip, deflate, br',
                     'Connection': 'keep-alive'
+                    # Removed Accept-Encoding to avoid compression issues that cause wrong word counts
                 }
                 response = requests.get(ordinal_content_url, headers=headers, timeout=30)
                 response.raise_for_status()
@@ -3597,8 +3597,8 @@ def preview_ordinal():
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept': '*/*',
-                'Accept-Encoding': 'gzip, deflate, br',
                 'Connection': 'keep-alive'
+                # Removed Accept-Encoding to avoid compression issues
             }
             
             head_response = requests.head(content_url, headers=headers, timeout=10, allow_redirects=True)
