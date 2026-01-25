@@ -4896,6 +4896,18 @@ def update_submission_status(submission_id):
     old_status = submission.status
     submission.status = new_status
 
+    # Assign ML number when approving
+    if new_status == 'approved' and not submission.ml_number:
+        try:
+            doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+            ml_number = get_next_ml_number(doc_type)
+            submission.ml_number = ml_number
+            submission.approved_at = datetime.utcnow()
+            app.logger.info(f"✅ Assigned ML number {ml_number} to submission {submission_id} via admin status update")
+        except Exception as e:
+            app.logger.error(f"❌ Failed to assign ML number to submission {submission_id} via admin status update: {e}")
+            # Continue with status change even if ML assignment fails
+
     if new_status == 'rejected' and reason:
         submission.rejected_at = datetime.utcnow()
 
