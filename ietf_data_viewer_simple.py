@@ -2507,11 +2507,8 @@ def submit_draft():
                 words=words
             )
         
-        # Assign ML number in development mode (auto-approve for testing)
-        if ENV == 'development':
-            doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
-            submission.ml_number = get_next_ml_number(doc_type)
-            app.logger.info(f"📝 Auto-assigned ML number in dev: {submission.ml_number}")
+        # ML numbers are assigned only when submissions are approved, not on submission
+        # submission.ml_number will remain None until approval
         
         # Save to database
         db.session.add(submission)
