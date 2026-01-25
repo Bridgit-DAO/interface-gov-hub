@@ -7,8 +7,12 @@ This displays the Meta-Layer Task Force data so you can see it working.
 If you see "IETF Data Viewer" in the docstring, this file has been reverted incorrectly.
 The correct version should say "MLTF Data Viewer" and "Meta-Layer Task Force".
 
-Version: 2026-01-17-final (includes "Welcome to the Meta-Layer Governance Hub" and visible red test box)
+BUILD: 1
+Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
+
+# Build number for cache busting and version tracking
+BUILD_NUMBER = 33
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -16,6 +20,7 @@ import os
 import re
 import json
 import uuid
+import requests
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -34,6 +39,13 @@ try:
     DOCX_SUPPORT = True
 except ImportError:
     DOCX_SUPPORT = False
+
+try:
+    import markdown2
+    import bleach
+    MARKDOWN_SUPPORT = True
+except ImportError:
+    MARKDOWN_SUPPORT = False
 
 # Rate limiting for security
 rate_limit_store = defaultdict(list)
@@ -61,6 +73,9 @@ def init_db():
     with app.app_context():
         db.create_all()
 
+        # Run database migrations for ordinals support
+        migrate_ordinals_support()
+
         # Migrate hardcoded users to database if not already done
         if User.query.count() == 0:
             migrate_hardcoded_users()
@@ -84,6 +99,68 @@ def init_db():
             DRAFTS.append(draft_entry)
 
         print(f"Database initialized: {User.query.count()} users, {len(published_drafts)} published drafts loaded")
+
+def migrate_ordinals_support():
+    """Add ordinals support columns to existing submission table"""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if ordinals columns exist
+        cursor.execute("PRAGMA table_info(submission)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        ordinals_columns = {
+            'sourceType': ('TEXT', 'file'),
+            'ordinalId': ('TEXT', None),
+            'ordinalContentUrl': ('TEXT', None),
+            'ordinalContentType': ('TEXT', None),
+            'inscriptionNumber': ('INTEGER', None),
+            'blockHeight': ('INTEGER', None),
+            'inscriptionTimestamp': ('DATETIME', None),
+            'doc_type': ('TEXT', 'draft')
+        }
+        
+        added_columns = []
+        for col_name, (col_type, default_value) in ordinals_columns.items():
+            if col_name not in columns:
+                if default_value:
+                    cursor.execute(f"ALTER TABLE submission ADD COLUMN {col_name} {col_type} DEFAULT '{default_value}'")
+                else:
+                    cursor.execute(f"ALTER TABLE submission ADD COLUMN {col_name} {col_type}")
+                added_columns.append(col_name)
+        
+        # Migrate existing ML numbers to new format (ML-001 -> ML-Draft-001)
+        cursor.execute("SELECT id, ml_number FROM submission WHERE ml_number IS NOT NULL")
+        submissions = cursor.fetchall()
+        migrated_count = 0
+        for sub_id, ml_num in submissions:
+            if ml_num and not ml_num.startswith('ML-Draft-') and not ml_num.startswith('ML-RFC-'):
+                # Old format: ML-001, ML-002, etc.
+                # Extract number and convert to ML-Draft-XXX
+                try:
+                    num_part = ml_num.split('-')[-1]
+                    new_ml_num = f"ML-Draft-{num_part}"
+                    cursor.execute("UPDATE submission SET ml_number = ? WHERE id = ?", (new_ml_num, sub_id))
+                    migrated_count += 1
+                except (ValueError, IndexError):
+                    pass
+        
+        conn.commit()
+        conn.close()
+        
+        if added_columns:
+            print(f"✅ Added columns to submission table: {', '.join(added_columns)}")
+        else:
+            print("✅ All columns already exist in submission table")
+        
+        if migrated_count > 0:
+            print(f"✅ Migrated {migrated_count} ML numbers to new format (ML-Draft-XXX)")
+    except Exception as e:
+        print(f"⚠️  Error migrating ordinals support: {e}")
+        # Non-fatal - table might already have columns
 
 def migrate_hardcoded_users():
     """Migrate hardcoded users to database"""
@@ -207,9 +284,18 @@ class Submission(db.Model):
     submitted_by = db.Column(db.String(100), default='Anonymous User')
     approved_at = db.Column(db.DateTime, nullable=True)
     rejected_at = db.Column(db.DateTime, nullable=True)
-    ml_number = db.Column(db.String(10), nullable=True)  # ML-0001, ML-0002, etc.
+    ml_number = db.Column(db.String(20), nullable=True)  # ML-Draft-001, ML-RFC-001, etc.
+    doc_type = db.Column(db.String(10), default='draft')  # 'draft' or 'rfc'
     pages = db.Column(db.Integer, default=1)  # Calculated page count
     words = db.Column(db.Integer, default=0)  # Calculated word count
+    # Ordinal integration fields
+    sourceType = db.Column(db.String(20), default='file')  # 'file' or 'ordinal'
+    ordinalId = db.Column(db.String(255), nullable=True)  # Inscription ID
+    ordinalContentUrl = db.Column(db.String(500), nullable=True)  # URL to content
+    ordinalContentType = db.Column(db.String(100), nullable=True)  # MIME type
+    inscriptionNumber = db.Column(db.Integer, nullable=True)  # Ordinal inscription number
+    blockHeight = db.Column(db.Integer, nullable=True)  # Bitcoin block height
+    inscriptionTimestamp = db.Column(db.DateTime, nullable=True)  # When inscribed
 
 class PublishedDraft(db.Model):
     """Store published/approved drafts separately from original test data"""
@@ -397,15 +483,38 @@ def require_role(required_role):
         return decorated_function
     return decorator
 
+def shorten_inscription_id(inscription_id, chars_each_side=8):
+    """
+    Shorten an inscription ID to show first N chars...last N chars
+    Example: 8e24de515cc0dc305188f3c4a0e563466723bf9cf8d4576184bf3d13e287615bi0
+    becomes: 8e24de51....7615bi0 (with chars_each_side=8)
+    
+    Always includes the 'i0' at the end as it's part of the ordinal identifier.
+    """
+    if not inscription_id:
+        return ''
+    
+    # Ensure we have enough characters
+    if len(inscription_id) <= (chars_each_side * 2 + 4):
+        return inscription_id
+    
+    # Extract parts
+    start = inscription_id[:chars_each_side]
+    end = inscription_id[-chars_each_side:]
+    
+    return f'{start}....{end}'
+
 def get_current_user():
     """Get current logged in user"""
     if 'user' in session:
         user = User.query.filter_by(username=session['user']).first()
         if user:
+            # Use displayName or oauthName as fallback if name is not set
+            user_name = user.name or user.displayName or user.oauthName or user.username
             return {
                 'id': user.id,
                 'username': user.username,
-                'name': user.name,
+                'name': user_name,
                 'email': user.email,
                 'role': user.role,
                 'theme': user.theme,
@@ -1704,58 +1813,182 @@ SUBMIT_TEMPLATE = """
                 <div class="card-body">
                     <div id="flash-messages"></div>
                     
-                    <form method="POST" enctype="multipart/form-data">
-                        <div class="mb-3">
-                            <label for="title" class="form-label">Document Title *</label>
-                            <input type="text" class="form-control" id="title" name="title" required 
-                                   placeholder="Enter the document title">
+                    <!-- Tabs for Upload File vs From Ordinal -->
+                    <ul class="nav nav-tabs mb-3" id="submissionTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="upload-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#upload" type="button" role="tab">
+                                <i class="bi bi-upload"></i> Upload File
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="ordinal-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#ordinal" type="button" role="tab">
+                                <i class="bi bi-coin"></i> From Ordinal
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content" id="submissionTabContent">
+                        <!-- Upload File Tab -->
+                        <div class="tab-pane fade show active" id="upload" role="tabpanel">
+                            <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                                <input type="hidden" name="sourceType" value="file">
+                                
+                                <div class="mb-3">
+                                    <label for="title" class="form-label">Document Title *</label>
+                                    <input type="text" class="form-control" id="title" name="title" required 
+                                           placeholder="Enter the document title">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="authors" class="form-label">Authors *</label>
+                                    <input type="text" class="form-control" id="authors" name="authors" required 
+                                           placeholder="Comma-separated list of authors (e.g., John Doe, Jane Smith)">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="abstract" class="form-label">Abstract</label>
+                                    <textarea class="form-control" id="abstract" name="abstract" rows="4" 
+                                              placeholder="Brief description of the document"></textarea>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="group" class="form-label">Working Group (Optional)</label>
+                                    <select class="form-select" id="group" name="group">
+                                        <option value="">Select a Working Group</option>
+                                        <option value="httpbis">HTTP</option>
+                                        <option value="quic">QUIC</option>
+                                        <option value="tls">TLS</option>
+                                        <option value="dnsop">DNSOP</option>
+                                        <option value="rtgwg">RTGWG</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="file" class="form-label">Document File *</label>
+                                    <input type="file" class="form-control" id="file" name="file" required 
+                                           accept=".pdf,.txt,.xml,.doc,.docx">
+                                    <div class="form-text">Supported formats: PDF, TXT, XML, DOC, DOCX (max 16MB)</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="terms" required>
+                                        <label class="form-check-label" for="terms">
+                                            I agree to the <a href="#" target="_blank">MLTF submission terms</a>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                    <button type="submit" class="btn btn-primary">Submit Draft</button>
+                                    <a href="/" class="btn btn-secondary">Cancel</a>
+                                </div>
+                            </form>
                         </div>
                         
-                        <div class="mb-3">
-                            <label for="authors" class="form-label">Authors *</label>
-                            <input type="text" class="form-control" id="authors" name="authors" required 
-                                   placeholder="Comma-separated list of authors (e.g., John Doe, Jane Smith)">
+                        <!-- From Ordinal Tab -->
+                        <div class="tab-pane fade" id="ordinal" role="tabpanel">
+                            <form method="POST" id="ordinalForm">
+                                <input type="hidden" name="sourceType" value="ordinal">
+                                <input type="hidden" name="ordinalContentUrl" id="ordinalContentUrl">
+                                <input type="hidden" name="ordinalContentType" id="ordinalContentType">
+                                <input type="hidden" name="inscriptionNumber" id="inscriptionNumber">
+                                <input type="hidden" name="blockHeight" id="blockHeight">
+                                <input type="hidden" name="inscriptionTimestamp" id="inscriptionTimestamp">
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalId" class="form-label">Inscription ID *</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="ordinalId" name="ordinalId" required 
+                                               placeholder="Enter Bitcoin Ordinal inscription ID">
+                                        <button class="btn btn-outline-secondary" type="button" id="previewBtn">
+                                            <i class="bi bi-eye"></i> Preview
+                                        </button>
+                                    </div>
+                                    <div class="form-text">Enter the inscription ID from ordinals.com</div>
+                                </div>
+                                
+                                <!-- Preview Area -->
+                                <div id="ordinalPreview" class="mb-3" style="display: none;">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h6 class="mb-0">Ordinal Preview</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div id="previewLoading" style="display: none;">
+                                                <div class="text-center">
+                                                    <div class="spinner-border text-primary" role="status">
+                                                        <span class="visually-hidden">Loading...</span>
+                                                    </div>
+                                                    <p class="mt-2">Loading ordinal content...</p>
+                                                </div>
+                                            </div>
+                                            <div id="previewError" class="alert alert-danger" style="display: none;"></div>
+                                            <div id="previewContent"></div>
+                                            <div id="previewMetadata" class="mt-3" style="display: none;">
+                                                <hr>
+                                                <h6>Metadata:</h6>
+                                                <ul class="list-unstyled small">
+                                                    <li><strong>Inscription ID:</strong> <span id="metaInscriptionId"></span></li>
+                                                    <li><strong>Inscription Number:</strong> <span id="metaInscriptionNumber"></span></li>
+                                                    <li><strong>Block Height:</strong> <span id="metaBlockHeight"></span></li>
+                                                    <li><strong>Timestamp:</strong> <span id="metaTimestamp"></span></li>
+                                                    <li><strong>Content Type:</strong> <span id="metaContentType"></span></li>
+                                                    <li><strong>Content Size:</strong> <span id="metaContentSize"></span></li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalTitle" class="form-label">Document Title *</label>
+                                    <input type="text" class="form-control" id="ordinalTitle" name="title" required 
+                                           placeholder="Enter the document title">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalAuthors" class="form-label">Authors *</label>
+                                    <input type="text" class="form-control" id="ordinalAuthors" name="authors" required 
+                                           placeholder="Comma-separated list of authors">
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalAbstract" class="form-label">Abstract</label>
+                                    <textarea class="form-control" id="ordinalAbstract" name="abstract" rows="4" 
+                                              placeholder="Brief description of the document"></textarea>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="ordinalGroup" class="form-label">Working Group (Optional)</label>
+                                    <select class="form-select" id="ordinalGroup" name="group">
+                                        <option value="">Select a Working Group</option>
+                                        <option value="httpbis">HTTP</option>
+                                        <option value="quic">QUIC</option>
+                                        <option value="tls">TLS</option>
+                                        <option value="dnsop">DNSOP</option>
+                                        <option value="rtgwg">RTGWG</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="ordinalTerms" required>
+                                        <label class="form-check-label" for="ordinalTerms">
+                                            I agree to the <a href="#" target="_blank">MLTF submission terms</a>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                    <button type="submit" class="btn btn-primary" id="ordinalSubmitBtn" disabled>Submit Draft</button>
+                                    <a href="/" class="btn btn-secondary">Cancel</a>
+                                </div>
+                            </form>
                         </div>
-                        
-                        <div class="mb-3">
-                            <label for="abstract" class="form-label">Abstract</label>
-                            <textarea class="form-control" id="abstract" name="abstract" rows="4" 
-                                      placeholder="Brief description of the document"></textarea>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="group" class="form-label">Working Group (Optional)</label>
-                            <select class="form-select" id="group" name="group">
-                                <option value="">Select a Working Group</option>
-                                <option value="httpbis">HTTP</option>
-                                <option value="quic">QUIC</option>
-                                <option value="tls">TLS</option>
-                                <option value="dnsop">DNSOP</option>
-                                <option value="rtgwg">RTGWG</option>
-                            </select>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="file" class="form-label">Document File *</label>
-                            <input type="file" class="form-control" id="file" name="file" required 
-                                   accept=".pdf,.txt,.xml,.doc,.docx">
-                            <div class="form-text">Supported formats: PDF, TXT, XML, DOC, DOCX (max 16MB)</div>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="terms" required>
-                                <label class="form-check-label" for="terms">
-                                    I agree to the <a href="#" target="_blank">MLTF submission terms</a>
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                            <button type="submit" class="btn btn-primary">Submit Draft</button>
-                            <a href="/" class="btn btn-secondary">Cancel</a>
-                        </div>
-                    </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1771,6 +2004,13 @@ SUBMIT_TEMPLATE = """
                         <li>PDF format preferred</li>
                         <li>Maximum 16MB file size</li>
                         <li>Use standard MLTF formatting</li>
+                    </ul>
+                    
+                    <h6>Ordinal Requirements:</h6>
+                    <ul class="small">
+                        <li>Content must be < 50KB</li>
+                        <li>Supported: Images, Text, Markdown, HTML</li>
+                        <li>Valid inscription ID required</li>
                     </ul>
                     
                     <h6>Content Requirements:</h6>
@@ -1793,6 +2033,236 @@ SUBMIT_TEMPLATE = """
         </div>
     </div>
 </div>
+
+<script>
+// Ordinal preview functionality
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🔨 BUILD """ + str(BUILD_NUMBER) + """ - Ordinals Module Loaded');
+    
+    const previewBtn = document.getElementById('previewBtn');
+    const ordinalIdInput = document.getElementById('ordinalId');
+    const ordinalPreview = document.getElementById('ordinalPreview');
+    const previewLoading = document.getElementById('previewLoading');
+    const previewError = document.getElementById('previewError');
+    const previewContent = document.getElementById('previewContent');
+    const previewMetadata = document.getElementById('previewMetadata');
+    const ordinalSubmitBtn = document.getElementById('ordinalSubmitBtn');
+    
+    let previewData = null;
+    
+    previewBtn.addEventListener('click', async function() {
+        const inscriptionId = ordinalIdInput.value.trim();
+        
+        if (!inscriptionId) {
+            alert('Please enter an inscription ID');
+            return;
+        }
+        
+        // Show preview area and loading
+        ordinalPreview.style.display = 'block';
+        previewLoading.style.display = 'block';
+        previewError.style.display = 'none';
+        previewContent.innerHTML = '';
+        previewMetadata.style.display = 'none';
+        ordinalSubmitBtn.disabled = true;
+        
+        try {
+            const response = await fetch('/api/ordinal/preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ inscriptionId })
+            });
+            
+            const data = await response.json();
+            
+            previewLoading.style.display = 'none';
+            
+            if (!data.success) {
+                previewError.textContent = data.error || 'Failed to load ordinal';
+                previewError.style.display = 'block';
+                return;
+            }
+            
+            // Store preview data
+            previewData = data;
+            
+            // Populate hidden fields
+            document.getElementById('ordinalContentUrl').value = data.contentUrl;
+            document.getElementById('ordinalContentType').value = data.contentType;
+            document.getElementById('inscriptionNumber').value = data.inscriptionNumber || '';
+            document.getElementById('blockHeight').value = data.blockHeight || '';
+            document.getElementById('inscriptionTimestamp').value = data.timestamp || '';
+            
+            // Display content based on type
+            displayOrdinalContent(data);
+            
+            // Display metadata
+            displayMetadata(data);
+            
+            // Enable submit button
+            ordinalSubmitBtn.disabled = false;
+            
+        } catch (error) {
+            previewLoading.style.display = 'none';
+            previewError.textContent = 'Error: ' + error.message;
+            previewError.style.display = 'block';
+        }
+    });
+    
+    function displayOrdinalContent(data) {
+        const contentType = data.contentType;
+        const contentUrl = data.contentUrl;
+        
+        console.log('=== displayOrdinalContent DEBUG ===');
+        console.log('contentType:', contentType);
+        console.log('contentUrl:', contentUrl);
+        console.log('startsWith image:', contentType.startsWith('image/'));
+        console.log('includes text/plain:', contentType.includes('text/plain'));
+        console.log('includes text/javascript:', contentType.includes('text/javascript'));
+        console.log('includes application/json:', contentType.includes('application/json'));
+        console.log('includes text/markdown:', contentType.includes('text/markdown'));
+        console.log('includes text/html:', contentType.includes('text/html'));
+        
+        if (contentType.startsWith('image/')) {
+            console.log('→ RENDERING AS IMAGE');
+            // Display image
+            previewContent.innerHTML = `<img src="${contentUrl}" class="img-fluid" alt="Ordinal content" style="max-height: 400px;">`;
+        } else if (contentType.includes('text/plain') || contentType.includes('text/javascript') || contentType.includes('application/json')) {
+            console.log('→ RENDERING AS TEXT/PLAIN (checking for markdown)');
+            // Display plain text (handles charset parameters), but check if it's actually markdown
+            fetch(contentUrl)
+                .then(res => {
+                    console.log('Fetch response status:', res.status);
+                    return res.text();
+                })
+                .then(text => {
+                    console.log('Text content length:', text.length);
+                    console.log('First 100 chars:', text.substring(0, 100));
+                    
+                    // Check if text looks like markdown
+                    const markdownPatterns = [
+                        /^#{1,6}\s+.+$/m,              // Headers: # Header
+                        /\[.+\]\(.+\)/,                // Links: [text](url)
+                        /!\[.*\]\(.+\)/,               // Images: ![alt](url)
+                        /^\s*[-*+]\s+.+$/m,            // Unordered lists
+                        /^\s*\d+\.\s+.+$/m,            // Ordered lists
+                        /```[\s\S]*?```/,              // Code blocks
+                        /^\s*>\s+.+$/m,                // Blockquotes
+                        /\*\*.+?\*\*/,                 // Bold
+                        /__(.+?)__/,                   // Bold (alt)
+                        /\*.+?\*/,                     // Italic
+                        /_(.+?)_/                      // Italic (alt)
+                    ];
+                    
+                    const looksLikeMarkdown = markdownPatterns.some(pattern => pattern.test(text));
+                    
+                    if (looksLikeMarkdown) {
+                        console.log('→ DETECTED MARKDOWN in text/plain, converting...');
+                        // Treat as markdown
+                        fetch('/api/ordinal/convert-markdown', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ markdown: text })
+                        })
+                        .then(res => {
+                            console.log('✅ Markdown API response status:', res.status);
+                            return res.json();
+                        })
+                        .then(result => {
+                            console.log('✅ Markdown API result:', result);
+                            if (result.success) {
+                                console.log('✅ HTML length:', result.html.length);
+                                console.log('📄 HTML first 500 chars:', result.html.substring(0, 500));
+                                // Fix relative image URLs
+                                let html = result.html;
+                                const beforeFix = html;
+                                html = html.replace(/src="\/content\//g, 'src="https://ordinals.com/content/');
+                                html = html.replace(/src='\/content\//g, "src='https://ordinals.com/content/");
+                                if (html !== beforeFix) {
+                                    console.log('✅ FIXED relative image URLs in frontend');
+                                    console.log('📄 Fixed HTML first 500 chars:', html.substring(0, 500));
+                                } else {
+                                    console.log('⚠️  No relative URLs found to fix in frontend');
+                                }
+                                previewContent.innerHTML = `<div class="border p-3" style="max-height: 400px; overflow-y: auto;">${html}</div>`;
+                                console.log('✅ HTML injected into DOM');
+                            } else {
+                                console.error('❌ Markdown conversion failed:', result.error);
+                                // Fallback to plain text
+                                previewContent.innerHTML = `<pre class="border p-3" style="max-height: 400px; overflow-y: auto;">${escapeHtml(text)}</pre>`;
+                            }
+                        })
+                        .catch(err => {
+                            console.error('❌ Error calling markdown API:', err);
+                            // Fallback to plain text
+                            previewContent.innerHTML = `<pre class="border p-3" style="max-height: 400px; overflow-y: auto;">${escapeHtml(text)}</pre>`;
+                        });
+                    } else {
+                        console.log('→ DISPLAYING AS PLAIN TEXT');
+                        previewContent.innerHTML = `<pre class="border p-3" style="max-height: 400px; overflow-y: auto;">${escapeHtml(text)}</pre>`;
+                    }
+                })
+                .catch(err => {
+                    console.error('Error fetching text:', err);
+                    previewContent.innerHTML = `<div class="alert alert-danger">Error loading text: ${err.message}</div>`;
+                });
+        } else if (contentType.includes('text/markdown')) {
+            console.log('→ RENDERING AS MARKDOWN');
+            // Display markdown (convert to HTML)
+            fetch(contentUrl)
+                .then(res => res.text())
+                .then(markdown => {
+                    return fetch('/api/ordinal/convert-markdown', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ markdown })
+                    });
+                })
+                .then(res => res.json())
+                .then(result => {
+                    if (result.success) {
+                        // Fix relative image URLs to ordinals.com
+                        let html = result.html;
+                        html = html.replace(/src="\/content\//g, 'src="https://ordinals.com/content/');
+                        html = html.replace(/src='\/content\//g, "src='https://ordinals.com/content/");
+                        previewContent.innerHTML = `<div class="border p-3" style="max-height: 400px; overflow-y: auto;">${html}</div>`;
+                    }
+                });
+        } else if (contentType.includes('text/html')) {
+            console.log('→ RENDERING AS HTML');
+            // Display HTML in sandboxed iframe
+            previewContent.innerHTML = `<iframe src="${contentUrl}" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: 1px solid var(--card-border);"></iframe>`;
+        } else {
+            console.log('→ UNSUPPORTED TYPE');
+            previewContent.innerHTML = `<div class="alert alert-info">Content type: ${contentType}<br>Cannot preview this content type.</div>`;
+        }
+    }
+    
+    function displayMetadata(data) {
+        document.getElementById('metaInscriptionId').textContent = data.inscriptionId;
+        document.getElementById('metaInscriptionNumber').textContent = data.inscriptionNumber || 'N/A';
+        document.getElementById('metaBlockHeight').textContent = data.blockHeight || 'N/A';
+        document.getElementById('metaTimestamp').textContent = data.timestamp || 'N/A';
+        document.getElementById('metaContentType').textContent = data.contentType;
+        document.getElementById('metaContentSize').textContent = formatBytes(data.contentSize);
+        previewMetadata.style.display = 'block';
+    }
+    
+    function formatBytes(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+});
+</script>
 """
 
 @app.before_request
@@ -1895,77 +2365,164 @@ def submit_draft():
     for group in GROUPS:
         group_options += f'<option value="{group["acronym"]}">{group["name"]}</option>'
 
-    # Replace the hardcoded options in the template
-    submit_template = SUBMIT_TEMPLATE.replace(
-        '''<option value="">Select a Working Group</option>
-                                <option value="httpbis">HTTP</option>
-                                <option value="quic">QUIC</option>
-                                <option value="tls">TLS</option>
-                                <option value="dnsop">DNSOP</option>
-                                <option value="rtgwg">RTGWG</option>''',
-        group_options
-    )
+    # Replace the hardcoded options in the template (multiple occurrences for both tabs)
+    submit_template = SUBMIT_TEMPLATE
+    for _ in range(2):  # Replace in both upload and ordinal tabs
+        submit_template = submit_template.replace(
+            '''<option value="">Select a Working Group</option>
+                                        <option value="httpbis">HTTP</option>
+                                        <option value="quic">QUIC</option>
+                                        <option value="tls">TLS</option>
+                                        <option value="dnsop">DNSOP</option>
+                                        <option value="rtgwg">RTGWG</option>''',
+            group_options,
+            1  # Replace only one occurrence at a time
+        )
 
     if request.method == 'POST':
-        # Handle form submission
+        # Get common fields
         title = request.form.get('title', '').strip()
         authors = request.form.get('authors', '').strip()
         abstract = request.form.get('abstract', '').strip()
         group = request.form.get('group', '').strip()
-        file = request.files.get('file')
-
-        # Validation
-        if not title or not authors or not file:
-            flash('Title, authors, and file are required', 'error')
-            return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
-
-        # Security: Check file size (max 50MB)
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)  # Reset to beginning
-        max_size = 50 * 1024 * 1024  # 50MB
-        if file_size > max_size:
-            flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
-            return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
-
+        source_type = request.form.get('sourceType', 'file').strip()
+        
         # Process authors (comma-separated)
         authors_list = [a.strip() for a in authors.split(',') if a.strip()]
-
-        # Generate submission ID (simple increment)
+        
+        # Generate submission ID
         import random
         import string
         submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-
-        # Save file
-        filename = f"{submission_id}-{file.filename}"
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-
-        # Calculate pages and words
-        pages, words = calculate_pages_and_words(file_path, filename)
-
-        # Create submission record
-        submission = Submission(
-            id=submission_id,
-            title=title,
-            authors=authors_list,
-            abstract=abstract,
-            group=group,
-            filename=filename,
-            file_path=file_path,
-            submitted_by=get_current_user()['name'],
-            pages=pages,
-            words=words
-        )
-
+        
+        # Handle based on source type
+        if source_type == 'ordinal':
+            # Ordinal submission
+            ordinal_id = request.form.get('ordinalId', '').strip()
+            ordinal_content_url = request.form.get('ordinalContentUrl', '').strip()
+            ordinal_content_type = request.form.get('ordinalContentType', '').strip()
+            inscription_number = request.form.get('inscriptionNumber', '').strip()
+            block_height = request.form.get('blockHeight', '').strip()
+            inscription_timestamp = request.form.get('inscriptionTimestamp', '').strip()
+            
+            # Validation
+            if not title or not authors or not ordinal_id:
+                flash('Title, authors, and inscription ID are required', 'error')
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+            
+            if not ordinal_content_url:
+                flash('Please preview the ordinal before submitting', 'error')
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+            
+            # Fetch ordinal content and calculate pages/words
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': '*/*',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Connection': 'keep-alive'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=30)
+                response.raise_for_status()
+                content_text = response.text
+                
+                # Calculate pages and words from text
+                word_count = len(content_text.split())
+                chars_per_page = 3000
+                page_count = max(1, (len(content_text) + chars_per_page - 1) // chars_per_page)
+            except Exception as e:
+                app.logger.error(f"Failed to fetch ordinal content for pages/words: {e}")
+                # Use defaults if fetch fails
+                page_count = 1
+                word_count = 0
+            
+            # Create submission record with ordinal data
+            current_user_info = get_current_user()
+            app.logger.info(f"📝 CREATING SUBMISSION:")
+            app.logger.info(f"   current_user_info: {current_user_info}")
+            app.logger.info(f"   submitted_by will be: {current_user_info['name']}")
+            
+            # Get doc_type from form (default to 'draft')
+            doc_type = request.form.get('doc_type', 'draft').strip() or 'draft'
+            if doc_type not in ['draft', 'rfc']:
+                doc_type = 'draft'
+            
+            submission = Submission(
+                id=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                submitted_by=current_user_info['name'],
+                sourceType='ordinal',
+                doc_type=doc_type,
+                ordinalId=ordinal_id,
+                ordinalContentUrl=ordinal_content_url,
+                ordinalContentType=ordinal_content_type,
+                inscriptionNumber=int(inscription_number) if inscription_number else None,
+                blockHeight=int(block_height) if block_height else None,
+                inscriptionTimestamp=datetime.strptime(inscription_timestamp.replace(' UTC', ''), '%Y-%m-%d %H:%M:%S') if inscription_timestamp else None,
+                pages=page_count,
+                words=word_count
+            )
+            
+        else:
+            # File upload submission
+            file = request.files.get('file')
+            
+            # Validation
+            if not title or not authors or not file:
+                flash('Title, authors, and file are required', 'error')
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+            
+            # Security: Check file size (max 50MB)
+            file.seek(0, os.SEEK_END)
+            file_size = file.tell()
+            file.seek(0)  # Reset to beginning
+            max_size = 50 * 1024 * 1024  # 50MB
+            if file_size > max_size:
+                flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+            
+            # Save file
+            filename = f"{submission_id}-{file.filename}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+            
+            # Calculate pages and words
+            pages, words = calculate_pages_and_words(file_path, filename)
+            
+            # Create submission record with file data
+            submission = Submission(
+                id=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                filename=filename,
+                file_path=file_path,
+                submitted_by=get_current_user()['name'],
+                sourceType='file',
+                pages=pages,
+                words=words
+            )
+        
+        # Assign ML number in development mode (auto-approve for testing)
+        if ENV == 'development':
+            doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+            submission.ml_number = get_next_ml_number(doc_type)
+            app.logger.info(f"📝 Auto-assigned ML number in dev: {submission.ml_number}")
+        
+        # Save to database
         db.session.add(submission)
         db.session.commit()
 
         # Log the action
-        add_to_document_history(f"draft-{submission_id}", "submitted", get_current_user()['name'], f"New draft submitted: {title}")
+        source_desc = f"from ordinal {submission.ordinalId}" if source_type == 'ordinal' else "via file upload"
+        add_to_document_history(f"draft-{submission_id}", "submitted", get_current_user()['name'], f"New draft submitted {source_desc}: {title}")
 
         flash('Draft submitted successfully!', 'success')
-        return redirect(f'/submit/status/')
+        return redirect(f'/submit/status/{submission_id}/')
 
     return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
 
@@ -1999,6 +2556,11 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <div class="col-sm-3"><strong>Status:</strong></div>
                         <div class="col-sm-9">
                             <span class="badge bg-primary">{{ submission_status_title }}</span>
+                            {% if is_ordinal %}
+                            <span class="badge bg-info ms-2"><i class="bi bi-coin"></i> Ordinal</span>
+                            {% else %}
+                            <span class="badge bg-secondary ms-2"><i class="bi bi-file-earmark"></i> File</span>
+                            {% endif %}
                         </div>
                     </div>
                     <div class="row mb-3">
@@ -2009,14 +2571,21 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <div class="col-sm-3"><strong>Authors:</strong></div>
                         <div class="col-sm-9">{{ submission_authors_joined }}</div>
                     </div>
+                    {% if ml_number %}
                     <div class="row mb-3">
-                        <div class="col-sm-3"><strong>Draft Name:</strong></div>
-                        <div class="col-sm-9"><code>{{ submission_draft_name }}</code></div>
+                        <div class="col-sm-3"><strong>ML Number:</strong></div>
+                        <div class="col-sm-9"><code>{{ ml_number }}</code></div>
+                    </div>
+                    {% endif %}
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>Draft ID:</strong></div>
+                        <div class="col-sm-9"><code>{{ submission_id }}</code></div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>Submitted:</strong></div>
                         <div class="col-sm-9">{{ submission_submitted_at }}</div>
                     </div>
+                    {% if is_file %}
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>File:</strong></div>
                         <div class="col-sm-9">
@@ -2024,6 +2593,7 @@ SUBMISSION_STATUS_TEMPLATE = """
                             <a href="/download/{{ submission_id }}" class="btn btn-sm btn-outline-primary ms-2">Download</a>
                         </div>
                     </div>
+                    {% endif %}
                     {% if submission_abstract %}
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>Abstract:</strong></div>
@@ -2031,10 +2601,61 @@ SUBMISSION_STATUS_TEMPLATE = """
                     </div>
                     {% endif %}
 
-                    <h6 class="mt-4">File Preview</h6>
+                    {% if is_ordinal %}
+                    <h6 class="mt-4">Ordinal Metadata</h6>
+                    <div class="card mb-3" style="background-color: var(--bg-secondary);">
+                        <div class="card-body">
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Inscription ID:</strong></div>
+                                <div class="col-sm-8">
+                                    <a href="https://ordinals.com/inscription/{{ ordinal_id }}" target="_blank" class="text-decoration-none" style="color: var(--accent-color);">
+                                        <code style="font-size: 0.85em;">{{ ordinal_id_short }}</code>
+                                    </a>
+                                </div>
+                            </div>
+                            {% if inscription_number %}
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Inscription Number:</strong></div>
+                                <div class="col-sm-8">{{ inscription_number }}</div>
+                            </div>
+                            {% endif %}
+                            {% if block_height %}
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Block Height:</strong></div>
+                                <div class="col-sm-8">{{ block_height }}</div>
+                            </div>
+                            {% endif %}
+                            {% if inscription_timestamp %}
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Timestamp:</strong></div>
+                                <div class="col-sm-8">{{ inscription_timestamp }}</div>
+                            </div>
+                            {% endif %}
+                            <div class="row mb-2">
+                                <div class="col-sm-4"><strong>Content Type:</strong></div>
+                                <div class="col-sm-8"><code>{{ ordinal_content_type }}</code></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-sm-12">
+                                    <a href="https://ordinals.com/inscription/{{ ordinal_id }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-box-arrow-up-right"></i> View on Ordinals.com
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <h6 class="mt-4">Content Preview</h6>
+                    {% if content_preview_html %}
+                    <div class="border rounded p-3" style="background-color: var(--input-bg); border-color: var(--input-border);">
+                        {{ content_preview_html|safe }}
+                    </div>
+                    {% else %}
                     <div class="border rounded p-3" style="background-color: var(--input-bg); border-color: var(--input-border);">
                         <pre class="mb-0" style="font-size: 0.9em; max-height: 400px; overflow-y: auto; color: var(--text-primary);">{{ file_content }}</pre>
                     </div>
+                    {% endif %}
 
                     {% if is_submitted and is_admin %}
                     <div class="row mb-3">
@@ -2197,6 +2818,25 @@ def submission_status():
             'rejected': 'badge bg-danger',
             'published': 'badge bg-info'
         }.get(submission.status, 'badge bg-secondary')
+        
+        # Get source type
+        source_type = getattr(submission, 'sourceType', 'file')
+        source_badge = '<span class="badge bg-info ms-2"><i class="bi bi-coin"></i> Ordinal</span>' if source_type == 'ordinal' else '<span class="badge bg-secondary ms-2"><i class="bi bi-file-earmark"></i> File</span>'
+        
+        # Get source info (inscription number or filename)
+        if source_type == 'ordinal':
+            inscription_number = getattr(submission, 'inscriptionNumber', None)
+            ordinal_id = getattr(submission, 'ordinalId', None)
+            if inscription_number:
+                source_info = f'<p class="mb-2"><strong>Inscription:</strong> #{inscription_number}</p>'
+            elif ordinal_id:
+                shortened_id = shorten_inscription_id(ordinal_id, 8)
+                source_info = f'<p class="mb-2"><strong>Inscription:</strong> <a href="https://ordinals.com/inscription/{ordinal_id}" target="_blank" class="text-decoration-none"><code>{shortened_id}</code></a></p>'
+            else:
+                source_info = ''
+        else:
+            filename = getattr(submission, 'filename', None)
+            source_info = f'<p class="mb-2"><strong>File:</strong> {filename}</p>' if filename else '<p class="mb-2 text-muted"><em>No file</em></p>'
 
         submissions_html += f"""
         <div class="submission-item">
@@ -2207,7 +2847,10 @@ def submission_status():
                             {submission.title}
                         </a>
                     </h6>
-                    <span class="{status_badge}">{submission.status.title()}</span>
+                    <div>
+                        <span class="{status_badge}">{submission.status.title()}</span>
+                        {source_badge}
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="row">
@@ -2215,6 +2858,7 @@ def submission_status():
                             <p class="mb-2"><strong>Authors:</strong> {', '.join(submission.authors)}</p>
                             <p class="mb-2"><strong>Group:</strong> {submission.group or 'None'}</p>
                             <p class="mb-2"><strong>Submitted:</strong> {submission.submitted_at.strftime('%Y-%m-%d %H:%M')}</p>
+                            {source_info}
                             {f'<p class="mb-2"><strong>Abstract:</strong> {submission.abstract[:100]}...</p>' if submission.abstract else ''}
                         </div>
                         <div class="col-md-4 text-end">
@@ -2264,13 +2908,129 @@ def submission_detail(submission_id):
         return "Submission not found", 404
 
     # Check if user owns this submission or is admin
+    app.logger.info(f"🔐 ACCESS CHECK:")
+    app.logger.info(f"   submission.submitted_by: {submission.submitted_by}")
+    app.logger.info(f"   current_user['name']: {current_user['name']}")
+    app.logger.info(f"   current_user.get('role'): {current_user.get('role')}")
+    app.logger.info(f"   Match: {submission.submitted_by == current_user['name']}")
+    
     if submission.submitted_by != current_user['name'] and current_user.get('role') not in ['admin', 'editor']:
+        app.logger.warning(f"❌ ACCESS DENIED!")
         return "Access denied", 403
+    
+    app.logger.info(f"✅ ACCESS GRANTED")
 
-    # Try to read file content for preview
+    # Handle content preview based on source type
     file_content = "File preview not available"
-    if submission.file_path and os.path.exists(submission.file_path):
-        # Get file extension to determine how to handle preview
+    content_preview_html = ""
+    source_type = getattr(submission, 'sourceType', 'file')
+    
+    print(f"=== BACKEND DEBUG: submission_detail ===")
+    print(f"source_type: {source_type}")
+    
+    if source_type == 'ordinal':
+        # Ordinal content - generate preview HTML
+        ordinal_content_type = getattr(submission, 'ordinalContentType', '')
+        ordinal_content_url = getattr(submission, 'ordinalContentUrl', '')
+        
+        print(f"ordinal_content_type: {ordinal_content_type}")
+        print(f"ordinal_content_url: {ordinal_content_url}")
+        
+        if ordinal_content_type.startswith('image/'):
+            print("→ Rendering as image")
+            content_preview_html = f'<img src="{ordinal_content_url}" class="img-fluid" style="max-height: 400px;" alt="Ordinal content">'
+        elif 'text/plain' in ordinal_content_type or 'text/javascript' in ordinal_content_type or 'application/json' in ordinal_content_type or 'application/javascript' in ordinal_content_type:
+            print("→ Rendering as text/plain or text/javascript or application/json")
+            # Fetch and display text-based content (handles charset parameters)
+            try:
+                import markdown2
+                import bleach
+                import re
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                text_content = response.text
+                print(f"Text content length: {len(text_content)}")
+                print(f"First 100 chars: {text_content[:100]}")
+                
+                # Check if content is markdown
+                is_markdown = False
+                if 'text/plain' in ordinal_content_type:
+                    # Detect markdown patterns
+                    markdown_patterns = [
+                        r'^#{1,6}\s+.+$',  # Headers
+                        r'\*\*.+\*\*',      # Bold
+                        r'\*.+\*',          # Italic
+                        r'^\s*[-*+]\s+',    # Lists
+                        r'^\s*\d+\.\s+',    # Numbered lists
+                        r'\[.+\]\(.+\)',    # Links
+                        r'!\[.*\]\(.+\)'    # Images
+                    ]
+                    for pattern in markdown_patterns:
+                        if re.search(pattern, text_content, re.MULTILINE):
+                            is_markdown = True
+                            print(f"→ DETECTED MARKDOWN (pattern: {pattern})")
+                            break
+                
+                if is_markdown:
+                    # Convert markdown to HTML
+                    html_content = markdown2.markdown(text_content, extras=['fenced-code-blocks', 'tables', 'break-on-newline'])
+                    
+                    # Sanitize HTML
+                    allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                                  'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
+                                  'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span']
+                    allowed_attrs = {'a': ['href', 'title', 'target'], 'img': ['src', 'alt', 'title', 'width', 'height']}
+                    html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+                    
+                    # Fix relative image URLs to point to ordinals.com
+                    html_content = re.sub(
+                        r'src="(/content/[^"]+)"',
+                        r'src="https://ordinals.com\1"',
+                        html_content
+                    )
+                    
+                    content_preview_html = f'<div class="border p-3" style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                    file_content = ""  # Clear file_content since we're using content_preview_html
+                else:
+                    # Display as plain text
+                    if len(text_content) > 2000:
+                        file_content = text_content[:2000] + "..."
+                    else:
+                        file_content = text_content
+                print(f"file_content set, length: {len(file_content) if file_content else 0}")
+            except Exception as e:
+                print(f"ERROR fetching text content: {e}")
+                file_content = "Error loading ordinal text content"
+        elif 'text/markdown' in ordinal_content_type:
+            # Fetch, convert, and display markdown
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                markdown_text = response.text
+                if MARKDOWN_SUPPORT:
+                    html_content = markdown2.markdown(
+                        markdown_text,
+                        extras=['fenced-code-blocks', 'tables', 'break-on-newline']
+                    )
+                    content_preview_html = f'<div class="border p-3" style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                else:
+                    file_content = markdown_text[:2000] + ("..." if len(markdown_text) > 2000 else "")
+            except:
+                file_content = "Error loading ordinal markdown content"
+        elif 'text/html' in ordinal_content_type:
+            print("→ Rendering as HTML iframe")
+            # Display HTML in iframe (handles charset parameters)
+            content_preview_html = f'<iframe src="{ordinal_content_url}" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: 1px solid var(--card-border);"></iframe>'
+        else:
+            print(f"→ UNSUPPORTED content type")
+            file_content = f"Ordinal content type: {ordinal_content_type}\\nPreview not available for this content type."
+    
+    elif submission.file_path and os.path.exists(submission.file_path):
+        # File upload - extract text for preview
         _, ext = os.path.splitext(submission.filename.lower())
 
         try:
@@ -2310,28 +3070,27 @@ def submission_detail(submission_id):
                     file_content = "DOCX file appears to be empty or contains no extractable text."
 
             elif ext == '.pdf':
-                # Extract text from PDF files
-                from PyPDF2 import PdfReader
-                reader = PdfReader(submission.file_path)
-                content = ""
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text.strip():
-                        content += text + "\n"
-
-                if content.strip():
-                    # Clean up the text (remove excessive whitespace)
-                    import re
-                    content = re.sub(r'\n+', '\n', content)  # Remove multiple newlines
-                    content = re.sub(r' +', ' ', content)    # Remove multiple spaces
-
-                    # Limit preview to first 2000 characters
-                    if len(content) > 2000:
-                        file_content = content[:2000] + "..."
-                    else:
-                        file_content = content
-                else:
-                    file_content = "PDF file appears to be empty or contains no extractable text (may be image-based)."
+                # For PDFs, use embedded viewer instead of text extraction
+                file_size = os.path.getsize(submission.file_path)
+                file_size_kb = file_size / 1024
+                
+                # Create an embedded PDF viewer
+                content_preview_html = f'''
+                <div class="pdf-viewer-container">
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-file-pdf"></i> PDF Document ({file_size_kb:.1f} KB) - 
+                        <a href="/download/{submission.id}" class="alert-link">Download PDF</a> for best viewing experience
+                    </div>
+                    <iframe src="/view/{submission.id}" 
+                            type="application/pdf" 
+                            style="width: 100%; height: 600px; border: 1px solid var(--card-border);"
+                            title="PDF Preview">
+                        <p>Your browser does not support PDF preview. 
+                           <a href="/download/{submission.id}">Download the PDF</a> to view it.</p>
+                    </iframe>
+                </div>
+                '''
+                file_content = ""  # Clear file_content since we're using content_preview_html
 
             elif ext == '.doc':
                 # Legacy DOC files - show file info
@@ -2356,6 +3115,7 @@ def submission_detail(submission_id):
         'submission': submission,
         'current_user': current_user,
         'file_content': file_content,
+        'content_preview_html': content_preview_html,
         'submission_id': submission.id,
         'submission_status': submission.status,
         'submission_status_title': submission.status.title(),
@@ -2372,7 +3132,19 @@ def submission_detail(submission_id):
         'is_approved': submission.status == 'approved',
         'is_rejected': submission.status == 'rejected',
         'is_approved_or_rejected': submission.status in ['approved', 'rejected'],
-        'is_submitted': submission.status == 'submitted'
+        'is_submitted': submission.status == 'submitted',
+        # Ordinal-specific fields
+        'source_type': source_type,
+        'is_ordinal': source_type == 'ordinal',
+        'is_file': source_type == 'file',
+        'ordinal_id': getattr(submission, 'ordinalId', ''),
+        'ordinal_id_short': shorten_inscription_id(getattr(submission, 'ordinalId', ''), 8),
+        'ordinal_content_url': getattr(submission, 'ordinalContentUrl', ''),
+        'ordinal_content_type': getattr(submission, 'ordinalContentType', ''),
+        'inscription_number': getattr(submission, 'inscriptionNumber', None),
+        'block_height': getattr(submission, 'blockHeight', None),
+        'inscription_timestamp': getattr(submission, 'inscriptionTimestamp', None),
+        'ml_number': submission.ml_number
     }
     
     # Render the submission status template using Flask's Jinja2 engine
@@ -2804,6 +3576,246 @@ def register():
     """
     return render_template_string(BASE_TEMPLATE.format(title="Register - MLTF", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE))
 
+# Ordinals API routes
+@app.route('/api/ordinal/preview', methods=['POST'])
+def preview_ordinal():
+    """Preview ordinal content and fetch metadata"""
+    try:
+        data = request.get_json()
+        inscription_id = data.get('inscriptionId', '').strip()
+        
+        if not inscription_id:
+            return jsonify({'success': False, 'error': 'Inscription ID is required'}), 400
+        
+        # Validate inscription ID format (basic validation)
+        if len(inscription_id) < 10 or not all(c.isalnum() or c in 'i-_' for c in inscription_id):
+            return jsonify({'success': False, 'error': 'Invalid inscription ID format'}), 400
+        
+        # Build content URL
+        content_url = f"https://ordinals.com/content/{inscription_id}"
+        
+        # Check size and content type with HEAD request
+        try:
+            # Add headers to avoid 403 errors from ordinals.com
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive'
+            }
+            
+            head_response = requests.head(content_url, headers=headers, timeout=10, allow_redirects=True)
+            
+            if head_response.status_code == 404:
+                return jsonify({'success': False, 'error': 'Inscription not found'}), 404
+            
+            if head_response.status_code == 403:
+                return jsonify({
+                    'success': False, 
+                    'error': 'Access denied by ordinals.com. The inscription exists but cannot be accessed from the server. You can view it directly at: ' + content_url
+                }), 403
+            
+            if head_response.status_code != 200:
+                return jsonify({'success': False, 'error': f'Failed to fetch inscription (status: {head_response.status_code})'}), 400
+            
+            # Get content length
+            content_length = int(head_response.headers.get('Content-Length', 0))
+            max_size = 50 * 1024  # 50KB
+            
+            # If HEAD doesn't return Content-Length, try a GET request with streaming
+            if content_length == 0:
+                try:
+                    get_response = requests.get(content_url, headers=headers, timeout=10, stream=True)
+                    # Read just enough to check size
+                    content_chunk = get_response.raw.read(max_size + 1)
+                    content_length = len(content_chunk)
+                    content_type = get_response.headers.get('Content-Type', 'unknown').lower()
+                except:
+                    # If we can't determine size, allow it but note it
+                    content_length = 1  # Set to non-zero to proceed
+            
+            if content_length > max_size:
+                size_kb = content_length / 1024
+                return jsonify({
+                    'success': False, 
+                    'error': f'Content too large: {size_kb:.1f}KB (max 50KB)'
+                }), 400
+            
+            # Get content type
+            content_type = head_response.headers.get('Content-Type', 'unknown').lower()
+            
+            # Check if supported type
+            supported_types = [
+                'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 
+                'image/svg+xml', 'image/webp',
+                'text/plain', 'text/markdown', 'text/html', 'text/javascript',
+                'application/json', 'application/javascript'
+            ]
+            
+            is_supported = any(st in content_type for st in supported_types)
+            
+            if not is_supported:
+                return jsonify({
+                    'success': False,
+                    'error': f'Unsupported content type: {content_type}. Supported: images, text, markdown, HTML'
+                }), 400
+            
+            # Fetch metadata from ordinals.com HTML (JSON API is disabled on public instance - returns 406)
+            inscription_number = None
+            block_height = None
+            timestamp = None
+            
+            try:
+                import re
+                
+                # Fetch HTML page
+                page_url = f"https://ordinals.com/inscription/{inscription_id}"
+                page_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                app.logger.info(f"🔍 Scraping metadata from HTML: {page_url}")
+                
+                page_response = requests.get(page_url, headers=page_headers, timeout=10)
+                app.logger.info(f"📡 HTML Response status: {page_response.status_code}")
+                
+                if page_response.status_code == 200:
+                    html = page_response.text
+                    
+                    # Extract inscription number from title: <title>Inscription 117530382</title>
+                    number_match = re.search(r'<title>Inscription (\d+)</title>', html)
+                    if number_match:
+                        inscription_number = int(number_match.group(1))
+                        app.logger.info(f"   ✅ Inscription number: {inscription_number}")
+                    
+                    # Extract block height: <dt>height</dt><dd><a href=/block/933535>933535</a></dd>
+                    height_match = re.search(r'<dt>height</dt>\s*<dd><a[^>]*>(\d+)</a></dd>', html)
+                    if height_match:
+                        block_height = int(height_match.group(1))
+                        app.logger.info(f"   ✅ Block height: {block_height}")
+                    
+                    # Extract timestamp: <dt>timestamp</dt><dd><time>2026-01-23 15:15:43 UTC</time></dd>
+                    time_match = re.search(r'<dt>timestamp</dt>\s*<dd><time[^>]*>([^<]+)</time></dd>', html)
+                    if time_match:
+                        timestamp = time_match.group(1).strip()
+                        app.logger.info(f"   ✅ Timestamp: {timestamp}")
+                    
+                    app.logger.info(f"✅ Metadata scraped: number={inscription_number}, height={block_height}, time={timestamp}")
+                else:
+                    app.logger.warning(f"⚠️  HTML fetch failed ({page_response.status_code})")
+            except Exception as e:
+                app.logger.error(f"❌ Error scraping metadata: {e}")
+                import traceback
+                app.logger.error(traceback.format_exc())
+                pass  # Metadata fetch failed, continue without it
+            
+            return jsonify({
+                'success': True,
+                'contentUrl': content_url,
+                'contentType': content_type,
+                'contentSize': content_length,
+                'inscriptionId': inscription_id,
+                'inscriptionNumber': inscription_number,
+                'blockHeight': block_height,
+                'timestamp': timestamp
+            })
+            
+        except requests.Timeout:
+            return jsonify({'success': False, 'error': 'Request timed out. Please try again.'}), 408
+        except requests.ConnectionError:
+            return jsonify({'success': False, 'error': 'Ordinals service unavailable. Please try again later.'}), 503
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to fetch content: {str(e)}'}), 500
+            
+    except Exception as e:
+        print(f"Ordinal preview error: {e}")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+@app.route('/api/ordinal/convert-markdown', methods=['POST'])
+def convert_markdown():
+    """Convert markdown to HTML with sanitization"""
+    try:
+        data = request.get_json()
+        markdown_text = data.get('markdown', '')
+        
+        app.logger.info(f"📝 MARKDOWN CONVERSION REQUEST")
+        app.logger.info(f"   Input length: {len(markdown_text)} chars")
+        app.logger.info(f"   First 200 chars: {markdown_text[:200]}")
+        
+        if not markdown_text:
+            return jsonify({'success': False, 'error': 'No markdown provided'}), 400
+        
+        if MARKDOWN_SUPPORT:
+            app.logger.info(f"   ✅ Markdown support enabled")
+            # Convert markdown to HTML using markdown2
+            html_content = markdown2.markdown(
+                markdown_text,
+                extras=['fenced-code-blocks', 'tables', 'break-on-newline']
+            )
+            app.logger.info(f"   📄 Converted HTML length: {len(html_content)} chars")
+            app.logger.info(f"   📄 HTML first 300 chars: {html_content[:300]}")
+            
+            # Sanitize HTML to prevent XSS
+            allowed_tags = [
+                'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img',
+                'table', 'thead', 'tbody', 'tr', 'th', 'td'
+            ]
+            allowed_attrs = {
+                'a': ['href', 'title'],
+                'img': ['src', 'alt', 'title'],
+                'code': ['class']
+            }
+            
+            html_content = bleach.clean(
+                html_content,
+                tags=allowed_tags,
+                attributes=allowed_attrs,
+                strip=True
+            )
+            app.logger.info(f"   🧹 Sanitized HTML length: {len(html_content)} chars")
+            app.logger.info(f"   📄 Sanitized HTML first 500 chars: {html_content[:500]}")
+            
+            # Fix relative image URLs (prepend https://ordinals.com)
+            import re
+            original_html = html_content
+            
+            # Count how many img tags before
+            img_count_before = html_content.count('<img')
+            src_count_before = html_content.count('src=')
+            app.logger.info(f"   🔍 BEFORE URL fix: {img_count_before} img tags, {src_count_before} src attributes")
+            
+            # Search for the pattern
+            matches = re.findall(r'src="(/content/[^"]+)"', html_content)
+            app.logger.info(f"   🔍 Found {len(matches)} relative /content/ URLs to fix")
+            if matches:
+                for match in matches[:3]:  # Log first 3
+                    app.logger.info(f"      - {match}")
+            
+            html_content = re.sub(
+                r'src="(/content/[^"]+)"',
+                r'src="https://ordinals.com\1"',
+                html_content
+            )
+            
+            app.logger.info(f"   📄 AFTER URL fix - First 500 chars: {html_content[:500]}")
+            
+            if html_content != original_html:
+                app.logger.info(f"   ✅ FIXED {len(matches)} relative image URLs")
+            else:
+                app.logger.info(f"   ⚠️  HTML unchanged - no relative URLs found")
+        else:
+            # Fallback: simple HTML escape and line breaks
+            import html
+            html_content = html.escape(markdown_text).replace('\n', '<br>')
+        
+        return jsonify({'success': True, 'html': html_content})
+        
+    except Exception as e:
+        print(f"Markdown conversion error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Conversion failed'}), 500
+
 # Web3Auth API routes
 @app.route('/api/auth/web3auth', methods=['POST'])
 def web3auth_login():
@@ -2937,6 +3949,246 @@ def web3auth_login():
         print(f"Request data: {data if 'data' in locals() else 'N/A'}")
         db.session.rollback()
         return jsonify({'error': f'Authentication failed: {str(e)}'}), 500
+
+# Ordinals API routes
+@app.route('/api/ordinal/preview', methods=['POST'])
+def preview_ordinal():
+    """Preview ordinal content and fetch metadata"""
+    try:
+        data = request.get_json()
+        inscription_id = data.get('inscriptionId', '').strip()
+        
+        if not inscription_id:
+            return jsonify({'success': False, 'error': 'Inscription ID is required'}), 400
+        
+        # Validate inscription ID format (basic validation)
+        if len(inscription_id) < 10 or not all(c.isalnum() or c in 'i-_' for c in inscription_id):
+            return jsonify({'success': False, 'error': 'Invalid inscription ID format'}), 400
+        
+        # Build content URL
+        content_url = f"https://ordinals.com/content/{inscription_id}"
+        
+        # Check size and content type with HEAD request
+        try:
+            # Add headers to avoid 403 errors from ordinals.com
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive'
+            }
+            
+            head_response = requests.head(content_url, headers=headers, timeout=10, allow_redirects=True)
+            
+            if head_response.status_code == 404:
+                return jsonify({'success': False, 'error': 'Inscription not found'}), 404
+            
+            if head_response.status_code == 403:
+                return jsonify({
+                    'success': False, 
+                    'error': 'Access denied by ordinals.com. The inscription exists but cannot be accessed from the server. You can view it directly at: ' + content_url
+                }), 403
+            
+            if head_response.status_code != 200:
+                return jsonify({'success': False, 'error': f'Failed to fetch inscription (status: {head_response.status_code})'}), 400
+            
+            # Get content length
+            content_length = int(head_response.headers.get('Content-Length', 0))
+            max_size = 50 * 1024  # 50KB
+            
+            # If HEAD doesn't return Content-Length, try a GET request with streaming
+            if content_length == 0:
+                try:
+                    get_response = requests.get(content_url, headers=headers, timeout=10, stream=True)
+                    # Read just enough to check size
+                    content_chunk = get_response.raw.read(max_size + 1)
+                    content_length = len(content_chunk)
+                    content_type = get_response.headers.get('Content-Type', 'unknown').lower()
+                except:
+                    # If we can't determine size, allow it but note it
+                    content_length = 1  # Set to non-zero to proceed
+            
+            if content_length > max_size:
+                size_kb = content_length / 1024
+                return jsonify({
+                    'success': False, 
+                    'error': f'Content too large: {size_kb:.1f}KB (max 50KB)'
+                }), 400
+            
+            # Get content type
+            content_type = head_response.headers.get('Content-Type', 'unknown').lower()
+            
+            # Check if supported type
+            supported_types = [
+                'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 
+                'image/svg+xml', 'image/webp',
+                'text/plain', 'text/markdown', 'text/html', 'text/javascript',
+                'application/json', 'application/javascript'
+            ]
+            
+            is_supported = any(st in content_type for st in supported_types)
+            
+            if not is_supported:
+                return jsonify({
+                    'success': False,
+                    'error': f'Unsupported content type: {content_type}. Supported: images, text, markdown, HTML'
+                }), 400
+            
+            # Fetch metadata from ordinals.com HTML (JSON API is disabled on public instance - returns 406)
+            inscription_number = None
+            block_height = None
+            timestamp = None
+            
+            try:
+                import re
+                
+                # Fetch HTML page
+                page_url = f"https://ordinals.com/inscription/{inscription_id}"
+                page_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                app.logger.info(f"🔍 Scraping metadata from HTML: {page_url}")
+                
+                page_response = requests.get(page_url, headers=page_headers, timeout=10)
+                app.logger.info(f"📡 HTML Response status: {page_response.status_code}")
+                
+                if page_response.status_code == 200:
+                    html = page_response.text
+                    
+                    # Extract inscription number from title: <title>Inscription 117530382</title>
+                    number_match = re.search(r'<title>Inscription (\d+)</title>', html)
+                    if number_match:
+                        inscription_number = int(number_match.group(1))
+                        app.logger.info(f"   ✅ Inscription number: {inscription_number}")
+                    
+                    # Extract block height: <dt>height</dt><dd><a href=/block/933535>933535</a></dd>
+                    height_match = re.search(r'<dt>height</dt>\s*<dd><a[^>]*>(\d+)</a></dd>', html)
+                    if height_match:
+                        block_height = int(height_match.group(1))
+                        app.logger.info(f"   ✅ Block height: {block_height}")
+                    
+                    # Extract timestamp: <dt>timestamp</dt><dd><time>2026-01-23 15:15:43 UTC</time></dd>
+                    time_match = re.search(r'<dt>timestamp</dt>\s*<dd><time[^>]*>([^<]+)</time></dd>', html)
+                    if time_match:
+                        timestamp = time_match.group(1).strip()
+                        app.logger.info(f"   ✅ Timestamp: {timestamp}")
+                    
+                    app.logger.info(f"✅ Metadata scraped: number={inscription_number}, height={block_height}, time={timestamp}")
+                else:
+                    app.logger.warning(f"⚠️  HTML fetch failed ({page_response.status_code})")
+            except Exception as e:
+                app.logger.error(f"❌ Error scraping metadata: {e}")
+                import traceback
+                app.logger.error(traceback.format_exc())
+                pass  # Metadata fetch failed, continue without it
+            
+            return jsonify({
+                'success': True,
+                'contentUrl': content_url,
+                'contentType': content_type,
+                'contentSize': content_length,
+                'inscriptionId': inscription_id,
+                'inscriptionNumber': inscription_number,
+                'blockHeight': block_height,
+                'timestamp': timestamp
+            })
+            
+        except requests.Timeout:
+            return jsonify({'success': False, 'error': 'Request timed out. Please try again.'}), 408
+        except requests.ConnectionError:
+            return jsonify({'success': False, 'error': 'Ordinals service unavailable. Please try again later.'}), 503
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to fetch content: {str(e)}'}), 500
+            
+    except Exception as e:
+        print(f"Ordinal preview error: {e}")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+@app.route('/api/ordinal/convert-markdown', methods=['POST'])
+def convert_markdown():
+    """Convert markdown to HTML with sanitization"""
+    try:
+        data = request.get_json()
+        markdown_text = data.get('markdown', '')
+        
+        app.logger.info(f"📝 MARKDOWN CONVERSION REQUEST")
+        app.logger.info(f"   Input length: {len(markdown_text)} chars")
+        app.logger.info(f"   First 200 chars: {markdown_text[:200]}")
+        
+        if not markdown_text:
+            return jsonify({'success': False, 'error': 'No markdown provided'}), 400
+        
+        if MARKDOWN_SUPPORT:
+            app.logger.info(f"   ✅ Markdown support enabled")
+            # Convert markdown to HTML using markdown2
+            html_content = markdown2.markdown(
+                markdown_text,
+                extras=['fenced-code-blocks', 'tables', 'break-on-newline']
+            )
+            app.logger.info(f"   📄 Converted HTML length: {len(html_content)} chars")
+            app.logger.info(f"   📄 HTML first 300 chars: {html_content[:300]}")
+            
+            # Sanitize HTML to prevent XSS
+            allowed_tags = [
+                'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img',
+                'table', 'thead', 'tbody', 'tr', 'th', 'td'
+            ]
+            allowed_attrs = {
+                'a': ['href', 'title'],
+                'img': ['src', 'alt', 'title'],
+                'code': ['class']
+            }
+            
+            html_content = bleach.clean(
+                html_content,
+                tags=allowed_tags,
+                attributes=allowed_attrs,
+                strip=True
+            )
+            app.logger.info(f"   🧹 Sanitized HTML length: {len(html_content)} chars")
+            app.logger.info(f"   📄 Sanitized HTML first 500 chars: {html_content[:500]}")
+            
+            # Fix relative image URLs (prepend https://ordinals.com)
+            import re
+            original_html = html_content
+            
+            # Count how many img tags before
+            img_count_before = html_content.count('<img')
+            src_count_before = html_content.count('src=')
+            app.logger.info(f"   🔍 BEFORE URL fix: {img_count_before} img tags, {src_count_before} src attributes")
+            
+            # Search for the pattern
+            matches = re.findall(r'src="(/content/[^"]+)"', html_content)
+            app.logger.info(f"   🔍 Found {len(matches)} relative /content/ URLs to fix")
+            if matches:
+                for match in matches[:3]:  # Log first 3
+                    app.logger.info(f"      - {match}")
+            
+            html_content = re.sub(
+                r'src="(/content/[^"]+)"',
+                r'src="https://ordinals.com\1"',
+                html_content
+            )
+            
+            app.logger.info(f"   📄 AFTER URL fix - First 500 chars: {html_content[:500]}")
+            
+            if html_content != original_html:
+                app.logger.info(f"   ✅ FIXED {len(matches)} relative image URLs")
+            else:
+                app.logger.info(f"   ⚠️  HTML unchanged - no relative URLs found")
+        else:
+            # Fallback: simple HTML escape and line breaks
+            import html
+            html_content = html.escape(markdown_text).replace('\n', '<br>')
+        
+        return jsonify({'success': True, 'html': html_content})
+        
+    except Exception as e:
+        print(f"Markdown conversion error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Conversion failed'}), 500
 
 @app.route('/api/user/me', methods=['GET'])
 def get_user_profile():
@@ -3649,10 +4901,25 @@ def admin_submissions():
             'published': 'badge bg-info'
         }.get(submission.status, 'badge bg-secondary')
 
-        # Get file size if file exists
-        file_size = "N/A"
-        if submission.file_path and os.path.exists(submission.file_path):
-            file_size = f"{os.path.getsize(submission.file_path) / 1024:.1f} KB"
+        # Get source info (file or ordinal)
+        source_type = getattr(submission, 'sourceType', 'file')
+        if source_type == 'ordinal':
+            inscription_number = getattr(submission, 'inscriptionNumber', None)
+            ordinal_id = getattr(submission, 'ordinalId', None)
+            block_height = getattr(submission, 'blockHeight', None)
+            if inscription_number:
+                source_info = f'<span class="badge bg-info"><i class="bi bi-coin"></i> Ordinal</span> Inscription #{inscription_number}'
+                if block_height:
+                    source_info += f' (Block {block_height})'
+            elif ordinal_id:
+                source_info = f'<span class="badge bg-info"><i class="bi bi-coin"></i> Ordinal</span> {ordinal_id[:16]}...'
+            else:
+                source_info = '<span class="badge bg-info"><i class="bi bi-coin"></i> Ordinal</span>'
+        else:
+            file_size = "N/A"
+            if submission.file_path and os.path.exists(submission.file_path):
+                file_size = f"{os.path.getsize(submission.file_path) / 1024:.1f} KB"
+            source_info = f'<span class="badge bg-secondary"><i class="bi bi-file-earmark"></i> File</span> {submission.filename} ({file_size})'
 
         action_buttons = ""
         if submission.status == 'submitted':
@@ -3693,7 +4960,7 @@ def admin_submissions():
                         <p class="mb-2"><strong>Authors:</strong> {', '.join(submission.authors)}</p>
                         <p class="mb-2"><strong>Group:</strong> {submission.group or 'None'}</p>
                         <p class="mb-2"><strong>Submitted:</strong> {submission.submitted_at.strftime('%Y-%m-%d %H:%M')} by {submission.submitted_by}</p>
-                        <p class="mb-2"><strong>File:</strong> {submission.filename} ({file_size})</p>
+                        <p class="mb-2"><strong>Source:</strong> {source_info}</p>
                         {f'<p class="mb-2"><strong>Abstract:</strong> {submission.abstract[:200]}...</p>' if submission.abstract else ''}
                     </div>
                     <div class="col-md-4">
@@ -3903,14 +5170,25 @@ def update_submission_status(submission_id):
 
     return jsonify({'success': True, 'message': f'Status updated to {new_status}'})
 
-def get_next_ml_number():
-    """Get the next ML number (ML-001 to ML-999, then ML-1000+)"""
-    # Find the highest existing ML number
-    max_ml = db.session.query(db.func.max(Submission.ml_number)).filter(Submission.ml_number.isnot(None)).scalar()
+def get_next_ml_number(doc_type='draft'):
+    """Get the next ML number (ML-Draft-001 or ML-RFC-001)
+    
+    Args:
+        doc_type: 'draft' or 'rfc'
+    
+    Returns:
+        str: ML-Draft-001, ML-RFC-001, etc.
+    """
+    # Find the highest existing ML number for this document type
+    prefix = f"ML-{doc_type.capitalize()}-"
+    max_ml = db.session.query(db.func.max(Submission.ml_number)).filter(
+        Submission.ml_number.like(f"{prefix}%")
+    ).scalar()
+    
     if max_ml:
-        # Extract number from ML-XXXX or ML-XXX format
+        # Extract number from ML-Draft-XXX or ML-RFC-XXX format
         try:
-            current_num = int(max_ml.split('-')[1])
+            current_num = int(max_ml.split('-')[-1])
             next_num = current_num + 1
         except (ValueError, IndexError):
             next_num = 1
@@ -3919,9 +5197,9 @@ def get_next_ml_number():
     
     # Use 3 digits for 1-999, 4 digits for 1000+
     if next_num < 1000:
-        return f"ML-{next_num:03d}"
+        return f"{prefix}{next_num:03d}"
     else:
-        return f"ML-{next_num:04d}"
+        return f"{prefix}{next_num:04d}"
 
 @app.route('/submit/approve/<submission_id>', methods=['POST'])
 @require_role('admin')
@@ -3933,7 +5211,8 @@ def approve_submission(submission_id):
 
     # Assign ML number if not already assigned
     if not submission.ml_number:
-        submission.ml_number = get_next_ml_number()
+        doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+        submission.ml_number = get_next_ml_number(doc_type)
     
     submission.status = 'approved'
     submission.approved_at = datetime.utcnow()
@@ -3967,9 +5246,29 @@ def reject_submission(submission_id):
     flash(f'Submission {submission.id} rejected!', 'warning')
     return redirect(f'/submit/status/{submission_id}/')
 
+@app.route('/view/<submission_id>')
+@require_auth
+def view_submission(submission_id):
+    """View a submission file inline (for PDFs and other viewable files)"""
+    submission = Submission.query.filter_by(id=submission_id).first()
+    if not submission:
+        return "Submission not found", 404
+
+    # Check if user owns this submission or is admin
+    current_user = get_current_user()
+    if submission.submitted_by != current_user['name'] and current_user.get('role') not in ['admin', 'editor']:
+        return "Access denied", 403
+
+    if not submission.file_path or not os.path.exists(submission.file_path):
+        return "File not found", 404
+
+    # Serve file inline (not as attachment) for viewing in browser
+    return send_file(submission.file_path, as_attachment=False, download_name=submission.filename)
+
 @app.route('/download/<submission_id>')
 @require_auth
 def download_submission(submission_id):
+    """Download a submission file"""
     submission = Submission.query.filter_by(id=submission_id).first()
     if not submission:
         return "Submission not found", 404
@@ -4747,12 +6046,43 @@ def draft_detail(draft_name):
     # First try to find in DRAFTS (published documents)
     draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
 
-    # If not found in DRAFTS, try to find as a submission ID
+    # If not found in DRAFTS, try to find as a submission ID or ML number
     submission = None
     if not draft:
-        # Submission is already imported at module level
+        # Try to find by submission ID first
         submission = Submission.query.filter_by(id=draft_name).first()
+        
+        # If not found by ID, try to find by ML number
+        if not submission:
+            submission = Submission.query.filter_by(ml_number=draft_name).first()
         if submission:
+            # Calculate pages and words for ordinals
+            source_type = getattr(submission, 'sourceType', 'file')
+            pages_count = 1
+            words_count = 0
+            ordinal_content_url = getattr(submission, 'ordinalContentUrl', None)
+            ordinal_content_type = getattr(submission, 'ordinalContentType', '')
+            
+            if source_type == 'ordinal':
+                # Fetch ordinal content to calculate words and pages
+                
+                if ordinal_content_url and ('text/' in ordinal_content_type or 'application/json' in ordinal_content_type):
+                    try:
+                        import requests
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                        }
+                        response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                        if response.status_code == 200:
+                            text_content = response.text
+                            words_count = len(text_content.split())
+                            # Estimate pages (assuming ~500 words per page)
+                            pages_count = max(1, (words_count + 499) // 500)
+                    except Exception as e:
+                        app.logger.warning(f"Failed to fetch ordinal content for word/page count: {e}")
+                        # Keep defaults
+                        pass
+            
             # Create a draft-like object from the submission
             draft = {
                 'name': submission.id,
@@ -4763,10 +6093,17 @@ def draft_detail(draft_name):
                 'group': submission.group,
                 'date': submission.submitted_at.strftime('%Y-%m-%d') if submission.submitted_at else '',
                 'rev': '00',  # Default revision for submissions
-                'pages': 1,   # Default pages for submissions
-                'words': 0,   # Default words for submissions
+                'pages': pages_count,
+                'words': words_count,
                 'stream': 'mltf',  # Default stream
-                'ml_number': submission.ml_number
+                'ml_number': submission.ml_number,
+                # Ordinal metadata
+                'sourceType': source_type,
+                'ordinalId': getattr(submission, 'ordinalId', None),
+                'inscriptionNumber': getattr(submission, 'inscriptionNumber', None),
+                'blockHeight': getattr(submission, 'blockHeight', None),
+                'inscriptionTimestamp': getattr(submission, 'inscriptionTimestamp', None),
+                'ordinalContentType': ordinal_content_type
             }
 
     if not draft:
@@ -4777,8 +6114,81 @@ def draft_detail(draft_name):
     calculated_pages = draft.get('pages', 1)
     calculated_words = draft.get('words', 0)
 
-    # Try to get content from submission file first
-    if submission and submission.file_path and os.path.exists(submission.file_path):
+    # Try to get content from ordinal first
+    if submission and draft.get('sourceType') == 'ordinal':
+        ordinal_content_url = getattr(submission, 'ordinalContentUrl', None)
+        ordinal_content_type = getattr(submission, 'ordinalContentType', '')
+        
+        if ordinal_content_url and ('text/' in ordinal_content_type or 'application/json' in ordinal_content_type):
+            try:
+                import requests
+                import markdown2
+                import bleach
+                import re
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    raw_content = response.text
+                    # Calculate words and pages from ordinal text
+                    words = len(raw_content.split())
+                    calculated_pages = max(1, (words + 499) // 500)
+                    calculated_words = words
+                    # Update draft with calculated values
+                    draft['pages'] = calculated_pages
+                    draft['words'] = calculated_words
+                    
+                    # Check if content is markdown
+                    is_markdown = False
+                    if 'text/plain' in ordinal_content_type or 'text/markdown' in ordinal_content_type:
+                        # Detect markdown patterns
+                        markdown_patterns = [
+                            r'^#{1,6}\s+.+$',  # Headers
+                            r'\*\*.+\*\*',      # Bold
+                            r'\*.+\*',          # Italic
+                            r'^\s*[-*+]\s+',    # Lists
+                            r'^\s*\d+\.\s+',    # Numbered lists
+                            r'\[.+\]\(.+\)',    # Links
+                            r'!\[.*\]\(.+\)'    # Images
+                        ]
+                        for pattern in markdown_patterns:
+                            if re.search(pattern, raw_content, re.MULTILINE):
+                                is_markdown = True
+                                break
+                    
+                    if is_markdown:
+                        # Convert markdown to HTML
+                        html_content = markdown2.markdown(raw_content, extras=['fenced-code-blocks', 'tables', 'break-on-newline'])
+                        
+                        # Sanitize HTML
+                        allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                                      'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
+                                      'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span']
+                        allowed_attrs = {'a': ['href', 'title', 'target'], 'img': ['src', 'alt', 'title', 'width', 'height']}
+                        html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+                        
+                        # Fix relative image URLs to point to ordinals.com
+                        html_content = re.sub(
+                            r'src="(/content/[^"]+)"',
+                            r'src="https://ordinals.com\1"',
+                            html_content
+                        )
+                        
+                        document_content = html_content
+                    else:
+                        # Display as plain text
+                        document_content = raw_content
+            except Exception as e:
+                app.logger.warning(f"Failed to fetch ordinal content for display: {e}")
+                document_content = f"Error loading ordinal content: {str(e)}"
+        elif ordinal_content_url and ordinal_content_type.startswith('image/'):
+            document_content = f'<img src="{ordinal_content_url}" class="img-fluid" style="max-width: 100%;" alt="Ordinal image content">'
+        else:
+            document_content = f"Ordinal content type: {ordinal_content_type}\nPreview not available for this content type."
+    
+    # Try to get content from submission file
+    elif submission and submission.file_path and os.path.exists(submission.file_path):
         _, ext = os.path.splitext(submission.filename.lower())
         try:
             if ext in ['.txt', '.xml']:
@@ -4807,22 +6217,31 @@ def draft_detail(draft_name):
                 calculated_pages = max(1, (words + 499) // 500)
                 calculated_words = words
             elif ext == '.pdf':
+                # For PDFs, extract metadata but display with embedded viewer
                 from PyPDF2 import PdfReader
                 reader = PdfReader(submission.file_path)
-                content_parts = []
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text.strip():
-                        content_parts.append(text)
-                document_content = '\n\n'.join(content_parts)
-                # Clean up PDF text
-                import re
-                document_content = re.sub(r'\n+', '\n', document_content)
-                document_content = re.sub(r' +', ' ', document_content)
-                # Calculate words and pages
-                words = len(document_content.split())
-                calculated_pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
-                calculated_words = words
+                # Get page count and estimate words
+                calculated_pages = len(reader.pages) if reader.pages else 1
+                # Estimate words (roughly 250-300 words per page for PDFs)
+                calculated_words = calculated_pages * 275
+                
+                # Create embedded PDF viewer for display
+                file_size = os.path.getsize(submission.file_path)
+                file_size_kb = file_size / 1024
+                document_content = f'''
+<div class="pdf-viewer-container">
+    <div class="alert alert-info mb-3">
+        <i class="bi bi-file-pdf"></i> PDF Document ({calculated_pages} pages, ~{calculated_words} words, {file_size_kb:.1f} KB)
+    </div>
+    <iframe src="/view/{draft_name}" 
+            type="application/pdf" 
+            style="width: 100%; height: 800px; border: 1px solid var(--card-border); border-radius: 4px;"
+            title="PDF Document Viewer">
+        <p>Your browser does not support PDF preview. 
+           <a href="/download/{draft_name}">Download the PDF</a> to view it.</p>
+    </iframe>
+</div>
+'''
             else:
                 document_content = f"Document content cannot be displayed for {ext.upper()} files. Please download to view."
         except Exception as e:
@@ -4887,7 +6306,11 @@ Meta-Layer Initiative
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
-    display_id = draft.get('ml_number') or draft['name']
+    # Show ML number only if approved, otherwise show submission ID
+    if draft.get('status') == 'approved' and draft.get('ml_number'):
+        display_id = draft.get('ml_number')
+    else:
+        display_id = draft['name']
     content = f"""
     <div class="container mt-4">
         <h1>{display_id}</h1>
@@ -4903,13 +6326,16 @@ Meta-Layer Initiative
                         <table class="table" style="color: var(--text-primary) !important;">
                             <tr><td style="color: var(--text-secondary) !important;"><strong>ID:</strong></td><td style="color: var(--text-primary) !important;">{display_id}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Title:</strong></td><td style="color: var(--text-primary) !important;">{draft['title']}</td></tr>
-                            <tr><td style="color: var(--text-secondary) !important;"><strong>Revision:</strong></td><td style="color: var(--text-primary) !important;">{draft['rev']}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Status:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-secondary">{draft['status']}</span></td></tr>
-                            <tr><td style="color: var(--text-secondary) !important;"><strong>Pages:</strong></td><td style="color: var(--text-primary) !important;">{draft['pages']}</td></tr>
-                            <tr><td style="color: var(--text-secondary) !important;"><strong>Words:</strong></td><td style="color: var(--text-primary) !important;">{draft['words']}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Authors:</strong></td><td style="color: var(--text-primary) !important;">{', '.join(draft['authors'])}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Group:</strong></td><td style="color: var(--text-primary) !important;">{draft['group'] or 'N/A'}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Date:</strong></td><td style="color: var(--text-primary) !important;">{draft['date']}</td></tr>
+                            {f'<tr><td colspan="2" style="padding-top: 15px;"><hr style="border-color: var(--border-color);"></td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Source:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-info"><i class="bi bi-coin"></i> Bitcoin Ordinal</span></td></tr>' if draft.get('sourceType') == 'ordinal' else f'<tr><td style="color: var(--text-secondary) !important;"><strong>Revision:</strong></td><td style="color: var(--text-primary) !important;">{draft["rev"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Pages:</strong></td><td style="color: var(--text-primary) !important;">{draft["pages"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Words:</strong></td><td style="color: var(--text-primary) !important;">{draft["words"]}</td></tr>'}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Inscription #:</strong></td><td style="color: var(--text-primary) !important;">{draft["inscriptionNumber"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('inscriptionNumber') else ''}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Block Height:</strong></td><td style="color: var(--text-primary) !important;">{draft["blockHeight"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('blockHeight') else ''}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Timestamp:</strong></td><td style="color: var(--text-primary) !important;">{draft["inscriptionTimestamp"].strftime("%Y-%m-%d %H:%M UTC") if draft.get("inscriptionTimestamp") else "N/A"}</td></tr>' if draft.get('sourceType') == 'ordinal' else ''}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Content Type:</strong></td><td style="color: var(--text-primary) !important;">{draft["ordinalContentType"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('ordinalContentType') else ''}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Inscription ID:</strong></td><td style="color: var(--text-primary) !important;"><a href="https://ordinals.com/inscription/{draft["ordinalId"]}" target="_blank" class="text-decoration-none" style="color: var(--accent-color) !important;"><code style="font-family: monospace; font-size: 0.85em;">{shorten_inscription_id(draft["ordinalId"], 8)}</code></a></td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('ordinalId') else ''}
                         </table>
                     </div>
                 </div>
@@ -4928,12 +6354,14 @@ Meta-Layer Initiative
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Document Content</h5>
                         <div>
+                            {'' if draft.get('sourceType') == 'ordinal' else f'''
                             <a href="/download/{draft['name']}" class="btn btn-sm btn-outline-primary" target="_blank">
                                 <i class="fas fa-download me-1"></i>Download
                             </a>
                             <a href="/doc/draft/{draft['name']}.txt" class="btn btn-sm btn-outline-secondary" target="_blank">
                                 <i class="fas fa-external-link-alt me-1"></i>View TXT
                             </a>
+                            '''}
                         </div>
                     </div>
                     <div class="card-body">
@@ -4950,18 +6378,18 @@ Meta-Layer Initiative
                         <h5>Actions</h5>
                     </div>
                     <div class="card-body">
-                        <a href="/doc/draft/{draft['name']}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>
+                        {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>' if draft.get('status') == 'approved' else ''}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
                         <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
-                        <a href="/download/{draft['name']}" class="btn btn-outline-primary w-100 mb-2">Download Document</a>
-                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/follow/" style="display: inline;" class="mb-2"><select name="notification_level" class="form-select form-select-sm mb-1"><option value="all">All changes & comments</option><option value="significant">Significant changes only</option><option value="major">Major changes only</option><option value="comments">Comments only</option><option value="none">No notifications</option></select><button type="submit" class="btn btn-success w-100"><i class="fas fa-bell me-1"></i>Follow Document</button></form>' if current_user and not is_user_following_draft(draft_name, current_user) else ''}
-                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/unfollow/" style="display: inline;" class="mb-2"><button type="submit" class="btn btn-warning w-100"><i class="fas fa-bell-slash me-1"></i>Unfollow Document</button></form>' if current_user and is_user_following_draft(draft_name, current_user) else ''}
-                        {get_notification_controls(draft_name, current_user) if current_user and is_user_following_draft(draft_name, current_user) else ''}
+                        {'' if draft.get('sourceType') == 'ordinal' else f'<a href="/download/{draft["name"]}" class="btn btn-outline-primary w-100 mb-2">Download Document</a>'}
+                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/follow/" style="display: inline;" class="mb-2"><select name="notification_level" class="form-select form-select-sm mb-1"><option value="all">All changes & comments</option><option value="significant">Significant changes only</option><option value="major">Major changes only</option><option value="comments">Comments only</option><option value="none">No notifications</option></select><button type="submit" class="btn btn-success w-100"><i class="fas fa-bell me-1"></i>Follow Document</button></form>' if current_user and draft.get('status') == 'approved' and not is_user_following_draft(draft_name, current_user) else ''}
+                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/unfollow/" style="display: inline;" class="mb-2"><button type="submit" class="btn btn-warning w-100"><i class="fas fa-bell-slash me-1"></i>Unfollow Document</button></form>' if current_user and draft.get('status') == 'approved' and is_user_following_draft(draft_name, current_user) else ''}
+                        {get_notification_controls(draft_name, current_user) if current_user and draft.get('status') == 'approved' and is_user_following_draft(draft_name, current_user) else ''}
                         {'' if not current_user else ''}
                     </div>
                 </div>
                 
-                <div class="card mt-3">
+                {f'''<div class="card mt-3">
                     <div class="card-header">
                         <h5>Quick Comment</h5>
                     </div>
@@ -4973,7 +6401,7 @@ Meta-Layer Initiative
                             <button type="submit" class="btn btn-success btn-sm w-100">Post Comment</button>
                         </form>
         </div>
-    </div>
+    </div>''' if draft.get('status') == 'approved' else ''}
     
                 <div class="card mt-3">
                     <div class="card-header">
@@ -4991,7 +6419,12 @@ Meta-Layer Initiative
     # Add document_content to the template
     content = content.replace('{document_content}', document_content)
 
-    return BASE_TEMPLATE.format(title=f"{draft['name']} - MLTF", theme=current_theme, user_menu=user_menu, content=content)
+    # Use ML number for title if approved and available, otherwise use draft name (submission ID)
+    if draft.get('status') == 'approved' and draft.get('ml_number'):
+        title_id = draft.get('ml_number')
+    else:
+        title_id = draft['name']
+    return BASE_TEMPLATE.format(title=f"{title_id} - MLTF", theme=current_theme, user_menu=user_menu, content=content)
 
 @app.route('/doc/draft/<draft_name>/comments/', methods=['GET', 'POST'])
 @require_auth
@@ -6278,7 +7711,8 @@ if __name__ == '__main__':
     init_deployment_safety()
     # Initialize database on startup
     init_db()
-    print(f"Starting MLTF Datatracker in {ENV} mode on port {PORT}")
+    print(f"🚀 Starting MLTF Datatracker - BUILD {BUILD_NUMBER}")
+    print(f"Environment: {ENV} mode on port {PORT}")
     print(f"Database: {DB_PATH}")
     # Disable reloader when running under systemd (detected by systemd environment)
     # The reloader can cause hanging in systemd services

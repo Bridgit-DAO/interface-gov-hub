@@ -24,8 +24,9 @@ find . -name "*.pyc" -delete 2>/dev/null || true
 
 # Verify code
 echo "4. Verifying code..."
-if grep -q "Welcome to the Meta-Layer Governance Hub" ietf_data_viewer_simple.py; then
-    echo "   ✓ Code verified"
+if grep -q "BUILD_NUMBER = " ietf_data_viewer_simple.py; then
+    BUILD_NUM=$(grep "BUILD_NUMBER = " ietf_data_viewer_simple.py | head -1 | grep -oP '\d+')
+    echo "   ✓ Code verified (BUILD $BUILD_NUM)"
 else
     echo "   ✗ Code NOT found!"
     exit 1
