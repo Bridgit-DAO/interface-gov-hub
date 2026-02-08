@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 51
+BUILD_NUMBER = 52
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -2559,6 +2559,7 @@ def submit_revision(draft_name):
     draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
     
     # If not found in DRAFTS, try to find as a submission
+    submission = None
     if not draft:
         submission = Submission.query.filter_by(id=draft_name).first()
         if submission and submission.status == 'approved':
@@ -2569,6 +2570,7 @@ def submit_revision(draft_name):
                 'abstract': submission.abstract or '',
                 'group': submission.group or '',
                 'rev': submission.revision_number or '00',
+                'ml_number': submission.ml_number,
             }
         elif submission:
             flash('Cannot create revision of unapproved submission', 'error')
@@ -2577,6 +2579,9 @@ def submit_revision(draft_name):
     if not draft:
         flash('Draft not found', 'error')
         return redirect('/doc/all/')
+    
+    # Determine display ID (ML-Draft-XXX or internal ID)
+    display_id = draft.get('ml_number', draft_name) or draft_name
     
     # Calculate new revision number
     current_rev = int(draft.get('rev', '00'))
@@ -2752,8 +2757,9 @@ def submit_revision(draft_name):
         <form method="POST" enctype="multipart/form-data" id="revisionForm">
             <div class="mb-3">
                 <label class="form-label">Draft Name</label>
-                <input type="text" class="form-control" value="{draft_name}" disabled>
+                <input type="text" class="form-control" value="{display_id}" disabled>
                 <input type="hidden" name="draft_name" value="{draft_name}">
+                <small class="form-text text-muted">This field cannot be changed for revisions</small>
             </div>
             
             <div class="mb-3">
