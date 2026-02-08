@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 33
+BUILD_NUMBER = 51
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -532,6 +532,20 @@ def get_current_user():
                 'solanaAddress': user.solanaAddress
             }
     return None
+
+def render_page(title, content, theme=None, user_menu=None):
+    """Helper to render a page with BASE_TEMPLATE including build number"""
+    if theme is None:
+        theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+    if user_menu is None:
+        user_menu = generate_user_menu()
+    return BASE_TEMPLATE.format(
+        title=title,
+        theme=theme,
+        user_menu=user_menu,
+        content=content,
+        build_number=BUILD_NUMBER
+    )
 
 def generate_user_menu():
     """Generate user menu HTML for navbar"""
@@ -1594,6 +1608,12 @@ BASE_TEMPLATE = """
     <div id="flash-messages"></div>
     {content}
 
+    <div class="container-fluid mt-5 py-3" style="border-top: 1px solid var(--border-color); background-color: var(--bg-secondary);">
+        <div class="text-center text-muted small">
+            Build {build_number} | MLTF Datatracker
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Theme switching functionality
@@ -2413,11 +2433,11 @@ def submit_draft():
             # Validation
             if not title or not authors or not ordinal_id:
                 flash('Title, authors, and inscription ID are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             if not ordinal_content_url:
                 flash('Please preview the ordinal before submitting', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Fetch ordinal content and calculate pages/words
             try:
@@ -2478,7 +2498,7 @@ def submit_draft():
             # Validation
             if not title or not authors or not file:
                 flash('Title, authors, and file are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Security: Check file size (max 50MB)
             file.seek(0, os.SEEK_END)
@@ -2487,7 +2507,7 @@ def submit_draft():
             max_size = 50 * 1024 * 1024  # 50MB
             if file_size > max_size:
                 flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Save file
             filename = f"{submission_id}-{file.filename}"
@@ -2526,7 +2546,7 @@ def submit_draft():
         flash('Draft submitted successfully!', 'success')
         return redirect(f'/submit/status/{submission_id}/')
 
-    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
+    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
 @app.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
 @require_auth
@@ -2831,7 +2851,7 @@ def submit_revision(draft_name):
     </div>
     
     <script>
-    function previewOrdinal() {{
+    async function previewOrdinal() {{
         const inscriptionId = document.getElementById('ordinalId').value.trim();
         if (!inscriptionId) {{
             alert('Please enter an inscription ID');
@@ -2844,49 +2864,75 @@ def submit_revision(draft_name):
         content.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading ordinal...</div>';
         preview.style.display = 'block';
         
-        // Fetch ordinal data
-        fetch(`https://ordinals.com/inscription/${{inscriptionId}}`)
-            .then(response => response.text())
-            .then(html => {{
-                // Parse the HTML to extract content URL and metadata
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                
-                // Extract content URL
-                const iframe = doc.querySelector('iframe');
-                if (iframe) {{
-                    const contentUrl = iframe.src;
-                    document.getElementById('ordinalContentUrl').value = contentUrl;
-                    
-                    // Fetch actual content
-                    return fetch(contentUrl).then(r => r.text()).then(text => {{
-                        document.getElementById('ordinalContentType').value = 'text/plain';
-                        content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto;">${{text.substring(0, 1000)}}...</pre>`;
-                        
-                        // Extract metadata
-                        const dlElements = doc.querySelectorAll('dl dt');
-                        dlElements.forEach(dt => {{
-                            if (dt.textContent.includes('inscription number')) {{
-                                document.getElementById('inscriptionNumber').value = dt.nextElementSibling.textContent.trim();
-                            }} else if (dt.textContent.includes('block height')) {{
-                                document.getElementById('blockHeight').value = dt.nextElementSibling.textContent.trim();
-                            }} else if (dt.textContent.includes('timestamp')) {{
-                                document.getElementById('inscriptionTimestamp').value = dt.nextElementSibling.textContent.trim();
-                            }}
-                        }});
-                    }});
-                }} else {{
-                    content.innerHTML = '<div class="alert alert-warning">Could not preview ordinal content</div>';
-                }}
-            }})
-            .catch(error => {{
-                content.innerHTML = `<div class="alert alert-danger">Error loading ordinal: ${{error.message}}</div>`;
+        try {{
+            // Use our API endpoint to fetch ordinal metadata
+            const response = await fetch('/api/ordinal/preview', {{
+                method: 'POST',
+                headers: {{
+                    'Content-Type': 'application/json'
+                }},
+                body: JSON.stringify({{ inscriptionId }})
             }});
+            
+            const data = await response.json();
+            
+            if (!data.success) {{
+                content.innerHTML = `<div class="alert alert-danger">Error: ${{data.error}}</div>`;
+                return;
+            }}
+            
+            // Fill in hidden form fields
+            document.getElementById('ordinalContentUrl').value = data.contentUrl;
+            document.getElementById('ordinalContentType').value = data.contentType;
+            document.getElementById('inscriptionNumber').value = data.inscriptionNumber || '';
+            document.getElementById('blockHeight').value = data.blockHeight || '';
+            document.getElementById('inscriptionTimestamp').value = data.timestamp || '';
+            
+            // Fetch and display content
+            const contentResponse = await fetch(data.contentUrl);
+            const contentText = await contentResponse.text();
+            
+            // Check if it's markdown
+            const isMarkdown = data.contentType.includes('markdown') || data.contentType.includes('text/plain');
+            
+            if (isMarkdown) {{
+                // Convert markdown to HTML
+                const convertResponse = await fetch('/api/ordinal/convert-markdown', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json'
+                    }},
+                    body: JSON.stringify({{ markdown: contentText }})
+                }});
+                
+                const convertData = await convertResponse.json();
+                
+                if (convertData.success) {{
+                    content.innerHTML = `
+                        <div class="alert alert-info">
+                            <strong>Preview:</strong> Inscription #${{data.inscriptionNumber}} | 
+                            Block: ${{data.blockHeight}} | 
+                            Size: ${{(data.contentSize / 1024).toFixed(2)}} KB
+                        </div>
+                        <div class="document-content" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6; max-height: 600px; overflow-y: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg);">
+                            ${{convertData.html}}
+                        </div>
+                    `;
+                }} else {{
+                    content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto;">${{contentText.substring(0, 2000)}}</pre>`;
+                }}
+            }} else {{
+                content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto;">${{contentText.substring(0, 2000)}}</pre>`;
+            }}
+            
+        }} catch (error) {{
+            content.innerHTML = `<div class="alert alert-danger">Error loading ordinal: ${{error.message}}</div>`;
+        }}
     }}
     </script>
     """
     
-    return BASE_TEMPLATE.format(title=f"Submit Revision - {draft_name}", theme=current_theme, user_menu=user_menu, content=revision_form)
+    return BASE_TEMPLATE.format(title=f"Submit Revision - {draft_name}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER)
 
 SUBMISSION_STATUS_TEMPLATE = """
 <div class="container mt-4">
@@ -2907,7 +2953,12 @@ SUBMISSION_STATUS_TEMPLATE = """
         <div class="col-md-8">
             <div class="card">
                 <div class="card-header">
-                    <h5>Submission Details</h5>
+                    <h5>
+                        Submission Details
+                        {% if is_revision %}
+                        <span class="badge bg-success ms-2">Revision {{ revision_number }}</span>
+                        {% endif %}
+                    </h5>
                 </div>
                 <div class="card-body">
                     <div class="row mb-3">
@@ -3202,6 +3253,12 @@ def submission_status():
         source_type = getattr(submission, 'sourceType', 'file')
         source_badge = '<span class="badge bg-info ms-2"><i class="bi bi-coin"></i> Ordinal</span>' if source_type == 'ordinal' else '<span class="badge bg-secondary ms-2"><i class="bi bi-file-earmark"></i> File</span>'
         
+        # Get revision info
+        is_revision = getattr(submission, 'is_revision', False)
+        revision_number = getattr(submission, 'revision_number', '')
+        parent_draft_name = getattr(submission, 'parent_draft_name', '')
+        revision_badge = f'<span class="badge bg-success ms-2">Revision {revision_number}</span>' if is_revision and revision_number else ''
+        
         # Get source info (inscription number or filename)
         if source_type == 'ordinal':
             inscription_number = getattr(submission, 'inscriptionNumber', None)
@@ -3229,6 +3286,7 @@ def submission_status():
                     <div>
                         <span class="{status_badge}">{submission.status.title()}</span>
                         {source_badge}
+                        {revision_badge}
                     </div>
                 </div>
                 <div class="card-body">
@@ -3273,7 +3331,7 @@ def submission_status():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="My Submissions - MLTF", theme=current_theme, user_menu=user_menu, content=content)
+    return BASE_TEMPLATE.format(title="My Submissions - MLTF", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/submit/status/<submission_id>/')
 @require_auth
@@ -3536,7 +3594,7 @@ def submission_detail(submission_id):
     rendered_content = render_template_string(SUBMISSION_STATUS_TEMPLATE, **template_vars)
     
     # Now use the rendered content in BASE_TEMPLATE (which uses Python .format())
-    return BASE_TEMPLATE.format(title=f"Submission {submission.id} - MLTF", theme=current_theme, user_menu=user_menu, content=rendered_content)
+    return BASE_TEMPLATE.format(title=f"Submission {submission.id} - MLTF", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER)
 
 LOGIN_TEMPLATE = """
 <div class="container mt-4">
@@ -3958,7 +4016,7 @@ def register():
         <a class="nav-link" href="/login/">Sign In</a>
     </div>
     """
-    return render_template_string(BASE_TEMPLATE.format(title="Register - MLTF", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE))
+    return render_template_string(BASE_TEMPLATE.format(title="Register - MLTF", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER))
 
 # Ordinals API routes
 @app.route('/api/ordinal/preview', methods=['POST'])
@@ -4130,24 +4188,78 @@ def convert_markdown():
         
         if MARKDOWN_SUPPORT:
             app.logger.info(f"   ✅ Markdown support enabled")
-            # Convert markdown to HTML using markdown2
+            
+            # Pre-process markdown to handle figure tags with images
+            import re
+            
+            # Convert markdown images inside figure tags to HTML img tags with img-fluid class
+            def replace_figure_image(match):
+                full_match = match.group(0)
+                alt_text = match.group(1) if match.group(1) else ''
+                image_url = match.group(2)
+                caption = match.group(3) if len(match.groups()) >= 3 and match.group(3) else ''
+                
+                # Build the HTML
+                html = '<figure class="figure">\n'
+                html += f'  <img src="{image_url}" alt="{alt_text}" class="img-fluid figure-img">\n'
+                if caption:
+                    html += f'  <figcaption class="figure-caption"><small>{caption}</small></figcaption>\n'
+                html += '</figure>'
+                return html
+            
+            # Pattern to match: <figure>\n![alt](url)\n<figcaption>caption</figcaption>\n</figure>
+            markdown_text = re.sub(
+                r'<figure[^>]*>\s*!\[([^\]]*)\]\(([^\)]+)\)\s*(?:<figcaption[^>]*>([^<]+)</figcaption>)?\s*</figure>',
+                replace_figure_image,
+                markdown_text,
+                flags=re.MULTILINE | re.DOTALL
+            )
+            
+            # Convert markdown to HTML using markdown2 (without break-on-newline to avoid extra line breaks)
             html_content = markdown2.markdown(
                 markdown_text,
-                extras=['fenced-code-blocks', 'tables', 'break-on-newline']
+                extras=['fenced-code-blocks', 'tables']
             )
             app.logger.info(f"   📄 Converted HTML length: {len(html_content)} chars")
             app.logger.info(f"   📄 HTML first 300 chars: {html_content[:300]}")
+            
+            # Fix image URLs BEFORE sanitization
+            # 1. Fix relative /content/ URLs
+            html_content = re.sub(
+                r'src="(/content/[^"]+)"',
+                r'src="https://ordinals.com\1"',
+                html_content
+            )
+            
+            # 2. Fix bare inscription IDs (64-char hex + 'i' + number)
+            html_content = re.sub(
+                r'src="(?:[^"]*/)??([a-f0-9]{64}i\d+)"',
+                r'src="https://ordinals.com/content/\1"',
+                html_content
+            )
+            
+            # 3. Add img-fluid class to all img tags that don't already have it
+            html_content = re.sub(
+                r'<img(?![^>]*class=)([^>]*)>',
+                r'<img class="img-fluid"\1>',
+                html_content
+            )
+            
+            app.logger.info(f"   📄 After URL fixes - First 500 chars: {html_content[:500]}")
             
             # Sanitize HTML to prevent XSS
             allowed_tags = [
                 'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
                 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img',
-                'table', 'thead', 'tbody', 'tr', 'th', 'td'
+                'table', 'thead', 'tbody', 'tr', 'th', 'td',
+                'figure', 'figcaption', 'small'
             ]
             allowed_attrs = {
                 'a': ['href', 'title'],
-                'img': ['src', 'alt', 'title'],
-                'code': ['class']
+                'img': ['src', 'alt', 'title', 'class'],
+                'code': ['class'],
+                'figure': ['class'],
+                'figcaption': ['class']
             }
             
             html_content = bleach.clean(
@@ -4158,35 +4270,6 @@ def convert_markdown():
             )
             app.logger.info(f"   🧹 Sanitized HTML length: {len(html_content)} chars")
             app.logger.info(f"   📄 Sanitized HTML first 500 chars: {html_content[:500]}")
-            
-            # Fix relative image URLs (prepend https://ordinals.com)
-            import re
-            original_html = html_content
-            
-            # Count how many img tags before
-            img_count_before = html_content.count('<img')
-            src_count_before = html_content.count('src=')
-            app.logger.info(f"   🔍 BEFORE URL fix: {img_count_before} img tags, {src_count_before} src attributes")
-            
-            # Search for the pattern
-            matches = re.findall(r'src="(/content/[^"]+)"', html_content)
-            app.logger.info(f"   🔍 Found {len(matches)} relative /content/ URLs to fix")
-            if matches:
-                for match in matches[:3]:  # Log first 3
-                    app.logger.info(f"      - {match}")
-            
-            html_content = re.sub(
-                r'src="(/content/[^"]+)"',
-                r'src="https://ordinals.com\1"',
-                html_content
-            )
-            
-            app.logger.info(f"   📄 AFTER URL fix - First 500 chars: {html_content[:500]}")
-            
-            if html_content != original_html:
-                app.logger.info(f"   ✅ FIXED {len(matches)} relative image URLs")
-            else:
-                app.logger.info(f"   ⚠️  HTML unchanged - no relative URLs found")
         else:
             # Fallback: simple HTML escape and line breaks
             import html
@@ -4490,7 +4573,7 @@ def profile():
         auto_selected=auto_selected,
         session_user=session['user']
     )
-    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLTF", theme=current_theme, user_menu=user_menu, content=profile_content))
+    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLTF", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER))
 
 @app.route('/admin/')
 @require_role('admin')
@@ -4738,8 +4821,7 @@ def admin_dashboard():
         title="Admin Dashboard - MLTF",
         theme=get_current_user().get('theme', 'dark'),
         content=content,
-        user_menu=user_menu
-    )
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 @app.route('/admin/users/')
 @require_role('admin')
@@ -4966,8 +5048,7 @@ def admin_users():
         title="User Management - MLTF",
         theme=current_theme,
         user_menu=user_menu,
-        content=content
-    )
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/users/<username>/role', methods=['POST'])
 @require_role('admin')
@@ -5046,6 +5127,12 @@ def admin_submissions():
             'published': 'badge bg-info'
         }.get(submission.status, 'badge bg-secondary')
 
+        # Get revision info
+        is_revision = getattr(submission, 'is_revision', False)
+        revision_number = getattr(submission, 'revision_number', '')
+        parent_draft_name = getattr(submission, 'parent_draft_name', '')
+        revision_badge = f'<span class="badge bg-success ms-2">Revision {revision_number}</span>' if is_revision and revision_number else ''
+
         # Get source info (file or ordinal)
         source_type = getattr(submission, 'sourceType', 'file')
         if source_type == 'ordinal':
@@ -5089,6 +5176,11 @@ def admin_submissions():
             </button>
             """
 
+        # Add revision context if this is a revision
+        revision_context = ""
+        if is_revision and parent_draft_name:
+            revision_context = f'<p class="mb-2"><strong>Revision of:</strong> <a href="/doc/draft/{parent_draft_name}/" class="text-decoration-none">{parent_draft_name}</a></p>'
+
         submission_cards += f"""
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -5097,7 +5189,10 @@ def admin_submissions():
                         {submission.title}
                     </a>
                 </h6>
-                <span class="{status_badge}">{submission.status.title()}</span>
+                <div>
+                    <span class="{status_badge}">{submission.status.title()}</span>
+                    {revision_badge}
+                </div>
             </div>
             <div class="card-body">
                 <div class="row">
@@ -5106,6 +5201,7 @@ def admin_submissions():
                         <p class="mb-2"><strong>Group:</strong> {submission.group or 'None'}</p>
                         <p class="mb-2"><strong>Submitted:</strong> {submission.submitted_at.strftime('%Y-%m-%d %H:%M')} by {submission.submitted_by}</p>
                         <p class="mb-2"><strong>Source:</strong> {source_info}</p>
+                        {revision_context}
                         {f'<p class="mb-2"><strong>Abstract:</strong> {submission.abstract[:200]}...</p>' if submission.abstract else ''}
                     </div>
                     <div class="col-md-4">
@@ -5262,8 +5358,7 @@ def admin_submissions():
         title="Submission Management - MLTF",
         theme=current_theme,
         user_menu=user_menu,
-        content=content
-    )
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/submissions/<submission_id>/status', methods=['POST'])
 @require_role('admin')
@@ -5285,14 +5380,38 @@ def update_submission_status(submission_id):
 
     # Assign ML number when approving
     if new_status == 'approved' and not submission.ml_number:
-        try:
-            doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
-            ml_number = get_next_ml_number(doc_type)
-            submission.ml_number = ml_number
-            submission.approved_at = datetime.utcnow()
-            app.logger.info(f"✅ Assigned ML number {ml_number} to submission {submission_id} via admin status update")
-        except Exception as e:
-            app.logger.error(f"❌ Failed to assign ML number to submission {submission_id} via admin status update: {e}")
+        # Check if this is a revision
+        is_revision = getattr(submission, 'is_revision', False)
+        parent_draft_name = getattr(submission, 'parent_draft_name', '')
+        
+        if is_revision and parent_draft_name:
+            # This is a revision - find the parent draft and use its ML number
+            parent_submission = Submission.query.filter_by(id=parent_draft_name).first()
+            if parent_submission and parent_submission.ml_number:
+                # Use the parent's ML number for the revision
+                submission.ml_number = parent_submission.ml_number
+                submission.approved_at = datetime.utcnow()
+                app.logger.info(f"✅ Revision {submission_id} inherits ML number {parent_submission.ml_number} from parent {parent_draft_name} via admin status update")
+            else:
+                app.logger.warning(f"⚠️ Parent draft {parent_draft_name} not found or has no ML number, assigning new ML number")
+                try:
+                    doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+                    ml_number = get_next_ml_number(doc_type)
+                    submission.ml_number = ml_number
+                    submission.approved_at = datetime.utcnow()
+                    app.logger.info(f"✅ Assigned new ML number {ml_number} to revision {submission_id} via admin status update")
+                except Exception as e:
+                    app.logger.error(f"❌ Failed to assign ML number to revision {submission_id} via admin status update: {e}")
+        else:
+            # This is a new draft - assign a new ML number
+            try:
+                doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+                ml_number = get_next_ml_number(doc_type)
+                submission.ml_number = ml_number
+                submission.approved_at = datetime.utcnow()
+                app.logger.info(f"✅ Assigned ML number {ml_number} to submission {submission_id} via admin status update")
+            except Exception as e:
+                app.logger.error(f"❌ Failed to assign ML number to submission {submission_id} via admin status update: {e}")
             # Continue with status change even if ML assignment fails
 
     if new_status == 'rejected' and reason:
@@ -5366,16 +5485,39 @@ def approve_submission(submission_id):
         flash('Submission not found', 'error')
         return redirect('/admin/submissions/')
 
-    # Assign ML number if not already assigned
-    if not submission.ml_number:
-        try:
-            doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
-            ml_number = get_next_ml_number(doc_type)
-            submission.ml_number = ml_number
-            app.logger.info(f"✅ Assigned ML number {ml_number} to submission {submission_id}")
-        except Exception as e:
-            app.logger.error(f"❌ Failed to assign ML number to submission {submission_id}: {e}")
-            # Continue with approval even if ML assignment fails
+    # Check if this is a revision
+    is_revision = getattr(submission, 'is_revision', False)
+    parent_draft_name = getattr(submission, 'parent_draft_name', '')
+    
+    if is_revision and parent_draft_name:
+        # This is a revision - find the parent draft and use its ML number
+        parent_submission = Submission.query.filter_by(id=parent_draft_name).first()
+        if parent_submission and parent_submission.ml_number:
+            # Use the parent's ML number for the revision
+            submission.ml_number = parent_submission.ml_number
+            app.logger.info(f"✅ Revision {submission_id} inherits ML number {parent_submission.ml_number} from parent {parent_draft_name}")
+        else:
+            app.logger.warning(f"⚠️ Parent draft {parent_draft_name} not found or has no ML number")
+            # Assign a new ML number as fallback
+            if not submission.ml_number:
+                try:
+                    doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+                    ml_number = get_next_ml_number(doc_type)
+                    submission.ml_number = ml_number
+                    app.logger.info(f"✅ Assigned new ML number {ml_number} to revision {submission_id}")
+                except Exception as e:
+                    app.logger.error(f"❌ Failed to assign ML number to revision {submission_id}: {e}")
+    else:
+        # This is a new draft - assign ML number if not already assigned
+        if not submission.ml_number:
+            try:
+                doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
+                ml_number = get_next_ml_number(doc_type)
+                submission.ml_number = ml_number
+                app.logger.info(f"✅ Assigned ML number {ml_number} to submission {submission_id}")
+            except Exception as e:
+                app.logger.error(f"❌ Failed to assign ML number to submission {submission_id}: {e}")
+                # Continue with approval even if ML assignment fails
     
     submission.status = 'approved'
     submission.approved_at = datetime.utcnow()
@@ -5391,10 +5533,11 @@ def approve_submission(submission_id):
 
     # Log the action
     admin_user = get_current_user()
-    add_to_document_history(f"submission-{submission.id}", "approved", admin_user['name'],
-                           f"Approved submission: {submission.title}")
+    action_desc = f"Approved revision {submission.revision_number} of {parent_draft_name}" if is_revision else f"Approved submission: {submission.title}"
+    add_to_document_history(f"submission-{submission.id}", "approved", admin_user['name'], action_desc)
 
-    flash(f'Submission {submission.id} approved successfully! Assigned ML number: {submission.ml_number}', 'success')
+    flash_msg = f'Revision {submission.id} approved successfully! ML number: {submission.ml_number}' if is_revision else f'Submission {submission.id} approved successfully! Assigned ML number: {submission.ml_number}'
+    flash(flash_msg, 'success')
     return redirect(f'/submit/status/{submission_id}/')
 
 @app.route('/submit/reject/<submission_id>', methods=['POST'])
@@ -5692,8 +5835,7 @@ def admin_analytics():
         title="Analytics - MLTF",
         theme=current_theme,
         user_menu=user_menu,
-        content=content
-    )
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/chairs/')
 @require_auth
@@ -5807,8 +5949,7 @@ def admin_chairs():
         title="Chair Management - MLTF",
         theme=current_theme,
         user_menu=user_menu,
-        content=content
-    )
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/chairs/add', methods=['GET', 'POST'])
 @require_auth
@@ -5900,8 +6041,7 @@ def add_chair():
         title="Add Chair - MLTF",
         theme=current_theme,
         user_menu=user_menu,
-        content=content
-    )
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/chairs/<chair_id>/approve')
 @require_auth
@@ -6005,7 +6145,7 @@ def home():
             </div>
         </div>
     </div>
-    """)
+    """, build_number=BUILD_NUMBER)
 
 @app.route('/doc/active/')
 def active_documents():
@@ -6024,35 +6164,62 @@ def all_documents():
     all_docs.extend(DRAFTS)
     
     # Add approved/published submissions from database
-    approved_submissions = Submission.query.filter(Submission.status.in_(['approved', 'published'])).all()
+    # Exclude revisions - we only want to show the original draft or the latest approved revision
+    approved_submissions = Submission.query.filter(
+        Submission.status.in_(['approved', 'published']),
+        Submission.is_revision == False  # Only show non-revision submissions
+    ).all()
+    
+    # For each approved submission, check if there's a newer approved revision
     for submission in approved_submissions:
+        # Check if there's an approved revision for this draft
+        latest_revision = Submission.query.filter(
+            Submission.parent_draft_name == submission.id,
+            Submission.is_revision == True,
+            Submission.status.in_(['approved', 'published'])
+        ).order_by(Submission.revision_number.desc()).first()
+        
+        # Use the latest approved revision if it exists, otherwise use the original
+        display_submission = latest_revision if latest_revision else submission
+        
         # Use stored pages and words values (calculated on submission)
-        pages = submission.pages if submission.pages else 1
-        words = submission.words if submission.words else 0
+        pages = display_submission.pages if display_submission.pages else 1
+        words = display_submission.words if display_submission.words else 0
+        
+        # Get revision info for display
+        is_revision = getattr(display_submission, 'is_revision', False)
+        revision_number = getattr(display_submission, 'revision_number', '')
         
         all_docs.append({
-            'name': submission.id,
-            'title': submission.title,
-            'authors': submission.authors if isinstance(submission.authors, list) else [submission.authors] if submission.authors else [],
-            'group': submission.group or 'N/A',
-            'status': submission.status,
-            'rev': '00',
+            'name': display_submission.id,
+            'title': display_submission.title,
+            'authors': display_submission.authors if isinstance(display_submission.authors, list) else [display_submission.authors] if display_submission.authors else [],
+            'group': display_submission.group or 'N/A',
+            'status': display_submission.status,
+            'rev': revision_number if is_revision else '00',
             'pages': pages,
             'words': words,
-            'date': submission.submitted_at.strftime('%Y-%m-%d') if submission.submitted_at else '',
-            'abstract': submission.abstract or '',
-            'ml_number': submission.ml_number
+            'date': display_submission.submitted_at.strftime('%Y-%m-%d') if display_submission.submitted_at else '',
+            'abstract': display_submission.abstract or '',
+            'ml_number': display_submission.ml_number,
+            'is_revision': is_revision,
+            'revision_number': revision_number
         })
     
     docs_html = ""
     for draft in all_docs:
         display_id = draft.get('ml_number') or draft['name']
+        is_revision = draft.get('is_revision', False)
+        revision_number = draft.get('revision_number', '')
+        revision_badge = f'<span class="badge bg-success ms-2">Revision {revision_number}</span>' if is_revision and revision_number else ''
+        
         docs_html += f"""
         <div class="col-md-6 document-card">
             <div class="card">
                 <div class="card-body">
                     <h5 class="card-title document-title">
                         <a href="/doc/draft/{draft['name']}/">{display_id}</a>
+                        {revision_badge}
                     </h5>
                     <p class="card-text">{draft['title']}</p>
                     <div class="document-meta">
@@ -6089,7 +6256,7 @@ def all_documents():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="All Documents - MLTF", theme=current_theme, user_menu=user_menu, content=content)
+    return BASE_TEMPLATE.format(title="All Documents - MLTF", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<path:draft_name>.txt')
 def draft_text(draft_name):
@@ -6274,7 +6441,11 @@ def draft_detail(draft_name):
                 'inscriptionNumber': getattr(submission, 'inscriptionNumber', None),
                 'blockHeight': getattr(submission, 'blockHeight', None),
                 'inscriptionTimestamp': getattr(submission, 'inscriptionTimestamp', None),
-                'ordinalContentType': ordinal_content_type
+                'ordinalContentType': ordinal_content_type,
+                # Revision metadata
+                'is_revision': getattr(submission, 'is_revision', False),
+                'revision_number': getattr(submission, 'revision_number', ''),
+                'parent_draft_name': getattr(submission, 'parent_draft_name', '')
             }
 
     if not draft:
@@ -6329,22 +6500,43 @@ def draft_detail(draft_name):
                                 break
                     
                     if is_markdown:
+                        # Pre-process markdown: convert images inside figure tags to HTML with img-fluid class
+                        # This must happen BEFORE markdown2 conversion
+                        processed_content = re.sub(
+                            r'<figure[^>]*>\s*!\[([^\]]*)\]\(([^)]+)\)',
+                            lambda m: f'<figure><img src="{m.group(2)}" alt="{m.group(1)}" class="img-fluid" />',
+                            raw_content
+                        )
+                        
                         # Convert markdown to HTML
-                        html_content = markdown2.markdown(raw_content, extras=['fenced-code-blocks', 'tables', 'break-on-newline'])
+                        html_content = markdown2.markdown(processed_content, extras=['fenced-code-blocks', 'tables'])
                         
-                        # Sanitize HTML
-                        allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                                      'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
-                                      'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span']
-                        allowed_attrs = {'a': ['href', 'title', 'target'], 'img': ['src', 'alt', 'title', 'width', 'height']}
-                        html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
-                        
-                        # Fix relative image URLs to point to ordinals.com
+                        # Fix image URLs: handle both /content/ paths and bare inscription IDs
+                        # First, fix /content/ paths
                         html_content = re.sub(
                             r'src="(/content/[^"]+)"',
                             r'src="https://ordinals.com\1"',
                             html_content
                         )
+                        # Then, fix bare inscription IDs or paths with inscription IDs
+                        html_content = re.sub(
+                            r'src="(?:[^"]*/)??([a-f0-9]{64}i\d+)"',
+                            r'src="https://ordinals.com/content/\1"',
+                            html_content
+                        )
+                        
+                        # Sanitize HTML - allow figure, figcaption, small tags and class attribute
+                        allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                                      'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
+                                      'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span',
+                                      'figure', 'figcaption', 'small']
+                        allowed_attrs = {
+                            'a': ['href', 'title', 'target'],
+                            'img': ['src', 'alt', 'title', 'class'],
+                            'figure': ['class'],
+                            'figcaption': ['class']
+                        }
+                        html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
                         
                         document_content = html_content
                     else:
@@ -6482,9 +6674,20 @@ Meta-Layer Initiative
         display_id = draft.get('ml_number')
     else:
         display_id = draft['name']
+    # Check if this is a revision
+    is_revision = draft.get('is_revision', False)
+    revision_number = draft.get('revision_number', '')
+    revision_badge = f'<span class="badge bg-success ms-2">Revision {revision_number}</span>' if is_revision and revision_number else ''
+    
+    # Determine content styling based on source type
+    if draft.get('sourceType') == 'ordinal':
+        content_style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6;"
+    else:
+        content_style = "font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4; white-space: pre-wrap;"
+    
     content = f"""
     <div class="container mt-4">
-        <h1>{display_id}</h1>
+        <h1>{display_id} {revision_badge}</h1>
         <p class="lead">{draft['title']}</p>
 
         <div class="row">
@@ -6536,7 +6739,7 @@ Meta-Layer Initiative
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="document-content" style="font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4; white-space: pre-wrap; background-color: var(--input-bg) !important; color: var(--text-primary) !important; padding: 20px; border-radius: 8px; max-height: 800px; overflow-y: auto; border: 1px solid var(--input-border);">
+                        <div class="document-content" style="{content_style} background-color: var(--input-bg) !important; color: var(--text-primary) !important; padding: 20px; border-radius: 8px; max-height: 800px; overflow-y: auto; border: 1px solid var(--input-border);">
 {document_content}
                         </div>
                     </div>
@@ -6596,7 +6799,7 @@ Meta-Layer Initiative
         title_id = draft.get('ml_number')
     else:
         title_id = draft['name']
-    return BASE_TEMPLATE.format(title=f"{title_id} - MLTF", theme=current_theme, user_menu=user_menu, content=content)
+    return BASE_TEMPLATE.format(title=f"{title_id} - MLTF", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<draft_name>/comments/', methods=['GET', 'POST'])
 @require_auth
@@ -6911,7 +7114,7 @@ def draft_comments(draft_name):
     </script>
 """
 
-    return BASE_TEMPLATE.format(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content)
+    return BASE_TEMPLATE.format(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<draft_name>/history/')
 def draft_history(draft_name):
@@ -6919,6 +7122,7 @@ def draft_history(draft_name):
     draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
     
     # If not found in DRAFTS, try to find as a submission ID
+    submission = None
     if not draft:
         submission = Submission.query.filter_by(id=draft_name).first()
         if submission:
@@ -6929,10 +7133,14 @@ def draft_history(draft_name):
                 'status': submission.status,
                 'group': submission.group,
                 'date': submission.submitted_at.strftime('%Y-%m-%d') if submission.submitted_at else '',
+                'ml_number': submission.ml_number,
             }
     
     if not draft:
         return "Document not found", 404
+    
+    # Determine display ID (ML-Draft-XXX or internal ID)
+    display_id = draft.get('ml_number', draft_name) or draft_name
     
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
@@ -6969,12 +7177,12 @@ def draft_history(draft_name):
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="/">Home</a></li>
                 <li class="breadcrumb-item"><a href="/doc/all/">Documents</a></li>
-                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{draft_name}</a></li>
+                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{display_id}</a></li>
                 <li class="breadcrumb-item active">History</li>
             </ol>
         </nav>
         
-        <h1>History for {draft_name}</h1>
+        <h1>History for {display_id}</h1>
         <p class="lead">{draft['title']}</p>
         
         <div class="mb-4">
@@ -6989,7 +7197,7 @@ def draft_history(draft_name):
             </div>
     """
 
-    return BASE_TEMPLATE.format(title=f"History - {draft_name}", theme=current_theme, user_menu=user_menu, content=content)
+    return BASE_TEMPLATE.format(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<draft_name>/follow/', methods=['POST'])
 def follow_draft(draft_name):
@@ -7065,9 +7273,20 @@ def draft_revisions(draft_name):
     
     # If not found in DRAFTS, try to find as a submission ID
     submission = None
+    original_submission_id = None
     if not draft:
         submission = Submission.query.filter_by(id=draft_name).first()
         if submission:
+            # Determine the original submission ID
+            # If this submission is a revision, use its parent_draft_name
+            # Otherwise, this IS the original
+            if getattr(submission, 'is_revision', False) and getattr(submission, 'parent_draft_name', ''):
+                original_submission_id = submission.parent_draft_name
+            else:
+                original_submission_id = submission.id
+            
+            # For the revisions page, just show the requested draft as-is
+            # Don't try to find the "latest" - show what was requested
             draft = {
                 'name': submission.id,
                 'title': submission.title,
@@ -7075,13 +7294,20 @@ def draft_revisions(draft_name):
                 'status': submission.status,
                 'group': submission.group,
                 'date': submission.submitted_at.strftime('%Y-%m-%d') if submission.submitted_at else '',
-                'rev': '00',
-                'pages': 1,
-                'words': 0,
+                'rev': getattr(submission, 'revision_number', '00') or '00',
+                'pages': submission.pages or 1,
+                'words': submission.words or 0,
+                'is_revision': getattr(submission, 'is_revision', False),
+                'parent_draft_name': getattr(submission, 'parent_draft_name', ''),
+                'original_submission_id': original_submission_id,  # Always the true original
+                'ml_number': submission.ml_number,
             }
     
     if not draft:
         return "Document not found", 404
+    
+    # Determine display ID (ML-Draft-XXX or internal ID)
+    display_id = draft.get('ml_number', draft_name) or draft_name
 
     # Calculate pages and words from document content if it's a submission
     calculated_pages = draft.get('pages', 1)
@@ -7143,18 +7369,68 @@ def draft_revisions(draft_name):
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
 
-    # For now, show a simple revision history
-    # In a real system, this would show actual revision differences
+    # Get the original submission ID to find all revisions
+    original_id = draft.get('original_submission_id', draft['name'])
+    
+    # Get the original submission for display
+    original_submission = Submission.query.filter_by(id=original_id).first()
+    
+    # Find all approved/published revisions for this draft
+    all_revisions = Submission.query.filter(
+        Submission.parent_draft_name == original_id,
+        Submission.is_revision == True,
+        Submission.status.in_(['approved', 'published'])
+    ).order_by(Submission.revision_number.desc()).all()
+    
+    # Build revision list HTML - include ALL revisions (current and historical)
+    revisions_list_html = ""
+    for rev in all_revisions:
+        status_badge_class = {
+            'submitted': 'bg-warning text-dark',
+            'approved': 'bg-success',
+            'rejected': 'bg-danger',
+            'published': 'bg-info'
+        }.get(rev.status, 'bg-secondary')
+        
+        what_changed = getattr(rev, 'what_changed', '')
+        what_changed_html = f'<p class="mb-2"><strong>What changed:</strong> {what_changed}</p>' if what_changed else ''
+        
+        # Check if this is the current revision
+        is_current = (rev.id == draft['name'])
+        current_badge = '<span class="badge bg-primary ms-2">Current</span>' if is_current else ''
+        
+        revisions_list_html += f"""
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    <a href="/doc/draft/{rev.id}/" class="text-decoration-none">Revision {rev.revision_number}</a>
+                    {current_badge}
+                </h6>
+                <span class="badge {status_badge_class}">{rev.status.title()}</span>
+            </div>
+            <div class="card-body">
+                <p class="mb-2"><strong>Published:</strong> {rev.approved_at.strftime('%Y-%m-%d') if rev.approved_at and rev.status == 'approved' else (rev.submitted_at.strftime('%Y-%m-%d') if rev.submitted_at else 'N/A')}</p>
+                <p class="mb-2"><strong>Pages:</strong> {rev.pages or 1} | <strong>Words:</strong> {rev.words or 0}</p>
+                {what_changed_html}
+            </div>
+        </div>
+        """
+    
+    # Show revision history
     revisions_html = f"""
-                <div class="card">
-                    <div class="card-header">
-            <h5>Current Revision: {draft['rev']}</h5>
+                <h4>Revision History</h4>
+                {revisions_list_html if revisions_list_html else '<p class="text-muted">No revisions yet.</p>'}
+                
+                <div class="card mt-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <a href="/doc/draft/{original_id}/" class="text-decoration-none">Original Version (Rev 00)</a>
+                        </h6>
+                        <span class="badge bg-success">Approved</span>
                     </div>
                     <div class="card-body">
-            <p>This draft is currently at revision {draft['rev']}.</p>
-            <p><strong>Published:</strong> {draft['date']}</p>
-            <p><strong>Pages:</strong> {draft['pages']}</p>
-            <p><strong>Words:</strong> {draft['words']}</p>
+                        <p class="mb-2"><strong>Published:</strong> {original_submission.approved_at.strftime('%Y-%m-%d') if original_submission and original_submission.approved_at else (original_submission.submitted_at.strftime('%Y-%m-%d') if original_submission and original_submission.submitted_at else draft['date'])}</p>
+                        <p class="mb-0"><strong>Pages:</strong> {original_submission.pages if original_submission else 1} | <strong>Words:</strong> {original_submission.words if original_submission else 0}</p>
                     </div>
                 </div>
 
@@ -7170,12 +7446,12 @@ def draft_revisions(draft_name):
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="/">Home</a></li>
                 <li class="breadcrumb-item"><a href="/doc/all/">Documents</a></li>
-                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{draft_name}</a></li>
+                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{display_id}</a></li>
                 <li class="breadcrumb-item active">Revisions</li>
             </ol>
         </nav>
 
-        <h1>Revisions for {draft_name}</h1>
+        <h1>Revisions for {display_id}</h1>
         <p class="lead">{draft['title']}</p>
 
         <div class="mb-4">
@@ -7191,7 +7467,7 @@ def draft_revisions(draft_name):
     </div>
     """
 
-    return BASE_TEMPLATE.format(title=f"Revisions - {draft_name}", theme=current_theme, user_menu=user_menu, content=content)
+    return BASE_TEMPLATE.format(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/group/')
 def groups():
@@ -7257,8 +7533,7 @@ def groups():
         title="Working Groups - MLTF",
         theme=current_theme,
         content=content,
-        user_menu=user_menu
-    )
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 @app.route('/group/<acronym>/')
 def group_detail(acronym):
     """Display individual working group details"""
@@ -7553,8 +7828,7 @@ def group_detail(acronym):
         title=f"{group['name']} - MLTF",
         theme=current_theme,
         content=content,
-        user_menu=user_menu
-    )
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 @app.route('/group/<acronym>/join', methods=['POST'])
 @require_auth
@@ -7692,8 +7966,7 @@ def people():
         title="People Directory - MLTF",
         theme=session.get('theme', 'dark'),
         content=content,
-        user_menu=user_menu
-    )
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 @app.route('/meeting/')
 def meetings():
@@ -7721,8 +7994,7 @@ def meetings():
         title="Meetings - MLTF",
         theme=session.get('theme', 'dark'),
         content=content,
-        user_menu=user_menu
-    )
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 # Deployment API endpoint (development only)
 @app.route('/_deploy/reload', methods=['POST'])
