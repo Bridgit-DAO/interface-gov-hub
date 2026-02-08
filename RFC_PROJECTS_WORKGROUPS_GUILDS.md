@@ -22,11 +22,20 @@ Projects are the **primary driver** of the schema. Every submission, document, a
 - `created_at` (datetime) - Creation timestamp
 - `updated_at` (datetime) - Last update timestamp
 
-**Approval Status Options:**
-- `pending` - Awaiting approval
-- `approved` - Active project
-- `rejected` - Not approved
-- `archived` - Completed/inactive
+**Status Options (Descriptive, not evaluative):**
+- `proposed` - Registered but little/no active work yet
+- `active` - Actively hosting drafts, workgroups, or deliberation
+- `stabilizing` - Focused on stabilizing drafts for RFC promotion
+- `maintaining` - Published RFCs, focused on stewardship and evolution
+- `dormant` - Currently inactive but preserved for future resumption
+- `concluded` - Intentionally completed its scope
+- `archived` - No longer active, kept for historical reference
+
+**Additional Fields:**
+- `status_reason` (text) - Free-text explanation of current status
+- `last_activity` (datetime) - Timestamp of last activity
+- `superseded_by` (ForeignKey to Project, optional) - Link to successor project
+- `approval_status` (choice) - Admin approval state (pending/approved/rejected)
 
 **Relationships:**
 - One-to-many with Submissions
@@ -52,6 +61,13 @@ Workgroups are task-focused groups within a project.
 - `completed` - Work finished
 - `archived` - Historical record
 
+**Approval:**
+- Workgroups require approval by editor or admin
+- Only approved workgroups in a project are displayed as submission options
+- Promotion of Draft to RFC requires an associated Workgroup
+- Workgroups assess and signal rough consensus (do not exercise unilateral authority)
+- Coordinators facilitate but do not decide outcomes
+
 **Relationships:**
 - Many-to-one with Project (required)
 - Many-to-many with Users (workgroup members)
@@ -68,14 +84,24 @@ Guilds are cross-project collaboration groups. They are **NOT** tied to specific
 - `created_at` (datetime) - Creation timestamp
 - `updated_at` (datetime) - Last update timestamp
 
-**Approval Status Options:**
-- `pending` - Awaiting approval
-- `approved` - Active guild
-- `rejected` - Not approved
-- `archived` - Inactive
+**Guild Roles:**
+- `initiator` - User who created the guild (automatically becomes admin)
+- `admin` - Can manage guild membership and add other admins
+- `member` - Regular guild member
+
+**Approval:**
+- ✅ No approval required - instant registration
+- Initiator can add/remove members
+- Initiator can promote members to admin
+- Admins can add/remove members and other admins
+
+**Membership:**
+- Invitation-based: Initiator/admin sends email invitation
+- Recipient must approve invitation to join
+- Members can leave at any time
 
 **Relationships:**
-- Many-to-many with Users (guild members)
+- Many-to-many with Users (guild members with roles)
 - No direct relationship to Projects (cross-project by design)
 
 ### 4. Terminology Change
@@ -93,26 +119,46 @@ Replace all instances of "chair" with "coordinator" in the interface:
 ```python
 class Project(models.Model):
     name = models.CharField(max_length=255, unique=True)
-    submitted_by = ForeignKey(Person, related_name='submitted_projects')
+    initiator = ForeignKey(Person, related_name='initiated_projects')
+    
+    # Status (descriptive, not evaluative)
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('proposed', 'Proposed'),
+            ('active', 'Active'),
+            ('stabilizing', 'Stabilizing'),
+            ('maintaining', 'Maintaining'),
+            ('dormant', 'Dormant'),
+            ('concluded', 'Concluded'),
+            ('archived', 'Archived'),
+        ],
+        default='proposed'
+    )
+    status_reason = models.TextField(blank=True, help_text="Explanation of current status")
+    
+    # Admin approval
     approval_status = models.CharField(
         max_length=20,
         choices=[
-            ('pending', 'Pending'),
+            ('pending', 'Pending Admin Approval'),
             ('approved', 'Approved'),
             ('rejected', 'Rejected'),
-            ('archived', 'Archived'),
         ],
         default='pending'
     )
+    
     description = models.TextField(blank=True)
+    last_activity = models.DateTimeField(default=timezone.now)
+    superseded_by = ForeignKey('self', null=True, blank=True, related_name='supersedes')
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['-last_activity']
         indexes = [
-            models.Index(fields=['approval_status']),
-            models.Index(fields=['-created_at']),
+            models.Index(fields=['approval_status', 'status']),
+            models.Index(fields=['-last_activity']),
         ]
 ```
 
@@ -122,6 +168,7 @@ class Workgroup(models.Model):
     name = models.CharField(max_length=255)
     project = ForeignKey(Project, related_name='workgroups')
     coordinator = ForeignKey(Person, related_name='coordinated_workgroups', null=True, blank=True)
+    
     status = models.CharField(
         max_length=20,
         choices=[
@@ -132,6 +179,18 @@ class Workgroup(models.Model):
         ],
         default='active'
     )
+    
+    # Editor/Admin approval required
+    approval_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending Approval'),
+            ('approved', 'Approved'),
+            ('rejected', 'Rejected'),
+        ],
+        default='pending'
+    )
+    
     description = models.TextField(blank=True)
     members = models.ManyToManyField(Person, related_name='workgroup_memberships', blank=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -141,35 +200,77 @@ class Workgroup(models.Model):
         ordering = ['project', 'name']
         unique_together = [['project', 'name']]
         indexes = [
+            models.Index(fields=['project', 'approval_status']),
             models.Index(fields=['project', 'status']),
         ]
+    
+    def is_available_for_submission(self):
+        """Only approved workgroups can be selected during submission"""
+        return self.approval_status == 'approved'
 ```
 
 #### Guild Model
 ```python
 class Guild(models.Model):
     name = models.CharField(max_length=255, unique=True)
-    submitted_by = ForeignKey(Person, related_name='submitted_guilds')
-    approval_status = models.CharField(
-        max_length=20,
-        choices=[
-            ('pending', 'Pending'),
-            ('approved', 'Approved'),
-            ('rejected', 'Rejected'),
-            ('archived', 'Archived'),
-        ],
-        default='pending'
-    )
+    initiator = ForeignKey(Person, related_name='initiated_guilds')
     description = models.TextField(blank=True)
-    members = models.ManyToManyField(Person, related_name='guild_memberships', blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['approval_status']),
             models.Index(fields=['-created_at']),
+        ]
+
+class GuildMembership(models.Model):
+    """Guild membership with roles"""
+    ROLE_CHOICES = [
+        ('initiator', 'Initiator'),
+        ('admin', 'Admin'),
+        ('member', 'Member'),
+    ]
+    
+    guild = ForeignKey(Guild, related_name='memberships')
+    person = ForeignKey(Person, related_name='guild_memberships')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='member')
+    joined_at = models.DateTimeField(default=timezone.now)
+    
+    class Meta:
+        unique_together = [['guild', 'person']]
+        indexes = [
+            models.Index(fields=['guild', 'role']),
+        ]
+
+class GuildInvitation(models.Model):
+    """Email-based guild invitations"""
+    guild = ForeignKey(Guild, related_name='invitations')
+    invited_by = ForeignKey(Person, related_name='sent_guild_invitations')
+    invited_email = models.EmailField()
+    invited_person = ForeignKey(Person, null=True, blank=True, related_name='received_guild_invitations')
+    
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('accepted', 'Accepted'),
+            ('declined', 'Declined'),
+            ('expired', 'Expired'),
+        ],
+        default='pending'
+    )
+    
+    invitation_token = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    responded_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField()
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['invitation_token']),
+            models.Index(fields=['invited_email', 'status']),
         ]
 ```
 
@@ -202,10 +303,12 @@ class Document(models.Model):
 4. Deploy to dev environment
 
 ### Phase 2: Data Migration
-1. Create default "Legacy" project for existing data
-2. Associate all existing submissions/documents with "Legacy" project
-3. Migrate existing Group data to Workgroups where appropriate
-4. Test data integrity
+1. Create initial "Meta-Layer" project (initiator: daveed@bridgit.io, status: active, approved)
+2. Create initial "Governance" workgroup under Meta-Layer (approved)
+3. Create default "Legacy" project for existing data
+4. Associate all existing submissions/documents with "Legacy" project
+5. Migrate existing Group data to Workgroups where appropriate
+6. Test data integrity
 
 ### Phase 3: Make Projects Required
 1. Update Submission model to require project
@@ -261,9 +364,10 @@ class Document(models.Model):
 
 ### New Pages
 1. **Projects List** (`/projects/`)
-   - List all projects with filtering by approval status
+   - List all approved projects with filtering by status
+   - Highlight "Meta-Layer" as foundational project
    - Search functionality
-   - Create new project button
+   - Create new project button (with clear messaging about stewardship responsibility)
 
 2. **Project Detail** (`/projects/{id}/`)
    - Project information
@@ -293,8 +397,9 @@ class Document(models.Model):
 
 ### Modified Pages
 1. **Submission Form**
-   - Add project selection dropdown (required)
-   - Add optional workgroup selection
+   - Add project selection dropdown (required, defaults to Meta-Layer)
+   - Add workgroup selection (filtered by selected project, only approved workgroups shown)
+   - Clear messaging: "Most users submit to existing projects like Meta-Layer"
 
 2. **Document Detail**
    - Display associated project
@@ -338,21 +443,29 @@ class Document(models.Model):
 ### Permissions
 1. **Project Creation**
    - Any authenticated user can create a project
-   - Projects require approval before becoming active
+   - Projects require admin approval before becoming active
+   - Project initiator becomes project steward automatically
 
 2. **Project Approval**
-   - Only admins/staff can approve projects
+   - Only admins can approve projects
+   - Approval is required before project can host submissions
 
 3. **Workgroup Management**
    - Project members can create workgroups
+   - Workgroups require editor or admin approval
+   - Only approved workgroups appear in submission forms
    - Coordinators can manage workgroup members
 
 4. **Guild Creation**
    - Any authenticated user can create a guild
-   - Guilds require approval before becoming active
+   - ✅ No approval required - instant registration
+   - Guild initiator automatically becomes admin
 
-5. **Guild Approval**
-   - Only admins/staff can approve guilds
+5. **Guild Membership**
+   - Initiator/admins send email invitations
+   - Recipients must accept invitation to join
+   - Initiator/admins can add other admins
+   - Admins can manage membership
 
 ### Data Access
 - Users can view all approved projects, workgroups, and guilds
@@ -420,13 +533,37 @@ class Document(models.Model):
 - Staging deployment
 - Production deployment
 
-## Open Questions
+## Design Decisions (Resolved)
 
-1. **Project Hierarchy:** Should projects support parent/child relationships?
-2. **Workgroup Limits:** Should there be a limit on workgroups per project?
-3. **Guild Membership:** Should guild membership be automatic or require approval?
-4. **Legacy Data:** How long should we maintain the "Legacy" project?
-5. **Permissions:** Should project creators automatically become coordinators?
+1. **Project Hierarchy:** ❌ No - Projects are flat, no parent/child relationships
+2. **Workgroup Limits:** ❌ No - Projects can have unlimited workgroups
+3. **Guild Membership:** ✅ Invitation-based - Submitter sends email invitation, recipient must approve
+4. **Legacy Data:** Will maintain "Legacy" project indefinitely for historical data
+5. **Permissions:** Project creators become project stewards automatically
+
+## Meta-Layer Governance Principles
+
+### Core Philosophy
+- **Projects are optional stewardship containers**, not prerequisites for participation
+- Most users will NOT create projects
+- Most users will: submit drafts to existing projects, comment on drafts/RFCs, join workgroups or guilds
+- Projects exist to provide scope, continuity, and stewardship for long-lived bodies of work
+
+### Participation Model
+- ✅ Anyone can submit an ML-Draft
+- ✅ Anyone can comment on drafts and RFCs
+- ✅ Anyone can create or join a Guild
+- ⚠️ A Project is only required when stewarding an ongoing body of governance work
+- ✅ Every draft and RFC must be associated with a Project (most users attach to existing)
+
+### Approval Workflows
+- **Projects:** Require admin approval
+- **Workgroups:** Require editor or admin approval
+- **Guilds:** No approval required (instant registration)
+
+### Initial Data
+- **Project:** Meta-Layer (initiator: daveed@bridgit.io, status: active)
+- **Workgroup:** Governance (project: Meta-Layer)
 
 ## Success Criteria
 
