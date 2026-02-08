@@ -296,6 +296,11 @@ class Submission(db.Model):
     inscriptionNumber = db.Column(db.Integer, nullable=True)  # Ordinal inscription number
     blockHeight = db.Column(db.Integer, nullable=True)  # Bitcoin block height
     inscriptionTimestamp = db.Column(db.DateTime, nullable=True)  # When inscribed
+    # Revision fields
+    parent_draft_name = db.Column(db.String(255), nullable=True)  # Link to parent draft for revisions
+    revision_number = db.Column(db.String(10), nullable=True)  # e.g., "01", "02"
+    what_changed = db.Column(db.Text, nullable=True)  # Description of changes in this revision
+    is_revision = db.Column(db.Boolean, default=False)  # Flag to indicate this is a revision
 
 class PublishedDraft(db.Model):
     """Store published/approved drafts separately from original test data"""
@@ -2523,6 +2528,366 @@ def submit_draft():
 
     return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template)
 
+@app.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
+@require_auth
+def submit_revision(draft_name):
+    """Submit a new revision of an existing draft"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+    
+    # Find the current draft
+    draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
+    
+    # If not found in DRAFTS, try to find as a submission
+    if not draft:
+        submission = Submission.query.filter_by(id=draft_name).first()
+        if submission and submission.status == 'approved':
+            draft = {
+                'name': submission.id,
+                'title': submission.title,
+                'authors': ', '.join(submission.authors) if isinstance(submission.authors, list) else submission.authors,
+                'abstract': submission.abstract or '',
+                'group': submission.group or '',
+                'rev': submission.revision_number or '00',
+            }
+        elif submission:
+            flash('Cannot create revision of unapproved submission', 'error')
+            return redirect(f'/submit/status/{submission.id}/')
+    
+    if not draft:
+        flash('Draft not found', 'error')
+        return redirect('/doc/all/')
+    
+    # Calculate new revision number
+    current_rev = int(draft.get('rev', '00'))
+    new_rev = f"{current_rev + 1:02d}"
+    
+    if request.method == 'POST':
+        # Get form data
+        title = request.form.get('title', '').strip()
+        authors = request.form.get('authors', '').strip()
+        abstract = request.form.get('abstract', '').strip()
+        group = request.form.get('group', '').strip()
+        what_changed = request.form.get('what_changed', '').strip()
+        source_type = request.form.get('sourceType', 'file').strip()
+        
+        # Process authors
+        authors_list = [a.strip() for a in authors.split(',') if a.strip()]
+        
+        # Generate submission ID
+        import random
+        import string
+        submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        
+        # Handle based on source type
+        if source_type == 'ordinal':
+            # Ordinal submission
+            ordinal_id = request.form.get('ordinalId', '').strip()
+            ordinal_content_url = request.form.get('ordinalContentUrl', '').strip()
+            ordinal_content_type = request.form.get('ordinalContentType', '').strip()
+            inscription_number = request.form.get('inscriptionNumber', '').strip()
+            block_height = request.form.get('blockHeight', '').strip()
+            inscription_timestamp = request.form.get('inscriptionTimestamp', '').strip()
+            
+            # Validation
+            if not title or not authors or not ordinal_id:
+                flash('Title, authors, and inscription ID are required', 'error')
+                return redirect(f'/submit/revision/{draft_name}/')
+            
+            if not ordinal_content_url:
+                flash('Please preview the ordinal before submitting', 'error')
+                return redirect(f'/submit/revision/{draft_name}/')
+            
+            # Fetch ordinal content and calculate pages/words
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': '*/*',
+                    'Connection': 'keep-alive'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=30)
+                response.raise_for_status()
+                content_text = response.text
+                
+                word_count = len(content_text.split())
+                chars_per_page = 3000
+                page_count = max(1, (len(content_text) + chars_per_page - 1) // chars_per_page)
+            except Exception as e:
+                app.logger.error(f"Failed to fetch ordinal content: {e}")
+                page_count = 1
+                word_count = 0
+            
+            # Create revision submission with ordinal data
+            submission = Submission(
+                id=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                submitted_by=get_current_user()['name'],
+                sourceType='ordinal',
+                doc_type='draft',
+                ordinalId=ordinal_id,
+                ordinalContentUrl=ordinal_content_url,
+                ordinalContentType=ordinal_content_type,
+                inscriptionNumber=int(inscription_number) if inscription_number else None,
+                blockHeight=int(block_height) if block_height else None,
+                inscriptionTimestamp=datetime.strptime(inscription_timestamp.replace(' UTC', ''), '%Y-%m-%d %H:%M:%S') if inscription_timestamp else None,
+                pages=page_count,
+                words=word_count,
+                # Revision fields
+                parent_draft_name=draft_name,
+                revision_number=new_rev,
+                what_changed=what_changed,
+                is_revision=True
+            )
+        else:
+            # File upload submission
+            file = request.files.get('file')
+            
+            # Validation
+            if not title or not authors or not file:
+                flash('Title, authors, and file are required', 'error')
+                return redirect(f'/submit/revision/{draft_name}/')
+            
+            # Security: Check file size (max 50MB)
+            file.seek(0, os.SEEK_END)
+            file_size = file.tell()
+            file.seek(0)
+            max_size = 50 * 1024 * 1024
+            if file_size > max_size:
+                flash(f'File too large. Maximum size is 50MB.', 'error')
+                return redirect(f'/submit/revision/{draft_name}/')
+            
+            # Save file
+            filename = f"{submission_id}-{file.filename}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+            
+            # Calculate pages and words
+            pages, words = calculate_pages_and_words(file_path, filename)
+            
+            # Create revision submission with file data
+            submission = Submission(
+                id=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                filename=filename,
+                file_path=file_path,
+                submitted_by=get_current_user()['name'],
+                sourceType='file',
+                pages=pages,
+                words=words,
+                # Revision fields
+                parent_draft_name=draft_name,
+                revision_number=new_rev,
+                what_changed=what_changed,
+                is_revision=True
+            )
+        
+        # Save to database
+        db.session.add(submission)
+        db.session.commit()
+        
+        # Log the action
+        source_desc = f"from ordinal {submission.ordinalId}" if source_type == 'ordinal' else "via file upload"
+        change_desc = f" Changes: {what_changed[:100]}" if what_changed else ""
+        add_to_document_history(
+            draft_name,
+            "revision_submitted",
+            get_current_user()['name'],
+            f"Revision {new_rev} submitted {source_desc}.{change_desc}"
+        )
+        
+        flash(f'Revision {new_rev} submitted successfully!', 'success')
+        return redirect(f'/submit/status/{submission_id}/')
+    
+    # GET: Show form with pre-populated data
+    # Generate working group options
+    group_options = '<option value="">Select a Working Group</option>'
+    for g in GROUPS:
+        selected = 'selected' if g['acronym'] == draft.get('group', '') else ''
+        group_options += f'<option value="{g["acronym"]}" {selected}>{g["name"]}</option>'
+    
+    revision_form = f"""
+    <div class="container mt-4">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/">Home</a></li>
+                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{draft_name}</a></li>
+                <li class="breadcrumb-item active">Submit Revision</li>
+            </ol>
+        </nav>
+        
+        <h1>Submit New Revision</h1>
+        <p class="lead">Submit a new revision of {draft_name}</p>
+        
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Current Revision:</strong> {draft.get('rev', '00')} → <strong>New Revision:</strong> {new_rev}
+        </div>
+        
+        <form method="POST" enctype="multipart/form-data" id="revisionForm">
+            <div class="mb-3">
+                <label class="form-label">Draft Name</label>
+                <input type="text" class="form-control" value="{draft_name}" disabled>
+                <input type="hidden" name="draft_name" value="{draft_name}">
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Title *</label>
+                <input type="text" class="form-control" name="title" value="{draft.get('title', '')}" required>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Authors *</label>
+                <input type="text" class="form-control" name="authors" value="{draft.get('authors', '')}" required>
+                <small class="form-text text-muted">Comma-separated list</small>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Abstract</label>
+                <textarea class="form-control" name="abstract" rows="4">{draft.get('abstract', '')}</textarea>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Working Group</label>
+                <select class="form-control" name="group">
+                    {group_options}
+                </select>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">What changed since the last revision?</label>
+                <textarea class="form-control" name="what_changed" rows="3" 
+                          placeholder="Example: Clarified workgroup role in determining rough consensus; added glossary; no change to core governance principles."></textarea>
+                <small class="form-text text-muted">
+                    Optional but recommended. Briefly describe substantive changes so reviewers and future readers 
+                    can understand what evolved and why. Not required for minor or editorial edits.
+                </small>
+            </div>
+            
+            <ul class="nav nav-tabs" role="tablist">
+                <li class="nav-item">
+                    <a class="nav-link active" data-bs-toggle="tab" href="#upload" onclick="document.getElementById('sourceType').value='file'">Upload File</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="tab" href="#ordinal" onclick="document.getElementById('sourceType').value='ordinal'">Bitcoin Ordinal</a>
+                </li>
+            </ul>
+            
+            <div class="tab-content mt-3">
+                <div id="upload" class="tab-pane active">
+                    <div class="mb-3">
+                        <label class="form-label">Upload Document *</label>
+                        <input type="file" class="form-control" name="file" accept=".txt,.pdf,.xml,.docx">
+                        <small class="form-text text-muted">Supported formats: TXT, PDF, XML, DOCX</small>
+                    </div>
+                </div>
+                
+                <div id="ordinal" class="tab-pane">
+                    <div class="mb-3">
+                        <label class="form-label">Inscription ID *</label>
+                        <input type="text" class="form-control" name="ordinalId" id="ordinalId" 
+                               placeholder="e.g., 6fb976ab49dcec017f1e201e84395983204ae1a7c2abf7ced0a85d692e442799i0">
+                        <small class="form-text text-muted">The unique inscription ID from Bitcoin</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-secondary" onclick="previewOrdinal()">
+                            <i class="fas fa-eye me-1"></i>Preview Ordinal
+                        </button>
+                    </div>
+                    
+                    <div id="ordinalPreview" class="mb-3" style="display: none;">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6>Ordinal Preview</h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="ordinalContent"></div>
+                                <input type="hidden" name="ordinalContentUrl" id="ordinalContentUrl">
+                                <input type="hidden" name="ordinalContentType" id="ordinalContentType">
+                                <input type="hidden" name="inscriptionNumber" id="inscriptionNumber">
+                                <input type="hidden" name="blockHeight" id="blockHeight">
+                                <input type="hidden" name="inscriptionTimestamp" id="inscriptionTimestamp">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <input type="hidden" name="sourceType" value="file" id="sourceType">
+            
+            <div class="mt-4">
+                <button type="submit" class="btn btn-success btn-lg">
+                    <i class="fas fa-upload me-2"></i>Submit Revision
+                </button>
+                <a href="/doc/draft/{draft_name}/" class="btn btn-secondary btn-lg ms-2">Cancel</a>
+            </div>
+        </form>
+    </div>
+    
+    <script>
+    function previewOrdinal() {{
+        const inscriptionId = document.getElementById('ordinalId').value.trim();
+        if (!inscriptionId) {{
+            alert('Please enter an inscription ID');
+            return;
+        }}
+        
+        // Show loading
+        const preview = document.getElementById('ordinalPreview');
+        const content = document.getElementById('ordinalContent');
+        content.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading ordinal...</div>';
+        preview.style.display = 'block';
+        
+        // Fetch ordinal data
+        fetch(`https://ordinals.com/inscription/${{inscriptionId}}`)
+            .then(response => response.text())
+            .then(html => {{
+                // Parse the HTML to extract content URL and metadata
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                
+                // Extract content URL
+                const iframe = doc.querySelector('iframe');
+                if (iframe) {{
+                    const contentUrl = iframe.src;
+                    document.getElementById('ordinalContentUrl').value = contentUrl;
+                    
+                    // Fetch actual content
+                    return fetch(contentUrl).then(r => r.text()).then(text => {{
+                        document.getElementById('ordinalContentType').value = 'text/plain';
+                        content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto;">${{text.substring(0, 1000)}}...</pre>`;
+                        
+                        // Extract metadata
+                        const dlElements = doc.querySelectorAll('dl dt');
+                        dlElements.forEach(dt => {{
+                            if (dt.textContent.includes('inscription number')) {{
+                                document.getElementById('inscriptionNumber').value = dt.nextElementSibling.textContent.trim();
+                            }} else if (dt.textContent.includes('block height')) {{
+                                document.getElementById('blockHeight').value = dt.nextElementSibling.textContent.trim();
+                            }} else if (dt.textContent.includes('timestamp')) {{
+                                document.getElementById('inscriptionTimestamp').value = dt.nextElementSibling.textContent.trim();
+                            }}
+                        }});
+                    }});
+                }} else {{
+                    content.innerHTML = '<div class="alert alert-warning">Could not preview ordinal content</div>';
+                }}
+            }})
+            .catch(error => {{
+                content.innerHTML = `<div class="alert alert-danger">Error loading ordinal: ${{error.message}}</div>`;
+            }});
+    }}
+    </script>
+    """
+    
+    return BASE_TEMPLATE.format(title=f"Submit Revision - {draft_name}", theme=current_theme, user_menu=user_menu, content=revision_form)
+
 SUBMISSION_STATUS_TEMPLATE = """
 <div class="container mt-4">
     <nav aria-label="breadcrumb">
@@ -2560,6 +2925,23 @@ SUBMISSION_STATUS_TEMPLATE = """
                             {% endif %}
                         </div>
                     </div>
+                    {% if is_revision %}
+                    <div class="alert alert-info mb-3">
+                        <strong><i class="fas fa-code-branch me-2"></i>This is a revision</strong><br>
+                        Revision <strong>{{ revision_number }}</strong> of
+                        <a href="/doc/draft/{{ parent_draft_name }}/">{{ parent_draft_name }}</a>
+                    </div>
+                    {% endif %}
+                    {% if what_changed %}
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <strong>What changed (submitter's explanation)</strong>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-0">{{ what_changed }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>Title:</strong></div>
                         <div class="col-sm-9">{{ submission_title }}</div>
@@ -3141,7 +3523,12 @@ def submission_detail(submission_id):
         'inscription_number': getattr(submission, 'inscriptionNumber', None),
         'block_height': getattr(submission, 'blockHeight', None),
         'inscription_timestamp': getattr(submission, 'inscriptionTimestamp', None),
-        'ml_number': submission.ml_number
+        'ml_number': submission.ml_number,
+        # Revision fields
+        'is_revision': getattr(submission, 'is_revision', False),
+        'parent_draft_name': getattr(submission, 'parent_draft_name', ''),
+        'revision_number': getattr(submission, 'revision_number', ''),
+        'what_changed': getattr(submission, 'what_changed', '')
     }
     
     # Render the submission status template using Flask's Jinja2 engine
@@ -6165,6 +6552,7 @@ Meta-Layer Initiative
                         {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>' if draft.get('status') == 'approved' else ''}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
                         <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
+                        {f'<a href="/submit/revision/{draft["name"]}/" class="btn btn-success w-100 mb-2"><i class="fas fa-plus me-1"></i>Submit New Revision</a>' if current_user and draft.get('status') == 'approved' else ''}
                         {'' if draft.get('sourceType') == 'ordinal' else f'<a href="/download/{draft["name"]}" class="btn btn-outline-primary w-100 mb-2">Download Document</a>'}
                         {'<form method="post" action="/doc/draft/' + draft['name'] + '/follow/" style="display: inline;" class="mb-2"><select name="notification_level" class="form-select form-select-sm mb-1"><option value="all">All changes & comments</option><option value="significant">Significant changes only</option><option value="major">Major changes only</option><option value="comments">Comments only</option><option value="none">No notifications</option></select><button type="submit" class="btn btn-success w-100"><i class="fas fa-bell me-1"></i>Follow Document</button></form>' if current_user and draft.get('status') == 'approved' and not is_user_following_draft(draft_name, current_user) else ''}
                         {'<form method="post" action="/doc/draft/' + draft['name'] + '/unfollow/" style="display: inline;" class="mb-2"><button type="submit" class="btn btn-warning w-100"><i class="fas fa-bell-slash me-1"></i>Unfollow Document</button></form>' if current_user and draft.get('status') == 'approved' and is_user_following_draft(draft_name, current_user) else ''}
@@ -6671,6 +7059,7 @@ def update_notification_level(draft_name):
 
 @app.route('/doc/draft/<draft_name>/revisions/')
 def draft_revisions(draft_name):
+    current_user = get_current_user()
     # First try to find in DRAFTS (published documents)
     draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
     
@@ -6793,6 +7182,7 @@ def draft_revisions(draft_name):
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
             </a>
+            {f'<a href="/submit/revision/{draft_name}/" class="btn btn-success me-2"><i class="fas fa-plus me-1"></i>Submit New Revision</a>' if current_user and draft.get('status') == 'approved' else ''}
             <a href="/doc/draft/{draft_name}/comments/" class="btn btn-outline-secondary me-2">Comments</a>
             <a href="/doc/draft/{draft_name}/history/" class="btn btn-outline-secondary">History</a>
         </div>
