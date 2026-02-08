@@ -6,37 +6,120 @@
 
 ## Phase 1: Models and Migrations (Week 1)
 
-### Database Models
+### Database Models - Core
 - [ ] Create `Project` model in new `ietf/project/models.py`
 - [ ] Create `Workgroup` model in new `ietf/workgroup/models.py`
 - [ ] Create `Guild` model in new `ietf/guild/models.py`
+- [ ] Create `GuildMembership` model in `ietf/guild/models.py`
+- [ ] Create `GuildInvitation` model in `ietf/guild/models.py`
 - [ ] Add `project` ForeignKey to `Submission` model (nullable initially)
 - [ ] Add `project` ForeignKey to `Document` model (nullable)
 - [ ] Add `workgroup` ForeignKey to `Document` model (nullable)
 
+### Database Models - Roles System
+- [ ] Create `Cluster` model in new `ietf/roles/models.py`
+- [ ] Create `Role` model in `ietf/roles/models.py`
+- [ ] Create `Claim` model in `ietf/roles/models.py`
+- [ ] Create `Badge` model in `ietf/roles/models.py`
+- [ ] Create `StatusChange` model in `ietf/roles/models.py` (audit trail)
+
 ### Migrations
 - [ ] Create migration for Project model
 - [ ] Create migration for Workgroup model
-- [ ] Create migration for Guild model
+- [ ] Create migration for Guild, GuildMembership, GuildInvitation models
+- [ ] Create migration for Cluster model
+- [ ] Create migration for Role model
+- [ ] Create migration for Claim model
+- [ ] Create migration for Badge model
+- [ ] Create migration for StatusChange model
 - [ ] Create migration to add project field to Submission
 - [ ] Create migration to add project/workgroup fields to Document
+- [ ] Create migration to add "what_changed" field to Submission/Revision
+- [ ] Create data migration for Meta-Layer project
+- [ ] Create data migration for Governance workgroup
 - [ ] Create data migration for "Legacy" project
 - [ ] Create migration to populate legacy data
 
-### Unit Tests
+### Unit Tests - Core
 - [ ] Test Project model creation
 - [ ] Test Project approval workflow
 - [ ] Test Workgroup model creation
 - [ ] Test Workgroup status changes
-- [ ] Test Guild model creation
-- [ ] Test Guild approval workflow
+- [ ] Test Guild model creation (instant registration)
+- [ ] Test GuildMembership role management
+- [ ] Test GuildInvitation email flow
 - [ ] Test Project-Submission relationship
 - [ ] Test Project-Document relationship
 - [ ] Test Workgroup-Document relationship
 - [ ] Test member management for Workgroups
 - [ ] Test member management for Guilds
 
+### Unit Tests - Roles System
+- [ ] Test Cluster model creation
+- [ ] Test Role model creation
+- [ ] Test Role approval workflow
+- [ ] Test Role status transitions
+- [ ] Test Claim model creation
+- [ ] Test Claim approval (when required)
+- [ ] Test Claim status transitions
+- [ ] Test Claim term expiration
+- [ ] Test Badge model creation
+- [ ] Test Badge request workflow
+- [ ] Test Badge approval workflow
+- [ ] Test Badge issuance with inscription_id
+- [ ] Test StatusChange audit trail
+- [ ] Test Role JSON import (idempotent)
+- [ ] Test anti-spam rate limiting
+
 ## Phase 2: API Development (Week 2)
+
+### Roles System API
+
+#### Clusters API
+- [ ] Create `ClusterViewSet` in `ietf/roles/views.py`
+- [ ] Implement `GET /api/projects/{id}/clusters/`
+- [ ] Implement `POST /api/projects/{id}/clusters/`
+- [ ] Implement `GET /api/clusters/{id}/`
+- [ ] Implement `PATCH /api/clusters/{id}/`
+- [ ] Implement `DELETE /api/clusters/{id}/`
+- [ ] Add cluster serializer
+- [ ] Add cluster filters
+
+#### Roles API
+- [ ] Create `RoleViewSet` in `ietf/roles/views.py`
+- [ ] Implement `GET /api/projects/{id}/roles/`
+- [ ] Implement `POST /api/projects/{id}/roles/`
+- [ ] Implement `POST /api/projects/{id}/roles/import/` (JSON import)
+- [ ] Implement `GET /api/roles/{id}/`
+- [ ] Implement `PATCH /api/roles/{id}/`
+- [ ] Implement `POST /api/roles/{id}/approve/`
+- [ ] Implement `POST /api/roles/{id}/status/`
+- [ ] Add role serializer
+- [ ] Add role filters (cluster, status, public_visible)
+
+#### Claims API
+- [ ] Create `ClaimViewSet` in `ietf/roles/views.py`
+- [ ] Implement `GET /api/projects/{id}/claims/`
+- [ ] Implement `GET /api/roles/{id}/claims/`
+- [ ] Implement `POST /api/roles/{id}/claims/`
+- [ ] Implement `GET /api/claims/{id}/`
+- [ ] Implement `PATCH /api/claims/{id}/`
+- [ ] Implement `POST /api/claims/{id}/approve/`
+- [ ] Implement `POST /api/claims/{id}/status/`
+- [ ] Add claim serializer
+- [ ] Add claim filters (status, claimant, role)
+
+#### Badges API
+- [ ] Create `BadgeViewSet` in `ietf/roles/views.py`
+- [ ] Implement `GET /api/projects/{id}/badges/`
+- [ ] Implement `GET /api/claims/{id}/badges/`
+- [ ] Implement `POST /api/claims/{id}/badges/`
+- [ ] Implement `GET /api/badges/{id}/`
+- [ ] Implement `PATCH /api/badges/{id}/`
+- [ ] Implement `POST /api/badges/{id}/approve/`
+- [ ] Implement `POST /api/badges/{id}/issue/`
+- [ ] Add badge serializer
+- [ ] Add badge filters (status, badge_type)
 
 ### Project API
 - [ ] Create `ProjectViewSet` in `ietf/project/views.py`
@@ -65,15 +148,18 @@
 ### Guild API
 - [ ] Create `GuildViewSet` in `ietf/guild/views.py`
 - [ ] Implement `GET /api/guilds/`
-- [ ] Implement `POST /api/guilds/`
+- [ ] Implement `POST /api/guilds/` (instant registration, no approval)
 - [ ] Implement `GET /api/guilds/{id}/`
 - [ ] Implement `PATCH /api/guilds/{id}/`
 - [ ] Implement `DELETE /api/guilds/{id}/`
-- [ ] Implement `POST /api/guilds/{id}/approve/`
-- [ ] Implement `POST /api/guilds/{id}/reject/`
-- [ ] Implement `POST /api/guilds/{id}/members/`
+- [ ] Implement `POST /api/guilds/{id}/invite/` (send email invitation)
+- [ ] Implement `POST /api/guild-invitations/{token}/accept/`
+- [ ] Implement `POST /api/guild-invitations/{token}/decline/`
+- [ ] Implement `POST /api/guilds/{id}/members/{person_id}/promote/` (to admin)
 - [ ] Implement `DELETE /api/guilds/{id}/members/{person_id}/`
 - [ ] Add guild serializer
+- [ ] Add guild membership serializer
+- [ ] Add guild invitation serializer
 - [ ] Add guild filters
 
 ### Modified APIs
@@ -86,11 +172,21 @@
 - [ ] Test all Project API endpoints
 - [ ] Test all Workgroup API endpoints
 - [ ] Test all Guild API endpoints
+- [ ] Test all Cluster API endpoints
+- [ ] Test all Role API endpoints
+- [ ] Test all Claim API endpoints
+- [ ] Test all Badge API endpoints
 - [ ] Test project approval workflow via API
-- [ ] Test guild approval workflow via API
+- [ ] Test workgroup approval workflow via API
+- [ ] Test guild invitation workflow via API
+- [ ] Test role approval workflow via API
+- [ ] Test claim approval workflow via API
+- [ ] Test badge approval workflow via API
+- [ ] Test role JSON import (idempotent)
 - [ ] Test member management via API
-- [ ] Test permission enforcement
+- [ ] Test permission enforcement (all roles)
 - [ ] Test validation rules
+- [ ] Test anti-spam rate limiting
 
 ### API Documentation
 - [ ] Document Project API endpoints
@@ -102,7 +198,7 @@
 
 ## Phase 3: UI Development (Week 3)
 
-### Templates
+### Templates - Core
 - [ ] Create `ietf/project/templates/project/list.html`
 - [ ] Create `ietf/project/templates/project/detail.html`
 - [ ] Create `ietf/project/templates/project/create.html`
@@ -112,13 +208,41 @@
 - [ ] Create `ietf/guild/templates/guild/list.html`
 - [ ] Create `ietf/guild/templates/guild/detail.html`
 - [ ] Create `ietf/guild/templates/guild/create.html`
+- [ ] Create `ietf/guild/templates/guild/invite.html`
+- [ ] Create `ietf/guild/templates/guild/invitation_accept.html`
 
-### Forms
+### Templates - Roles System
+- [ ] Create `ietf/roles/templates/roles/directory.html` (role directory)
+- [ ] Create `ietf/roles/templates/roles/detail.html` (role detail)
+- [ ] Create `ietf/roles/templates/roles/create.html`
+- [ ] Create `ietf/roles/templates/claims/create.html`
+- [ ] Create `ietf/roles/templates/claims/detail.html`
+- [ ] Create `ietf/roles/templates/badges/request.html`
+- [ ] Create `ietf/roles/templates/badges/detail.html`
+- [ ] Create `ietf/roles/templates/admin/roles_queue.html`
+- [ ] Create `ietf/roles/templates/admin/claims_queue.html`
+- [ ] Create `ietf/roles/templates/admin/badges_queue.html`
+
+### Templates - Onboarding
+- [ ] Create `ietf/templates/start_here.html`
+- [ ] Create `ietf/templates/inscriptions.html`
+
+### Forms - Core
 - [ ] Create `ProjectForm` in `ietf/project/forms.py`
 - [ ] Create `WorkgroupForm` in `ietf/workgroup/forms.py`
 - [ ] Create `GuildForm` in `ietf/guild/forms.py`
-- [ ] Update `SubmissionForm` to include project selection
-- [ ] Add workgroup selection to document forms
+- [ ] Create `GuildInvitationForm` in `ietf/guild/forms.py`
+- [ ] Update `SubmissionForm` to include project selection (default Meta-Layer)
+- [ ] Add workgroup selection to submission form (filtered by project, approved only)
+- [ ] Add "what_changed" field to revision form
+
+### Forms - Roles System
+- [ ] Create `ClusterForm` in `ietf/roles/forms.py`
+- [ ] Create `RoleForm` in `ietf/roles/forms.py`
+- [ ] Create `RoleImportForm` in `ietf/roles/forms.py` (JSON upload)
+- [ ] Create `ClaimForm` in `ietf/roles/forms.py`
+- [ ] Create `BadgeRequestForm` in `ietf/roles/forms.py`
+- [ ] Create `BadgeApprovalForm` in `ietf/roles/forms.py`
 
 ### Views
 - [ ] Create project list view
