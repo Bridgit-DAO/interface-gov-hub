@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 55
+BUILD_NUMBER = 56
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -546,6 +546,93 @@ def render_page(title, content, theme=None, user_menu=None):
         content=content,
         build_number=BUILD_NUMBER
     )
+
+def process_ordinal_markdown(markdown_text):
+    """
+    Shared function to process ordinal markdown content into HTML.
+    Used by both the API endpoint and draft_detail page for consistency.
+    Returns the processed HTML string.
+    """
+    if not MARKDOWN_SUPPORT:
+        import html
+        return html.escape(markdown_text).replace('\n', '<br>')
+    
+    import re
+    import markdown2
+    import bleach
+    
+    # Pre-process markdown to handle figure tags with images
+    def replace_figure_image(match):
+        alt_text = match.group(1) if match.group(1) else ''
+        image_url = match.group(2)
+        caption = match.group(3) if len(match.groups()) >= 3 and match.group(3) else ''
+        
+        html = '<figure class="figure">\n'
+        html += f'  <img src="{image_url}" alt="{alt_text}" class="img-fluid figure-img">\n'
+        if caption:
+            html += f'  <figcaption class="figure-caption"><small>{caption}</small></figcaption>\n'
+        html += '</figure>'
+        return html
+    
+    # Pattern to match: <figure>\n![alt](url)\n<figcaption>caption</figcaption>\n</figure>
+    markdown_text = re.sub(
+        r'<figure[^>]*>\s*!\[([^\]]*)\]\(([^\)]+)\)\s*(?:<figcaption[^>]*>([^<]+)</figcaption>)?\s*</figure>',
+        replace_figure_image,
+        markdown_text,
+        flags=re.MULTILINE | re.DOTALL
+    )
+    
+    # Convert markdown to HTML using markdown2 (without break-on-newline to avoid extra line breaks)
+    html_content = markdown2.markdown(
+        markdown_text,
+        extras=['fenced-code-blocks', 'tables']
+    )
+    
+    # Fix image URLs BEFORE sanitization
+    # 1. Fix relative /content/ URLs
+    html_content = re.sub(
+        r'src="(/content/[^"]+)"',
+        r'src="https://ordinals.com\1"',
+        html_content
+    )
+    
+    # 2. Fix bare inscription IDs (64-char hex + 'i' + number)
+    html_content = re.sub(
+        r'src="(?:[^"]*/)??([a-f0-9]{64}i\d+)"',
+        r'src="https://ordinals.com/content/\1"',
+        html_content
+    )
+    
+    # 3. Add img-fluid class to all img tags that don't already have it
+    html_content = re.sub(
+        r'<img(?![^>]*class=)([^>]*)>',
+        r'<img class="img-fluid"\1>',
+        html_content
+    )
+    
+    # Sanitize HTML to prevent XSS
+    allowed_tags = [
+        'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img',
+        'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'figure', 'figcaption', 'small', 'hr', 'div', 'span'
+    ]
+    allowed_attrs = {
+        'a': ['href', 'title', 'target'],
+        'img': ['src', 'alt', 'title', 'class'],
+        'code': ['class'],
+        'figure': ['class'],
+        'figcaption': ['class']
+    }
+    
+    html_content = bleach.clean(
+        html_content,
+        tags=allowed_tags,
+        attributes=allowed_attrs,
+        strip=True
+    )
+    
+    return html_content
 
 def generate_user_menu():
     """Generate user menu HTML for navbar"""
@@ -4180,7 +4267,7 @@ def preview_ordinal():
 
 @app.route('/api/ordinal/convert-markdown', methods=['POST'])
 def convert_markdown():
-    """Convert markdown to HTML with sanitization"""
+    """Convert markdown to HTML with sanitization - uses shared processing function"""
     try:
         data = request.get_json()
         markdown_text = data.get('markdown', '')
@@ -4192,94 +4279,11 @@ def convert_markdown():
         if not markdown_text:
             return jsonify({'success': False, 'error': 'No markdown provided'}), 400
         
-        if MARKDOWN_SUPPORT:
-            app.logger.info(f"   ✅ Markdown support enabled")
-            
-            # Pre-process markdown to handle figure tags with images
-            import re
-            
-            # Convert markdown images inside figure tags to HTML img tags with img-fluid class
-            def replace_figure_image(match):
-                full_match = match.group(0)
-                alt_text = match.group(1) if match.group(1) else ''
-                image_url = match.group(2)
-                caption = match.group(3) if len(match.groups()) >= 3 and match.group(3) else ''
-                
-                # Build the HTML
-                html = '<figure class="figure">\n'
-                html += f'  <img src="{image_url}" alt="{alt_text}" class="img-fluid figure-img">\n'
-                if caption:
-                    html += f'  <figcaption class="figure-caption"><small>{caption}</small></figcaption>\n'
-                html += '</figure>'
-                return html
-            
-            # Pattern to match: <figure>\n![alt](url)\n<figcaption>caption</figcaption>\n</figure>
-            markdown_text = re.sub(
-                r'<figure[^>]*>\s*!\[([^\]]*)\]\(([^\)]+)\)\s*(?:<figcaption[^>]*>([^<]+)</figcaption>)?\s*</figure>',
-                replace_figure_image,
-                markdown_text,
-                flags=re.MULTILINE | re.DOTALL
-            )
-            
-            # Convert markdown to HTML using markdown2 (without break-on-newline to avoid extra line breaks)
-            html_content = markdown2.markdown(
-                markdown_text,
-                extras=['fenced-code-blocks', 'tables']
-            )
-            app.logger.info(f"   📄 Converted HTML length: {len(html_content)} chars")
-            app.logger.info(f"   📄 HTML first 300 chars: {html_content[:300]}")
-            
-            # Fix image URLs BEFORE sanitization
-            # 1. Fix relative /content/ URLs
-            html_content = re.sub(
-                r'src="(/content/[^"]+)"',
-                r'src="https://ordinals.com\1"',
-                html_content
-            )
-            
-            # 2. Fix bare inscription IDs (64-char hex + 'i' + number)
-            html_content = re.sub(
-                r'src="(?:[^"]*/)??([a-f0-9]{64}i\d+)"',
-                r'src="https://ordinals.com/content/\1"',
-                html_content
-            )
-            
-            # 3. Add img-fluid class to all img tags that don't already have it
-            html_content = re.sub(
-                r'<img(?![^>]*class=)([^>]*)>',
-                r'<img class="img-fluid"\1>',
-                html_content
-            )
-            
-            app.logger.info(f"   📄 After URL fixes - First 500 chars: {html_content[:500]}")
-            
-            # Sanitize HTML to prevent XSS
-            allowed_tags = [
-                'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img',
-                'table', 'thead', 'tbody', 'tr', 'th', 'td',
-                'figure', 'figcaption', 'small'
-            ]
-            allowed_attrs = {
-                'a': ['href', 'title'],
-                'img': ['src', 'alt', 'title', 'class'],
-                'code': ['class'],
-                'figure': ['class'],
-                'figcaption': ['class']
-            }
-            
-            html_content = bleach.clean(
-                html_content,
-                tags=allowed_tags,
-                attributes=allowed_attrs,
-                strip=True
-            )
-            app.logger.info(f"   🧹 Sanitized HTML length: {len(html_content)} chars")
-            app.logger.info(f"   📄 Sanitized HTML first 500 chars: {html_content[:500]}")
-        else:
-            # Fallback: simple HTML escape and line breaks
-            import html
-            html_content = html.escape(markdown_text).replace('\n', '<br>')
+        # Use shared markdown processing function
+        html_content = process_ordinal_markdown(markdown_text)
+        
+        app.logger.info(f"   ✅ Processed HTML length: {len(html_content)} chars")
+        app.logger.info(f"   📄 HTML first 500 chars: {html_content[:500]}")
         
         return jsonify({'success': True, 'html': html_content})
         
@@ -6506,45 +6510,8 @@ def draft_detail(draft_name):
                                 break
                     
                     if is_markdown:
-                        # Pre-process markdown: convert images inside figure tags to HTML with img-fluid class
-                        # This must happen BEFORE markdown2 conversion
-                        processed_content = re.sub(
-                            r'<figure[^>]*>\s*!\[([^\]]*)\]\(([^)]+)\)',
-                            lambda m: f'<figure><img src="{m.group(2)}" alt="{m.group(1)}" class="img-fluid" />',
-                            raw_content
-                        )
-                        
-                        # Convert markdown to HTML
-                        html_content = markdown2.markdown(processed_content, extras=['fenced-code-blocks', 'tables'])
-                        
-                        # Fix image URLs: handle both /content/ paths and bare inscription IDs
-                        # First, fix /content/ paths
-                        html_content = re.sub(
-                            r'src="(/content/[^"]+)"',
-                            r'src="https://ordinals.com\1"',
-                            html_content
-                        )
-                        # Then, fix bare inscription IDs or paths with inscription IDs
-                        html_content = re.sub(
-                            r'src="(?:[^"]*/)??([a-f0-9]{64}i\d+)"',
-                            r'src="https://ordinals.com/content/\1"',
-                            html_content
-                        )
-                        
-                        # Sanitize HTML - allow figure, figcaption, small tags and class attribute
-                        allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                                      'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
-                                      'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span',
-                                      'figure', 'figcaption', 'small']
-                        allowed_attrs = {
-                            'a': ['href', 'title', 'target'],
-                            'img': ['src', 'alt', 'title', 'class'],
-                            'figure': ['class'],
-                            'figcaption': ['class']
-                        }
-                        html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
-                        
-                        document_content = html_content
+                        # Use shared markdown processing function for consistency
+                        document_content = process_ordinal_markdown(raw_content)
                     else:
                         # Display as plain text
                         document_content = raw_content
