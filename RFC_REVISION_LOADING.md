@@ -86,6 +86,50 @@ Users should be able to initiate a revision from:
 - Display "what changed" in revision history
 - Update all metadata (pages, words, etc.)
 
+### 4. Admin Pages: Revisions in the Same Submission Flow
+
+**Principle:** Admin pages use the **same submission flow** for both new drafts and revisions. No separate admin flow for revisions. Revisions are just submissions with `is_revision=True`.
+
+**Requirements for admin pages:**
+
+1. **Single flow** – List/queue/approve submissions the same way whether they are new drafts or revisions. No separate "revisions queue."
+
+2. **Clear indication when it’s a revision** – On every admin view that shows a submission, visibly indicate when it is a revision:
+   - **Submission list/queue:** e.g. badge or label: "Revision" or "Rev 01 of &lt;draft-name&gt;"
+   - **Submission detail/status:** Prominent callout, e.g. "This is revision 01 of draft-xyz"
+   - **Approval page:** Same callout so the approver knows they are approving a revision, not a new draft
+
+3. **Display the explanation when present** – If the submitter filled in "What changed since the last revision?", show it on admin pages:
+   - **Submission detail page:** Dedicated section, e.g. "What changed (revision)" with the full text
+   - **Submission list/queue:** Optional short preview (e.g. first 80 chars) or tooltip if space is limited
+   - **Approval page:** Show the full "what changed" text so the approver can use it when reviewing
+
+4. **Link to parent draft** – On admin views for a revision, always provide a link to the parent draft (e.g. `/doc/draft/{parent_draft_name}/`) so admins can compare or check context.
+
+**Summary:** Revisions are handled in the same submission flow as new drafts; admin UIs must clearly mark them as revisions and surface the "what changed" explanation wherever it helps (detail, queue, approval).
+
+**Example – Admin submission detail / approval view for a revision:**
+
+```html
+<!-- When submission.is_revision is True -->
+<div class="alert alert-info mb-3">
+    <strong><i class="fas fa-code-branch me-2"></i>This is a revision</strong><br>
+    Revision <strong>{{ submission.revision_number }}</strong> of
+    <a href="/doc/draft/{{ submission.parent_draft_name }}/">{{ submission.parent_draft_name }}</a>
+</div>
+
+{% if submission.what_changed %}
+<div class="card mb-3">
+    <div class="card-header">
+        <strong>What changed (submitter’s explanation)</strong>
+    </div>
+    <div class="card-body">
+        <p class="mb-0">{{ submission.what_changed }}</p>
+    </div>
+</div>
+{% endif %}
+```
+
 ## Database Schema Changes
 
 ### Submission Model Updates
@@ -476,12 +520,20 @@ def draft_revisions(draft_name):
 - [ ] Update submission status template for revisions
 - [ ] Update revisions page template
 
-### Phase 4: Testing (Immediate)
+### Phase 4: Admin Pages (Immediate)
+- [ ] Submission list/queue: show "Revision" badge and parent draft name for revisions
+- [ ] Submission detail/status: show "This is revision N of &lt;draft&gt;" callout
+- [ ] Submission detail/status: show "What changed" section when present
+- [ ] Approval page: show revision callout and full "what changed" text
+- [ ] All admin views: include link to parent draft for revisions
+
+### Phase 5: Testing (Immediate)
 - [ ] Test revision submission flow (file upload)
 - [ ] Test revision submission flow (ordinal)
 - [ ] Test pre-population of fields
 - [ ] Test "what changed" field (optional)
 - [ ] Test approval of revisions
+- [ ] Test admin list/detail/approval show revision + "what changed"
 - [ ] Test display of revisions on revisions page
 - [ ] Test revision history
 
@@ -498,6 +550,10 @@ def draft_revisions(draft_name):
 - ✅ After approval, newest version displays on draft page
 - ✅ Revisions page shows all revisions with "what changed"
 - ✅ Revision history is complete and accurate
+- ✅ **Admin:** Same submission flow for new drafts and revisions (no separate queue)
+- ✅ **Admin:** Revisions are clearly indicated (badge/label/callout) on list, detail, and approval
+- ✅ **Admin:** "What changed" is displayed wherever the submission is shown when present
+- ✅ **Admin:** Link to parent draft is available on revision views
 
 ## Timeline
 
