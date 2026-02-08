@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 52
+BUILD_NUMBER = 54
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -2915,20 +2915,20 @@ def submit_revision(draft_name):
                 
                 if (convertData.success) {{
                     content.innerHTML = `
-                        <div class="alert alert-info">
+                        <div class="alert alert-info mb-3">
                             <strong>Preview:</strong> Inscription #${{data.inscriptionNumber}} | 
                             Block: ${{data.blockHeight}} | 
                             Size: ${{(data.contentSize / 1024).toFixed(2)}} KB
                         </div>
-                        <div class="document-content" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6; max-height: 600px; overflow-y: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg);">
+                        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6; max-height: 600px; overflow-y: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
                             ${{convertData.html}}
                         </div>
                     `;
                 }} else {{
-                    content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto;">${{contentText.substring(0, 2000)}}</pre>`;
+                    content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;">${{contentText.substring(0, 2000)}}</pre>`;
                 }}
             }} else {{
-                content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto;">${{contentText.substring(0, 2000)}}</pre>`;
+                content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;">${{contentText.substring(0, 2000)}}</pre>`;
             }}
             
         }} catch (error) {{
@@ -2938,7 +2938,7 @@ def submit_revision(draft_name):
     </script>
     """
     
-    return BASE_TEMPLATE.format(title=f"Submit Revision - {draft_name}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER)
 
 SUBMISSION_STATUS_TEMPLATE = """
 <div class="container mt-4">
