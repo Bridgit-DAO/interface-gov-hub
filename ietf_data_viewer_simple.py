@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 54
+BUILD_NUMBER = 55
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -2920,7 +2920,7 @@ def submit_revision(draft_name):
                             Block: ${{data.blockHeight}} | 
                             Size: ${{(data.contentSize / 1024).toFixed(2)}} KB
                         </div>
-                        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6; max-height: 600px; overflow-y: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
+                        <div class="document-content" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6; max-height: 600px; overflow-y: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
                             ${{convertData.html}}
                         </div>
                     `;
