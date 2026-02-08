@@ -2741,13 +2741,13 @@ def submit_revision(draft_name):
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{draft_name}</a></li>
+                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{display_id}</a></li>
                 <li class="breadcrumb-item active">Submit Revision</li>
             </ol>
         </nav>
         
         <h1>Submit New Revision</h1>
-        <p class="lead">Submit a new revision of {draft_name}</p>
+        <p class="lead">Submit a new revision of {display_id}</p>
         
         <div class="alert alert-info">
             <i class="fas fa-info-circle me-2"></i>
