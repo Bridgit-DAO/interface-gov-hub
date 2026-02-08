@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 58
+BUILD_NUMBER = 60
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -575,8 +575,9 @@ def process_ordinal_markdown(markdown_text):
         return html
     
     # Pattern to match: <figure>\n![alt](url)\n<figcaption>caption</figcaption>\n</figure>
+    # Updated to handle nested HTML tags in figcaption using non-greedy match
     markdown_text = re.sub(
-        r'<figure[^>]*>\s*!\[([^\]]*)\]\(([^\)]+)\)\s*(?:<figcaption[^>]*>([^<]+)</figcaption>)?\s*</figure>',
+        r'<figure[^>]*>\s*!\[([^\]]*)\]\(([^\)]+)\)\s*(?:<figcaption[^>]*>(.*?)</figcaption>)?\s*</figure>',
         replace_figure_image,
         markdown_text,
         flags=re.MULTILINE | re.DOTALL
@@ -3023,8 +3024,20 @@ def submit_revision(draft_name):
                     contentDiv.innerHTML = convertData.html;
                     content.appendChild(contentDiv);
                     
-                    console.log('Preview rendered successfully. HTML length:', convertData.html.length);
-                    console.log('Images in HTML:', contentDiv.querySelectorAll('img').length);
+                    // Add CSS to ensure images display properly
+                    const images = contentDiv.querySelectorAll('img');
+                    images.forEach(img => {{
+                        img.style.maxWidth = '100%';
+                        img.style.height = 'auto';
+                        img.style.display = 'block';
+                        img.style.margin = '1em 0';
+                    }});
+                    
+                    console.log('✅ Preview rendered successfully. HTML length:', convertData.html.length);
+                    console.log('✅ Images found and styled:', images.length);
+                    if (images.length > 0) {{
+                        console.log('✅ First image src:', images[0].src);
+                    }}
                 }} else {{
                     console.error('Markdown conversion failed:', convertData.error);
                     content.innerHTML = `<div class="alert alert-danger">Conversion failed: ${{convertData.error}}</div>`;
