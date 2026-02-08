@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 56
+BUILD_NUMBER = 58
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -3000,19 +3000,34 @@ def submit_revision(draft_name):
                 
                 const convertData = await convertResponse.json();
                 
+                console.log('Markdown conversion response:', convertData);
+                console.log('HTML length:', convertData.html ? convertData.html.length : 0);
+                console.log('HTML preview:', convertData.html ? convertData.html.substring(0, 200) : 'none');
+                
                 if (convertData.success) {{
-                    content.innerHTML = `
-                        <div class="alert alert-info mb-3">
-                            <strong>Preview:</strong> Inscription #${{data.inscriptionNumber}} | 
-                            Block: ${{data.blockHeight}} | 
-                            Size: ${{(data.contentSize / 1024).toFixed(2)}} KB
-                        </div>
-                        <div class="document-content" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6; max-height: 600px; overflow-y: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);">
-                            ${{convertData.html}}
-                        </div>
-                    `;
+                    // Clear and set the preview content
+                    content.innerHTML = '';
+                    
+                    // Create info alert
+                    const infoDiv = document.createElement('div');
+                    infoDiv.className = 'alert alert-info mb-3';
+                    infoDiv.innerHTML = `<strong>Preview:</strong> Inscription #${{data.inscriptionNumber}} | Block: ${{data.blockHeight}} | Size: ${{(data.contentSize / 1024).toFixed(2)}} KB`;
+                    content.appendChild(infoDiv);
+                    
+                    // Create content container
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'document-content';
+                    contentDiv.style.cssText = 'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 1em; line-height: 1.6; max-height: 600px; overflow-y: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);';
+                    
+                    // Set the HTML content
+                    contentDiv.innerHTML = convertData.html;
+                    content.appendChild(contentDiv);
+                    
+                    console.log('Preview rendered successfully. HTML length:', convertData.html.length);
+                    console.log('Images in HTML:', contentDiv.querySelectorAll('img').length);
                 }} else {{
-                    content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;">${{contentText.substring(0, 2000)}}</pre>`;
+                    console.error('Markdown conversion failed:', convertData.error);
+                    content.innerHTML = `<div class="alert alert-danger">Conversion failed: ${{convertData.error}}</div>`;
                 }}
             }} else {{
                 content.innerHTML = `<pre style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;">${{contentText.substring(0, 2000)}}</pre>`;
