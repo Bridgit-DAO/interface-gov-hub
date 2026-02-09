@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 62
+BUILD_NUMBER = 63
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -5396,7 +5396,7 @@ def update_submission_status(submission_id):
             # This is a revision - find the parent draft and use its ML number
             parent_submission = Submission.query.filter_by(id=parent_draft_name).first()
             if parent_submission and parent_submission.ml_number:
-                # VALIDATION: Check if this revision number already exists for this ML number
+                # AUTO-ASSIGN next available revision number if duplicate detected
                 revision_num = getattr(submission, 'revision_number', '')
                 if revision_num:
                     existing_revision = Submission.query.filter(
@@ -5407,9 +5407,31 @@ def update_submission_status(submission_id):
                     ).first()
                     
                     if existing_revision:
-                        error_msg = f'Duplicate revision {revision_num} for {parent_submission.ml_number} (existing: {existing_revision.id})'
-                        app.logger.error(f"❌ {error_msg}")
-                        return jsonify({'success': False, 'message': error_msg}), 400
+                        # Find the next available revision number
+                        all_revisions = Submission.query.filter(
+                            Submission.ml_number == parent_submission.ml_number,
+                            Submission.status == 'approved',
+                            Submission.revision_number.isnot(None)
+                        ).all()
+                        
+                        # Get all existing revision numbers as integers
+                        existing_nums = []
+                        for rev in all_revisions:
+                            try:
+                                existing_nums.append(int(rev.revision_number))
+                            except (ValueError, TypeError):
+                                pass
+                        
+                        # Find next available number
+                        next_num = 1
+                        while next_num in existing_nums:
+                            next_num += 1
+                        
+                        # Update submission with new revision number
+                        old_revision = submission.revision_number
+                        submission.revision_number = f"{next_num:02d}"
+                        
+                        app.logger.warning(f"⚠️ Duplicate revision {old_revision} detected for {parent_submission.ml_number}, auto-assigned {submission.revision_number}")
                 
                 # Use the parent's ML number for the revision
                 submission.ml_number = parent_submission.ml_number
@@ -5516,7 +5538,7 @@ def approve_submission(submission_id):
         # This is a revision - find the parent draft and use its ML number
         parent_submission = Submission.query.filter_by(id=parent_draft_name).first()
         if parent_submission and parent_submission.ml_number:
-            # VALIDATION: Check if this revision number already exists for this ML number
+            # AUTO-ASSIGN next available revision number if duplicate detected
             revision_num = getattr(submission, 'revision_number', '')
             if revision_num:
                 existing_revision = Submission.query.filter(
@@ -5527,11 +5549,32 @@ def approve_submission(submission_id):
                 ).first()
                 
                 if existing_revision:
-                    flash(f'ERROR: Revision {revision_num} already exists for {parent_submission.ml_number}! '
-                          f'Existing revision ID: {existing_revision.id}. '
-                          f'This submission cannot be approved with a duplicate revision number.', 'error')
-                    app.logger.error(f"❌ Duplicate revision number detected: {revision_num} for {parent_submission.ml_number}")
-                    return redirect('/admin/submissions/')
+                    # Find the next available revision number
+                    all_revisions = Submission.query.filter(
+                        Submission.ml_number == parent_submission.ml_number,
+                        Submission.status == 'approved',
+                        Submission.revision_number.isnot(None)
+                    ).all()
+                    
+                    # Get all existing revision numbers as integers
+                    existing_nums = []
+                    for rev in all_revisions:
+                        try:
+                            existing_nums.append(int(rev.revision_number))
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Find next available number
+                    next_num = 1
+                    while next_num in existing_nums:
+                        next_num += 1
+                    
+                    # Update submission with new revision number
+                    old_revision = submission.revision_number
+                    submission.revision_number = f"{next_num:02d}"
+                    
+                    flash(f'⚠️ Revision {old_revision} already exists. Auto-assigned revision {submission.revision_number} instead.', 'warning')
+                    app.logger.warning(f"⚠️ Duplicate revision {old_revision} detected for {parent_submission.ml_number}, auto-assigned {submission.revision_number}")
             
             # Use the parent's ML number for the revision
             # Use the parent's ML number for the revision
