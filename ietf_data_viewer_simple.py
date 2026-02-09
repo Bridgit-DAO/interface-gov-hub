@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-MLTF Data Viewer - Shows the MLTF datatracker data from test files
+MLGH Data Viewer - Shows the MLGH datatracker data from test files
 This displays the Meta-Layer Task Force data so you can see it working.
 
-⚠️ CRITICAL: THIS IS THE MLTF VERSION - DO NOT REVERT TO IETF ⚠️
+⚠️ CRITICAL: THIS IS THE MLGH VERSION - DO NOT REVERT TO IETF ⚠️
 If you see "IETF Data Viewer" in the docstring, this file has been reverted incorrectly.
-The correct version should say "MLTF Data Viewer" and "Meta-Layer Task Force".
+The correct version should say "MLGH Data Viewer" and "Meta-Layer Task Force".
 
 BUILD: 1
 Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 64
+BUILD_NUMBER = 65
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -906,7 +906,7 @@ def render_comment_tree(comments, draft_name, level=0):
     return html
 
 
-# Load MLTF data from test files
+# Load MLGH data from test files
 def load_draft_data():
     """Load draft data from test files"""
     # Return empty list - test documents removed per user request
@@ -1635,7 +1635,7 @@ BASE_TEMPLATE = """
         <div class="container">
             <a class="navbar-brand" href="/">
                 <img src="/static/images/overweb_logo.png" alt="Overweb" />
-                MLTF
+                MLGH
             </a>
             <div class="navbar-nav">
                 <a class="nav-link" href="/doc/all/">
@@ -1668,7 +1668,7 @@ BASE_TEMPLATE = """
 
     <div class="container-fluid mt-5 py-3" style="border-top: 1px solid var(--border-color); background-color: var(--bg-secondary);">
         <div class="text-center text-muted small">
-            Build {build_number} | MLTF Datatracker
+            Build {build_number} | MLGH Datatracker
         </div>
     </div>
 
@@ -1885,7 +1885,7 @@ SUBMIT_TEMPLATE = """
     </nav>
     
     <h1>Submit Internet-Draft</h1>
-    <p class="lead">Submit a new Meta-Layer Draft to the MLTF datatracker</p>
+    <p class="lead">Submit a new Meta-Layer Draft to the MLGH datatracker</p>
     
     <div class="row">
         <div class="col-md-8">
@@ -1959,7 +1959,7 @@ SUBMIT_TEMPLATE = """
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="terms" required>
                                         <label class="form-check-label" for="terms">
-                                            I agree to the <a href="#" target="_blank">MLTF submission terms</a>
+                                            I agree to the <a href="#" target="_blank">MLGH submission terms</a>
                                         </label>
                                     </div>
                                 </div>
@@ -2060,7 +2060,7 @@ SUBMIT_TEMPLATE = """
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="ordinalTerms" required>
                                         <label class="form-check-label" for="ordinalTerms">
-                                            I agree to the <a href="#" target="_blank">MLTF submission terms</a>
+                                            I agree to the <a href="#" target="_blank">MLGH submission terms</a>
                                         </label>
                                     </div>
                                 </div>
@@ -2086,7 +2086,7 @@ SUBMIT_TEMPLATE = """
                     <ul class="small">
                         <li>PDF format preferred</li>
                         <li>Maximum 16MB file size</li>
-                        <li>Use standard MLTF formatting</li>
+                        <li>Use standard MLGH formatting</li>
                     </ul>
                     
                     <h6>Ordinal Requirements:</h6>
@@ -2101,7 +2101,7 @@ SUBMIT_TEMPLATE = """
                         <li>Clear, descriptive title</li>
                         <li>Complete author information</li>
                         <li>Abstract describing the work</li>
-                        <li>Proper MLTF document structure</li>
+                        <li>Proper MLGH document structure</li>
                     </ul>
                     
                     <h6>Review Process:</h6>
@@ -2491,11 +2491,11 @@ def submit_draft():
             # Validation
             if not title or not authors or not ordinal_id:
                 flash('Title, authors, and inscription ID are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             if not ordinal_content_url:
                 flash('Please preview the ordinal before submitting', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Fetch ordinal content and calculate pages/words
             try:
@@ -2556,7 +2556,7 @@ def submit_draft():
             # Validation
             if not title or not authors or not file:
                 flash('Title, authors, and file are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Security: Check file size (max 50MB)
             file.seek(0, os.SEEK_END)
@@ -2565,7 +2565,7 @@ def submit_draft():
             max_size = 50 * 1024 * 1024  # 50MB
             if file_size > max_size:
                 flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Save file
             filename = f"{submission_id}-{file.filename}"
@@ -2604,7 +2604,7 @@ def submit_draft():
         flash('Draft submitted successfully!', 'success')
         return redirect(f'/submit/status/{submission_id}/')
 
-    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLTF", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
 @app.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
 @require_auth
@@ -3278,8 +3278,8 @@ SUBMISSION_STATUS_TEMPLATE = """
                     <p class="small">If you have questions about your submission:</p>
                     <ul class="small">
                         <li>Check the <a href="#" target="_blank">submission guidelines</a></li>
-                        <li>Contact the <a href="mailto:draft@metalayer.org">MLTF Secretariat</a></li>
-                        <li>Join the <a href="#" target="_blank">MLTF discussion list</a></li>
+                        <li>Contact the <a href="mailto:draft@metalayer.org">MLGH Secretariat</a></li>
+                        <li>Join the <a href="#" target="_blank">MLGH discussion list</a></li>
                     </ul>
                 </div>
             </div>
@@ -3422,7 +3422,7 @@ def submission_status():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="My Submissions - MLTF", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/submit/status/<submission_id>/')
 @require_auth
@@ -3685,7 +3685,7 @@ def submission_detail(submission_id):
     rendered_content = render_template_string(SUBMISSION_STATUS_TEMPLATE, **template_vars)
     
     # Now use the rendered content in BASE_TEMPLATE (which uses Python .format())
-    return BASE_TEMPLATE.format(title=f"Submission {submission.id} - MLTF", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title=f"Submission {submission.id} - MLGH", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER)
 
 LOGIN_TEMPLATE = """
 <div class="container mt-4">
@@ -4107,7 +4107,7 @@ def register():
         <a class="nav-link" href="/login/">Sign In</a>
     </div>
     """
-    return render_template_string(BASE_TEMPLATE.format(title="Register - MLTF", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER))
+    return render_template_string(BASE_TEMPLATE.format(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER))
 
 # Ordinals API routes
 @app.route('/api/ordinal/preview', methods=['POST'])
@@ -4581,7 +4581,7 @@ def profile():
         auto_selected=auto_selected,
         session_user=session['user']
     )
-    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLTF", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER))
+    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLGH", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER))
 
 @app.route('/admin/')
 @require_role('admin')
@@ -4826,7 +4826,7 @@ def admin_dashboard():
     """
 
     return BASE_TEMPLATE.format(
-        title="Admin Dashboard - MLTF",
+        title="Admin Dashboard - MLGH",
         theme=get_current_user().get('theme', 'dark'),
         content=content,
         user_menu=user_menu, build_number=BUILD_NUMBER)
@@ -5053,7 +5053,7 @@ def admin_users():
     """
 
     return BASE_TEMPLATE.format(
-        title="User Management - MLTF",
+        title="User Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
@@ -5363,7 +5363,7 @@ def admin_submissions():
     """
 
     return BASE_TEMPLATE.format(
-        title="Submission Management - MLTF",
+        title="Submission Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
@@ -5992,7 +5992,7 @@ def admin_analytics():
         """
     
     return BASE_TEMPLATE.format(
-        title="Analytics - MLTF",
+        title="Analytics - MLGH",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
@@ -6106,7 +6106,7 @@ def admin_chairs():
     """
 
     return BASE_TEMPLATE.format(
-        title="Chair Management - MLTF",
+        title="Chair Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
@@ -6198,7 +6198,7 @@ def add_chair():
     """
 
     return BASE_TEMPLATE.format(
-        title="Add Chair - MLTF",
+        title="Add Chair - MLGH",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
@@ -6234,7 +6234,7 @@ def home():
     # Count documents: DRAFTS + approved/published submissions
     doc_count = len(DRAFTS) + Submission.query.filter(Submission.status.in_(['approved', 'published'])).count()
     
-    return BASE_TEMPLATE.format(title="MLTF", theme=current_theme, user_menu=user_menu, content=f"""
+    return BASE_TEMPLATE.format(title="MLGH", theme=current_theme, user_menu=user_menu, content=f"""
     
     <div class="container mt-4">
         <div class="row">
@@ -6248,7 +6248,7 @@ def home():
                                 <h5>Recent Documents</h5>
                             </div>
                             <div class="card-body">
-                                <p>View the latest MLTF documents including drafts, RFCs, and other standards.</p>
+                                <p>View the latest MLGH documents including drafts, RFCs, and other standards.</p>
                                 <a href="/doc/all/" class="btn btn-primary">View All Documents</a>
                             </div>
                         </div>
@@ -6259,7 +6259,7 @@ def home():
                                 <h5>Working Groups</h5>
                             </div>
                             <div class="card-body">
-                                <p>Browse MLTF working groups and their activities.</p>
+                                <p>Browse MLGH working groups and their activities.</p>
                                 <a href="/group/" class="btn btn-primary">View Working Groups</a>
                             </div>
                         </div>
@@ -6273,7 +6273,7 @@ def home():
                                 <h5>Meetings</h5>
                             </div>
                             <div class="card-body">
-                                <p>Information about MLTF meetings and sessions.</p>
+                                <p>Information about MLGH meetings and sessions.</p>
                                 <a href="/meeting/" class="btn btn-primary">View Meetings</a>
                             </div>
                         </div>
@@ -6284,7 +6284,7 @@ def home():
                                 <h5>People</h5>
                             </div>
                             <div class="card-body">
-                                <p>Directory of MLTF participants and contributors.</p>
+                                <p>Directory of MLGH participants and contributors.</p>
                                 <a href="/person/" class="btn btn-primary">View People</a>
                             </div>
                         </div>
@@ -6416,7 +6416,7 @@ def all_documents():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="All Documents - MLTF", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<path:draft_name>.txt')
 def draft_text(draft_name):
@@ -6512,9 +6512,9 @@ This Internet-Draft is submitted in full conformance with the provisions
 of BCP 78 and BCP 79.
 
 Meta-Layer Drafts are working documents of the Meta-Layer Task Force
-(MLTF). These documents represent proposals and specifications for the
+(MLGH). These documents represent proposals and specifications for the
 Meta-Layer ecosystem. The list of current Meta-Layer Drafts is available
-in the MLTF datatracker.
+in the MLGH datatracker.
 
 Internet-Drafts are draft documents valid for a maximum of six months and
 may be updated, replaced, or obsoleted by other documents at any time. It is
@@ -6526,7 +6526,7 @@ This Internet-Draft will expire on {draft.get('date', 'TBD')}.
 
 3. References
 
-[MLTF] MLTF Datatracker, https://rfc.themetalayer.org/
+[MLGH] MLGH Datatracker, https://rfc.themetalayer.org/
 
 Authors' Addresses
 
@@ -6766,9 +6766,9 @@ This Internet-Draft is submitted in full conformance with the provisions
 of BCP 78 and BCP 79.
 
 Meta-Layer Drafts are working documents of the Meta-Layer Task Force
-(MLTF). These documents represent proposals and specifications for the
+(MLGH). These documents represent proposals and specifications for the
 Meta-Layer ecosystem. The list of current Meta-Layer Drafts is available
-in the MLTF datatracker.
+in the MLGH datatracker.
 
 Internet-Drafts are draft documents valid for a maximum of six months and
 may be updated, replaced, or obsoleted by other documents at any time. It is
@@ -6780,7 +6780,7 @@ This Internet-Draft will expire on {draft.get('date', 'TBD')}.
 
 3. References
 
-[MLTF] MLTF Datatracker, https://rfc.themetalayer.org/
+[MLGH] MLGH Datatracker, https://rfc.themetalayer.org/
 
 Authors' Addresses
 
@@ -6922,7 +6922,7 @@ Meta-Layer Initiative
         title_id = draft.get('ml_number')
     else:
         title_id = draft['name']
-    return BASE_TEMPLATE.format(title=f"{title_id} - MLTF", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title=f"{title_id} - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<draft_name>/comments/', methods=['GET', 'POST'])
 @require_auth
@@ -7653,7 +7653,7 @@ def groups():
     """
 
     return BASE_TEMPLATE.format(
-        title="Working Groups - MLTF",
+        title="Working Groups - MLGH",
         theme=current_theme,
         content=content,
         user_menu=user_menu, build_number=BUILD_NUMBER)
@@ -7948,7 +7948,7 @@ def group_detail(acronym):
     """
 
     return BASE_TEMPLATE.format(
-        title=f"{group['name']} - MLTF",
+        title=f"{group['name']} - MLGH",
         theme=current_theme,
         content=content,
         user_menu=user_menu, build_number=BUILD_NUMBER)
@@ -8077,7 +8077,7 @@ def people():
                     <i class="fas fa-user-friends fa-4x text-muted mb-4"></i>
                     <h1 class="mb-3">People Directory</h1>
                     <p class="lead text-muted mb-4">Coming Soon</p>
-                    <p class="mb-4">We're building a comprehensive directory of MLTF participants and contributors. This feature will help you connect with other members of the community.</p>
+                    <p class="mb-4">We're building a comprehensive directory of MLGH participants and contributors. This feature will help you connect with other members of the community.</p>
                     <a href="/" class="btn btn-primary">Return to Home</a>
         </div>
             </div>
@@ -8086,7 +8086,7 @@ def people():
         """
     
     return BASE_TEMPLATE.format(
-        title="People Directory - MLTF",
+        title="People Directory - MLGH",
         theme=session.get('theme', 'dark'),
         content=content,
         user_menu=user_menu, build_number=BUILD_NUMBER)
@@ -8105,7 +8105,7 @@ def meetings():
                     <i class="fas fa-calendar fa-4x text-muted mb-4"></i>
                     <h1 class="mb-3">Meetings</h1>
                     <p class="lead text-muted mb-4">Coming Soon</p>
-                    <p class="mb-4">Information about upcoming MLTF meetings and sessions will be available here. Stay tuned for announcements about our first events.</p>
+                    <p class="mb-4">Information about upcoming MLGH meetings and sessions will be available here. Stay tuned for announcements about our first events.</p>
                     <a href="/" class="btn btn-primary">Return to Home</a>
                 </div>
             </div>
@@ -8114,7 +8114,7 @@ def meetings():
     """
 
     return BASE_TEMPLATE.format(
-        title="Meetings - MLTF",
+        title="Meetings - MLGH",
         theme=session.get('theme', 'dark'),
         content=content,
         user_menu=user_menu, build_number=BUILD_NUMBER)
@@ -8280,7 +8280,7 @@ if __name__ == '__main__':
     init_deployment_safety()
     # Initialize database on startup
     init_db()
-    print(f"🚀 Starting MLTF Datatracker - BUILD {BUILD_NUMBER}")
+    print(f"🚀 Starting MLGH Datatracker - BUILD {BUILD_NUMBER}")
     print(f"Environment: {ENV} mode on port {PORT}")
     print(f"Database: {DB_PATH}")
     # Disable reloader when running under systemd (detected by systemd environment)
