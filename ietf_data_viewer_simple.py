@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 63
+BUILD_NUMBER = 64
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -5386,6 +5386,44 @@ def update_submission_status(submission_id):
     old_status = submission.status
     submission.status = new_status
 
+    # Check for duplicate revision numbers BEFORE approving (for revisions that already have ML number)
+    if new_status == 'approved':
+        is_revision = getattr(submission, 'is_revision', False)
+        revision_num = getattr(submission, 'revision_number', '')
+        ml_num = submission.ml_number
+        
+        if is_revision and revision_num and ml_num:
+            # Check if this revision number already exists
+            existing_revision = Submission.query.filter(
+                Submission.ml_number == ml_num,
+                Submission.revision_number == revision_num,
+                Submission.status == 'approved',
+                Submission.id != submission_id
+            ).first()
+            
+            if existing_revision:
+                # Find next available revision number
+                all_revisions = Submission.query.filter(
+                    Submission.ml_number == ml_num,
+                    Submission.status == 'approved',
+                    Submission.revision_number.isnot(None)
+                ).all()
+                
+                existing_nums = []
+                for rev in all_revisions:
+                    try:
+                        existing_nums.append(int(rev.revision_number))
+                    except (ValueError, TypeError):
+                        pass
+                
+                next_num = 1
+                while next_num in existing_nums:
+                    next_num += 1
+                
+                old_revision = submission.revision_number
+                submission.revision_number = f"{next_num:02d}"
+                app.logger.warning(f"⚠️ Duplicate revision {old_revision} detected for {ml_num}, auto-assigned {submission.revision_number}")
+
     # Assign ML number when approving
     if new_status == 'approved' and not submission.ml_number:
         # Check if this is a revision
@@ -5529,6 +5567,44 @@ def approve_submission(submission_id):
     if not submission:
         flash('Submission not found', 'error')
         return redirect('/admin/submissions/')
+
+    # Check for duplicate revision numbers FIRST (for revisions that already have ML number)
+    is_revision = getattr(submission, 'is_revision', False)
+    revision_num = getattr(submission, 'revision_number', '')
+    ml_num = submission.ml_number
+    
+    if is_revision and revision_num and ml_num:
+        # Check if this revision number already exists
+        existing_revision = Submission.query.filter(
+            Submission.ml_number == ml_num,
+            Submission.revision_number == revision_num,
+            Submission.status == 'approved',
+            Submission.id != submission_id
+        ).first()
+        
+        if existing_revision:
+            # Find next available revision number
+            all_revisions = Submission.query.filter(
+                Submission.ml_number == ml_num,
+                Submission.status == 'approved',
+                Submission.revision_number.isnot(None)
+            ).all()
+            
+            existing_nums = []
+            for rev in all_revisions:
+                try:
+                    existing_nums.append(int(rev.revision_number))
+                except (ValueError, TypeError):
+                    pass
+            
+            next_num = 1
+            while next_num in existing_nums:
+                next_num += 1
+            
+            old_revision = submission.revision_number
+            submission.revision_number = f"{next_num:02d}"
+            flash(f'⚠️ Revision {old_revision} already exists. Auto-assigned revision {submission.revision_number} instead.', 'warning')
+            app.logger.warning(f"⚠️ Duplicate revision {old_revision} detected for {ml_num}, auto-assigned {submission.revision_number}")
 
     # Check if this is a revision
     is_revision = getattr(submission, 'is_revision', False)
