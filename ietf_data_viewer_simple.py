@@ -1450,7 +1450,7 @@ BASE_TEMPLATE = """
             box-shadow: var(--shadow);
             padding: 0;
             height: 53px;
-            z-index: 2147483646 !important; /* Just below dropdown max */
+            z-index: 1030 !important; /* Below Hypothesis sidebar/panels (~10000) so collapse & dropdown are visible */
             position: relative !important;
             overflow: visible !important;
         }}
@@ -1886,9 +1886,9 @@ BASE_TEMPLATE = """
             background: var(--border-hover);
         }}
 
-        /* Dropdown menu z-index fix - maximum priority to ensure it's above everything */
+        /* Dropdown menu above navbar but below Hypothesis UI */
         .dropdown-menu {{
-            z-index: 2147483647 !important; /* Maximum possible z-index value */
+            z-index: 1050 !important;
             border-radius: 12px;
             border: 1px solid var(--border-color);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -1912,9 +1912,9 @@ BASE_TEMPLATE = """
             overflow: visible !important;
         }}
 
-        /* Force dropdown to be on top of everything */
+        /* Dropdown above navbar */
         .navbar .dropdown-menu {{
-            z-index: 2147483647 !important;
+            z-index: 1050 !important;
             position: absolute !important;
             top: 100% !important;
             left: 0 !important;
@@ -6632,13 +6632,7 @@ def add_coordinator_for_user(user_id):
         </div>
     </div>
     """
-    return BASE_TEMPLATE.format(
-        title="Add as coordinator - MLGH",
-        theme=current_theme,
-        user_menu=user_menu,
-        content=content,
-        build_number=BUILD_NUMBER
-    )
+    return render_page("Add as coordinator - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/admin/coordinator_requests/<int:req_id>/approve')
 @require_role('admin')
@@ -8776,31 +8770,70 @@ def people():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
-    is_admin = current_user and current_user.get('role') in ('admin', 'editor')
+    is_admin = current_user and current_user.get('role') == 'admin'
+    is_editor_or_admin = current_user and current_user.get('role') in ('admin', 'editor')
 
     users = User.query.order_by(User.username).all()
+    group_options = ''.join(
+        f'<option value="{g["acronym"]}">{g["acronym"]}</option>' for g in GROUPS
+    )
     rows = []
     for u in users:
         display = u.name or u.displayName or u.oauthName or u.username
+        # Coordinator: workgroups where they are a coordinator
         coord_groups = WorkingGroupChair.query.filter_by(user_id=u.id).all()
-        group_badges = ' '.join(
+        coord_acronyms = ' '.join(c.group_acronym for c in coord_groups)
+        coord_badges = ' '.join(
             f'<span class="badge bg-secondary me-1">{c.group_acronym}</span>'
             for c in coord_groups
         ) if coord_groups else '<span class="text-muted">—</span>'
+        # Member: workgroups they are a member of
+        member_groups = WorkingGroupMember.query.filter_by(user_id=u.id).all()
+        member_acronyms = ' '.join(m.group_acronym for m in member_groups)
+        member_badges = ' '.join(
+            f'<span class="badge bg-info me-1">{m.group_acronym}</span>'
+            for m in member_groups
+        ) if member_groups else '<span class="text-muted">—</span>'
+        # Combined for filter: member + coordinator acronyms
+        all_groups = (member_acronyms + ' ' + coord_acronyms).strip() or ''
+        # Role (only shown to editor/admin)
+        role_badge = f'<span class="badge bg-{"danger" if u.role == "admin" else "warning" if u.role == "editor" else "secondary"}">{u.role or "user"}</span>'
+        # Last active (last_login)
+        if u.last_login:
+            last_active = u.last_login.strftime('%Y-%m-%d')
+        else:
+            last_active = '<span class="text-muted">Never</span>'
+        # Submissions count (match by submitted_by string to user's names)
+        name_variants = [x for x in (u.name, u.displayName, u.oauthName, u.username) if x]
+        submissions_count = Submission.query.filter(Submission.submitted_by.in_(name_variants)).count() if name_variants else 0
+        # Documents followed count
+        follows_count = UserFollow.query.filter_by(user_id=u.id).count()
+        # Comments count (site document comments, not Hypothesis)
+        comments_count = Comment.query.filter(Comment.author.in_(name_variants)).count() if name_variants else 0
         if is_admin:
             actions_td = f'<td><a href="/admin/users/{u.id}/add-coordinator" class="btn btn-outline-primary btn-sm">Add as coordinator</a></td>'
         else:
             actions_td = ''
+        # data-search and data-groups for client-side filter
+        search_text = f"{display} {u.username}".lower()
+        role_td = f'<td>{role_badge}</td>' if is_editor_or_admin else ''
         rows.append(f"""
-        <tr>
+        <tr data-search="{search_text}" data-groups="{all_groups}">
             <td><strong>{display}</strong><br><small class="text-muted">@{u.username}</small></td>
-            <td>{group_badges}</td>
+            {role_td}
+            <td>{member_badges}</td>
+            <td>{coord_badges}</td>
+            <td>{last_active}</td>
+            <td>{submissions_count}</td>
+            <td>{follows_count}</td>
+            <td>{comments_count}</td>
             {actions_td}
         </tr>
         """)
 
-    cols = 3 if is_admin else 2
-    table_rows = ''.join(rows) if rows else f'<tr><td colspan="{cols}" class="text-center text-muted py-4">No users yet.</td></tr>'
+    num_cols = 7 + (1 if is_editor_or_admin else 0) + (1 if is_admin else 0)  # Name, [Role], Member, Coordinator, Last active, Submissions, Documents followed, Comments, [Actions]
+    table_rows = ''.join(rows) if rows else f'<tr><td colspan="{num_cols}" class="text-center text-muted py-4">No users yet.</td></tr>'
+    role_th = '<th>Role</th>' if is_editor_or_admin else ''
     actions_th = '<th>Actions</th>' if is_admin else ''
     content = f"""
     <div class="container mt-4">
@@ -8811,15 +8844,36 @@ def people():
             </ol>
         </nav>
         <h1 class="mb-2">People</h1>
-        <p class="text-muted mb-4">Directory of MLGH participants. Coordinators are shown by workgroup.</p>
+        <p class="text-muted mb-4">Directory of MLGH participants. Member and coordinator workgroups and activity at a glance.</p>
         <div class="card">
-            <div class="card-body p-0">
+            <div class="card-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted mb-0">Search</label>
+                        <input type="text" id="people-search" class="form-control" placeholder="Type to search by name or username..." autocomplete="off">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-muted mb-0">Workgroup</label>
+                        <select id="people-workgroup" class="form-select">
+                            <option value="">All workgroups</option>
+                            {group_options}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0 pt-0">
                 <div class="table-responsive">
-                    <table class="table table-hover mb-0">
+                    <table class="table table-hover mb-0" id="people-table">
                         <thead class="table-light">
                             <tr>
                                 <th>Name</th>
-                                <th>Coordinator for</th>
+                                {role_th}
+                                <th>Member</th>
+                                <th>Coordinator</th>
+                                <th>Last active</th>
+                                <th>Submissions</th>
+                                <th>Documents followed</th>
+                                <th>Comments</th>
                                 {actions_th}
                             </tr>
                         </thead>
@@ -8829,14 +8883,31 @@ def people():
             </div>
         </div>
     </div>
+    <script>
+    (function() {{
+        var searchEl = document.getElementById('people-search');
+        var workgroupEl = document.getElementById('people-workgroup');
+        var rows = document.querySelectorAll('#people-table tbody tr[data-search]');
+        function filterPeople() {{
+            var q = (searchEl && searchEl.value) ? searchEl.value.toLowerCase().trim() : '';
+            var group = (workgroupEl && workgroupEl.value) ? workgroupEl.value.trim() : '';
+            rows.forEach(function(tr) {{
+                var show = true;
+                if (q && tr.getAttribute('data-search').indexOf(q) === -1) show = false;
+                if (group) {{
+                    var groups = (tr.getAttribute('data-groups') || '').split(/\\s+/).filter(Boolean);
+                    if (groups.indexOf(group) === -1) show = false;
+                }}
+                tr.style.display = show ? '' : 'none';
+            }});
+        }}
+        if (searchEl) searchEl.addEventListener('input', filterPeople);
+        if (searchEl) searchEl.addEventListener('keyup', filterPeople);
+        if (workgroupEl) workgroupEl.addEventListener('change', filterPeople);
+    }})();
+    </script>
     """
-    return BASE_TEMPLATE.format(
-        title="People - MLGH",
-        theme=current_theme,
-        content=content,
-        user_menu=user_menu,
-        build_number=BUILD_NUMBER
-    )
+    return render_page("People - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/meeting/')
 def meetings():
@@ -8860,11 +8931,7 @@ def meetings():
     </div>
     """
 
-    return BASE_TEMPLATE.format(
-        title="Meetings - MLGH",
-        theme=session.get('theme', 'dark'),
-        content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
+    return render_page("Meetings - MLGH", content, theme=session.get('theme', 'dark'), user_menu=user_menu)
 
 # Deployment API endpoint (development only)
 @app.route('/_deploy/reload', methods=['POST'])
