@@ -12,12 +12,236 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 65
+BUILD_NUMBER = 74
+
+def create_hypothesis_account(user):
+    """Create a Hypothesis account for a Meta-Layer user via API"""
+    import requests
+    
+    # Check if user already has a Hypothesis account
+    existing = HypothesisAccount.query.filter_by(user_id=user['id']).first()
+    if existing:
+        return existing
+    
+    if not HYPOTHESIS_CONFIG.get('API_TOKEN'):
+        app.logger.error("No Hypothesis API token configured")
+        return None
+    
+    # Generate unique username
+    base_username = user.get('displayName', user.get('username', f'user{user["id"]}'))
+    # Clean username (Hypothesis requirements: alphanumeric + hyphens + underscores)
+    clean_username = ''.join(c for c in base_username if c.isalnum() or c in '-_').lower()
+    if not clean_username:
+        clean_username = f'mluser{user["id"]}'
+    
+    # Ensure uniqueness by adding timestamp
+    import time
+    username = f"{clean_username}_{int(time.time())}"
+    
+    try:
+        # Create user via Hypothesis API
+        headers = {
+            'Authorization': f'Bearer {HYPOTHESIS_CONFIG["API_TOKEN"]}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Use the standard hypothes.is authority
+        hypothesis_userid = f"acct:{username}@hypothes.is"
+        
+        # Create user payload
+        user_data = {
+            'authority': 'hypothes.is',
+            'username': username,
+            'email': user.get('email', f'{username}@rfc.themetalayer.org'),
+            'display_name': user.get('displayName', username)
+        }
+        
+        # Note: The Hypothesis API doesn't have a direct user creation endpoint
+        # We'll store the mapping and let users authenticate normally
+        
+        # Store the account link
+        hypothesis_account = HypothesisAccount(
+            user_id=user['id'],
+            hypothesis_username=username,
+            hypothesis_userid=hypothesis_userid
+        )
+        db.session.add(hypothesis_account)
+        db.session.commit()
+        
+        app.logger.info(f"Created Hypothesis account mapping for user {user['id']}: {username}")
+        return hypothesis_account
+        
+    except Exception as e:
+        app.logger.error(f"Failed to create Hypothesis account for user {user['id']}: {e}")
+        return None
+
+def get_document_annotations(document_name, document_type='draft'):
+    """Fetch existing annotations for a document using Hypothesis API"""
+    import requests
+    
+    if not HYPOTHESIS_CONFIG.get('API_TOKEN'):
+        return []
+    
+    try:
+        headers = {
+            'Authorization': f'Bearer {HYPOTHESIS_CONFIG["API_TOKEN"]}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Search for annotations with document-specific tags
+        tag = f"{document_type}:{document_name}"
+        url = f"{HYPOTHESIS_CONFIG['API_URL']}/search"
+        params = {
+            'tag': tag,
+            'limit': 200  # Maximum per request
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('rows', [])
+        else:
+            app.logger.warning(f"Failed to fetch annotations: {response.status_code}")
+            return []
+            
+    except Exception as e:
+        app.logger.error(f"Error fetching annotations: {e}")
+        return []
+
+def create_annotation_via_api(document_name, document_type, text, quote, user):
+    """Create annotation via Hypothesis API.
+    WARNING: Uses the server's API token, so the annotation would be attributed to the
+    token owner (you), NOT the end user. Do NOT use for user-created content.
+    Only use for system/bot annotations if ever needed. User annotations are created
+    by the Hypothesis client in the browser under each user's own account.
+    """
+    import requests
+    
+    if not HYPOTHESIS_CONFIG.get('API_TOKEN'):
+        return None
+    
+    try:
+        headers = {
+            'Authorization': f'Bearer {HYPOTHESIS_CONFIG["API_TOKEN"]}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Create annotation payload
+        annotation_data = {
+            'uri': f'https://dev.rfc.themetalayer.org/doc/{document_type}/{document_name}/',
+            'text': text,
+            'tags': [f'{document_type}:{document_name}', f'meta-layer:{document_type}'],
+            'target': [{
+                'source': f'https://dev.rfc.themetalayer.org/doc/{document_type}/{document_name}/',
+                'selector': [{
+                    'type': 'TextQuoteSelector',
+                    'exact': quote
+                }]
+            }],
+            'permissions': {
+                'read': ['group:__world__'],
+                'update': [f'acct:{user.get("username", "anonymous")}@hypothes.is'],
+                'delete': [f'acct:{user.get("username", "anonymous")}@hypothes.is'],
+                'admin': [f'acct:{user.get("username", "anonymous")}@hypothes.is']
+            }
+        }
+        
+        response = requests.post(
+            f"{HYPOTHESIS_CONFIG['API_URL']}/annotations",
+            headers=headers,
+            json=annotation_data,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            app.logger.warning(f"Failed to create annotation: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        app.logger.error(f"Error creating annotation: {e}")
+        return None
+
+def generate_hypothesis_config(document_name=None, document_type='draft'):
+    """Generate Hypothesis configuration HTML for document pages"""
+    if not HYPOTHESIS_ENABLED:
+        return ""
+    
+    # Check if user has annotations enabled (via cookie)
+    annotations_enabled = request.cookies.get('annotations', 'off') == 'on'
+    if not annotations_enabled:
+        return ""
+    
+    # Get current user
+    current_user = get_current_user()
+    
+    # Generate document-specific tags
+    if document_type == 'draft':
+        # For drafts, include document name for revision-specific annotations
+        tags = f'["draft:{document_name}", "meta-layer:draft"]'
+    else:
+        # For other document types
+        tags = f'["{document_type}:{document_name}", "meta-layer:{document_type}"]'
+    
+    # For now, use standard Hypothesis (users create their own accounts)
+    # TODO: Implement full API integration when we get Hypothesis approval
+    auth_config = ""
+    
+    return f"""
+    <script>
+    window.hypothesisConfig = function () {{
+      return {{
+        branding: {{
+          appBackgroundColor: '{HYPOTHESIS_CONFIG['BRANDING']['appBackgroundColor']}',
+          ctaBackgroundColor: '{HYPOTHESIS_CONFIG['BRANDING']['ctaBackgroundColor']}',
+          ctaTextColor: '{HYPOTHESIS_CONFIG['BRANDING']['ctaTextColor']}',
+          selectionFontFamily: '{HYPOTHESIS_CONFIG['BRANDING']['selectionFontFamily']}'
+        }},
+        enableExperimentalNewNoteButton: {str(HYPOTHESIS_CONFIG['ENABLE_EXPERIMENTAL_NEW_NOTE_BUTTON']).lower()},
+        showHighlights: '{HYPOTHESIS_CONFIG['SHOW_HIGHLIGHTS']}',
+        openSidebar: false,{auth_config}
+        // Focus on document-specific annotations
+        focus: {{
+          user: {{
+            filter: {{
+              any: {{
+                tag: {tags}
+              }}
+            }}
+          }}
+        }}
+      }};
+    }};
+    </script>
+    <script async src="{HYPOTHESIS_CONFIG['EMBED_URL']}"></script>
+    """
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 import os
 import re
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv('/home/ubuntu/xowlz/burned/.env')
+
+# Hypothesis Annotation Configuration
+HYPOTHESIS_ENABLED = True  # Set to False to disable annotations globally
+HYPOTHESIS_CONFIG = {
+    'EMBED_URL': 'https://hypothes.is/embed.js',
+    'API_URL': 'https://hypothes.is/api',
+    'API_TOKEN': os.getenv('HYPOTHESIS_API_TOKEN'),  # Server-only: read/count; never sent to client
+    'AUTHORITY': 'hypothes.is',  # Use hypothes.is authority for now
+    'BRANDING': {
+        'appBackgroundColor': '#16181c',  # Dark theme background
+        'ctaBackgroundColor': '#1d9bf0',  # Meta-Layer accent color
+        'ctaTextColor': '#ffffff',
+        'selectionFontFamily': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    },
+    'ENABLE_EXPERIMENTAL_NEW_NOTE_BUTTON': True,
+    'SHOW_HIGHLIGHTS': 'whenSidebarOpen',
+}
 import json
 import uuid
 import requests
@@ -75,6 +299,16 @@ def init_db():
 
         # Run database migrations for ordinals support
         migrate_ordinals_support()
+        
+        # Check if we need to migrate for Hypothesis accounts
+        try:
+            # Test if HypothesisAccount table exists
+            db.session.execute(db.text("SELECT 1 FROM hypothesis_account LIMIT 1"))
+            print("✅ HypothesisAccount table exists")
+        except:
+            print("🔄 Creating HypothesisAccount table...")
+            db.create_all()
+            print("✅ HypothesisAccount table created")
 
         # Migrate hardcoded users to database if not already done
         if User.query.count() == 0:
@@ -82,7 +316,40 @@ def init_db():
 
         # Note: DRAFTS list is now populated from approved/published submissions dynamically
         # No need to pre-load from a separate table
+        migrate_coordinator_and_member_requests()
         print(f"Database initialized: {User.query.count()} users")
+
+def migrate_coordinator_and_member_requests():
+    """Ensure coordinator_request, workgroup_member_request tables exist; add user_id to working_group_chair and working_group_member."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        # Add user_id to working_group_chair if missing
+        cursor.execute("PRAGMA table_info(working_group_chair)")
+        wgc_columns = [c[1] for c in cursor.fetchall()]
+        if 'user_id' not in wgc_columns:
+            cursor.execute("ALTER TABLE working_group_chair ADD COLUMN user_id INTEGER REFERENCES user(id)")
+            conn.commit()
+        # Add user_id to working_group_member if missing (membership by id)
+        cursor.execute("PRAGMA table_info(working_group_member)")
+        wgm_columns = [c[1] for c in cursor.fetchall()]
+        if 'user_id' not in wgm_columns:
+            cursor.execute("ALTER TABLE working_group_member ADD COLUMN user_id INTEGER REFERENCES user(id)")
+            conn.commit()
+            # Backfill user_id from user_name where we can match a user
+            cursor.execute("SELECT id, group_acronym, user_name FROM working_group_member")
+            for row in cursor.fetchall():
+                mid, gac, uname = row
+                cursor.execute("SELECT id FROM user WHERE username = ? OR name = ? OR displayName = ? OR oauthName = ? LIMIT 1", (uname, uname, uname, uname))
+                urow = cursor.fetchone()
+                if urow:
+                    cursor.execute("UPDATE working_group_member SET user_id = ? WHERE id = ?", (urow[0], mid))
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Migration coordinator/member_requests: {e}")
 
 def migrate_ordinals_support():
     """Add ordinals support columns to existing submission table"""
@@ -314,7 +581,8 @@ class DocumentHistory(db.Model):
 class WorkingGroupMember(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     group_acronym = db.Column(db.String(50), index=True)
-    user_name = db.Column(db.String(100), index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # primary lookup
+    user_name = db.Column(db.String(100), index=True)  # for display
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class User(db.Model):
@@ -361,6 +629,17 @@ class UserFollow(db.Model):
 
     __table_args__ = (db.UniqueConstraint('user_id', 'draft_name', name='unique_user_draft_follow'),)
 
+class HypothesisAccount(db.Model):
+    """Links Meta-Layer users to their Hypothesis accounts"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
+    hypothesis_username = db.Column(db.String(100), nullable=False, unique=True)
+    hypothesis_userid = db.Column(db.String(100), nullable=False, unique=True)  # acct:username@authority
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationship
+    user = db.relationship('User', backref=db.backref('hypothesis_account', uselist=False))
+
     NOTIFICATION_LEVELS = {
         'all': 'All changes and comments',
         'significant': 'Only significant changes (state changes, new revisions)',
@@ -369,10 +648,34 @@ class UserFollow(db.Model):
         'none': 'No notifications (just tracking)'
     }
 
+class CoordinatorRequest(db.Model):
+    """User-requested coordinator role; requires approval. Ties coordinator to user id."""
+    id = db.Column(db.Integer, primary_key=True)
+    group_acronym = db.Column(db.String(50), index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # known user
+    username = db.Column(db.String(100), index=True)  # always set for lookup
+    display_name = db.Column(db.String(200))  # for display in lists
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
+    requested_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    reviewed_by = db.Column(db.String(100), nullable=True)
+
+class WorkgroupMemberRequest(db.Model):
+    """Pending member join when workgroup has members_require_approval=True."""
+    id = db.Column(db.Integer, primary_key=True)
+    group_acronym = db.Column(db.String(50), index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    user_name = db.Column(db.String(100), index=True)
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
+    requested_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    reviewed_by = db.Column(db.String(100), nullable=True)
+
 class WorkingGroupChair(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    group_acronym = db.Column(db.String(50), index=True)  # Remove unique constraint to allow multiple chairs
+    group_acronym = db.Column(db.String(50), index=True)
     chair_name = db.Column(db.String(100))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # set when created from CoordinatorRequest
     approved = db.Column(db.Boolean, default=False)
     set_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -390,7 +693,7 @@ COMMENT_LIKES = {}
 # Store comment replies in memory
 COMMENT_REPLIES = {}
 
-# Store working group chairs in memory
+# Store workgroup coordinators in memory
 WORKING_GROUP_CHAIRS = {}
 
 # Configuration for file uploads
@@ -514,7 +817,8 @@ def render_page(title, content, theme=None, user_menu=None):
         theme=theme,
         user_menu=user_menu,
         content=content,
-        build_number=BUILD_NUMBER
+        build_number=BUILD_NUMBER,
+        hypothesis_config=""
     )
 
 def process_ordinal_markdown(markdown_text):
@@ -1023,18 +1327,32 @@ def load_group_data():
                     else:
                         # Fallback for non-DP groups
                         group_title = group_name.replace('-', ' ').title()
-                        description = f'The {group_title} Working Group focuses on {group_title.lower()} standards and protocols for the Internet.'
+                        description = f'The {group_title} Workgroup focuses on {group_title.lower()} standards and protocols for the Internet.'
 
                     groups.append({
                         'acronym': group_name,
-                        'name': f'{group_title} Working Group',
-                        'type': 'Working Group',
+                        'name': f'{group_title} Workgroup',
+                        'type': 'Workgroup',
                         'state': 'Active',
-                        'chairs': [f'Chair {i+1}' for i in range(1 + (hash(group_name) % 2))],  # 1-2 chairs
-                        'description': description
+                        'chairs': [f'Chair {i+1}' for i in range(1 + (hash(group_name) % 2))],
+                        'description': description,
+                        'members_require_approval': False  # default: join is instant
                     })
     except FileNotFoundError:
         print("Group aliases file not found")
+
+    # Interface Governance Workgroup (ML-GOVERNANCE) - always include
+    groups.append({
+        'acronym': 'ml-governance',
+        'name': 'Interface Governance Workgroup',
+        'type': 'Workgroup',
+        'state': 'Active',
+        'chairs': [],
+        'description': 'Developing governance practices and standards for the interface.',
+        'about': 'Developing governance practices and standards for the interface that enable safe human-AI coexistence; connection with greater trust, consent, context; and even human-AI flourishing.',
+        'members_require_approval': False
+    })
+
     return groups
 
 # Load the data
@@ -1053,6 +1371,9 @@ BASE_TEMPLATE = """
     <link rel="shortcut icon" type="image/png" href="/static/images/overweb_logo.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    {hypothesis_config}
+    
     <style>
         :root {{
             /* Light theme (default) */
@@ -1642,7 +1963,7 @@ BASE_TEMPLATE = """
                     <i class="fas fa-file-alt me-1"></i>Documents
                 </a>
                 <a class="nav-link" href="/group/">
-                    <i class="fas fa-users me-1"></i>Working Groups
+                    <i class="fas fa-users me-1"></i>Workgroups
                 </a>
                 <!-- <a class="nav-link" href="/meeting/">
                     <i class="fas fa-calendar me-1"></i>Meetings
@@ -1870,6 +2191,76 @@ BASE_TEMPLATE = """
 
         // Make loginWithWeb3Auth available globally
         window.loginWithWeb3Auth = loginWithWeb3Auth;
+        
+        // Hypothesis Annotation Toggle
+        function toggleAnnotations() {{
+            const button = document.getElementById('toggle-annotations');
+            const text = document.getElementById('annotations-text');
+            const currentState = getCookie('annotations') || 'off';
+            
+            if (currentState === 'off') {{
+                setCookie('annotations', 'on', 365);
+                button.className = 'btn btn-success w-100 mb-2';
+                text.textContent = 'Disable Annotations';
+                // Reload page to load Hypothesis
+                window.location.reload();
+            }} else {{
+                setCookie('annotations', 'off', 365);
+                button.className = 'btn btn-outline-info w-100 mb-2';
+                text.textContent = 'Enable Annotations';
+                // Reload page to remove Hypothesis
+                window.location.reload();
+            }}
+        }}
+        
+        // Cookie helper functions
+        function setCookie(name, value, days) {{
+            const expires = new Date();
+            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+            document.cookie = name + '=' + value + ';expires=' + expires.toUTCString() + ';path=/';
+        }}
+        
+        function getCookie(name) {{
+            const nameEQ = name + "=";
+            const ca = document.cookie.split(';');
+            for(let i = 0; i < ca.length; i++) {{
+                let c = ca[i];
+                while (c.charAt(0) == ' ') c = c.substring(1, c.length);
+                if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
+            }}
+            return null;
+        }}
+        
+        // Update button state on page load
+        document.addEventListener('DOMContentLoaded', function() {{
+            const button = document.getElementById('toggle-annotations');
+            const text = document.getElementById('annotations-text');
+            if (button && text) {{
+                const currentState = getCookie('annotations') || 'off';
+                if (currentState === 'on') {{
+                    button.className = 'btn btn-success w-100 mb-2';
+                    text.textContent = 'Disable Annotations';
+                }} else {{
+                    button.className = 'btn btn-outline-info w-100 mb-2';
+                    text.textContent = 'Enable Annotations';
+                }}
+            }}
+            
+            // Load annotation count
+            const countElement = document.getElementById('annotation-count');
+            if (countElement) {{
+                const documentName = window.location.pathname.split('/').pop().replace('/', '');
+                fetch(`/api/annotations/${{documentName}}/count`)
+                    .then(response => response.json())
+                    .then(data => {{
+                        const count = data.count || 0;
+                        countElement.innerHTML = `<i class="fas fa-comment-dots me-1"></i>${{count}} annotation${{count !== 1 ? 's' : ''}}`;
+                    }})
+                    .catch(error => {{
+                        countElement.textContent = '';
+                    }});
+            }}
+        }});
     </script>
 </body>
 </html>
@@ -1937,9 +2328,9 @@ SUBMIT_TEMPLATE = """
                                 </div>
                                 
                                 <div class="mb-3">
-                                    <label for="group" class="form-label">Working Group (Optional)</label>
+                                    <label for="group" class="form-label">Workgroup (Optional)</label>
                                     <select class="form-select" id="group" name="group">
-                                        <option value="">Select a Working Group</option>
+                                        <option value="">Select a Workgroup</option>
                                         <option value="httpbis">HTTP</option>
                                         <option value="quic">QUIC</option>
                                         <option value="tls">TLS</option>
@@ -2045,9 +2436,9 @@ SUBMIT_TEMPLATE = """
                                 </div>
                                 
                                 <div class="mb-3">
-                                    <label for="ordinalGroup" class="form-label">Working Group (Optional)</label>
+                                    <label for="ordinalGroup" class="form-label">Workgroup (Optional)</label>
                                     <select class="form-select" id="ordinalGroup" name="group">
-                                        <option value="">Select a Working Group</option>
+                                        <option value="">Select a Workgroup</option>
                                         <option value="httpbis">HTTP</option>
                                         <option value="quic">QUIC</option>
                                         <option value="tls">TLS</option>
@@ -2107,7 +2498,7 @@ SUBMIT_TEMPLATE = """
                     <h6>Review Process:</h6>
                     <ul class="small">
                         <li>Initial technical review</li>
-                        <li>Working group consideration</li>
+                        <li>Workgroup consideration</li>
                         <li>IESG review (if applicable)</li>
                         <li>Publication decision</li>
                     </ul>
@@ -2443,8 +2834,8 @@ def submit_draft():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
 
-    # Generate working group options dynamically
-    group_options = '<option value="">Select a Working Group</option>'
+    # Generate workgroup options dynamically
+    group_options = '<option value="">Select a Workgroup</option>'
     for group in GROUPS:
         group_options += f'<option value="{group["acronym"]}">{group["name"]}</option>'
 
@@ -2452,7 +2843,7 @@ def submit_draft():
     submit_template = SUBMIT_TEMPLATE
     for _ in range(2):  # Replace in both upload and ordinal tabs
         submit_template = submit_template.replace(
-            '''<option value="">Select a Working Group</option>
+            '''<option value="">Select a Workgroup</option>
                                         <option value="httpbis">HTTP</option>
                                         <option value="quic">QUIC</option>
                                         <option value="tls">TLS</option>
@@ -2491,11 +2882,11 @@ def submit_draft():
             # Validation
             if not title or not authors or not ordinal_id:
                 flash('Title, authors, and inscription ID are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
             
             if not ordinal_content_url:
                 flash('Please preview the ordinal before submitting', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
             
             # Fetch ordinal content and calculate pages/words
             try:
@@ -2556,7 +2947,7 @@ def submit_draft():
             # Validation
             if not title or not authors or not file:
                 flash('Title, authors, and file are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
             
             # Security: Check file size (max 50MB)
             file.seek(0, os.SEEK_END)
@@ -2565,7 +2956,7 @@ def submit_draft():
             max_size = 50 * 1024 * 1024  # 50MB
             if file_size > max_size:
                 flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
             
             # Save file
             filename = f"{submission_id}-{file.filename}"
@@ -2604,7 +2995,7 @@ def submit_draft():
         flash('Draft submitted successfully!', 'success')
         return redirect(f'/submit/status/{submission_id}/')
 
-    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
 @require_auth
@@ -2788,8 +3179,8 @@ def submit_revision(draft_name):
         return redirect(f'/submit/status/{submission_id}/')
     
     # GET: Show form with pre-populated data
-    # Generate working group options
-    group_options = '<option value="">Select a Working Group</option>'
+    # Generate workgroup options
+    group_options = '<option value="">Select a Workgroup</option>'
     for g in GROUPS:
         selected = 'selected' if g['acronym'] == draft.get('group', '') else ''
         group_options += f'<option value="{g["acronym"]}" {selected}>{g["name"]}</option>'
@@ -2837,7 +3228,7 @@ def submit_revision(draft_name):
             </div>
             
             <div class="mb-3">
-                <label class="form-label">Working Group</label>
+                <label class="form-label">Workgroup</label>
                 <select class="form-control" name="group">
                     {group_options}
                 </select>
@@ -3023,7 +3414,7 @@ def submit_revision(draft_name):
     </script>
     """
     
-    return BASE_TEMPLATE.format(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER, hypothesis_config="")
 
 SUBMISSION_STATUS_TEMPLATE = """
 <div class="container mt-4">
@@ -3241,7 +3632,7 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <div class="timeline-item">
                             <div class="timeline-marker bg-secondary"></div>
                             <div class="timeline-content">
-                                <h6>Working Group Review</h6>
+                                <h6>Workgroup Review</h6>
                                 <p class="text-muted small">Pending initial approval</p>
                             </div>
                         </div>
@@ -3249,7 +3640,7 @@ SUBMISSION_STATUS_TEMPLATE = """
                             <div class="timeline-marker bg-secondary"></div>
                             <div class="timeline-content">
                                 <h6>MLSG Review</h6>
-                                <p class="text-muted small">Pending working group review</p>
+                                <p class="text-muted small">Pending workgroup review</p>
                             </div>
                         </div>
                         {% endif %}
@@ -3422,7 +3813,7 @@ def submission_status():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/submit/status/<submission_id>/')
 @require_auth
@@ -3685,7 +4076,7 @@ def submission_detail(submission_id):
     rendered_content = render_template_string(SUBMISSION_STATUS_TEMPLATE, **template_vars)
     
     # Now use the rendered content in BASE_TEMPLATE (which uses Python .format())
-    return BASE_TEMPLATE.format(title=f"Submission {submission.id} - MLGH", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title=f"Submission {submission.id} - MLGH", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 LOGIN_TEMPLATE = """
 <div class="container mt-4">
@@ -4107,7 +4498,7 @@ def register():
         <a class="nav-link" href="/login/">Sign In</a>
     </div>
     """
-    return render_template_string(BASE_TEMPLATE.format(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER))
+    return render_template_string(BASE_TEMPLATE.format(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER, hypothesis_config=""))
 
 # Ordinals API routes
 @app.route('/api/ordinal/preview', methods=['POST'])
@@ -4581,7 +4972,7 @@ def profile():
         auto_selected=auto_selected,
         session_user=session['user']
     )
-    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLGH", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER))
+    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLGH", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER, hypothesis_config=""))
 
 @app.route('/admin/')
 @require_role('admin')
@@ -4648,8 +5039,8 @@ def admin_dashboard():
         alerts_html += f"""
         <div class="alert alert-info alert-dismissible fade show" role="alert">
             <i class="fas fa-users me-2"></i>
-            <strong>{pending_chairs}</strong> working group chair(s) pending approval
-            <a href="/group/" class="alert-link">Manage chairs</a>
+            <strong>{pending_chairs}</strong> workgroup coordinator(s) pending approval
+            <a href="/group/" class="alert-link">Manage coords</a>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         """
@@ -4667,7 +5058,7 @@ def admin_dashboard():
                     <h1>Admin Dashboard</h1>
                     <div>
                         <a href="/admin/users/" class="btn btn-outline-primary me-2">Manage Users</a>
-                        <a href="/admin/chairs/" class="btn btn-outline-warning me-2">Manage Chairs</a>
+                        <a href="/admin/chairs/" class="btn btn-outline-warning me-2">Manage Coords</a>
                         <a href="/admin/submissions/" class="btn btn-outline-success">Review Submissions</a>
                     </div>
                 </div>
@@ -4686,7 +5077,7 @@ def admin_dashboard():
                         <div class="card h-100">
                             <div class="card-body text-center">
                                 <h4 class="text-success mb-1">{total_groups}</h4>
-                                <p class="mb-0 small">Working Groups</p>
+                                <p class="mb-0 small">Workgroups</p>
                             </div>
                         </div>
                     </div>
@@ -4718,7 +5109,7 @@ def admin_dashboard():
                         <div class="card h-100">
                             <div class="card-body text-center">
                                 <h4 class="text-secondary mb-1">{pending_chairs}</h4>
-                                <p class="mb-0 small">Pending Chairs</p>
+                                <p class="mb-0 small">Pending Coordinators</p>
                             </div>
                         </div>
                     </div>
@@ -4755,7 +5146,7 @@ def admin_dashboard():
                                         <i class="fas fa-users me-2"></i>Manage Users ({total_users} total)
                                     </a>
                                     <a href="/group/" class="btn btn-info">
-                                        <i class="fas fa-users-cog me-2"></i>Manage Working Groups ({pending_chairs} pending chairs)
+                                        <i class="fas fa-users-cog me-2"></i>Manage Workgroups ({pending_chairs} pending coordinators)
                                     </a>
                                     <a href="/admin/analytics/" class="btn btn-secondary">
                                         <i class="fas fa-chart-bar me-2"></i>View Analytics
@@ -4829,7 +5220,7 @@ def admin_dashboard():
         title="Admin Dashboard - MLGH",
         theme=get_current_user().get('theme', 'dark'),
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER)
+        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/admin/users/')
 @require_role('admin')
@@ -4892,6 +5283,8 @@ def admin_users():
                             <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'user'); return false;">User</a></li>
                             <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'editor'); return false;">Editor</a></li>
                             <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'admin'); return false;">Admin</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/admin/users/{user.id}/add-coordinator"><i class="fas fa-user-tie me-1"></i>Add as coordinator</a></li>
                         </ul>
                     </div>
                     <button class="btn btn-outline-danger btn-sm ms-1" onclick="deleteUser('{user.username}')">
@@ -5056,7 +5449,7 @@ def admin_users():
         title="User Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER)
+        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/admin/users/<username>/role', methods=['POST'])
 @require_role('admin')
@@ -5366,7 +5759,7 @@ def admin_submissions():
         title="Submission Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER)
+        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/admin/submissions/<submission_id>/status', methods=['POST'])
 @require_role('admin')
@@ -5995,7 +6388,7 @@ def admin_analytics():
         title="Analytics - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER)
+        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/admin/chairs/')
 @require_auth
@@ -6006,47 +6399,65 @@ def admin_chairs():
     # Generate user menu
     user_menu = generate_user_menu()
 
-    # Get statistics
-    total_chairs = len(WORKING_GROUP_CHAIRS)
-    approved_chairs = len([c for c in WORKING_GROUP_CHAIRS.values() if c['approved']])
+    # Get statistics from database (same source as workgroup page "Add Coord")
+    all_chairs = WorkingGroupChair.query.all()
+    total_chairs = len(all_chairs)
+    approved_chairs = sum(1 for c in all_chairs if c.approved)
     pending_chairs = total_chairs - approved_chairs
 
-    # Build chair list
+    # Build chair list from database (Approve only for Pending; Active coordinators only get Delete)
     chair_list = ""
-    for chair_id, chair_data in WORKING_GROUP_CHAIRS.items():
-        status_badge = 'success' if chair_data['approved'] else 'warning'
-        status_text = 'Active' if chair_data['approved'] else 'Pending'
+    for chair in all_chairs:
+        status_badge = 'success' if chair.approved else 'warning'
+        status_text = 'Active' if chair.approved else 'Pending'
+        set_at_str = chair.set_at.strftime('%Y-%m-%d') if chair.set_at else 'N/A'
+        if chair.approved:
+            actions = f'<a href="/admin/chairs/{chair.id}/delete" class="btn btn-sm btn-outline-danger" onclick="return confirm(\'Remove this coordinator?\')">Delete</a>'
+        else:
+            actions = f'<a href="/admin/chairs/{chair.id}/approve" class="btn btn-sm btn-outline-success" onclick="return confirm(\'Approve this coordinator?\')">Approve</a> <a href="/admin/chairs/{chair.id}/delete" class="btn btn-sm btn-outline-danger" onclick="return confirm(\'Delete this coordinator?\')">Delete</a>'
         chair_list += f"""
         <tr>
-            <td>{chair_data['chair_name']}</td>
-            <td>{chair_data.get('chair_email', 'N/A')}</td>
-            <td><code>{chair_data['group_acronym']}</code></td>
+            <td>{chair.chair_name}</td>
+            <td>N/A</td>
+            <td><code>{chair.group_acronym}</code></td>
             <td><span class="badge bg-{status_badge}">{status_text}</span></td>
-            <td>{chair_data['set_at'].strftime('%Y-%m-%d')}</td>
+            <td>{set_at_str}</td>
+            <td>{actions}</td>
+        </tr>
+        """
+
+    # Build pending coordinator request rows (before content f-string so variable is defined)
+    pending_coord_requests = CoordinatorRequest.query.filter_by(status='pending').order_by(CoordinatorRequest.requested_at.desc()).all()
+    coord_request_rows = ""
+    for req in pending_coord_requests:
+        req_at = req.requested_at.strftime('%Y-%m-%d %H:%M') if req.requested_at else ''
+        coord_request_rows += f"""
+        <tr>
+            <td>{req.display_name or req.username}</td>
+            <td><code>{req.username}</code></td>
+            <td><code>{req.group_acronym}</code></td>
+            <td>{req_at}</td>
             <td>
-                <a href="/admin/chairs/{chair_id}/approve" class="btn btn-sm btn-outline-success" onclick="return confirm('Approve this chair?')">Approve</a>
-                <a href="/admin/chairs/{chair_id}/delete" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this chair?')">Delete</a>
+                <a href="/admin/coordinator_requests/{req.id}/approve" class="btn btn-sm btn-success">Approve</a>
+                <a href="/admin/coordinator_requests/{req.id}/reject" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject this request?')">Reject</a>
             </td>
         </tr>
         """
+    if not coord_request_rows:
+        coord_request_rows = '<tr><td colspan="5" class="text-center text-muted py-3">No pending coordinator requests.</td></tr>'
 
     content = f"""
     <div class="container mt-4">
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
-                <li class="breadcrumb-item active">Chair Management</li>
+                <li class="breadcrumb-item active">Coordinator Management</li>
             </ol>
         </nav>
 
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h1 class="mb-1">Chair Management</h1>
-                <p class="text-muted mb-0">Manage working group chairs across all groups</p>
-            </div>
-            <a href="/admin/chairs/add" class="btn btn-primary">
-                <i class="fas fa-plus me-2"></i>Add New Chair
-            </a>
+        <div class="mb-4">
+            <h1 class="mb-1">Coordinator Management</h1>
+            <p class="text-muted mb-0">Manage workgroup coordinators. Add coordinators from <a href="/admin/users/">User Management</a> or <a href="/person/">People</a> (admin actions).</p>
         </div>
 
         <!-- Statistics Cards -->
@@ -6055,7 +6466,7 @@ def admin_chairs():
                 <div class="card text-center">
                     <div class="card-body">
                         <h4 class="text-primary">{total_chairs}</h4>
-                        <small class="text-muted">Total Chairs</small>
+                        <small class="text-muted">Total Coordinators</small>
                     </div>
                 </div>
             </div>
@@ -6063,7 +6474,7 @@ def admin_chairs():
                 <div class="card text-center">
                     <div class="card-body">
                         <h4 class="text-success">{approved_chairs}</h4>
-                        <small class="text-muted">Active Chairs</small>
+                        <small class="text-muted">Active Coordinators</small>
                     </div>
                 </div>
             </div>
@@ -6077,10 +6488,36 @@ def admin_chairs():
             </div>
         </div>
 
-        <!-- Chairs Table -->
+        <!-- Pending coordinator requests (user-requested role; we have their id) -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Pending coordinator requests</h5>
+                <small class="text-muted">Users requested coordinator role; approve to grant.</small>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Display name</th>
+                                <th>Username (id)</th>
+                                <th>Workgroup</th>
+                                <th>Requested</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {coord_request_rows}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Coordinators Table -->
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0">Working Group Chairs</h5>
+                <h5 class="mb-0">Workgroup Coordinators</h5>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -6096,98 +6533,97 @@ def admin_chairs():
                             </tr>
                         </thead>
                         <tbody>
-                            {chair_list if chair_list else '<tr><td colspan="6" class="text-center text-muted py-4">No chairs found. <a href="/admin/chairs/add">Add the first chair</a>.</td></tr>'}
+                            {chair_list if chair_list else '<tr><td colspan="6" class="text-center text-muted py-4">No coordinators yet. Add from User Management or People (admin).</td></tr>'}
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
+
+        <div class="mt-4">
+            <a href="/admin/member_requests/" class="btn btn-outline-primary">View member requests</a>
+        </div>
     </div>
     """
 
     return BASE_TEMPLATE.format(
-        title="Chair Management - MLGH",
+        title="Coordinator Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER)
+        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
-@app.route('/admin/chairs/add', methods=['GET', 'POST'])
-@require_auth
-def add_chair():
-    current_user = get_current_user()
-    current_theme = session.get('theme', 'dark')
-
-    # Generate user menu
+@app.route('/admin/users/<int:user_id>/add-coordinator', methods=['GET', 'POST'])
+@require_role('admin')
+def add_coordinator_for_user(user_id):
+    """Add an existing user as coordinator for a workgroup (by user id, workgroup from list)."""
     user_menu = generate_user_menu()
+    current_theme = get_current_user().get('theme', 'dark')
+    target = User.query.get(user_id)
+    if not target:
+        flash('User not found', 'error')
+        return redirect('/admin/users/')
+    display_name = target.name or target.displayName or target.oauthName or target.username
 
     if request.method == 'POST':
-        chair_name = request.form.get('chair_name', '').strip()
-        chair_email = request.form.get('chair_email', '').strip()
         group_acronym = request.form.get('group_acronym', '').strip()
-        approved = request.form.get('approved') == 'on'
-
-        if not chair_name or not group_acronym:
-            flash('Chair name and group are required', 'error')
+        if not group_acronym:
+            flash('Please select a workgroup', 'error')
         else:
-            # Check if chair already exists
-            for chair_data in WORKING_GROUP_CHAIRS.values():
-                if chair_data['group_acronym'] == group_acronym and chair_data['chair_name'] == chair_name:
-                    flash('Chair already exists in this group', 'error')
-                    break
+            # Check valid group
+            if not any(g['acronym'] == group_acronym for g in GROUPS):
+                flash('Invalid workgroup', 'error')
             else:
-                # Add new chair
-                chair_id = str(uuid.uuid4())
-                WORKING_GROUP_CHAIRS[chair_id] = {
-                    'chair_name': chair_name,
-                    'chair_email': chair_email,
-                    'group_acronym': group_acronym,
-                    'approved': approved,
-                    'set_at': datetime.utcnow()
-                }
-                flash('Chair added successfully', 'success')
-                return redirect('/admin/chairs/')
+                existing = WorkingGroupChair.query.filter_by(
+                    group_acronym=group_acronym,
+                    user_id=user_id
+                ).first()
+                if existing:
+                    flash(f'{display_name} is already a coordinator for {group_acronym}', 'error')
+                else:
+                    chair = WorkingGroupChair(
+                        group_acronym=group_acronym,
+                        chair_name=display_name,
+                        user_id=user_id,
+                        approved=True
+                    )
+                    db.session.add(chair)
+                    db.session.commit()
+                    flash(f'Added {display_name} as coordinator for {group_acronym}', 'success')
+                    return redirect('/admin/chairs/')
 
+    group_options = ''.join(
+        f'<option value="{g["acronym"]}">{g["acronym"]} – {g.get("name", g["acronym"])}</option>'
+        for g in GROUPS
+    )
     content = f"""
     <div class="container mt-4">
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
-                <li class="breadcrumb-item"><a href="/admin/chairs/">Chair Management</a></li>
-                <li class="breadcrumb-item active">Add Chair</li>
+                <li class="breadcrumb-item"><a href="/admin/users/">User Management</a></li>
+                <li class="breadcrumb-item"><a href="/admin/chairs/">Coordinator Management</a></li>
+                <li class="breadcrumb-item active">Add as coordinator</li>
             </ol>
         </nav>
-
         <div class="row justify-content-center">
             <div class="col-md-6">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">Add New Chair</h5>
+                        <h5 class="mb-0">Add as coordinator</h5>
                     </div>
                     <div class="card-body">
+                        <p class="mb-3">User: <strong>{display_name}</strong> (@{target.username})</p>
                         <form method="POST">
                             <div class="mb-3">
-                                <label for="chair_name" class="form-label">Chair Name *</label>
-                                <input type="text" class="form-control" id="chair_name" name="chair_name" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="chair_email" class="form-label">Email</label>
-                                <input type="email" class="form-control" id="chair_email" name="chair_email">
-                            </div>
-                            <div class="mb-3">
-                                <label for="group_acronym" class="form-label">Working Group *</label>
-                                <input type="text" class="form-control" id="group_acronym" name="group_acronym" required>
-                            </div>
-                            <div class="mb-3">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="approved" name="approved">
-                                    <label class="form-check-label" for="approved">
-                                        Approved (Active Chair)
-                                    </label>
-                                </div>
+                                <label for="group_acronym" class="form-label">Workgroup *</label>
+                                <select class="form-select" id="group_acronym" name="group_acronym" required>
+                                    <option value="">Select workgroup</option>
+                                    {group_options}
+                                </select>
                             </div>
                             <div class="d-flex gap-2">
-                                <button type="submit" class="btn btn-primary">Add Chair</button>
-                                <a href="/admin/chairs/" class="btn btn-secondary">Cancel</a>
+                                <button type="submit" class="btn btn-primary">Add as coordinator</button>
+                                <a href="/admin/users/" class="btn btn-secondary">Cancel</a>
                             </div>
                         </form>
                     </div>
@@ -6196,32 +6632,170 @@ def add_chair():
         </div>
     </div>
     """
-
     return BASE_TEMPLATE.format(
-        title="Add Chair - MLGH",
+        title="Add as coordinator - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER)
+        content=content,
+        build_number=BUILD_NUMBER
+    )
 
-@app.route('/admin/chairs/<chair_id>/approve')
+@app.route('/admin/coordinator_requests/<int:req_id>/approve')
+@require_role('admin')
+def approve_coordinator_request(req_id):
+    """Approve a user's coordinator request; creates WorkingGroupChair with their user id."""
+    req = CoordinatorRequest.query.get(req_id)
+    if not req or req.status != 'pending':
+        flash('Request not found or already handled', 'error')
+        return redirect('/admin/chairs/')
+    admin_user = get_current_user()
+    # Create coordinator record (linked to user id)
+    chair = WorkingGroupChair(
+        group_acronym=req.group_acronym,
+        chair_name=req.display_name or req.username,
+        user_id=req.user_id,
+        approved=True
+    )
+    db.session.add(chair)
+    req.status = 'approved'
+    req.reviewed_at = datetime.utcnow()
+    req.reviewed_by = admin_user.get('name') or admin_user.get('username')
+    db.session.commit()
+    flash(f'Coordinator request approved: {req.display_name or req.username} for {req.group_acronym}', 'success')
+    return redirect('/admin/chairs/')
+
+@app.route('/admin/coordinator_requests/<int:req_id>/reject')
+@require_role('admin')
+def reject_coordinator_request(req_id):
+    req = CoordinatorRequest.query.get(req_id)
+    if not req or req.status != 'pending':
+        flash('Request not found or already handled', 'error')
+        return redirect('/admin/chairs/')
+    admin_user = get_current_user()
+    req.status = 'rejected'
+    req.reviewed_at = datetime.utcnow()
+    req.reviewed_by = admin_user.get('name') or admin_user.get('username')
+    db.session.commit()
+    flash(f'Coordinator request rejected: {req.display_name or req.username}', 'warning')
+    return redirect('/admin/chairs/')
+
+@app.route('/admin/chairs/<int:chair_id>/approve')
 @require_auth
 def approve_chair(chair_id):
-    if chair_id in WORKING_GROUP_CHAIRS:
-        WORKING_GROUP_CHAIRS[chair_id]['approved'] = True
-        flash('Chair approved successfully', 'success')
+    chair = WorkingGroupChair.query.get(chair_id)
+    if chair:
+        chair.approved = True
+        db.session.commit()
+        flash('Coordinator approved successfully', 'success')
     else:
-        flash('Chair not found', 'error')
+        flash('Coordinator not found', 'error')
     return redirect('/admin/chairs/')
 
-@app.route('/admin/chairs/<chair_id>/delete')
+@app.route('/admin/chairs/<int:chair_id>/delete')
 @require_auth
 def delete_chair(chair_id):
-    if chair_id in WORKING_GROUP_CHAIRS:
-        del WORKING_GROUP_CHAIRS[chair_id]
-        flash('Chair deleted successfully', 'success')
+    chair = WorkingGroupChair.query.get(chair_id)
+    if chair:
+        db.session.delete(chair)
+        db.session.commit()
+        flash('Coordinator deleted successfully', 'success')
     else:
-        flash('Chair not found', 'error')
+        flash('Coordinator not found', 'error')
     return redirect('/admin/chairs/')
+
+@app.route('/admin/member_requests/')
+@require_role('admin')
+def admin_member_requests():
+    """List pending workgroup member requests (when workgroup has members_require_approval=True). Default: no approval."""
+    current_user = get_current_user()
+    current_theme = session.get('theme', 'dark')
+    user_menu = generate_user_menu()
+
+    pending = WorkgroupMemberRequest.query.filter_by(status='pending').order_by(WorkgroupMemberRequest.requested_at.desc()).all()
+    rows = ""
+    for req in pending:
+        req_at = req.requested_at.strftime('%Y-%m-%d %H:%M') if req.requested_at else ''
+        rows += f"""
+        <tr>
+            <td>{req.user_name}</td>
+            <td><code>{req.group_acronym}</code></td>
+            <td>{req_at}</td>
+            <td>
+                <a href="/admin/member_requests/{req.id}/approve" class="btn btn-sm btn-success">Approve</a>
+                <a href="/admin/member_requests/{req.id}/reject" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject this request?')">Reject</a>
+            </td>
+        </tr>
+        """
+    if not rows:
+        rows = '<tr><td colspan="4" class="text-center text-muted py-4">No pending member requests. (Default is no approval; join is instant.)</td></tr>'
+
+    content = f"""
+    <div class="container mt-4">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
+                <li class="breadcrumb-item"><a href="/admin/chairs/">Coordinator Management</a></li>
+                <li class="breadcrumb-item active">Member requests</li>
+            </ol>
+        </nav>
+        <h1 class="mb-2">Member requests</h1>
+        <p class="text-muted">When a workgroup has approval required, join requests appear here. Default: no approval (instant join).</p>
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr><th>User</th><th>Workgroup</th><th>Requested</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>{rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="mt-3">
+            <a href="/admin/chairs/" class="btn btn-secondary">Back to Coordinator Management</a>
+        </div>
+    </div>
+    """
+    return BASE_TEMPLATE.format(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+
+@app.route('/admin/member_requests/<int:req_id>/approve')
+@require_role('admin')
+def approve_member_request(req_id):
+    req = WorkgroupMemberRequest.query.get(req_id)
+    if not req or req.status != 'pending':
+        flash('Request not found or already handled', 'error')
+        return redirect('/admin/member_requests/')
+    # Membership is by user_id only; avoid duplicate
+    if req.user_id:
+        existing = WorkingGroupMember.query.filter_by(group_acronym=req.group_acronym, user_id=req.user_id).first()
+        if not existing:
+            membership = WorkingGroupMember(
+                group_acronym=req.group_acronym,
+                user_id=req.user_id,
+                user_name=req.user_name or ''
+            )
+            db.session.add(membership)
+    req.status = 'approved'
+    req.reviewed_at = datetime.utcnow()
+    req.reviewed_by = get_current_user().get('name') or get_current_user().get('username')
+    db.session.commit()
+    flash(f'Member approved: {req.user_name} for {req.group_acronym}', 'success')
+    return redirect('/admin/member_requests/')
+
+@app.route('/admin/member_requests/<int:req_id>/reject')
+@require_role('admin')
+def reject_member_request(req_id):
+    req = WorkgroupMemberRequest.query.get(req_id)
+    if not req or req.status != 'pending':
+        flash('Request not found or already handled', 'error')
+        return redirect('/admin/member_requests/')
+    req.status = 'rejected'
+    req.reviewed_at = datetime.utcnow()
+    req.reviewed_by = get_current_user().get('name') or get_current_user().get('username')
+    db.session.commit()
+    flash(f'Member request rejected: {req.user_name}', 'warning')
+    return redirect('/admin/member_requests/')
 
 # Routes
 @app.route('/')
@@ -6239,7 +6813,7 @@ def home():
     <div class="container mt-4">
         <div class="row">
             <div class="col-md-8">
-                <p class="lead">Welcome to the Governance Hub for the Meta-Layer Task Force!</p>
+                <p class="lead">Welcome to the Governance Hub for the Meta-Layer!</p>
 
                 <div class="row">
                     <div class="col-md-6">
@@ -6248,7 +6822,7 @@ def home():
                                 <h5>Recent Documents</h5>
                             </div>
                             <div class="card-body">
-                                <p>View the latest MLGH documents including drafts, RFCs, and other standards.</p>
+                                <p>View the latest Meta-Layer documents including drafts and RFCs.</p>
                                 <a href="/doc/all/" class="btn btn-primary">View All Documents</a>
                             </div>
                         </div>
@@ -6256,11 +6830,11 @@ def home():
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header">
-                                <h5>Working Groups</h5>
+                                <h5>Workgroups</h5>
                             </div>
                             <div class="card-body">
-                                <p>Browse MLGH working groups and their activities.</p>
-                                <a href="/group/" class="btn btn-primary">View Working Groups</a>
+                                <p>Browse Meta-Layer workgroups and their activities.</p>
+                                <a href="/group/" class="btn btn-primary">View Workgroups</a>
                             </div>
                         </div>
                     </div>
@@ -6273,7 +6847,7 @@ def home():
                                 <h5>Meetings</h5>
                             </div>
                             <div class="card-body">
-                                <p>Information about MLGH meetings and sessions.</p>
+                                <p>Information about Meta-Layer meetings and sessions.</p>
                                 <a href="/meeting/" class="btn btn-primary">View Meetings</a>
                             </div>
                         </div>
@@ -6284,7 +6858,7 @@ def home():
                                 <h5>People</h5>
                             </div>
                             <div class="card-body">
-                                <p>Directory of MLGH participants and contributors.</p>
+                                <p>Directory of Meta-Layer participants and contributors.</p>
                                 <a href="/person/" class="btn btn-primary">View People</a>
                             </div>
                         </div>
@@ -6298,14 +6872,14 @@ def home():
                     </div>
                     <div class="card-body">
                         <p><strong>Documents:</strong> {doc_count}</p>
-                        <p><strong>Working Groups:</strong> {len(GROUPS)}</p>
+                        <p><strong>Workgroups:</strong> {len(GROUPS)}</p>
                         <p><strong>Last Updated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-    """, build_number=BUILD_NUMBER)
+    """, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/active/')
 def active_documents():
@@ -6416,7 +6990,7 @@ def all_documents():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/draft/<path:draft_name>.txt')
 def draft_text(draft_name):
@@ -6876,8 +7450,22 @@ Meta-Layer Initiative
                     </div>
                     <div class="card-body">
                         {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>' if draft.get('status') == 'approved' else ''}
+                        {f'<div class="small text-muted mb-2" id="annotation-count">Loading annotation count...</div>' if HYPOTHESIS_ENABLED else ''}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
                         <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
+                        
+                        {f'''<div class="border-top pt-2 mt-2">
+                            <h6 class="text-muted mb-2">Annotations</h6>
+                            <button id="toggle-annotations" class="btn btn-outline-info w-100 mb-2" onclick="toggleAnnotations()">
+                                <i class="fas fa-comment-dots me-1"></i>
+                                <span id="annotations-text">Enable Annotations</span>
+                            </button>
+                            {'<div class="alert alert-info small mt-2" role="alert"><i class="fas fa-user-plus me-1"></i><strong>First time?</strong> <a href="https://hypothes.is/signup" target="_blank" class="alert-link">Create free Hypothesis account</a> (30 seconds) to annotate and highlight text.</div>' if not current_user or not current_user.get('hypothesis_account') else ''}
+                            <small class="text-muted d-block">
+                                Powered by <a href="https://hypothes.is" target="_blank" class="text-decoration-none">Hypothesis</a>. 
+                                Public annotations visible to everyone.
+                            </small>
+                        </div>''' if HYPOTHESIS_ENABLED else ''}
                         {f'<a href="/submit/revision/{draft["name"]}/" class="btn btn-success w-100 mb-2"><i class="fas fa-plus me-1"></i>Submit New Revision</a>' if current_user and draft.get('status') == 'approved' else ''}
                         {'' if draft.get('sourceType') == 'ordinal' else f'<a href="/download/{draft["name"]}" class="btn btn-outline-primary w-100 mb-2">Download Document</a>'}
                         {'<form method="post" action="/doc/draft/' + draft['name'] + '/follow/" style="display: inline;" class="mb-2"><select name="notification_level" class="form-select form-select-sm mb-1"><option value="all">All changes & comments</option><option value="significant">Significant changes only</option><option value="major">Major changes only</option><option value="comments">Comments only</option><option value="none">No notifications</option></select><button type="submit" class="btn btn-success w-100"><i class="fas fa-bell me-1"></i>Follow Document</button></form>' if current_user and draft.get('status') == 'approved' and not is_user_following_draft(draft_name, current_user) else ''}
@@ -6922,7 +7510,18 @@ Meta-Layer Initiative
         title_id = draft.get('ml_number')
     else:
         title_id = draft['name']
-    return BASE_TEMPLATE.format(title=f"{title_id} - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    
+    # Generate Hypothesis configuration for this document
+    hypothesis_config = generate_hypothesis_config(document_name=draft['name'], document_type='draft')
+    
+    return BASE_TEMPLATE.format(
+        title=f"{title_id} - MLGH", 
+        theme=current_theme, 
+        user_menu=user_menu, 
+        content=content, 
+        build_number=BUILD_NUMBER,
+        hypothesis_config=hypothesis_config
+    )
 
 @app.route('/doc/draft/<draft_name>/comments/', methods=['GET', 'POST'])
 @require_auth
@@ -7237,7 +7836,7 @@ def draft_comments(draft_name):
     </script>
 """
 
-    return BASE_TEMPLATE.format(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/draft/<draft_name>/history/')
 def draft_history(draft_name):
@@ -7320,7 +7919,7 @@ def draft_history(draft_name):
             </div>
     """
 
-    return BASE_TEMPLATE.format(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/draft/<draft_name>/follow/', methods=['POST'])
 def follow_draft(draft_name):
@@ -7590,7 +8189,7 @@ def draft_revisions(draft_name):
     </div>
     """
 
-    return BASE_TEMPLATE.format(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return BASE_TEMPLATE.format(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/group/')
 def groups():
@@ -7625,7 +8224,7 @@ def groups():
                     </div>
                     <div class="mt-2">
                         <small class="text-muted">
-                            Chair: {chair_display}<br>
+                            Coordinator: {chair_display}<br>
                             {group['description']}
                         </small>
                     </div>
@@ -7641,8 +8240,8 @@ def groups():
     <div class="container mt-4">
         <div class="row">
             <div class="col-12">
-                <h1 class="mb-4">Working Groups</h1>
-                <p class="lead mb-4">Browse the Meta-Layer Desirable Properties working groups.</p>
+                <h1 class="mb-4">Workgroups</h1>
+                <p class="lead mb-4">Browse the Meta-Layer Desirable Properties workgroups.</p>
 
                 <div class="row">
                     {groups_html}
@@ -7653,13 +8252,13 @@ def groups():
     """
 
     return BASE_TEMPLATE.format(
-        title="Working Groups - MLGH",
+        title="Workgroups - MLGH",
         theme=current_theme,
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER)
+        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
 @app.route('/group/<acronym>/')
 def group_detail(acronym):
-    """Display individual working group details"""
+    """Display individual workgroup details"""
     # Find the group - handle both full acronyms and short forms (DP1, DP2, etc.)
     group = None
     full_acronym = acronym  # Default to the URL parameter
@@ -7676,22 +8275,44 @@ def group_detail(acronym):
             break
 
     if not group:
-        return f"Working group '{acronym}' not found. Available: {[g['acronym'] for g in GROUPS]}", 404
+        return f"Workgroup '{acronym}' not found. Available: {[g['acronym'] for g in GROUPS]}", 404
 
     user_menu = generate_user_menu()
     current_user = get_current_user()
 
-    # Check if user is already a member
+    # Membership is by user_id only
     is_member = False
-    if current_user:
+    pending_member_request = False
+    if current_user and current_user.get('id'):
         membership = WorkingGroupMember.query.filter_by(
             group_acronym=full_acronym,
-            user_name=current_user['name']
+            user_id=current_user['id']
         ).first()
         is_member = membership is not None
+        if not is_member:
+            req = WorkgroupMemberRequest.query.filter_by(
+                group_acronym=full_acronym,
+                user_id=current_user['id'],
+                status='pending'
+            ).first()
+            pending_member_request = req is not None
 
-    # Get chair information using the full acronym
+    # Get chair information using the full acronym (coordinator by user_id only)
     all_chairs = WorkingGroupChair.query.filter_by(group_acronym=full_acronym).all()
+    is_coordinator = False
+    has_pending_coord_request = False
+    if current_user and current_user.get('id') and all_chairs:
+        for chair in all_chairs:
+            if chair.user_id == current_user['id']:
+                is_coordinator = True
+                break
+    if current_user and current_user.get('id') and not is_coordinator:
+        cr = CoordinatorRequest.query.filter_by(
+            group_acronym=full_acronym,
+            user_id=current_user['id'],
+            status='pending'
+        ).first()
+        has_pending_coord_request = cr is not None
     if all_chairs:
         approved_chairs = [chair.chair_name for chair in all_chairs if chair.approved]
         pending_chairs = [chair.chair_name for chair in all_chairs if not chair.approved]
@@ -7708,51 +8329,25 @@ def group_detail(acronym):
         chair_approved = False
 
     join_button = ""
-    if current_user and not is_member:
-        join_button = f'<button class="btn btn-primary" onclick="joinGroup(\'{full_acronym}\')">Join Working Group</button>'
+    if current_user and pending_member_request:
+        join_button = '<span class="badge bg-warning">Membership request pending</span>'
+    elif current_user and not is_member:
+        join_button = f'<button class="btn btn-primary" onclick="joinGroup(\'{full_acronym}\')">Join Workgroup</button>'
     elif current_user and is_member:
-        join_button = '<span class="badge bg-success">Member</span> <button class="btn btn-outline-danger btn-sm ms-2" onclick="leaveGroup(\'{full_acronym}\')">Leave</button>'
+        join_button = f'<span class="badge bg-success">Member</span> <button class="btn btn-outline-danger btn-sm ms-2" onclick="leaveGroup(\'{full_acronym}\')">Leave</button>'
 
-    # Admin chair management
+    # Coordinator status: show tag if coordinator, else pending or request button
+    coord_request_ui = ""
+    if current_user and current_user.get('id'):
+        if is_coordinator:
+            coord_request_ui = '<span class="badge bg-primary ms-2">Coordinator</span>'
+        elif has_pending_coord_request:
+            coord_request_ui = '<span class="badge bg-warning ms-2">Coordinator request pending</span>'
+        else:
+            coord_request_ui = f'<button class="btn btn-outline-secondary btn-sm ms-2" onclick="requestCoordinator(\'{full_acronym}\')">Request coordinator role</button>'
+
+    # Coordinator management is done via request/approve in Admin only; no inline box on workgroup page
     chair_management = ""
-    if current_user and current_user.get('role') == 'admin':
-        # Get all chairs for this group
-        all_chairs = WorkingGroupChair.query.filter_by(group_acronym=full_acronym).all()
-
-        # Create options for the multi-select dropdown
-        chair_options = ""
-        selected_chairs = []
-        for chair in all_chairs:
-            chair_display = chair.chair_name
-            if not chair.approved:
-                chair_display += " (Pending)"
-            chair_options += f'<option value="{chair.id}" {"selected" if chair.approved else ""}>{chair_display}</option>'
-            if chair.approved:
-                selected_chairs.append(chair.chair_name)
-
-        # Convert selected chairs to JSON for JavaScript
-        selected_chairs_json = json.dumps(selected_chairs)
-
-        chair_management = f'''
-        <div class="mt-4 p-3 border rounded">
-            <h5>Chair Management</h5>
-            <div class="mb-3">
-                <label class="form-label">Current Chairs:</label>
-                <select multiple class="form-select" id="chair-select-{full_acronym}" size="4">
-                    {chair_options}
-                </select>
-                <div class="form-text">Select multiple chairs using Ctrl+Click (Cmd+Click on Mac)</div>
-            </div>
-            <div class="d-flex gap-2">
-                <input type="text" id="new-chair-input-{full_acronym}" class="form-control" placeholder="Add new chair name">
-                <button type="button" class="btn btn-success" onclick="addChair('{full_acronym}')">Add Chair</button>
-                <button type="button" class="btn btn-warning" onclick="updateChairs('{full_acronym}')">Update Chairs</button>
-        </div>
-            <div class="mt-2">
-                <small class="text-muted">Current approved chairs: {", ".join(selected_chairs) if selected_chairs else "None"}</small>
-            </div>
-        </div>
-        '''
 
     # Get theme from session or user preference
     current_theme = session.get('theme', current_user.get('theme', 'dark') if current_user else 'dark')
@@ -7764,7 +8359,7 @@ def group_detail(acronym):
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="/">Home</a></li>
-                        <li class="breadcrumb-item"><a href="/group/">Working Groups</a></li>
+                        <li class="breadcrumb-item"><a href="/group/">Workgroups</a></li>
                         <li class="breadcrumb-item active">{group['name']}</li>
             </ol>
         </nav>
@@ -7779,6 +8374,7 @@ def group_detail(acronym):
                             </div>
                             <div class="text-end">
                                 {join_button}
+                                {coord_request_ui}
                             </div>
                         </div>
                     </div>
@@ -7791,7 +8387,7 @@ def group_detail(acronym):
                                 <h5 class="mb-0">About</h5>
                 </div>
                             <div class="card-body">
-                                <p>{group['description']}</p>
+                                <p>{group.get('about', group['description'])}</p>
             </div>
                         </div>
                     </div>
@@ -7801,7 +8397,7 @@ def group_detail(acronym):
                                 <h5 class="mb-0">Leadership</h5>
                     </div>
                     <div class="card-body">
-                                <p><strong>Chair:</strong> {chair_name}</p>
+                                <p><strong>Coordinator:</strong> {chair_name}</p>
                                 {'<span class="badge bg-warning">Pending Approval</span>' if not chair_approved and chair_name != "TBD" else ''}
                             </div>
                         </div>
@@ -7854,6 +8450,19 @@ def group_detail(acronym):
             console.error('Error:', error);
             alert('Error leaving group');
         }});
+    }}
+
+    function requestCoordinator(acronym) {{
+        fetch(`/group/${{acronym}}/request_coordinator`, {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }}
+        }})
+        .then(response => response.json())
+        .then(data => {{
+            if (data.success) {{ location.reload(); }}
+            else {{ alert(data.message || 'Request failed'); }}
+        }})
+        .catch(() => alert('Request failed'));
     }}
 
     function addChair(acronym) {{
@@ -7951,7 +8560,7 @@ def group_detail(acronym):
         title=f"{group['name']} - MLGH",
         theme=current_theme,
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER)
+        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/group/<acronym>/join', methods=['POST'])
 @require_auth
@@ -7960,23 +8569,58 @@ def join_group(acronym):
     if not current_user:
         return jsonify({'success': False, 'message': 'Not authenticated'}), 401
 
-    # Check if already a member
-    existing = WorkingGroupMember.query.filter_by(
-        group_acronym=acronym,
-        user_name=current_user['name']
-    ).first()
+    # Resolve full acronym
+    full_acronym = acronym
+    group = None
+    for g in GROUPS:
+        if g['acronym'] == acronym or (acronym.lower().startswith('dp') and g['acronym'].startswith(acronym.lower() + '-')):
+            full_acronym = g['acronym']
+            group = g
+            break
+    if not group:
+        group = next((g for g in GROUPS if g['acronym'] == acronym), None)
+    if not group:
+        full_acronym = acronym
 
+    # Membership is by user_id only
+    user_id = current_user.get('id')
+    if not user_id:
+        return jsonify({'success': False, 'message': 'You must be logged in to join'}), 400
+    existing = WorkingGroupMember.query.filter_by(
+        group_acronym=full_acronym,
+        user_id=user_id
+    ).first()
     if existing:
         return jsonify({'success': False, 'message': 'Already a member'}), 400
 
-    # Add membership
+    # If workgroup requires approval, create a request instead of immediate membership (default: no approval)
+    require_approval = group.get('members_require_approval', False) if group else False
+    if require_approval:
+        pending = WorkgroupMemberRequest.query.filter_by(
+            group_acronym=full_acronym,
+            user_id=user_id,
+            status='pending'
+        ).first()
+        if pending:
+            return jsonify({'success': False, 'message': 'Membership request already pending'}), 400
+        req = WorkgroupMemberRequest(
+            group_acronym=full_acronym,
+            user_id=user_id,
+            user_name=current_user['name'],
+            status='pending'
+        )
+        db.session.add(req)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Membership requested; pending approval'})
+
+    # Default: instant join (store user_id for stable membership)
     membership = WorkingGroupMember(
-        group_acronym=acronym,
-        user_name=current_user['name']
+        group_acronym=full_acronym,
+        user_id=user_id,
+        user_name=current_user.get('name') or current_user.get('username', '')
     )
     db.session.add(membership)
     db.session.commit()
-
     return jsonify({'success': True, 'message': 'Joined successfully'})
 
 @app.route('/group/<acronym>/leave', methods=['POST'])
@@ -7986,19 +8630,82 @@ def leave_group(acronym):
     if not current_user:
         return jsonify({'success': False, 'message': 'Not authenticated'}), 401
 
-    # Remove membership
+    # Resolve full acronym (same as join) so URL variant matches DB
+    full_acronym = acronym
+    for g in GROUPS:
+        if g['acronym'] == acronym or (acronym.lower().startswith('dp') and g['acronym'].startswith(acronym.lower() + '-')):
+            full_acronym = g['acronym']
+            break
+
+    # Membership is by user_id only
+    user_id = current_user.get('id')
+    if not user_id:
+        return jsonify({'success': False, 'message': 'You must be logged in to leave'}), 400
+    
+    # Debug: log what we're looking for
+    print(f"DEBUG leave_group: acronym={acronym}, user_id={user_id}, full_acronym={full_acronym}")
+    
+    # Check what's actually in the database
+    all_memberships = WorkingGroupMember.query.filter_by(user_id=user_id).all()
+    print(f"DEBUG: All memberships for user {user_id}: {[(m.group_acronym, m.user_name) for m in all_memberships]}")
+    
     membership = WorkingGroupMember.query.filter_by(
-        group_acronym=acronym,
-        user_name=current_user['name']
+        group_acronym=full_acronym,
+        user_id=user_id
     ).first()
+    print(f"DEBUG leave_group: membership found={membership is not None}")
 
     if not membership:
-        return jsonify({'success': False, 'message': 'Not a member'}), 400
+        error_msg = 'Not a member (user_id=' + str(user_id) + ', group=' + str(full_acronym) + ', original_acronym=' + str(acronym) + ')'
+        return jsonify({'success': False, 'message': error_msg}), 400
 
     db.session.delete(membership)
     db.session.commit()
 
     return jsonify({'success': True, 'message': 'Left successfully'})
+
+@app.route('/group/<acronym>/request_coordinator', methods=['POST'])
+@require_auth
+def request_coordinator(acronym):
+    """User requests coordinator role; creates pending request (we have their user id)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'success': False, 'message': 'Not authenticated'}), 401
+
+    # Resolve full acronym
+    full_acronym = acronym
+    for g in GROUPS:
+        if g['acronym'] == acronym or (acronym.lower().startswith('dp') and g['acronym'].startswith(acronym.lower() + '-')):
+            full_acronym = g['acronym']
+            break
+
+    # Already a coordinator? (by user_id only)
+    existing_chair = WorkingGroupChair.query.filter_by(
+        group_acronym=full_acronym,
+        user_id=current_user['id']
+    ).first()
+    if existing_chair:
+        return jsonify({'success': False, 'message': 'You are already a coordinator'}), 400
+
+    # Already have a pending request? (by user_id only)
+    existing = CoordinatorRequest.query.filter_by(
+        group_acronym=full_acronym,
+        user_id=current_user['id'],
+        status='pending'
+    ).first()
+    if existing:
+        return jsonify({'success': False, 'message': 'You already have a pending request'}), 400
+
+    req = CoordinatorRequest(
+        group_acronym=full_acronym,
+        user_id=current_user['id'],
+        username=current_user.get('username', ''),
+        display_name=current_user.get('name') or current_user.get('displayName') or current_user.get('username', ''),
+        status='pending'
+    )
+    db.session.add(req)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Coordinator role requested; pending approval'})
 
 @app.route('/group/<acronym>/add_chair', methods=['POST'])
 @require_role('admin')
@@ -8006,12 +8713,12 @@ def add_group_chair(acronym):
     data = request.get_json()
     chair_name = data.get('chair_name', '').strip()
     if not chair_name:
-        return jsonify({'success': False, 'message': 'Chair name required'}), 400
+        return jsonify({'success': False, 'message': 'Coordinator name required'}), 400
 
     # Check if chair already exists
     existing = WorkingGroupChair.query.filter_by(group_acronym=acronym, chair_name=chair_name).first()
     if existing:
-        return jsonify({'success': False, 'message': 'Chair already exists'}), 400
+        return jsonify({'success': False, 'message': 'Coordinator already exists'}), 400
 
     # Add new chair (unapproved)
     chair = WorkingGroupChair(
@@ -8022,7 +8729,7 @@ def add_group_chair(acronym):
     db.session.add(chair)
     db.session.commit()
 
-    return jsonify({'success': True, 'message': 'Chair added successfully'})
+    return jsonify({'success': True, 'message': 'Coordinator added successfully'})
 
 @app.route('/group/<acronym>/update_chairs', methods=['POST'])
 @require_role('admin')
@@ -8042,7 +8749,7 @@ def update_group_chairs(acronym):
 
     db.session.commit()
 
-    return jsonify({'success': True, 'message': 'Chairs updated successfully'})
+    return jsonify({'success': True, 'message': 'Coordinators updated successfully'})
 
 @app.route('/group/<acronym>/remove_chairs', methods=['POST'])
 @require_role('admin')
@@ -8061,35 +8768,75 @@ def remove_group_chairs(acronym):
 
     db.session.commit()
 
-    return jsonify({'success': True, 'message': 'Chairs removed successfully'})
+    return jsonify({'success': True, 'message': 'Coordinators removed successfully'})
 
 @app.route('/person/')
 def people():
-    """People directory - coming soon"""
+    """People directory: list users; admins get Add as coordinator and other actions."""
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    is_admin = current_user and current_user.get('role') in ('admin', 'editor')
 
-    content = """
+    users = User.query.order_by(User.username).all()
+    rows = []
+    for u in users:
+        display = u.name or u.displayName or u.oauthName or u.username
+        coord_groups = WorkingGroupChair.query.filter_by(user_id=u.id).all()
+        group_badges = ' '.join(
+            f'<span class="badge bg-secondary me-1">{c.group_acronym}</span>'
+            for c in coord_groups
+        ) if coord_groups else '<span class="text-muted">—</span>'
+        if is_admin:
+            actions_td = f'<td><a href="/admin/users/{u.id}/add-coordinator" class="btn btn-outline-primary btn-sm">Add as coordinator</a></td>'
+        else:
+            actions_td = ''
+        rows.append(f"""
+        <tr>
+            <td><strong>{display}</strong><br><small class="text-muted">@{u.username}</small></td>
+            <td>{group_badges}</td>
+            {actions_td}
+        </tr>
+        """)
+
+    cols = 3 if is_admin else 2
+    table_rows = ''.join(rows) if rows else f'<tr><td colspan="{cols}" class="text-center text-muted py-4">No users yet.</td></tr>'
+    actions_th = '<th>Actions</th>' if is_admin else ''
+    content = f"""
     <div class="container mt-4">
-        <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="text-center">
-                    <i class="fas fa-user-friends fa-4x text-muted mb-4"></i>
-                    <h1 class="mb-3">People Directory</h1>
-                    <p class="lead text-muted mb-4">Coming Soon</p>
-                    <p class="mb-4">We're building a comprehensive directory of MLGH participants and contributors. This feature will help you connect with other members of the community.</p>
-                    <a href="/" class="btn btn-primary">Return to Home</a>
-        </div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/">Home</a></li>
+                <li class="breadcrumb-item active">People</li>
+            </ol>
+        </nav>
+        <h1 class="mb-2">People</h1>
+        <p class="text-muted mb-4">Directory of MLGH participants. Coordinators are shown by workgroup.</p>
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Name</th>
+                                <th>Coordinator for</th>
+                                {actions_th}
+                            </tr>
+                        </thead>
+                        <tbody>{table_rows}</tbody>
+                    </table>
+                </div>
             </div>
         </div>
-        </div>
-        """
-    
+    </div>
+    """
     return BASE_TEMPLATE.format(
-        title="People Directory - MLGH",
-        theme=session.get('theme', 'dark'),
+        title="People - MLGH",
+        theme=current_theme,
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER)
+        user_menu=user_menu,
+        build_number=BUILD_NUMBER
+    )
 
 @app.route('/meeting/')
 def meetings():
@@ -8117,7 +8864,7 @@ def meetings():
         title="Meetings - MLGH",
         theme=session.get('theme', 'dark'),
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER)
+        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
 
 # Deployment API endpoint (development only)
 @app.route('/_deploy/reload', methods=['POST'])
@@ -8254,6 +9001,15 @@ def health_check():
         'service': 'active' if service_healthy else 'inactive',
         'timestamp': datetime.now().isoformat()
     }), 200 if overall_healthy else 503
+
+@app.route('/api/annotations/<document_name>/count')
+def annotation_count(document_name):
+    """Get annotation count for a document"""
+    annotations = get_document_annotations(document_name, 'draft')
+    return jsonify({
+        'count': len(annotations),
+        'document': document_name
+    })
 
 @app.route('/_deploy/test', methods=['GET'])
 def deployment_test():
