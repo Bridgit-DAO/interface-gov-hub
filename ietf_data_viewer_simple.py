@@ -12,7 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 60
+BUILD_NUMBER = 61
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -80,25 +80,9 @@ def init_db():
         if User.query.count() == 0:
             migrate_hardcoded_users()
 
-        # Load published drafts from database into memory
-        published_drafts = PublishedDraft.query.all()
-        for draft in published_drafts:
-            draft_entry = {
-                'name': draft.name,
-                'title': draft.title,
-                'authors': draft.authors,
-                'group': draft.group,
-                'status': draft.status,
-                'rev': draft.rev,
-                'pages': draft.pages,
-                'words': draft.words,
-                'date': draft.date,
-                'abstract': draft.abstract,
-                'stream': draft.stream
-            }
-            DRAFTS.append(draft_entry)
-
-        print(f"Database initialized: {User.query.count()} users, {len(published_drafts)} published drafts loaded")
+        # Note: DRAFTS list is now populated from approved/published submissions dynamically
+        # No need to pre-load from a separate table
+        print(f"Database initialized: {User.query.count()} users")
 
 def migrate_ordinals_support():
     """Add ordinals support columns to existing submission table"""
@@ -301,22 +285,8 @@ class Submission(db.Model):
     revision_number = db.Column(db.String(10), nullable=True)  # e.g., "01", "02"
     what_changed = db.Column(db.Text, nullable=True)  # Description of changes in this revision
     is_revision = db.Column(db.Boolean, default=False)  # Flag to indicate this is a revision
-
-class PublishedDraft(db.Model):
-    """Store published/approved drafts separately from original test data"""
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), unique=True, index=True)
-    title = db.Column(db.String(255))
-    authors = db.Column(db.JSON)
-    group = db.Column(db.String(50))
-    status = db.Column(db.String(20), default='active')
-    rev = db.Column(db.String(5), default='00')
-    pages = db.Column(db.Integer, default=1)
-    words = db.Column(db.Integer, default=0)
-    date = db.Column(db.String(10))  # YYYY-MM-DD
-    abstract = db.Column(db.Text)
-    stream = db.Column(db.String(20), default='mltf')
-    submission_id = db.Column(db.String(8), db.ForeignKey('submission.id'), nullable=True)
+    # RFC publication field
+    rfc_number = db.Column(db.Integer, nullable=True)  # RFC number when status='published'
 
 
 class Comment(db.Model):
@@ -4622,7 +4592,7 @@ def admin_dashboard():
     total_users = User.query.count()
     total_groups = len(GROUPS)
     total_submissions = Submission.query.count()
-    approved_drafts = PublishedDraft.query.count()
+    approved_drafts = Submission.query.filter(Submission.status.in_(['approved', 'published'])).count()
     pending_chairs = WorkingGroupChair.query.filter_by(approved=False).count()
 
     # Recent activity and alerts
@@ -5455,19 +5425,19 @@ def update_submission_status(submission_id):
     if new_status == 'rejected' and reason:
         submission.rejected_at = datetime.utcnow()
 
-    if new_status == 'published' and rfc_number:
-        # Create a published RFC record
-        published_draft = PublishedDraft(
-            name=f"rfc{rfc_number}",
-            title=submission.title,
-            authors=submission.authors,
-            group=submission.group,
-            status='published',
-            date=datetime.utcnow().strftime('%Y-%m-%d'),
-            abstract=submission.abstract,
-            submission_id=submission.id
-        )
-        db.session.add(published_draft)
+    if new_status == 'published':
+        # Store RFC number directly in submission table
+        if rfc_number:
+            try:
+                submission.rfc_number = int(rfc_number)
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'message': 'Invalid RFC number'}), 400
+        # Update ML number to RFC format if it was a draft
+        if submission.ml_number and submission.ml_number.startswith('ML-Draft-'):
+            # Convert ML-Draft-001 to ML-RFC-001
+            draft_num = submission.ml_number.split('-')[-1]
+            submission.ml_number = f"ML-RFC-{draft_num}"
+        submission.doc_type = 'rfc'
 
     db.session.commit()
 
