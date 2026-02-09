@@ -3,15 +3,22 @@
 ## Overview
 
 **Migration Date:** TBD  
-**Current Status:** Completed in dev (commit c09f6523b)  
-**Target:** Production deployment of Hypothesis annotation integration  
+**Current Status:** Completed in dev (commits c09f6523b, 8cb790d60)  
+**Target:** Production deployment of **entire codebase from dev** (Hypothesis, workgroups, chairs, submissions, IETF templates, scripts) and **full database structure**  
 **Downtime Required:** ~5 minutes (for nginx config reload)
+
+### Scope: Full Codebase + Full DB Structure
+
+This migration deploys **everything** on the dev branch, not only Hypothesis:
+
+- **Codebase:** Full app (`ietf_data_viewer_simple.py`), IETF settings/templates/static, nginx configs (`k8s/`), restart scripts, and all documentation.
+- **Database structure:** All tables must exist and match the current schema. The app uses Flask-SQLAlchemy `db.create_all()` which **creates missing tables** but **does not alter existing tables** (e.g. new columns). If production is behind on schema, new columns may need to be added manually or via a one-off migration script.
 
 ## Pre-Migration Checklist
 
 ### 1. Environment Verification
 - [ ] Verify `.env` file contains `HYPOTHESIS_API_TOKEN` in production
-- [ ] Confirm production database has `HypothesisAccount` table
+- [ ] Confirm production database has **all** required tables (see Database Structure below)
 - [ ] Test Hypothesis API connectivity from production server
 - [ ] Verify SSL/TLS certificates are valid for hypothes.is domains
 
@@ -27,20 +34,48 @@
 - [ ] Mobile responsiveness verified
 - [ ] Performance impact assessed (annotation loading time)
 
+## Database Structure (Full Schema)
+
+Production must have these tables with columns matching the current models in `ietf_data_viewer_simple.py`:
+
+| Table | Purpose |
+|-------|---------|
+| `user` | Users (Web3Auth, OAuth, roles, displayName, etc.) |
+| `submission` | Draft/RFC submissions, revisions, ML numbers, ordinal fields |
+| `comment` | Document comments (threaded, edit history) |
+| `document_history` | Document action log |
+| `working_group_member` | Workgroup membership (user_id, user_name) |
+| `user_follow` | User follows drafts + notification level |
+| `hypothesis_account` | Links user_id to Hypothesis username/userid (for future auto-account) |
+| `coordinator_request` | User-requested coordinator role (pending/approved/rejected) |
+| `workgroup_member_request` | Pending member join when workgroup requires approval |
+| `working_group_chair` | Workgroup coordinators (user_id, approved) |
+
+**Important:** `db.create_all()` only **creates tables that do not exist**. It does **not** add new columns to existing tables. If production was deployed from an older revision, compare schema (e.g. `sqlite3 production.db ".schema submission"`) with dev and add any missing columns or run a one-off migration before deploying new code.
+
 ## Migration Steps
 
-### Step 1: Database Migration (if needed)
+### Step 1: Full Database Structure Sync
 ```bash
-# Check if HypothesisAccount table exists
+# From repo root, with production DB path set (e.g. DATABASE_URL or instance/datatracker.db)
+cd /path/to/datatracker
+
+# Ensure all tables exist (creates only missing tables; does not alter existing)
 python3 -c "
-from ietf_data_viewer_simple import db, HypothesisAccount
-try:
-    count = HypothesisAccount.query.count()
-    print(f'✅ HypothesisAccount table exists with {count} records')
-except:
-    print('🔄 Creating HypothesisAccount table...')
+from ietf_data_viewer_simple import db, app
+with app.app_context():
     db.create_all()
-    print('✅ HypothesisAccount table created')
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    tables = inspector.get_table_names()
+    required = {'user', 'submission', 'comment', 'document_history', 'working_group_member',
+                'user_follow', 'hypothesis_account', 'coordinator_request',
+                'workgroup_member_request', 'working_group_chair'}
+    missing = required - set(tables)
+    if missing:
+        print('❌ Missing tables:', missing)
+    else:
+        print('✅ All required tables present:', sorted(required))
 "
 ```
 
@@ -70,15 +105,20 @@ nginx -t
 nginx -s reload
 ```
 
-### Step 4: Application Deployment
+### Step 4: Full Codebase Deployment
 ```bash
-# Deploy updated application code
-git checkout main
-git merge dev  # After testing
-systemctl restart datatracker  # Or your deployment method
+# Deploy entire codebase from dev (app, IETF templates, k8s configs, scripts, docs)
+git fetch origin
+git checkout main   # or production branch
+git merge dev       # after testing dev
+# Or: git pull origin dev  if production tracks dev
 
-# Verify deployment
+# Restart application so new code and DB schema are used
+systemctl restart datatracker  # Or your deployment method (e.g. k8s rollout, docker)
+
+# Verify deployment (Hypothesis + app)
 curl "https://rfc.themetalayer.org/api/annotations/test/count"
+# Verify workgroups, chairs, submissions, etc. via UI
 ```
 
 ### Step 5: Verification Tests
@@ -125,11 +165,13 @@ curl "https://rfc.themetalayer.org/api/annotations/test/count"
    nginx -s reload
    ```
 
-3. **Revert application code:**
+3. **Revert application code (full codebase):**
    ```bash
-   git revert c09f6523b
+   git revert 8cb790d60  # if you need to undo "all remaining changes" commit
+   git revert c09f6523b   # then undo Hypothesis integration
    systemctl restart datatracker
    ```
+   Or revert to the commit before the migration and restart.
 
 ## Post-Migration Monitoring
 
