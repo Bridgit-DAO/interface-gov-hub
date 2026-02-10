@@ -2688,6 +2688,9 @@ BASE_TEMPLATE = """
                 <a class="nav-link" href="/person/">
                     <i class="fas fa-user-friends me-1"></i>People
                 </a>
+                <a class="nav-link" href="/role-images/">
+                    <i class="fas fa-images me-1"></i>Role Images
+                </a>
                 <a class="nav-link" href="/doc/all/">
                     <i class="fas fa-file-alt me-1"></i>Documents
                 </a>
@@ -10168,6 +10171,20 @@ def home():
                         </div>
                     </div>
                 </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-images me-2"></i>Role Images</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>Browse and vote on visual representations for roles across all projects.</p>
+                                <a href="/role-images/" class="btn btn-primary">View Gallery</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="col-md-4">
                 <div class="card">
@@ -13265,6 +13282,9 @@ def project_detail(project_slug):
                 <button class="nav-link" id="workgroups-tab" data-bs-toggle="tab" data-bs-target="#workgroups" type="button">Workgroups</button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="clusters-tab" data-bs-toggle="tab" data-bs-target="#clusters" type="button">Clusters</button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="roles-tab" data-bs-toggle="tab" data-bs-target="#roles" type="button">Roles</button>
             </li>
             <li class="nav-item" role="presentation">
@@ -13278,6 +13298,9 @@ def project_detail(project_slug):
             </div>
             <div class="tab-pane fade" id="workgroups">
                 <div id="workgroups-content"></div>
+            </div>
+            <div class="tab-pane fade" id="clusters">
+                <div id="clusters-content"></div>
             </div>
             <div class="tab-pane fade" id="roles">
                 <div id="roles-content"></div>
@@ -13383,6 +13406,7 @@ def project_detail(project_slug):
     
     // Tab event listeners
     document.getElementById('workgroups-tab').addEventListener('shown.bs.tab', loadWorkgroups);
+    document.getElementById('clusters-tab').addEventListener('shown.bs.tab', loadClusters);
     document.getElementById('roles-tab').addEventListener('shown.bs.tab', loadRoles);
     document.getElementById('claims-tab').addEventListener('shown.bs.tab', loadClaims);
     
@@ -13424,6 +13448,62 @@ def project_detail(project_slug):
         }} catch (error) {{
             console.error('Error loading workgroups:', error);
             document.getElementById('workgroups-content').innerHTML = '<div class="alert alert-danger">Error loading workgroups</div>';
+        }}
+    }}
+    
+    async function loadClusters() {{
+        document.getElementById('clusters-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+        
+        try {{
+            const response = await fetch(`/api/projects/${{project.id}}/clusters/`);
+            const data = await response.json();
+            
+            let html = `
+                <div class="d-flex justify-content-between mb-3">
+                    <h4>Role Clusters (${{data.count}})</h4>
+                    ${{(isAdmin || project.initiator_id === {current_user['id'] if current_user else 'null'}) ? '<button class="btn btn-primary btn-sm" onclick="createCluster()"><i class="fas fa-plus me-2"></i>Create Cluster</button>' : ''}}
+                </div>
+                <p class="text-muted">Clusters group related roles together for better organization.</p>
+            `;
+            
+            if (data.clusters.length === 0) {{
+                html += '<div class="alert alert-info">No clusters yet. Create one to organize your roles!</div>';
+            }} else {{
+                html += '<div class="row">';
+                data.clusters.forEach(cluster => {{
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <h5 class="card-title">${{cluster.name}}</h5>
+                                            <p class="card-text text-muted">${{cluster.description || 'No description'}}</p>
+                                            <small class="text-muted">Order: ${{cluster.order}}</small>
+                                        </div>
+                                        ${{(isAdmin || project.initiator_id === {current_user['id'] if current_user else 'null'}) ? `
+                                            <div class="btn-group btn-group-sm">
+                                                <button class="btn btn-outline-secondary" onclick="editCluster('${{cluster.id}}')">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <button class="btn btn-outline-danger" onclick="deleteCluster('${{cluster.id}}', '${{cluster.name}}')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        ` : ''}}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }});
+                html += '</div>';
+            }}
+            
+            document.getElementById('clusters-content').innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading clusters:', error);
+            document.getElementById('clusters-content').innerHTML = '<div class="alert alert-danger">Error loading clusters</div>';
         }}
     }}
     
@@ -13537,7 +13617,403 @@ def project_detail(project_slug):
     }}
     
     function createRole() {{
-        alert('Create role functionality coming soon');
+        // Create modal HTML
+        const modalHtml = `
+            <div class="modal fade" id="createRoleModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Create New Role</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="role-alert-container"></div>
+                            
+                            <form id="createRoleForm">
+                                <div class="mb-3">
+                                    <label for="role-title-guild" class="form-label">Guild Title *</label>
+                                    <input type="text" class="form-control" id="role-title-guild" required>
+                                    <div class="form-text">The formal/ceremonial title (e.g., "Keeper of the Keys")</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="role-title-operational" class="form-label">Operational Title</label>
+                                    <input type="text" class="form-control" id="role-title-operational">
+                                    <div class="form-text">Optional: The practical title (e.g., "Security Lead")</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="role-description" class="form-label">Description *</label>
+                                    <textarea class="form-control" id="role-description" rows="4" required></textarea>
+                                    <div class="form-text">Describe the role's responsibilities and purpose</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="role-cluster" class="form-label">Cluster</label>
+                                    <select class="form-select" id="role-cluster">
+                                        <option value="">No cluster</option>
+                                    </select>
+                                    <div class="form-text">Optional: Group this role with others</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="role-image-url" class="form-label">Image URL</label>
+                                    <input type="url" class="form-control" id="role-image-url">
+                                    <div class="form-text">Optional: URL to role image/icon</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="role-order" class="form-label">Display Order</label>
+                                    <input type="number" class="form-control" id="role-order" value="0">
+                                    <div class="form-text">Lower numbers appear first</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="role-public-visible" checked>
+                                        <label class="form-check-label" for="role-public-visible">
+                                            Public Visible
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="role-claim-approval">
+                                        <label class="form-check-label" for="role-claim-approval">
+                                            Claims Require Approval
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="role-badge-enabled" checked>
+                                        <label class="form-check-label" for="role-badge-enabled">
+                                            Badge Enabled
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="role-badge-approval">
+                                        <label class="form-check-label" for="role-badge-approval">
+                                            Badges Require Approval
+                                        </label>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="submitRoleBtn">
+                                <i class="fas fa-plus me-2"></i>Create Role
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add modal to page if not exists
+        if (!document.getElementById('createRoleModal')) {{
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }}
+        
+        // Load clusters for dropdown
+        fetch(`/api/projects/${{project.id}}/clusters/`)
+            .then(r => r.json())
+            .then(data => {{
+                const select = document.getElementById('role-cluster');
+                data.clusters.forEach(cluster => {{
+                    const option = document.createElement('option');
+                    option.value = cluster.id;
+                    option.textContent = cluster.name;
+                    select.appendChild(option);
+                }});
+            }});
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('createRoleModal'));
+        modal.show();
+        
+        // Handle form submission
+        document.getElementById('submitRoleBtn').onclick = async () => {{
+            const titleGuild = document.getElementById('role-title-guild').value.trim();
+            const titleOperational = document.getElementById('role-title-operational').value.trim();
+            const description = document.getElementById('role-description').value.trim();
+            
+            if (!titleGuild || !description) {{
+                document.getElementById('role-alert-container').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Guild title and description are required
+                    </div>
+                `;
+                return;
+            }}
+            
+            const submitBtn = document.getElementById('submitRoleBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+            
+            const formData = {{
+                title_guild: titleGuild,
+                title_operational: titleOperational || null,
+                description: description,
+                cluster_id: document.getElementById('role-cluster').value || null,
+                image_url: document.getElementById('role-image-url').value || null,
+                order: parseInt(document.getElementById('role-order').value) || 0,
+                public_visible: document.getElementById('role-public-visible').checked,
+                claim_requires_approval: document.getElementById('role-claim-approval').checked,
+                badge_enabled: document.getElementById('role-badge-enabled').checked,
+                badge_requires_approval: document.getElementById('role-badge-approval').checked
+            }};
+            
+            try {{
+                const response = await fetch(`/api/projects/${{project.id}}/roles/`, {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify(formData)
+                }});
+                
+                const data = await response.json();
+                
+                if (response.ok) {{
+                    modal.hide();
+                    loadRoles(); // Reload roles list
+                    alert('Role created successfully!');
+                }} else {{
+                    throw new Error(data.error || 'Failed to create role');
+                }}
+            }} catch (error) {{
+                document.getElementById('role-alert-container').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        ${{error.message}}
+                    </div>
+                `;
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Role';
+            }}
+        }};
+    }}
+    
+    function createCluster() {{
+        const modalHtml = `
+            <div class="modal fade" id="createClusterModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Create New Cluster</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="cluster-alert-container"></div>
+                            
+                            <form id="createClusterForm">
+                                <div class="mb-3">
+                                    <label for="cluster-name" class="form-label">Cluster Name *</label>
+                                    <input type="text" class="form-control" id="cluster-name" required>
+                                    <div class="form-text">A descriptive name for this role group</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="cluster-description" class="form-label">Description</label>
+                                    <textarea class="form-control" id="cluster-description" rows="3"></textarea>
+                                    <div class="form-text">Optional: Describe the purpose of this cluster</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="cluster-order" class="form-label">Display Order</label>
+                                    <input type="number" class="form-control" id="cluster-order" value="0">
+                                    <div class="form-text">Lower numbers appear first</div>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="submitClusterBtn">
+                                <i class="fas fa-plus me-2"></i>Create Cluster
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        if (!document.getElementById('createClusterModal')) {{
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }}
+        
+        const modal = new bootstrap.Modal(document.getElementById('createClusterModal'));
+        modal.show();
+        
+        document.getElementById('submitClusterBtn').onclick = async () => {{
+            const name = document.getElementById('cluster-name').value.trim();
+            const description = document.getElementById('cluster-description').value.trim();
+            const order = parseInt(document.getElementById('cluster-order').value) || 0;
+            
+            if (!name) {{
+                document.getElementById('cluster-alert-container').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Cluster name is required
+                    </div>
+                `;
+                return;
+            }}
+            
+            const submitBtn = document.getElementById('submitClusterBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+            
+            try {{
+                const response = await fetch(`/api/projects/${{project.id}}/clusters/`, {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{ name, description, order }})
+                }});
+                
+                const data = await response.json();
+                
+                if (response.ok) {{
+                    modal.hide();
+                    loadClusters();
+                    alert('Cluster created successfully!');
+                }} else {{
+                    throw new Error(data.error || 'Failed to create cluster');
+                }}
+            }} catch (error) {{
+                document.getElementById('cluster-alert-container').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        ${{error.message}}
+                    </div>
+                `;
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Cluster';
+            }}
+        }};
+    }}
+    
+    async function editCluster(clusterId) {{
+        try {{
+            const response = await fetch(`/api/clusters/${{clusterId}}/`);
+            const data = await response.json();
+            const cluster = data.cluster;
+            
+            const modalHtml = `
+                <div class="modal fade" id="editClusterModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Edit Cluster</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div id="edit-cluster-alert-container"></div>
+                                
+                                <form id="editClusterForm">
+                                    <div class="mb-3">
+                                        <label for="edit-cluster-name" class="form-label">Cluster Name *</label>
+                                        <input type="text" class="form-control" id="edit-cluster-name" value="${{cluster.name}}" required>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="edit-cluster-description" class="form-label">Description</label>
+                                        <textarea class="form-control" id="edit-cluster-description" rows="3">${{cluster.description || ''}}</textarea>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="edit-cluster-order" class="form-label">Display Order</label>
+                                        <input type="number" class="form-control" id="edit-cluster-order" value="${{cluster.order}}">
+                                    </div>
+                                </form>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-primary" id="updateClusterBtn">
+                                    <i class="fas fa-save me-2"></i>Save Changes
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            if (document.getElementById('editClusterModal')) {{
+                document.getElementById('editClusterModal').remove();
+            }}
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            const modal = new bootstrap.Modal(document.getElementById('editClusterModal'));
+            modal.show();
+            
+            document.getElementById('updateClusterBtn').onclick = async () => {{
+                const name = document.getElementById('edit-cluster-name').value.trim();
+                const description = document.getElementById('edit-cluster-description').value.trim();
+                const order = parseInt(document.getElementById('edit-cluster-order').value) || 0;
+                
+                if (!name) {{
+                    document.getElementById('edit-cluster-alert-container').innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i>
+                            Cluster name is required
+                        </div>
+                    `;
+                    return;
+                }}
+                
+                const submitBtn = document.getElementById('updateClusterBtn');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+                
+                try {{
+                    const response = await fetch(`/api/clusters/${{clusterId}}/`, {{
+                        method: 'PATCH',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{ name, description, order }})
+                    }});
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {{
+                        modal.hide();
+                        loadClusters();
+                        alert('Cluster updated successfully!');
+                    }} else {{
+                        throw new Error(data.error || 'Failed to update cluster');
+                    }}
+                }} catch (error) {{
+                    document.getElementById('edit-cluster-alert-container').innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i>
+                            ${{error.message}}
+                        </div>
+                    `;
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
+                }}
+            }};
+        }} catch (error) {{
+            alert('Error loading cluster: ' + error.message);
+        }}
+    }}
+    
+    async function deleteCluster(clusterId, clusterName) {{
+        if (!confirm(`Are you sure you want to delete the cluster "${{clusterName}}"? This will unassign all roles from this cluster.`)) {{
+            return;
+        }}
+        
+        try {{
+            const response = await fetch(`/api/clusters/${{clusterId}}/`, {{
+                method: 'DELETE'
+            }});
+            
+            const data = await response.json();
+            
+            if (response.ok) {{
+                loadClusters();
+                alert('Cluster deleted successfully!');
+            }} else {{
+                throw new Error(data.error || 'Failed to delete cluster');
+            }}
+        }} catch (error) {{
+            alert('Error deleting cluster: ' + error.message);
+        }}
     }}
     
     // Load project on page load
@@ -13752,6 +14228,8 @@ def guild_detail(guild_slug):
             ? '<span class="badge bg-success">Active</span>' 
             : '<span class="badge bg-secondary">Archived</span>';
         
+        const isInitiator = isAuthenticated && guild.initiator_id === currentUserId;
+        
         document.getElementById('guild-header').innerHTML = `
             <div class="row">
                 <div class="col-md-8">
@@ -13759,6 +14237,7 @@ def guild_detail(guild_slug):
                     <div class="mb-3">${{statusBadge}}</div>
                 </div>
                 <div class="col-md-4 text-end">
+                    ${{isInitiator ? '<button class="btn btn-secondary me-2" onclick="editGuild()"><i class="fas fa-edit me-2"></i>Edit</button>' : ''}}
                     <a href="/guilds/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back</a>
                 </div>
             </div>
@@ -13858,6 +14337,105 @@ def guild_detail(guild_slug):
     }}
     
     // Load guild on page load
+    function editGuild() {{
+        const modalHtml = `
+            <div class="modal fade" id="editGuildModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Edit Guild</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="edit-guild-alert-container"></div>
+                            
+                            <form id="editGuildForm">
+                                <div class="mb-3">
+                                    <label for="edit-guild-name" class="form-label">Guild Name *</label>
+                                    <input type="text" class="form-control" id="edit-guild-name" value="${{guild.name}}" required>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="edit-guild-description" class="form-label">Description *</label>
+                                    <textarea class="form-control" id="edit-guild-description" rows="4" required>${{guild.description}}</textarea>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="edit-guild-status" class="form-label">Status</label>
+                                    <select class="form-select" id="edit-guild-status">
+                                        <option value="active" ${{guild.status === 'active' ? 'selected' : ''}}>Active</option>
+                                        <option value="archived" ${{guild.status === 'archived' ? 'selected' : ''}}>Archived</option>
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="updateGuildBtn">
+                                <i class="fas fa-save me-2"></i>Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        if (document.getElementById('editGuildModal')) {{
+            document.getElementById('editGuildModal').remove();
+        }}
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        const modal = new bootstrap.Modal(document.getElementById('editGuildModal'));
+        modal.show();
+        
+        document.getElementById('updateGuildBtn').onclick = async () => {{
+            const name = document.getElementById('edit-guild-name').value.trim();
+            const description = document.getElementById('edit-guild-description').value.trim();
+            const status = document.getElementById('edit-guild-status').value;
+            
+            if (!name || !description) {{
+                document.getElementById('edit-guild-alert-container').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Name and description are required
+                    </div>
+                `;
+                return;
+            }}
+            
+            const submitBtn = document.getElementById('updateGuildBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+            
+            try {{
+                const response = await fetch(`/api/guilds/${{guild.id}}/`, {{
+                    method: 'PATCH',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{ name, description, status }})
+                }});
+                
+                const data = await response.json();
+                
+                if (response.ok) {{
+                    modal.hide();
+                    loadGuild(); // Reload guild
+                    alert('Guild updated successfully!');
+                }} else {{
+                    throw new Error(data.error || 'Failed to update guild');
+                }}
+            }} catch (error) {{
+                document.getElementById('edit-guild-alert-container').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        ${{error.message}}
+                    </div>
+                `;
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
+            }}
+        }};
+    }}
+    
     loadGuild();
     </script>
     """
@@ -14333,6 +14911,159 @@ def roles_directory():
     """
     
     return render_page("Roles Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/role-images/')
+def role_images_directory():
+    """Global role images directory - browse all roles with images"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h1><i class="fas fa-images me-2"></i>Role Images Gallery</h1>
+                <p class="lead">Browse and vote on role images across all projects</p>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <label for="project-filter" class="form-label">Project:</label>
+                <select id="project-filter" class="form-select" onchange="loadRoleImages()">
+                    <option value="">All Projects</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label for="search-input" class="form-label">Search Roles:</label>
+                <input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">
+            </div>
+        </div>
+        
+        <div id="roles-container" class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let allRoles = [];
+    let allProjects = [];
+    
+    async function loadProjects() {{
+        try {{
+            const response = await fetch('/api/projects/');
+            const data = await response.json();
+            allProjects = data.projects;
+            
+            const select = document.getElementById('project-filter');
+            allProjects.forEach(project => {{
+                const option = document.createElement('option');
+                option.value = project.id;
+                option.textContent = project.name;
+                select.appendChild(option);
+            }});
+        }} catch (error) {{
+            console.error('Error loading projects:', error);
+        }}
+    }}
+    
+    async function loadRoleImages() {{
+        const projectFilter = document.getElementById('project-filter').value;
+        
+        document.getElementById('roles-container').innerHTML = `
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        `;
+        
+        try {{
+            allRoles = [];
+            
+            if (projectFilter) {{
+                // Load roles for specific project
+                const response = await fetch(`/api/projects/${{projectFilter}}/roles/`);
+                const data = await response.json();
+                allRoles = data.roles;
+            }} else {{
+                // Load roles from all projects
+                for (const project of allProjects) {{
+                    const response = await fetch(`/api/projects/${{project.id}}/roles/`);
+                    const data = await response.json();
+                    allRoles = allRoles.concat(data.roles.map(r => ({{...r, project_name: project.name, project_slug: project.slug}})));
+                }}
+            }}
+            
+            displayRoles(allRoles);
+        }} catch (error) {{
+            console.error('Error loading roles:', error);
+            document.getElementById('roles-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading roles</div></div>';
+        }}
+    }}
+    
+    function displayRoles(roles) {{
+        const container = document.getElementById('roles-container');
+        
+        if (roles.length === 0) {{
+            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No roles found</div></div>';
+            return;
+        }}
+        
+        let html = '';
+        roles.forEach(role => {{
+            const projectName = role.project_name || 'Unknown Project';
+            const projectSlug = role.project_slug || '';
+            const roleSlug = role.role_slug || role.slug || '';
+            
+            html += `
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">${{role.title_guild}}</h5>
+                            ${{role.title_operational ? `<h6 class="card-subtitle mb-2 text-muted">${{role.title_operational}}</h6>` : ''}}
+                            <p class="card-text text-muted small">
+                                <i class="fas fa-project-diagram me-1"></i>${{projectName}}
+                            </p>
+                            <p class="card-text">${{role.description.substring(0, 100)}}...</p>
+                            <div class="d-flex gap-2">
+                                <a href="/roles/${{roleSlug}}/images/" class="btn btn-primary btn-sm">
+                                    <i class="fas fa-images me-1"></i>View Images
+                                </a>
+                                <a href="/roles/${{roleSlug}}/" class="btn btn-outline-secondary btn-sm">
+                                    <i class="fas fa-info-circle me-1"></i>Details
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }});
+        
+        container.innerHTML = html;
+    }}
+    
+    function filterRoles() {{
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        const filtered = allRoles.filter(role => 
+            role.title_guild.toLowerCase().includes(searchTerm) ||
+            (role.title_operational && role.title_operational.toLowerCase().includes(searchTerm)) ||
+            role.description.toLowerCase().includes(searchTerm)
+        );
+        displayRoles(filtered);
+    }}
+    
+    // Load data on page load
+    loadProjects().then(() => loadRoleImages());
+    </script>
+    """
+    
+    return render_page("Role Images Gallery - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/roles/<role_slug>/')
 def role_detail(role_slug):
