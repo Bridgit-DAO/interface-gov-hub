@@ -842,31 +842,32 @@ class Project(db.Model):
         }
 
 class Workgroup(db.Model):
-    """Task-focused group within a project"""
-    __tablename__ = 'workgroup'
+    """Task-focused group within a project (or global IETF working group)"""
+    __tablename__ = 'working_group'
     
-    id = db.Column(db.String(50), primary_key=True)  # wg_...
+    id = db.Column(db.Integer, primary_key=True)
+    acronym = db.Column(db.String(50), unique=True, index=True)  # Legacy field for IETF groups
     name = db.Column(db.String(255), nullable=False)
-    slug = db.Column(db.String(255), nullable=False, index=True)
+    slug = db.Column(db.String(255), index=True)
+    description = db.Column(db.Text, nullable=True)
+    type = db.Column(db.String(50), nullable=True)  # Legacy field
+    state = db.Column(db.String(20), nullable=True)  # Legacy field
     
-    # Project relationship (required)
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    # Project relationship (optional - NULL for global IETF working groups)
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=True, index=True)
     
     # Coordinator (formerly "chair")
     coordinator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     
     # Status
     status = db.Column(db.String(20), default='active', index=True)
-    # active, inactive, completed, archived
+    # active, inactive, completed, archived, concluded
     
     # Approval
     approval_status = db.Column(db.String(20), default='pending', index=True)
     # pending, approved, rejected
     approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
-    
-    # Description
-    description = db.Column(db.Text, nullable=True)
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -877,18 +878,12 @@ class Workgroup(db.Model):
     coordinator = db.relationship('User', foreign_keys=[coordinator_id], backref='coordinated_workgroups')
     approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_workgroups')
     
-    __table_args__ = (
-        db.UniqueConstraint('project_id', 'slug', name='unique_workgroup_slug_per_project'),
-        db.Index('idx_workgroup_project', 'project_id'),
-        db.Index('idx_workgroup_status', 'status'),
-        db.Index('idx_workgroup_approval', 'approval_status'),
-    )
-    
     def to_dict(self):
         return {
             'id': self.id,
+            'acronym': self.acronym,  # Legacy field
             'name': self.name,
-            'slug': self.slug,
+            'slug': self.slug or self.acronym,  # Use acronym as fallback for legacy groups
             'project_id': self.project_id,
             'project_name': self.project.name if self.project else None,
             'coordinator_id': self.coordinator_id,
@@ -896,6 +891,8 @@ class Workgroup(db.Model):
             'status': self.status,
             'approval_status': self.approval_status,
             'description': self.description,
+            'type': self.type,  # Legacy field
+            'state': self.state,  # Legacy field
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
