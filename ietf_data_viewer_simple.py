@@ -2708,13 +2708,13 @@ BASE_TEMPLATE = """
                     <i class="fas fa-user-friends me-1"></i>People
                 </a>
                 <a class="nav-link" href="/role-images/">
-                    <i class="fas fa-images me-1"></i>Role Images
+                    <i class="fas fa-images me-1"></i>Imagery
                 </a>
                 <a class="nav-link" href="/doc/all/">
-                    <i class="fas fa-file-alt me-1"></i>Documents
+                    <i class="fas fa-file-alt me-1"></i>Docs
                 </a>
                 <a class="nav-link" href="/submit/">
-                    <i class="fas fa-plus me-1"></i>Submit Draft
+                    <i class="fas fa-plus me-1"></i>Submit
                 </a>
             </div>
             <div class="navbar-nav ms-auto">
