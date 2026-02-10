@@ -6299,6 +6299,61 @@ def api_approve_workgroup(workgroup_id):
     
     return jsonify({'success': True, 'workgroup': workgroup.to_dict()})
 
+@app.route('/api/workgroups/<int:workgroup_id>/chairs/', methods=['GET'])
+def api_list_workgroup_chairs(workgroup_id):
+    """List chairs for a workgroup"""
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    
+    # Query chairs using acronym (legacy field)
+    from sqlalchemy import text
+    chairs_query = text("""
+        SELECT id, group_acronym, chair_name, approved, set_at, user_id
+        FROM working_group_chair
+        WHERE group_acronym = :acronym
+        ORDER BY set_at DESC
+    """)
+    
+    result = db.session.execute(chairs_query, {'acronym': workgroup.acronym})
+    chairs = []
+    for row in result:
+        chairs.append({
+            'id': row[0],
+            'group_acronym': row[1],
+            'chair_name': row[2],
+            'approved': bool(row[3]),
+            'set_at': row[4],
+            'user_id': row[5]
+        })
+    
+    return jsonify({'chairs': chairs, 'count': len(chairs)})
+
+@app.route('/api/workgroups/<int:workgroup_id>/members/', methods=['GET'])
+def api_list_workgroup_members(workgroup_id):
+    """List members for a workgroup"""
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    
+    # Query members using acronym (legacy field)
+    from sqlalchemy import text
+    members_query = text("""
+        SELECT id, group_acronym, user_name, joined_at, user_id
+        FROM working_group_member
+        WHERE group_acronym = :acronym
+        ORDER BY joined_at DESC
+    """)
+    
+    result = db.session.execute(members_query, {'acronym': workgroup.acronym})
+    members = []
+    for row in result:
+        members.append({
+            'id': row[0],
+            'group_acronym': row[1],
+            'user_name': row[2],
+            'joined_at': row[3],
+            'user_id': row[4]
+        })
+    
+    return jsonify({'members': members, 'count': len(members)})
+
 # ============================================================================
 # Guilds API Endpoints
 # ============================================================================
@@ -14733,9 +14788,24 @@ def workgroup_detail(workgroup_slug):
                     </div>
                 </div>
                 
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Chairs / Coordinators</h5>
+                        </div>
+                    </div>
+                    <div class="card-body" id="workgroup-chairs">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+                
                 <div class="card">
-                    <div class="card-header"><h5>Charter & Goals</h5></div>
-                    <div class="card-body" id="workgroup-charter">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Members</h5>
+                        </div>
+                    </div>
+                    <div class="card-body" id="workgroup-members">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
@@ -14750,8 +14820,8 @@ def workgroup_detail(workgroup_slug):
                 </div>
                 
                 <div class="card">
-                    <div class="card-header"><h5>Links</h5></div>
-                    <div class="card-body" id="workgroup-links">
+                    <div class="card-header"><h5>Charter & Goals</h5></div>
+                    <div class="card-body" id="workgroup-charter">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
@@ -14798,6 +14868,8 @@ def workgroup_detail(workgroup_slug):
             displayWorkgroupCharter();
             displayWorkgroupDetails();
             displayWorkgroupLinks();
+            loadChairs();
+            loadMembers();
         }} catch (error) {{
             console.error('Error loading workgroup:', error);
             document.getElementById('workgroup-header').innerHTML = '<div class="alert alert-danger">Error loading workgroup</div>';
@@ -14902,6 +14974,69 @@ def workgroup_detail(workgroup_slug):
             'rejected': '<span class="badge bg-danger">Rejected</span>'
         }};
         return badges[approval] || '';
+    }}
+    
+    async function loadChairs() {{
+        try {{
+            // Load chairs from working_group_chair table using acronym
+            const response = await fetch(`/api/workgroups/${{workgroup.id}}/chairs/`);
+            const data = await response.json();
+            
+            let html = '';
+            if (data.chairs && data.chairs.length > 0) {{
+                html = '<div class="list-group">';
+                data.chairs.forEach(chair => {{
+                    html += `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>${{chair.chair_name}}</strong>
+                                    ${{chair.approved ? '<span class="badge bg-success ms-2">Approved</span>' : '<span class="badge bg-warning ms-2">Pending</span>'}}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }});
+                html += '</div>';
+            }} else {{
+                html = '<p class="text-muted">No chairs assigned yet</p>';
+            }}
+            
+            document.getElementById('workgroup-chairs').innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading chairs:', error);
+            document.getElementById('workgroup-chairs').innerHTML = '<p class="text-muted">No chairs assigned yet</p>';
+        }}
+    }}
+    
+    async function loadMembers() {{
+        try {{
+            // Load members from working_group_member table using acronym
+            const response = await fetch(`/api/workgroups/${{workgroup.id}}/members/`);
+            const data = await response.json();
+            
+            let html = '';
+            if (data.members && data.members.length > 0) {{
+                html = `<p class="text-muted mb-2">${{data.members.length}} member(s)</p>`;
+                html += '<div class="list-group">';
+                data.members.forEach(member => {{
+                    html += `
+                        <div class="list-group-item">
+                            <strong>${{member.user_name}}</strong>
+                            <small class="text-muted d-block">Joined: ${{new Date(member.joined_at).toLocaleDateString()}}</small>
+                        </div>
+                    `;
+                }});
+                html += '</div>';
+            }} else {{
+                html = '<p class="text-muted">No members yet</p>';
+            }}
+            
+            document.getElementById('workgroup-members').innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading members:', error);
+            document.getElementById('workgroup-members').innerHTML = '<p class="text-muted">No members yet</p>';
+        }}
     }}
     
     // Load workgroup on page load
