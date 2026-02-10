@@ -2676,6 +2676,9 @@ BASE_TEMPLATE = """
                 <a class="nav-link" href="/projects/">
                     <i class="fas fa-project-diagram me-1"></i>Projects
                 </a>
+                <a class="nav-link" href="/roles/">
+                    <i class="fas fa-user-tag me-1"></i>Roles
+                </a>
                 <a class="nav-link" href="/workgroups/">
                     <i class="fas fa-users me-1"></i>Workgroups
                 </a>
