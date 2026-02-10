@@ -8017,6 +8017,304 @@ def role_images_gallery(role_slug):
     
     return render_page(f"Role Images: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
 
+@app.route('/roles/<role_slug>/images/<image_id>/')
+def role_image_detail(role_slug, image_id):
+    """Detailed view of a single role image proposal"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    is_admin = current_user and current_user.get('role') == 'admin'
+    
+    # Fetch image
+    image = RoleImage.query.get_or_404(image_id)
+    
+    # Check if hidden
+    if image.is_hidden and not is_admin:
+        flash('Image not found', 'error')
+        return redirect(url_for('role_images_gallery', role_slug=role_slug))
+    
+    # Get user's vote
+    user_vote = None
+    if current_user:
+        vote = RoleImageVote.query.filter_by(
+            image_id=image_id,
+            user_id=current_user['id']
+        ).first()
+        user_vote = vote.value if vote else None
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row mb-3">
+            <div class="col-md-12">
+                <a href="/roles/{role_slug}/images/" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-arrow-left me-1"></i> Back to Gallery
+                </a>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <h2 class="card-title mb-3">
+                            Role Image for {role_slug}
+                            {f'<span class="badge bg-success ms-2">Primary</span>' if image.is_primary else ''}
+                            {f'<span class="badge bg-warning ms-2">Hidden</span>' if image.is_hidden and is_admin else ''}
+                        </h2>
+                        
+                        <div class="text-center mb-4">
+                            {'<iframe src="' + image.image_url + '" style="width: 100%; height: 500px; border: none;"></iframe>' if image.source_type == 'ordinal' and image.content_type and 'html' in image.content_type.lower() else '<img src="' + image.image_url + '" class="img-fluid" alt="Role image" style="max-height: 500px;">'}
+                        </div>
+                        
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <div class="btn-group" role="group">
+                                <button class="btn {'btn-success' if user_vote == 1 else 'btn-outline-success'}" onclick="vote(1)" {'disabled' if not current_user else ''}>
+                                    <i class="fas fa-thumbs-up"></i> Upvote ({image.upvotes})
+                                </button>
+                                <button class="btn {'btn-danger' if user_vote == -1 else 'btn-outline-danger'}" onclick="vote(-1)" {'disabled' if not current_user else ''}>
+                                    <i class="fas fa-thumbs-down"></i> Downvote ({image.downvotes})
+                                </button>
+                                {f'<button class="btn btn-outline-secondary" onclick="removeVote()">Remove Vote</button>' if user_vote and current_user else ''}
+                            </div>
+                            <div>
+                                <h4 class="mb-0">
+                                    <span class="badge bg-primary">Net Score: {image.net_score}</span>
+                                </h4>
+                            </div>
+                        </div>
+                        
+                        {'<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>Please <a href="/login/">login</a> to vote on images.</div>' if not current_user else ''}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0">Image Details</h5>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-5">Submitted by:</dt>
+                            <dd class="col-sm-7">{image.submitted_by.displayName or image.submitted_by.username if image.submitted_by else 'Unknown'}</dd>
+                            
+                            <dt class="col-sm-5">Submitted:</dt>
+                            <dd class="col-sm-7">{image.submitted_at.strftime('%Y-%m-%d %H:%M') if image.submitted_at else 'Unknown'}</dd>
+                            
+                            <dt class="col-sm-5">Source:</dt>
+                            <dd class="col-sm-7"><span class="badge bg-info">{image.source_type}</span></dd>
+                            
+                            {f'<dt class="col-sm-5">Chain:</dt><dd class="col-sm-7">{image.chain}</dd>' if image.chain else ''}
+                            
+                            {f'<dt class="col-sm-5">Inscription ID:</dt><dd class="col-sm-7"><a href="https://ordinals.com/inscription/{image.inscription_id}" target="_blank" class="text-break small">{image.inscription_id[:20]}...</a></dd>' if image.inscription_id else ''}
+                            
+                            {f'<dt class="col-sm-5">Content Type:</dt><dd class="col-sm-7">{image.content_type}</dd>' if image.content_type else ''}
+                            
+                            {f'<dt class="col-sm-5">Promoted by:</dt><dd class="col-sm-7">{image.promoted_by.displayName or image.promoted_by.username if image.promoted_by else "N/A"}</dd>' if image.is_primary else ''}
+                            
+                            {f'<dt class="col-sm-5">Promoted at:</dt><dd class="col-sm-7">{image.promoted_at.strftime("%Y-%m-%d %H:%M") if image.promoted_at else "N/A"}</dd>' if image.is_primary else ''}
+                        </dl>
+                    </div>
+                </div>
+                
+                {f'''<div class="card mb-3">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0">Admin Actions</h5>
+                    </div>
+                    <div class="card-body">
+                        {f'<button class="btn btn-success w-100 mb-2" onclick="promoteImage()"><i class="fas fa-star me-2"></i>Promote to Primary</button>' if not image.is_primary else '<button class="btn btn-warning w-100 mb-2" onclick="demoteImage()"><i class="fas fa-star-half-alt me-2"></i>Demote from Primary</button>'}
+                        
+                        {f'<button class="btn btn-warning w-100 mb-2" onclick="hideImage()"><i class="fas fa-eye-slash me-2"></i>Hide Image</button>' if not image.is_hidden else '<button class="btn btn-info w-100 mb-2" onclick="unhideImage()"><i class="fas fa-eye me-2"></i>Unhide Image</button>'}
+                        
+                        <button class="btn btn-danger w-100 mb-3" onclick="deleteImage()">
+                            <i class="fas fa-trash me-2"></i>Delete Image
+                        </button>
+                        
+                        <hr>
+                        
+                        <div class="mb-2">
+                            <label for="adminNote" class="form-label">Admin Note:</label>
+                            <textarea class="form-control" id="adminNote" rows="3">{image.admin_note or ''}</textarea>
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="saveNote()">
+                            <i class="fas fa-save me-2"></i>Save Note
+                        </button>
+                    </div>
+                </div>''' if is_admin else ''}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    const imageId = '{image_id}';
+    const roleSlug = '{role_slug}';
+    
+    async function vote(value) {{
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/vote/`, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{value}})
+            }});
+            
+            if (response.ok) {{
+                location.reload();
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to vote');
+            }}
+        }} catch (error) {{
+            console.error('Error voting:', error);
+            alert('Error voting on image');
+        }}
+    }}
+    
+    async function removeVote() {{
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/vote/`, {{
+                method: 'DELETE'
+            }});
+            
+            if (response.ok) {{
+                location.reload();
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to remove vote');
+            }}
+        }} catch (error) {{
+            console.error('Error removing vote:', error);
+            alert('Error removing vote');
+        }}
+    }}
+    
+    async function promoteImage() {{
+        if (!confirm('Promote this image to primary role image?')) return;
+        
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/promote/`, {{
+                method: 'POST'
+            }});
+            
+            if (response.ok) {{
+                location.reload();
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to promote image');
+            }}
+        }} catch (error) {{
+            console.error('Error promoting image:', error);
+            alert('Error promoting image');
+        }}
+    }}
+    
+    async function demoteImage() {{
+        if (!confirm('Demote this image from primary?')) return;
+        
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/promote/`, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{demote: true}})
+            }});
+            
+            if (response.ok) {{
+                location.reload();
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to demote image');
+            }}
+        }} catch (error) {{
+            console.error('Error demoting image:', error);
+            alert('Error demoting image');
+        }}
+    }}
+    
+    async function hideImage() {{
+        if (!confirm('Hide this image from public view?')) return;
+        
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/hide/`, {{
+                method: 'POST'
+            }});
+            
+            if (response.ok) {{
+                location.reload();
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to hide image');
+            }}
+        }} catch (error) {{
+            console.error('Error hiding image:', error);
+            alert('Error hiding image');
+        }}
+    }}
+    
+    async function unhideImage() {{
+        if (!confirm('Unhide this image?')) return;
+        
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/unhide/`, {{
+                method: 'POST'
+            }});
+            
+            if (response.ok) {{
+                location.reload();
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to unhide image');
+            }}
+        }} catch (error) {{
+            console.error('Error unhiding image:', error);
+            alert('Error unhiding image');
+        }}
+    }}
+    
+    async function deleteImage() {{
+        if (!confirm('Permanently delete this image? This cannot be undone.')) return;
+        
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/`, {{
+                method: 'DELETE'
+            }});
+            
+            if (response.ok) {{
+                window.location.href = `/roles/${{roleSlug}}/images/`;
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to delete image');
+            }}
+        }} catch (error) {{
+            console.error('Error deleting image:', error);
+            alert('Error deleting image');
+        }}
+    }}
+    
+    async function saveNote() {{
+        const note = document.getElementById('adminNote').value;
+        
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/note/`, {{
+                method: 'PATCH',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{admin_note: note}})
+            }});
+            
+            if (response.ok) {{
+                alert('Note saved successfully');
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to save note');
+            }}
+        }} catch (error) {{
+            console.error('Error saving note:', error);
+            alert('Error saving note');
+        }}
+    }}
+    </script>
+    """
+    
+    return render_page(f"Image Detail: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
 # Deployment API endpoint (development only)
 @app.route('/_deploy/reload', methods=['POST'])
 def reload_app():
