@@ -41,6 +41,7 @@ This RFC extends the Projects, Workgroups, and Guilds system with a comprehensiv
 - **Badge**: Recognition artifact linked to a Claim
 - **Ordinal badge**: Badge with on-chain inscription metadata (optional)
 - **Cluster**: Organizational grouping of roles within a project
+- **Role Image**: Visual representation (image or media) proposed for a role, subject to community voting and Project Admin approval
 
 ## Schema Design
 
@@ -329,7 +330,183 @@ class StatusChange(models.Model):
         ]
 ```
 
+### RoleImage Model
+
+```python
+class RoleImage(db.Model):
+    """Visual representation proposed for a role"""
+    id = db.Column(db.String(50), primary_key=True)  # rimg_...
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    role_id = db.Column(db.String(50), db.ForeignKey('role.id'), nullable=False, index=True)
+    
+    # Source
+    source_type = db.Column(db.String(20), nullable=False)  # 'upload', 'url', 'ordinal'
+    image_url = db.Column(db.String(500), nullable=True)  # For upload or URL source
+    file_path = db.Column(db.String(500), nullable=True)  # For uploaded files
+    
+    # Ordinal metadata (optional)
+    chain = db.Column(db.String(50), nullable=True)  # 'bitcoin', etc.
+    inscription_id = db.Column(db.String(255), nullable=True)
+    content_type = db.Column(db.String(100), nullable=True)  # MIME type
+    
+    # Status and promotion
+    is_primary = db.Column(db.Boolean, default=False)  # Primary role image
+    is_hidden = db.Column(db.Boolean, default=False)  # Hidden by admin
+    
+    # Voting (aggregated)
+    upvotes = db.Column(db.Integer, default=0)
+    downvotes = db.Column(db.Integer, default=0)
+    net_score = db.Column(db.Integer, default=0)  # upvotes - downvotes
+    
+    # Admin actions
+    admin_note = db.Column(db.Text, nullable=True)
+    promoted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    promoted_at = db.Column(db.DateTime, nullable=True)
+    
+    # Audit
+    submitted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = db.relationship('Project', backref=db.backref('role_images', lazy=True))
+    role = db.relationship('Role', backref=db.backref('images', lazy=True))
+    submitted_by = db.relationship('User', foreign_keys=[submitted_by_id], backref='submitted_role_images')
+    promoted_by = db.relationship('User', foreign_keys=[promoted_by_id], backref='promoted_role_images')
+    
+    __table_args__ = (
+        db.Index('idx_role_image_project_role', 'project_id', 'role_id'),
+        db.Index('idx_role_image_primary', 'role_id', 'is_primary'),
+        db.Index('idx_role_image_net_score', 'role_id', 'net_score'),
+    )
+```
+
+### RoleImageVote Model
+
+```python
+class RoleImageVote(db.Model):
+    """User vote on a role image proposal"""
+    id = db.Column(db.Integer, primary_key=True)
+    image_id = db.Column(db.String(50), db.ForeignKey('role_image.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    
+    # Vote value: 1 (upvote) or -1 (downvote)
+    value = db.Column(db.Integer, nullable=False)  # 1 or -1
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    image = db.relationship('RoleImage', backref=db.backref('votes', lazy=True))
+    user = db.relationship('User', backref=db.backref('role_image_votes', lazy=True))
+    
+    __table_args__ = (
+        db.UniqueConstraint('image_id', 'user_id', name='unique_user_image_vote'),
+        db.Index('idx_vote_image', 'image_id'),
+        db.Index('idx_vote_user', 'user_id'),
+    )
+```
+
+## Functional Requirements: Role Images and Media Proposals
+
+### 2.6 Role Images and Media Proposals
+
+**Purpose:** Enable community-driven visual representation of roles through proposals, voting, and Project Admin approval.
+
+**Core Flow:**
+
+1. **Any authenticated user can submit a Role Image proposal** for a role (project-scoped)
+   - Submitter selects project + role
+   - Provides image via:
+     - **Upload** (image file)
+     - **URL** (external image URL)
+     - **Ordinal** (reference to Bitcoin inscription containing image or HTML)
+
+2. **Community voting**
+   - Any authenticated user can upvote or downvote any role image proposal
+   - One vote per user per image
+   - Users can change their vote (update from upvote to downvote or vice versa)
+   - Net score = upvotes - downvotes
+
+3. **Project Admin promotion**
+   - Project Admin can promote an image to become the **primary role image**
+   - Promoting an image populates `Role.image_url` with the image URL
+   - Only one primary image per role at a time
+   - Project Admin can also:
+     - Hide/remove inappropriate images
+     - Add admin notes to images
+     - Demote a primary image (revert to no primary)
+
+**Ordinal Support:**
+- When source is 'ordinal', the system stores:
+  - `chain` (e.g., 'bitcoin')
+  - `inscription_id` (inscription ID)
+  - `content_type` (MIME type from ordinal metadata)
+- The image preview uses the ordinal content URL (e.g., `https://ordinals.com/content/{inscription_id}`)
+
 ## Additional UI Requirements
+
+### 7.1b Role Images Page
+
+**URL:** `/projects/{project_id}/roles/{role_slug}/images/`
+
+**Purpose:** Gallery of proposed images for a role, with voting and admin actions.
+
+**Features:**
+- **Gallery view** of all non-hidden role image proposals
+- **Sorting:** By net score (default), date submitted, or upvotes
+- **Each image card shows:**
+  - Image preview (or ordinal preview)
+  - Submitter name and submission date
+  - Vote counts: upvotes, downvotes, net score
+  - Upvote/downvote buttons (authenticated users)
+  - "Primary" badge if `is_primary = true`
+- **Voting:**
+  - Click upvote → adds +1 vote (or changes from downvote)
+  - Click downvote → adds -1 vote (or changes from upvote)
+  - Click same button again → removes vote
+  - Vote updates are instant (AJAX)
+- **Project Admin actions** (shown on each card for admins):
+  - "Promote to primary" button
+  - "Hide image" button
+  - "Add note" link
+- **Submit new image** button at top (for authenticated users)
+
+### 7.1c Image Detail Page
+
+**URL:** `/projects/{project_id}/roles/{role_slug}/images/{image_id}/`
+
+**Purpose:** Detailed view of a single role image proposal.
+
+**Sections:**
+
+1. **Image Display**
+   - Large preview of the image
+   - For ordinals: iframe or direct content embed
+   - For uploads/URLs: `<img>` tag
+
+2. **Metadata**
+   - Submitter name (linked to profile if available)
+   - Submission timestamp
+   - Source type (upload / URL / ordinal)
+   - If ordinal: chain, inscription ID (linked to explorer), content type
+
+3. **Voting**
+   - Current vote counts: upvotes, downvotes, net score
+   - Upvote/downvote buttons (authenticated users)
+   - Visual indicator of current user's vote (if any)
+
+4. **Project Admin Actions** (permission-gated)
+   - "Promote to primary role image" button
+   - "Hide image" button (with confirmation)
+   - "Remove image" button (with confirmation)
+   - "Add admin note" text area + save button
+   - Display existing admin note if present
+
+5. **Status Indicators**
+   - "Primary role image" badge if `is_primary = true`
+   - "Hidden" badge if `is_hidden = true` (only visible to admins)
 
 ### Start Here Page
 
@@ -438,6 +615,12 @@ class StatusChange(models.Model):
 | Approve badge | ❌ | ❌ | ❌ | ✅ |
 | Issue badge | ❌ | ❌ | ❌ | ✅ |
 | Manage clusters | ❌ | ❌ | ❌ | ✅ |
+| **Submit role image** | ✅ | ✅ | ✅ | ✅ |
+| **Vote on role image** | ✅ | ✅ | ✅ | ✅ |
+| **Promote role image to primary** | ❌ | ❌ | ❌ | ✅ |
+| **Hide/unhide role image** | ❌ | ❌ | ❌ | ✅ |
+| **Remove role image** | ❌ | ❌ | ❌ | ✅ |
+| **Add admin note to role image** | ❌ | ❌ | ❌ | ✅ |
 
 ## JSON Import Schema
 
@@ -509,6 +692,81 @@ class StatusChange(models.Model):
 - `POST /api/badges/{id}/approve/` - Approve badge
 - `POST /api/badges/{id}/issue/` - Issue badge (set inscription_id)
 
+### Role Images
+
+- `GET /api/roles/{id}/images/` - List role image proposals (with vote counts, sortable)
+- `POST /api/roles/{id}/images/` - Submit role image proposal
+- `GET /api/role-images/{id}/` - Get role image details
+- `POST /api/role-images/{id}/vote/` - Vote on role image (upvote/downvote)
+- `DELETE /api/role-images/{id}/vote/` - Remove vote
+- `POST /api/role-images/{id}/promote/` - Promote to primary (Project Admin only)
+- `POST /api/role-images/{id}/hide/` - Hide image (Project Admin only)
+- `POST /api/role-images/{id}/unhide/` - Unhide image (Project Admin only)
+- `DELETE /api/role-images/{id}/` - Remove image (Project Admin only)
+- `PATCH /api/role-images/{id}/note/` - Add/update admin note (Project Admin only)
+
+## API Schemas
+
+### 9.4.5 RoleImage Schema
+
+```json
+{
+  "id": "rimg_abc123",
+  "project_id": "proj_metalayer",
+  "role_id": "rol_bridger",
+  "source_type": "ordinal",
+  "image_url": "https://ordinals.com/content/a455e1c4...e9aa72i0",
+  "file_path": null,
+  "chain": "bitcoin",
+  "inscription_id": "a455e1c4ca82bc15c2b0bde0eb647f09d5117e8203054bbb729f48f0d9e9aa72i0",
+  "content_type": "image/png",
+  "is_primary": false,
+  "is_hidden": false,
+  "upvotes": 12,
+  "downvotes": 3,
+  "net_score": 9,
+  "admin_note": null,
+  "submitted_by_id": 42,
+  "submitted_by_name": "Alice",
+  "submitted_at": "2026-02-09T12:00:00Z",
+  "promoted_by_id": null,
+  "promoted_at": null,
+  "updated_at": "2026-02-09T15:30:00Z"
+}
+```
+
+**Source Types:**
+- `upload`: Image uploaded to server (stored in `file_path`, served via `image_url`)
+- `url`: External image URL (stored in `image_url`)
+- `ordinal`: Bitcoin inscription reference (metadata in `chain`, `inscription_id`, `content_type`)
+
+**Ordinal Metadata:**
+- Optional for `upload` and `url` sources
+- Required for `ordinal` source
+- Supports images, HTML, or other visual content types
+
+### 9.4.6 RoleImageVote Schema
+
+```json
+{
+  "id": 123,
+  "image_id": "rimg_abc123",
+  "user_id": 42,
+  "value": 1,
+  "created_at": "2026-02-09T12:05:00Z",
+  "updated_at": "2026-02-09T12:05:00Z"
+}
+```
+
+**Vote Values:**
+- `1`: Upvote
+- `-1`: Downvote
+
+**Vote Updates:**
+- Users can change their vote at any time
+- Changing vote updates the existing `RoleImageVote` record
+- Aggregated counts (`upvotes`, `downvotes`, `net_score`) are recalculated on each vote change
+
 ## Anti-Spam Controls
 
 ### Role Creation
@@ -525,6 +783,13 @@ class StatusChange(models.Model):
 ### Badge Requests
 1. **Rate limiting:** Max 5 badge requests per user per day
 2. **Must have active claim** to request badge
+
+### Role Image Submissions
+1. **Email verification required**
+2. **Rate limiting:** Max 10 image proposals per user per day
+3. **File size limit:** Max 10MB for uploads
+4. **Content validation:** Images must be valid image formats (PNG, JPG, GIF, WebP, SVG)
+5. **Ordinal validation:** Inscription ID must be valid and content must be accessible
 
 ## MVP Acceptance Criteria
 
@@ -543,11 +808,16 @@ MVP is complete when:
 11. ✅ Start Here page for onboarding
 12. ✅ Inscriptions page explaining ordinal badges
 13. ✅ Submission form includes "what changed" field for revisions
+14. ✅ **Users can submit role image proposals** (upload, URL, or ordinal) and vote (upvote/downvote)
+15. ✅ **Project Admin can promote a primary image** for a role
+16. ✅ **Role Images page** displays gallery with vote totals, sortable by net score
+17. ✅ **Image Detail page** shows image, submitter, timestamps, voting interface, and admin actions
 
 ## Implementation Phases
 
 ### Phase 1: Core Models (Week 1)
 - Create Cluster, Role, Claim, Badge, StatusChange models
+- Create RoleImage and RoleImageVote models
 - Write migrations
 - Unit tests
 
@@ -558,6 +828,7 @@ MVP is complete when:
 
 ### Phase 3: API Development (Week 2)
 - All CRUD endpoints for clusters, roles, claims, badges
+- Role image submission, voting, and admin endpoints
 - Approval endpoints
 - Status change endpoints
 - Permission enforcement
@@ -565,19 +836,22 @@ MVP is complete when:
 ### Phase 4: UI - Directory & Detail (Week 3)
 - Role directory page with search/filter
 - Role detail page with claims and badges
+- Role Images page with gallery and voting
+- Image Detail page with voting and admin actions
 - Claim role flow
 - Badge request flow
 
 ### Phase 5: UI - Admin & Onboarding (Week 3)
 - Admin review dashboards
+- Role image promotion and moderation UI
 - Start Here page
 - Inscriptions page
 - Submission form updates
 
 ### Phase 6: Testing & Refinement (Week 4)
 - Integration tests
-- UI tests
-- Anti-spam controls
+- UI tests for role images and voting
+- Anti-spam controls (including image submissions)
 - Performance optimization
 
 ### Phase 7: Initial Data (Week 5)
