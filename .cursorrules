@@ -1,0 +1,27 @@
+# CRITICAL DATABASE SAFETY RULES
+
+## NEVER TOUCH PRODUCTION DATABASE
+- NEVER run commands on /home/ubuntu/datatracker/instance/datatracker.db
+- NEVER copy, move, or modify instance/datatracker.db
+- NEVER run migrations on production without explicit user confirmation
+- ALWAYS work in development: instance_dev/datatracker_dev.db
+- ALWAYS use FLASK_ENV=development
+
+## Before ANY database operation:
+1. Confirm which environment (dev vs prod)
+2. Create timestamped backup FIRST
+3. Verify backup has data before proceeding
+4. Get explicit user approval for production changes
+
+## Development workflow:
+- Use: instance_dev/datatracker_dev.db
+- Set: FLASK_ENV=development
+- Port: 5000 (not 8000)
+
+## Production is READ-ONLY unless user explicitly says:
+"modify production database" or "run migration on production"
+
+If production shows 0 documents or unexpected state:
+- STOP
+- ASK USER
+- DO NOT "fix" it by copying data

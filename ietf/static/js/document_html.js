@@ -52,7 +52,8 @@ document.addEventListener("DOMContentLoaded", function (event) {
         "deftab": "docinfo",
         "htmlconf": "html",
         "pagedeps": "reference",
-        "reflinks": "refsection"
+        "reflinks": "refsection",
+        "annotations": "off"
     };
     document.querySelectorAll("#pref-tab-pane .btn-check")
         .forEach(btn => {
