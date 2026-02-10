@@ -13559,7 +13559,9 @@ def project_detail(project_slug):
                         <div class="col-md-6 mb-3">
                             <div class="card">
                                 <div class="card-body">
-                                    <h5 class="card-title">${{role.title_guild}}</h5>
+                                    <h5 class="card-title">
+                                        <a href="/roles/${{role.role_slug}}/">${{role.title_guild}}</a>
+                                    </h5>
                                     ${{role.title_operational ? `<h6 class="card-subtitle mb-2 text-muted">${{role.title_operational}}</h6>` : ''}}
                                     <p class="card-text">${{role.description.substring(0, 150)}}...</p>
                                     <span class="badge bg-${{role.status === 'approved' ? 'success' : 'warning'}}">${{role.status}}</span>
