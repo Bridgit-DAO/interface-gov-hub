@@ -2355,6 +2355,25 @@ BASE_TEMPLATE = """
             border-color: #3d4043 !important;
         }}
 
+        /* Modals */
+        [data-theme="dark"] .modal-content {{
+            background-color: var(--bg-secondary) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-color) !important;
+        }}
+
+        [data-theme="dark"] .modal-header {{
+            border-bottom-color: var(--border-color) !important;
+        }}
+
+        [data-theme="dark"] .modal-footer {{
+            border-top-color: var(--border-color) !important;
+        }}
+
+        [data-theme="dark"] .btn-close {{
+            filter: invert(1);
+        }}
+
         /* Alerts */
         .alert {{
             border-radius: 12px;
@@ -12378,11 +12397,20 @@ def role_images_gallery(role_slug):
                 return;
             }}
             
-            container.innerHTML = data.images.map(img => `
+            container.innerHTML = data.images.map(img => {{
+                // Determine image source
+                let imgSrc = img.image_url;
+                if (img.source_type === 'upload' && img.file_path) {{
+                    imgSrc = `/uploads/role_images/${{img.file_path.split('/').pop()}}`;
+                }} else if (img.source_type === 'ordinal') {{
+                    imgSrc = `https://ordinals.com/content/${{img.inscription_id}}`;
+                }}
+                
+                return `
                 <div class="col-md-4 mb-4">
                     <div class="card h-100">
                         <a href="/roles/${{roleSlug}}/images/${{img.id}}/">
-                            <img src="${{img.image_url}}" class="card-img-top" alt="Role image" style="height: 250px; object-fit: cover;">
+                            <img src="${{imgSrc}}" class="card-img-top" alt="Role image" style="height: 250px; object-fit: cover;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'200\\'%3E%3Crect fill=\\'%23ddd\\' width=\\'200\\' height=\\'200\\'/%3E%3Ctext fill=\\'%23999\\' x=\\'50%25\\' y=\\'50%25\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' font-family=\\'sans-serif\\' font-size=\\'16\\'%3EImage not available%3C/text%3E%3C/svg%3E';">
                         </a>
                         <div class="card-body">
                             ${{img.is_primary ? '<span class="badge bg-success mb-2">Primary Image</span>' : ''}}
@@ -12405,7 +12433,8 @@ def role_images_gallery(role_slug):
                         </div>
                     </div>
                 </div>
-            `).join('');
+                `;
+            }}).join('');
         }} catch (error) {{
             console.error('Error loading images:', error);
             container.innerHTML = '<div class="col-12 text-center py-5"><p class="text-danger">Error loading images</p></div>';
