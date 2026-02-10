@@ -217,7 +217,7 @@ def generate_hypothesis_config(document_name=None, document_type='draft'):
     <script async src="{HYPOTHESIS_CONFIG['EMBED_URL']}"></script>
     """
 
-from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
+from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, send_from_directory, jsonify
 from flask_sqlalchemy import SQLAlchemy
 import os
 import re
