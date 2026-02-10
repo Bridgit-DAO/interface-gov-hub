@@ -2682,6 +2682,9 @@ BASE_TEMPLATE = """
                 <a class="nav-link" href="/guilds/">
                     <i class="fas fa-shield-alt me-1"></i>Guilds
                 </a>
+                <a class="nav-link" href="/person/">
+                    <i class="fas fa-user-friends me-1"></i>People
+                </a>
                 <a class="nav-link" href="/doc/all/">
                     <i class="fas fa-file-alt me-1"></i>Documents
                 </a>
@@ -6266,9 +6269,9 @@ def api_approve_workgroup(workgroup_id):
 @app.route('/api/guilds/', methods=['GET'])
 def api_list_guilds():
     """List all guilds"""
-    status = request.args.get('status', 'active')
+    status = request.args.get('status')
     
-    query = Workgroup.query.filter_by(status=status) if status else Guild.query
+    query = Guild.query.filter_by(status=status) if status else Guild.query
     query = query.order_by(Guild.created_at.desc())
     guilds = query.all()
     
@@ -10128,6 +10131,31 @@ def home():
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header">
+                                <h5><i class="fas fa-user-tag me-2"></i>Roles</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>Explore and claim roles across all projects.</p>
+                                <a href="/roles/" class="btn btn-primary">Browse Roles</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-user-friends me-2"></i>People</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>Directory of Meta-Layer participants and contributors.</p>
+                                <a href="/person/" class="btn btn-primary">View People</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
                                 <h5><i class="fas fa-file-alt me-2"></i>Documents</h5>
                             </div>
                             <div class="card-body">
@@ -13179,7 +13207,7 @@ def guilds_directory():
                     <div class="card h-100">
                         <div class="card-body">
                             <h5 class="card-title">
-                                <a href="/guilds/${{guild.guild_slug}}/">${{guild.name}}</a>
+                                <a href="/guilds/${{guild.slug}}/">${{guild.name}}</a>
                             </h5>
                             <div class="mb-2">
                                 ${{statusBadge}}
@@ -14132,6 +14160,176 @@ def workgroup_detail(workgroup_slug):
     """
     
     return render_page(f"Workgroup: {workgroup_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/roles/')
+def roles_directory():
+    """Roles directory page - browse all roles across projects"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h1>Roles Directory</h1>
+                <p class="lead">Browse and claim roles across all projects</p>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <label for="project-filter" class="form-label">Project:</label>
+                <select id="project-filter" class="form-select" onchange="loadRoles()">
+                    <option value="">All Projects</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="status-filter" class="form-label">Status:</label>
+                <select id="status-filter" class="form-select" onchange="loadRoles()">
+                    <option value="">All Statuses</option>
+                    <option value="approved">Approved</option>
+                    <option value="draft">Draft</option>
+                    <option value="deprecated">Deprecated</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="search-input" class="form-label">Search:</label>
+                <input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">
+            </div>
+        </div>
+        
+        <div id="roles-container" class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let allRoles = [];
+    let allProjects = [];
+    
+    async function loadProjects() {{
+        try {{
+            const response = await fetch('/api/projects/?approval_status=approved');
+            const data = await response.json();
+            allProjects = data.projects;
+            
+            const select = document.getElementById('project-filter');
+            allProjects.forEach(project => {{
+                const option = document.createElement('option');
+                option.value = project.id;
+                option.textContent = project.name;
+                select.appendChild(option);
+            }});
+        }} catch (error) {{
+            console.error('Error loading projects:', error);
+        }}
+    }}
+    
+    async function loadRoles() {{
+        const projectFilter = document.getElementById('project-filter').value;
+        const statusFilter = document.getElementById('status-filter').value;
+        
+        try {{
+            allRoles = [];
+            
+            if (projectFilter) {{
+                // Load roles for specific project
+                let url = `/api/projects/${{projectFilter}}/roles/`;
+                if (statusFilter) url += `?status=${{statusFilter}}`;
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                allRoles = data.roles;
+            }} else {{
+                // Load roles from all projects
+                for (const project of allProjects) {{
+                    let url = `/api/projects/${{project.id}}/roles/`;
+                    if (statusFilter) url += `?status=${{statusFilter}}`;
+                    
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    allRoles = allRoles.concat(data.roles.map(r => ({{...r, project_name: project.name, project_slug: project.slug}})));
+                }}
+            }}
+            
+            displayRoles(allRoles);
+        }} catch (error) {{
+            console.error('Error loading roles:', error);
+            document.getElementById('roles-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading roles</div></div>';
+        }}
+    }}
+    
+    function filterRoles() {{
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        const filtered = allRoles.filter(r => 
+            r.title_guild.toLowerCase().includes(searchTerm) ||
+            (r.description && r.description.toLowerCase().includes(searchTerm))
+        );
+        displayRoles(filtered);
+    }}
+    
+    function displayRoles(roles) {{
+        const container = document.getElementById('roles-container');
+        
+        if (roles.length === 0) {{
+            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No roles found</div></div>';
+            return;
+        }}
+        
+        let html = '';
+        roles.forEach(role => {{
+            const statusBadge = role.status === 'approved' 
+                ? '<span class="badge bg-success">Approved</span>' 
+                : role.status === 'draft'
+                ? '<span class="badge bg-warning">Draft</span>'
+                : '<span class="badge bg-secondary">Deprecated</span>';
+            
+            const claimBadge = role.claim_requires_approval 
+                ? '<span class="badge bg-info"><i class="fas fa-check-circle me-1"></i>Approval Required</span>'
+                : '<span class="badge bg-success"><i class="fas fa-bolt me-1"></i>Instant Claim</span>';
+            
+            html += `
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <a href="/roles/${{role.slug}}/">${{role.title_guild}}</a>
+                            </h5>
+                            <div class="mb-2">
+                                ${{statusBadge}}
+                                ${{claimBadge}}
+                            </div>
+                            <p class="card-text text-muted small">${{role.description.substring(0, 100)}}...</p>
+                            <div class="mt-3">
+                                <small class="text-muted">
+                                    <i class="fas fa-project-diagram me-1"></i> ${{role.project_name || 'Unknown Project'}}
+                                </small>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <small class="text-muted">
+                                <i class="fas fa-hand-paper me-1"></i> ${{role.claims_count || 0}} claims
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }});
+        
+        container.innerHTML = html;
+    }}
+    
+    // Load data on page load
+    loadProjects().then(() => loadRoles());
+    </script>
+    """
+    
+    return render_page("Roles Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/roles/<role_slug>/')
 def role_detail(role_slug):
