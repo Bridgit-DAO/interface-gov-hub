@@ -5020,6 +5020,477 @@ def serve_role_image(filename):
     """Serve uploaded role images"""
     return send_from_directory(ROLE_IMAGE_UPLOAD_FOLDER, filename)
 
+# ============================================================================
+# Projects API Endpoints
+# ============================================================================
+
+@app.route('/api/projects/', methods=['GET'])
+def api_list_projects():
+    """List all projects with filtering"""
+    # Get query parameters
+    status = request.args.get('status')  # proposed, active, etc.
+    approval_status = request.args.get('approval_status')  # pending, approved, rejected
+    
+    # Build query
+    query = Project.query
+    
+    if status:
+        query = query.filter_by(status=status)
+    if approval_status:
+        query = query.filter_by(approval_status=approval_status)
+    
+    # Order by last activity (most recent first)
+    query = query.order_by(Project.last_activity.desc())
+    
+    projects = query.all()
+    return jsonify({'projects': [p.to_dict() for p in projects], 'count': len(projects)})
+
+@app.route('/api/projects/', methods=['POST'])
+@require_auth
+def api_create_project():
+    """Create a new project"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    description = data.get('description', '').strip()
+    
+    if not name:
+        return jsonify({'error': 'Project name is required'}), 400
+    
+    # Check if project name already exists
+    existing = Project.query.filter_by(name=name).first()
+    if existing:
+        return jsonify({'error': 'Project name already exists'}), 400
+    
+    # Generate ID and slug
+    project_id = generate_project_id()
+    slug = create_slug(name)
+    
+    # Ensure slug is unique
+    counter = 1
+    original_slug = slug
+    while Project.query.filter_by(slug=slug).first():
+        slug = f"{original_slug}-{counter}"
+        counter += 1
+    
+    # Create project
+    project = Project(
+        id=project_id,
+        name=name,
+        slug=slug,
+        initiator_id=current_user['id'],
+        description=description,
+        status='proposed',
+        approval_status='pending'
+    )
+    
+    db.session.add(project)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'project': project.to_dict()}), 201
+
+@app.route('/api/projects/<project_id>/', methods=['GET'])
+def api_get_project(project_id):
+    """Get project details"""
+    project = Project.query.get_or_404(project_id)
+    
+    # Include workgroups count
+    workgroups_count = Workgroup.query.filter_by(project_id=project_id).count()
+    
+    project_dict = project.to_dict()
+    project_dict['workgroups_count'] = workgroups_count
+    
+    return jsonify(project_dict)
+
+@app.route('/api/projects/<project_id>/', methods=['PATCH'])
+@require_auth
+def api_update_project(project_id):
+    """Update project details"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    project = Project.query.get_or_404(project_id)
+    
+    # Check permissions (initiator or admin)
+    if project.initiator_id != current_user['id'] and current_user.get('role') != 'admin':
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    data = request.get_json()
+    
+    # Update allowed fields
+    if 'description' in data:
+        project.description = data['description']
+    if 'status' in data and data['status'] in ['proposed', 'active', 'stabilizing', 'maintaining', 'dormant', 'concluded', 'archived']:
+        old_status = project.status
+        project.status = data['status']
+        
+        # Record status change
+        if old_status != project.status:
+            status_change = StatusChange(
+                id=generate_status_change_id(),
+                entity_type='project',
+                entity_id=project_id,
+                field_name='status',
+                from_value=old_status,
+                to_value=project.status,
+                note=data.get('status_reason'),
+                changed_by_id=current_user['id']
+            )
+            db.session.add(status_change)
+    
+    if 'status_reason' in data:
+        project.status_reason = data['status_reason']
+    
+    project.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({'success': True, 'project': project.to_dict()})
+
+@app.route('/api/projects/<project_id>/approve/', methods=['POST'])
+@require_auth
+def api_approve_project(project_id):
+    """Approve or reject a project (admin only)"""
+    current_user = get_current_user()
+    if not current_user or current_user.get('role') != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    project = Project.query.get_or_404(project_id)
+    
+    data = request.get_json()
+    action = data.get('action')  # 'approve' or 'reject'
+    
+    if action not in ['approve', 'reject']:
+        return jsonify({'error': 'Invalid action. Must be approve or reject.'}), 400
+    
+    old_status = project.approval_status
+    project.approval_status = 'approved' if action == 'approve' else 'rejected'
+    project.approved_by_id = current_user['id']
+    project.approved_at = datetime.utcnow()
+    
+    # Record status change
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='project',
+        entity_id=project_id,
+        field_name='approval_status',
+        from_value=old_status,
+        to_value=project.approval_status,
+        note=data.get('note'),
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'project': project.to_dict()})
+
+# ============================================================================
+# Workgroups API Endpoints
+# ============================================================================
+
+@app.route('/api/projects/<project_id>/workgroups/', methods=['GET'])
+def api_list_workgroups(project_id):
+    """List workgroups for a project"""
+    status = request.args.get('status')
+    approval_status = request.args.get('approval_status')
+    
+    query = Workgroup.query.filter_by(project_id=project_id)
+    
+    if status:
+        query = query.filter_by(status=status)
+    if approval_status:
+        query = query.filter_by(approval_status=approval_status)
+    
+    query = query.order_by(Workgroup.created_at.desc())
+    workgroups = query.all()
+    
+    return jsonify({'workgroups': [wg.to_dict() for wg in workgroups], 'count': len(workgroups)})
+
+@app.route('/api/projects/<project_id>/workgroups/', methods=['POST'])
+@require_auth
+def api_create_workgroup(project_id):
+    """Create a new workgroup"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    # Verify project exists
+    project = Project.query.get_or_404(project_id)
+    
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    description = data.get('description', '').strip()
+    
+    if not name:
+        return jsonify({'error': 'Workgroup name is required'}), 400
+    
+    # Generate ID and slug
+    workgroup_id = generate_workgroup_id()
+    slug = create_slug(name)
+    
+    # Ensure slug is unique within project
+    counter = 1
+    original_slug = slug
+    while Workgroup.query.filter_by(project_id=project_id, slug=slug).first():
+        slug = f"{original_slug}-{counter}"
+        counter += 1
+    
+    # Create workgroup
+    workgroup = Workgroup(
+        id=workgroup_id,
+        name=name,
+        slug=slug,
+        project_id=project_id,
+        coordinator_id=current_user['id'],  # Creator becomes coordinator
+        description=description,
+        status='active',
+        approval_status='pending'
+    )
+    
+    db.session.add(workgroup)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'workgroup': workgroup.to_dict()}), 201
+
+@app.route('/api/workgroups/<workgroup_id>/', methods=['GET'])
+def api_get_workgroup(workgroup_id):
+    """Get workgroup details"""
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    return jsonify(workgroup.to_dict())
+
+@app.route('/api/workgroups/<workgroup_id>/', methods=['PATCH'])
+@require_auth
+def api_update_workgroup(workgroup_id):
+    """Update workgroup details"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    
+    # Check permissions (coordinator or admin)
+    if workgroup.coordinator_id != current_user['id'] and current_user.get('role') != 'admin':
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    data = request.get_json()
+    
+    if 'description' in data:
+        workgroup.description = data['description']
+    if 'status' in data and data['status'] in ['active', 'inactive', 'completed', 'archived']:
+        old_status = workgroup.status
+        workgroup.status = data['status']
+        
+        if old_status != workgroup.status:
+            status_change = StatusChange(
+                id=generate_status_change_id(),
+                entity_type='workgroup',
+                entity_id=workgroup_id,
+                field_name='status',
+                from_value=old_status,
+                to_value=workgroup.status,
+                changed_by_id=current_user['id']
+            )
+            db.session.add(status_change)
+    
+    workgroup.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({'success': True, 'workgroup': workgroup.to_dict()})
+
+@app.route('/api/workgroups/<workgroup_id>/approve/', methods=['POST'])
+@require_auth
+def api_approve_workgroup(workgroup_id):
+    """Approve or reject a workgroup (editor/admin)"""
+    current_user = get_current_user()
+    if not current_user or current_user.get('role') not in ['admin', 'editor']:
+        return jsonify({'error': 'Editor or admin access required'}), 403
+    
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    
+    data = request.get_json()
+    action = data.get('action')
+    
+    if action not in ['approve', 'reject']:
+        return jsonify({'error': 'Invalid action'}), 400
+    
+    old_status = workgroup.approval_status
+    workgroup.approval_status = 'approved' if action == 'approve' else 'rejected'
+    workgroup.approved_by_id = current_user['id']
+    workgroup.approved_at = datetime.utcnow()
+    
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='workgroup',
+        entity_id=workgroup_id,
+        field_name='approval_status',
+        from_value=old_status,
+        to_value=workgroup.approval_status,
+        note=data.get('note'),
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'workgroup': workgroup.to_dict()})
+
+# ============================================================================
+# Guilds API Endpoints
+# ============================================================================
+
+@app.route('/api/guilds/', methods=['GET'])
+def api_list_guilds():
+    """List all guilds"""
+    status = request.args.get('status', 'active')
+    
+    query = Workgroup.query.filter_by(status=status) if status else Guild.query
+    query = query.order_by(Guild.created_at.desc())
+    guilds = query.all()
+    
+    return jsonify({'guilds': [g.to_dict() for g in guilds], 'count': len(guilds)})
+
+@app.route('/api/guilds/', methods=['POST'])
+@require_auth
+def api_create_guild():
+    """Create a new guild (instant registration)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    description = data.get('description', '').strip()
+    
+    if not name:
+        return jsonify({'error': 'Guild name is required'}), 400
+    
+    # Check if guild name already exists
+    existing = Guild.query.filter_by(name=name).first()
+    if existing:
+        return jsonify({'error': 'Guild name already exists'}), 400
+    
+    # Generate ID and slug
+    guild_id = generate_guild_id()
+    slug = create_slug(name)
+    
+    counter = 1
+    original_slug = slug
+    while Guild.query.filter_by(slug=slug).first():
+        slug = f"{original_slug}-{counter}"
+        counter += 1
+    
+    # Create guild
+    guild = Guild(
+        id=guild_id,
+        name=name,
+        slug=slug,
+        initiator_id=current_user['id'],
+        description=description,
+        status='active'
+    )
+    
+    # Add initiator as admin member
+    membership = GuildMembership(
+        guild_id=guild_id,
+        user_id=current_user['id'],
+        role='initiator'
+    )
+    
+    db.session.add(guild)
+    db.session.add(membership)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'guild': guild.to_dict()}), 201
+
+@app.route('/api/guilds/<guild_id>/', methods=['GET'])
+def api_get_guild(guild_id):
+    """Get guild details with members"""
+    guild = Guild.query.get_or_404(guild_id)
+    
+    # Get members
+    memberships = GuildMembership.query.filter_by(guild_id=guild_id).all()
+    members = []
+    for m in memberships:
+        if m.user:
+            members.append({
+                'user_id': m.user_id,
+                'username': m.user.username,
+                'display_name': m.user.displayName or m.user.username,
+                'role': m.role,
+                'joined_at': m.joined_at.isoformat() if m.joined_at else None
+            })
+    
+    guild_dict = guild.to_dict()
+    guild_dict['members'] = members
+    guild_dict['member_count'] = len(members)
+    
+    return jsonify(guild_dict)
+
+@app.route('/api/guilds/<guild_id>/invite/', methods=['POST'])
+@require_auth
+def api_invite_to_guild(guild_id):
+    """Invite user to guild (admin/initiator only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    guild = Guild.query.get_or_404(guild_id)
+    
+    # Check if user is admin or initiator
+    membership = GuildMembership.query.filter_by(
+        guild_id=guild_id,
+        user_id=current_user['id']
+    ).first()
+    
+    if not membership or membership.role not in ['initiator', 'admin']:
+        return jsonify({'error': 'Only guild admins can invite members'}), 403
+    
+    data = request.get_json()
+    email = data.get('email', '').strip().lower()
+    
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
+    
+    # Check if user already a member
+    invitee = User.query.filter_by(email=email).first()
+    if invitee:
+        existing_membership = GuildMembership.query.filter_by(
+            guild_id=guild_id,
+            user_id=invitee.id
+        ).first()
+        if existing_membership:
+            return jsonify({'error': 'User is already a member'}), 400
+    
+    # Create invitation
+    from datetime import timedelta
+    invitation_id = generate_guild_invitation_id()
+    token = generate_invitation_token()
+    
+    invitation = GuildInvitation(
+        id=invitation_id,
+        guild_id=guild_id,
+        inviter_id=current_user['id'],
+        invitee_email=email,
+        invitee_id=invitee.id if invitee else None,
+        token=token,
+        expires_at=datetime.utcnow() + timedelta(days=7)
+    )
+    
+    db.session.add(invitation)
+    db.session.commit()
+    
+    # TODO: Send email with invitation link
+    invitation_link = f"https://rfc.themetalayer.org/guilds/invite/{token}/"
+    
+    return jsonify({
+        'success': True,
+        'invitation_id': invitation_id,
+        'invitation_link': invitation_link,
+        'expires_at': invitation.expires_at.isoformat()
+    }), 201
+
 @app.route('/profile/', methods=['GET', 'POST'])
 @require_auth
 def profile():
