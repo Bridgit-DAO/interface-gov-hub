@@ -611,6 +611,12 @@ class User(db.Model):
     # Handle (unique identifier)
     handle = db.Column(db.String(50), unique=True, index=True)  # Unique handle for user
 
+    # Profile customization
+    banner_image = db.Column(db.String(500))  # Banner/header image URL
+    headline = db.Column(db.String(200))  # Short headline/tagline
+    bio = db.Column(db.Text)  # Longer bio/description
+    social_links = db.Column(db.Text)  # JSON string of social media links
+
     # Other fields
     role = db.Column(db.String(20), default='user')  # admin, editor, user
     theme = db.Column(db.String(10), default='dark')  # light, dark, auto
@@ -6413,6 +6419,12 @@ def api_nominate_chair(workgroup_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
+    data = request.get_json()
+    statement = data.get('statement', '').strip()
+    
+    if not statement:
+        return jsonify({'error': 'Statement is required'}), 400
+    
     workgroup = Workgroup.query.get_or_404(workgroup_id)
     
     # Check if workgroup is approved
@@ -6436,8 +6448,9 @@ def api_nominate_chair(workgroup_id):
     
     # Add chair nomination (pending approval)
     insert_query = text("""
-        INSERT INTO working_group_chair (group_acronym, user_id, chair_name, approved, set_at)
-        VALUES (:acronym, :user_id, :chair_name, :approved, :set_at)
+        INSERT INTO working_group_chair 
+        (group_acronym, user_id, chair_name, approved, set_at, statement, nominated_by_user_id, is_self_nomination)
+        VALUES (:acronym, :user_id, :chair_name, :approved, :set_at, :statement, :nominated_by, :is_self)
     """)
     
     db.session.execute(insert_query, {
@@ -6445,7 +6458,10 @@ def api_nominate_chair(workgroup_id):
         'user_id': current_user['id'],
         'chair_name': current_user.get('displayName') or current_user.get('username'),
         'approved': False,  # Requires approval
-        'set_at': datetime.utcnow()
+        'set_at': datetime.utcnow(),
+        'statement': statement,
+        'nominated_by': current_user['id'],  # Self-nomination
+        'is_self': True
     })
     db.session.commit()
     
@@ -14928,6 +14944,47 @@ def workgroup_detail(workgroup_slug):
         </div>
     </div>
     
+    <!-- Chair Nomination Modal -->
+    <div class="modal fade" id="nominateChairModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Nominate for Chair/Coordinator</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="nominateChairForm">
+                        <div class="mb-3">
+                            <label class="form-label">Workgroup</label>
+                            <p class="form-control-plaintext" id="modal-workgroup-name"></p>
+                        </div>
+                        <div class="mb-3">
+                            <label for="nomination-statement" class="form-label">Statement <span class="text-danger">*</span></label>
+                            <textarea 
+                                class="form-control" 
+                                id="nomination-statement" 
+                                rows="4" 
+                                required
+                                placeholder="Explain why you would be a good chair/coordinator for this workgroup..."
+                            ></textarea>
+                            <div class="form-text">Share your relevant experience, vision, and commitment to leading this workgroup.</div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Your nomination will be reviewed by project administrators and workgroup coordinators.
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="submitChairNomination()">
+                        <i class="fas fa-paper-plane me-2"></i>Submit Nomination
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <script>
     let workgroup = null;
     let project = null;
@@ -15187,25 +15244,43 @@ def workgroup_detail(workgroup_slug):
         }}
     }}
     
-    async function nominateForChair() {{
+    function nominateForChair() {{
         if (!isAuthenticated) {{
             alert('Please sign in to nominate yourself for chair');
             return;
         }}
         
-        if (!confirm('Nominate yourself as a chair/coordinator for this workgroup? This will require approval.')) {{
+        // Populate modal
+        document.getElementById('modal-workgroup-name').textContent = workgroup.name;
+        document.getElementById('nomination-statement').value = '';
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('nominateChairModal'));
+        modal.show();
+    }}
+    
+    async function submitChairNomination() {{
+        const statement = document.getElementById('nomination-statement').value.trim();
+        
+        if (!statement) {{
+            alert('Please provide a statement for your nomination');
             return;
         }}
         
         try {{
             const response = await fetch(`/api/workgroups/${{workgroup.id}}/nominate-chair/`, {{
                 method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }}
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ statement: statement }})
             }});
             
             const data = await response.json();
             
             if (response.ok) {{
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('nominateChairModal'));
+                modal.hide();
+                
                 alert('Chair nomination submitted! It will require approval.');
                 loadChairs(); // Reload chairs list
             }} else {{
