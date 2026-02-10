@@ -842,19 +842,19 @@ class Project(db.Model):
         }
 
 class Workgroup(db.Model):
-    """Task-focused group within a project (or global IETF working group)"""
+    """Task-focused group within a project"""
     __tablename__ = 'working_group'
     
     id = db.Column(db.Integer, primary_key=True)
-    acronym = db.Column(db.String(50), unique=True, index=True)  # Legacy field for IETF groups
+    acronym = db.Column(db.String(50), unique=True, index=True)  # Legacy field
     name = db.Column(db.String(255), nullable=False)
     slug = db.Column(db.String(255), index=True)
     description = db.Column(db.Text, nullable=True)
     type = db.Column(db.String(50), nullable=True)  # Legacy field
     state = db.Column(db.String(20), nullable=True)  # Legacy field
     
-    # Project relationship (optional - NULL for global IETF working groups)
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=True, index=True)
+    # Project relationship (required)
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
     
     # Coordinator (formerly "chair")
     coordinator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
