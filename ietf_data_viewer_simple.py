@@ -401,6 +401,103 @@ class WorkingGroupChair(db.Model):
     approved = db.Column(db.Boolean, default=False)
     set_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class RoleImage(db.Model):
+    """Visual representation proposed for a role"""
+    __tablename__ = 'role_image'
+    
+    id = db.Column(db.String(50), primary_key=True)  # rimg_...
+    project_id = db.Column(db.String(50), nullable=True, index=True)  # For future project scoping
+    role_slug = db.Column(db.String(100), nullable=False, index=True)  # Role identifier
+    
+    # Source
+    source_type = db.Column(db.String(20), nullable=False)  # 'upload', 'url', 'ordinal'
+    image_url = db.Column(db.String(500), nullable=True)  # For upload or URL source
+    file_path = db.Column(db.String(500), nullable=True)  # For uploaded files
+    
+    # Ordinal metadata (optional)
+    chain = db.Column(db.String(50), nullable=True)  # 'bitcoin', etc.
+    inscription_id = db.Column(db.String(255), nullable=True, index=True)
+    content_type = db.Column(db.String(100), nullable=True)  # MIME type
+    
+    # Status and promotion
+    is_primary = db.Column(db.Boolean, default=False, index=True)  # Primary role image
+    is_hidden = db.Column(db.Boolean, default=False, index=True)  # Hidden by admin
+    
+    # Voting (aggregated)
+    upvotes = db.Column(db.Integer, default=0)
+    downvotes = db.Column(db.Integer, default=0)
+    net_score = db.Column(db.Integer, default=0, index=True)  # upvotes - downvotes
+    
+    # Admin actions
+    admin_note = db.Column(db.Text, nullable=True)
+    promoted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    promoted_at = db.Column(db.DateTime, nullable=True)
+    
+    # Audit
+    submitted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    submitted_by = db.relationship('User', foreign_keys=[submitted_by_id], backref='submitted_role_images')
+    promoted_by = db.relationship('User', foreign_keys=[promoted_by_id], backref='promoted_role_images')
+    
+    __table_args__ = (
+        db.Index('idx_role_image_role_primary', 'role_slug', 'is_primary'),
+        db.Index('idx_role_image_role_score', 'role_slug', 'net_score'),
+    )
+    
+    def to_dict(self):
+        """Convert to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'role_slug': self.role_slug,
+            'source_type': self.source_type,
+            'image_url': self.image_url,
+            'file_path': self.file_path,
+            'chain': self.chain,
+            'inscription_id': self.inscription_id,
+            'content_type': self.content_type,
+            'is_primary': self.is_primary,
+            'is_hidden': self.is_hidden,
+            'upvotes': self.upvotes,
+            'downvotes': self.downvotes,
+            'net_score': self.net_score,
+            'admin_note': self.admin_note,
+            'submitted_by_id': self.submitted_by_id,
+            'submitted_by_name': self.submitted_by.displayName or self.submitted_by.username if self.submitted_by else 'Unknown',
+            'submitted_at': self.submitted_at.isoformat() if self.submitted_at else None,
+            'promoted_by_id': self.promoted_by_id,
+            'promoted_at': self.promoted_at.isoformat() if self.promoted_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class RoleImageVote(db.Model):
+    """User vote on a role image proposal"""
+    __tablename__ = 'role_image_vote'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    image_id = db.Column(db.String(50), db.ForeignKey('role_image.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    
+    # Vote value: 1 (upvote) or -1 (downvote)
+    value = db.Column(db.Integer, nullable=False)  # 1 or -1
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    image = db.relationship('RoleImage', backref=db.backref('votes', lazy=True))
+    user = db.relationship('User', backref=db.backref('role_image_votes', lazy=True))
+    
+    __table_args__ = (
+        db.UniqueConstraint('image_id', 'user_id', name='unique_user_image_vote'),
+        db.Index('idx_vote_image', 'image_id'),
+        db.Index('idx_vote_user', 'user_id'),
+    )
+
 # Users are now stored in database - this dict is kept for backward compatibility during migration
 
 # Store document history in memory
@@ -421,8 +518,11 @@ WORKING_GROUP_CHAIRS = {}
 # Configuration for file uploads
 UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'xml', 'doc', 'docx'}
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+ROLE_IMAGE_UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads/role_images'
+os.makedirs(ROLE_IMAGE_UPLOAD_FOLDER, exist_ok=True)
 
 # Comment edit/delete time limit (in minutes)
 EDIT_DELETE_TIME_MINUTES = 15
@@ -433,6 +533,10 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def allowed_file(filename):
     """Check if file extension is allowed"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def allowed_image_file(filename):
+    """Check if image file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
 
 def generate_draft_name(title, authors):
     """Generate a draft name from title and authors"""
@@ -446,6 +550,29 @@ def generate_draft_name(title, authors):
     title_slug = title_slug[:30]  # Limit length
     
     return f"draft-{author_last}-{title_slug}"
+
+def generate_role_image_id():
+    """Generate unique role image ID with rimg_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"rimg_{suffix}"
+
+def update_image_vote_counts(image_id):
+    """Recalculate vote counts for a role image"""
+    image = RoleImage.query.get(image_id)
+    if not image:
+        return False
+    
+    votes = RoleImageVote.query.filter_by(image_id=image_id).all()
+    upvotes = sum(1 for v in votes if v.value == 1)
+    downvotes = sum(1 for v in votes if v.value == -1)
+    
+    image.upvotes = upvotes
+    image.downvotes = downvotes
+    image.net_score = upvotes - downvotes
+    db.session.commit()
+    return True
 
 def require_auth(f):
     """Decorator to require authentication"""
@@ -4036,6 +4163,330 @@ def api_logout():
     session.pop('user', None)
     return jsonify({'success': True})
 
+# ============================================================================
+# Role Images API Endpoints
+# ============================================================================
+
+@app.route('/api/roles/<role_slug>/images/', methods=['GET'])
+def api_list_role_images(role_slug):
+    """List role image proposals with vote counts"""
+    # Get query parameters
+    sort_by = request.args.get('sort', 'net_score')  # net_score, date, upvotes
+    include_hidden = request.args.get('include_hidden', 'false').lower() == 'true'
+    
+    # Build query
+    query = RoleImage.query.filter_by(role_slug=role_slug)
+    
+    # Filter hidden images unless user is admin
+    current_user = get_current_user()
+    if not (current_user and current_user.get('role') == 'admin') and not include_hidden:
+        query = query.filter_by(is_hidden=False)
+    
+    # Apply sorting
+    if sort_by == 'date':
+        query = query.order_by(RoleImage.submitted_at.desc())
+    elif sort_by == 'upvotes':
+        query = query.order_by(RoleImage.upvotes.desc())
+    else:  # net_score (default)
+        query = query.order_by(RoleImage.net_score.desc(), RoleImage.submitted_at.desc())
+    
+    images = query.all()
+    
+    # Add current user's vote to each image
+    result = []
+    for img in images:
+        img_dict = img.to_dict()
+        if current_user:
+            vote = RoleImageVote.query.filter_by(
+                image_id=img.id,
+                user_id=current_user['id']
+            ).first()
+            img_dict['user_vote'] = vote.value if vote else None
+        else:
+            img_dict['user_vote'] = None
+        result.append(img_dict)
+    
+    return jsonify({'images': result, 'count': len(result)})
+
+@app.route('/api/roles/<role_slug>/images/', methods=['POST'])
+@require_auth
+def api_submit_role_image(role_slug):
+    """Submit a role image proposal"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    # Rate limiting: Check submissions in last 24 hours
+    from datetime import timedelta
+    recent_submissions = RoleImage.query.filter(
+        RoleImage.submitted_by_id == current_user['id'],
+        RoleImage.submitted_at >= datetime.utcnow() - timedelta(days=1)
+    ).count()
+    
+    if recent_submissions >= 10:
+        return jsonify({'error': 'Rate limit exceeded. Maximum 10 image proposals per day.'}), 429
+    
+    source_type = request.form.get('source_type')  # upload, url, ordinal
+    
+    if not source_type or source_type not in ['upload', 'url', 'ordinal']:
+        return jsonify({'error': 'Invalid source_type. Must be upload, url, or ordinal.'}), 400
+    
+    # Generate image ID
+    image_id = generate_role_image_id()
+    
+    # Create image record
+    image = RoleImage(
+        id=image_id,
+        role_slug=role_slug,
+        source_type=source_type,
+        submitted_by_id=current_user['id']
+    )
+    
+    # Handle different source types
+    if source_type == 'upload':
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not allowed_image_file(file.filename):
+            return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, GIF, WebP, SVG'}), 400
+        
+        # Check file size (10MB limit)
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        if file_size > 10 * 1024 * 1024:
+            return jsonify({'error': 'File too large. Maximum size is 10MB.'}), 400
+        
+        # Save file
+        filename = f"{image_id}_{file.filename}"
+        file_path = os.path.join(ROLE_IMAGE_UPLOAD_FOLDER, filename)
+        file.save(file_path)
+        
+        image.file_path = file_path
+        image.image_url = f"/uploads/role_images/{filename}"
+        
+    elif source_type == 'url':
+        image_url = request.form.get('image_url')
+        if not image_url:
+            return jsonify({'error': 'image_url required for url source type'}), 400
+        image.image_url = image_url
+        
+    elif source_type == 'ordinal':
+        inscription_id = request.form.get('inscription_id')
+        if not inscription_id:
+            return jsonify({'error': 'inscription_id required for ordinal source type'}), 400
+        
+        image.chain = request.form.get('chain', 'bitcoin')
+        image.inscription_id = inscription_id
+        image.content_type = request.form.get('content_type', 'image/png')
+        image.image_url = f"https://ordinals.com/content/{inscription_id}"
+    
+    # Save to database
+    db.session.add(image)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'image': image.to_dict()}), 201
+
+@app.route('/api/role-images/<image_id>/', methods=['GET'])
+def api_get_role_image(image_id):
+    """Get role image details"""
+    image = RoleImage.query.get_or_404(image_id)
+    
+    # Check if hidden
+    current_user = get_current_user()
+    if image.is_hidden and not (current_user and current_user.get('role') == 'admin'):
+        return jsonify({'error': 'Image not found'}), 404
+    
+    img_dict = image.to_dict()
+    
+    # Add current user's vote
+    if current_user:
+        vote = RoleImageVote.query.filter_by(
+            image_id=image.id,
+            user_id=current_user['id']
+        ).first()
+        img_dict['user_vote'] = vote.value if vote else None
+    else:
+        img_dict['user_vote'] = None
+    
+    return jsonify(img_dict)
+
+@app.route('/api/role-images/<image_id>/vote/', methods=['POST'])
+@require_auth
+def api_vote_role_image(image_id):
+    """Vote on a role image (upvote/downvote)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    image = RoleImage.query.get_or_404(image_id)
+    
+    # Get vote value from request
+    data = request.get_json()
+    vote_value = data.get('value')  # 1 for upvote, -1 for downvote
+    
+    if vote_value not in [1, -1]:
+        return jsonify({'error': 'Invalid vote value. Must be 1 (upvote) or -1 (downvote).'}), 400
+    
+    # Check for existing vote
+    existing_vote = RoleImageVote.query.filter_by(
+        image_id=image_id,
+        user_id=current_user['id']
+    ).first()
+    
+    if existing_vote:
+        # Update existing vote
+        existing_vote.value = vote_value
+        existing_vote.updated_at = datetime.utcnow()
+    else:
+        # Create new vote
+        vote = RoleImageVote(
+            image_id=image_id,
+            user_id=current_user['id'],
+            value=vote_value
+        )
+        db.session.add(vote)
+    
+    db.session.commit()
+    
+    # Update vote counts
+    update_image_vote_counts(image_id)
+    
+    # Return updated image
+    image = RoleImage.query.get(image_id)
+    return jsonify({'success': True, 'image': image.to_dict()})
+
+@app.route('/api/role-images/<image_id>/vote/', methods=['DELETE'])
+@require_auth
+def api_remove_vote_role_image(image_id):
+    """Remove vote from a role image"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    vote = RoleImageVote.query.filter_by(
+        image_id=image_id,
+        user_id=current_user['id']
+    ).first()
+    
+    if not vote:
+        return jsonify({'error': 'No vote found'}), 404
+    
+    db.session.delete(vote)
+    db.session.commit()
+    
+    # Update vote counts
+    update_image_vote_counts(image_id)
+    
+    # Return updated image
+    image = RoleImage.query.get(image_id)
+    return jsonify({'success': True, 'image': image.to_dict()})
+
+@app.route('/api/role-images/<image_id>/promote/', methods=['POST'])
+@require_auth
+def api_promote_role_image(image_id):
+    """Promote image to primary (Project Admin only)"""
+    current_user = get_current_user()
+    if not current_user or current_user.get('role') != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    image = RoleImage.query.get_or_404(image_id)
+    
+    # Demote any existing primary image for this role
+    RoleImage.query.filter_by(
+        role_slug=image.role_slug,
+        is_primary=True
+    ).update({'is_primary': False})
+    
+    # Promote this image
+    image.is_primary = True
+    image.promoted_by_id = current_user['id']
+    image.promoted_at = datetime.utcnow()
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'image': image.to_dict()})
+
+@app.route('/api/role-images/<image_id>/hide/', methods=['POST'])
+@require_auth
+def api_hide_role_image(image_id):
+    """Hide image (Project Admin only)"""
+    current_user = get_current_user()
+    if not current_user or current_user.get('role') != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    image = RoleImage.query.get_or_404(image_id)
+    image.is_hidden = True
+    db.session.commit()
+    
+    return jsonify({'success': True, 'image': image.to_dict()})
+
+@app.route('/api/role-images/<image_id>/unhide/', methods=['POST'])
+@require_auth
+def api_unhide_role_image(image_id):
+    """Unhide image (Project Admin only)"""
+    current_user = get_current_user()
+    if not current_user or current_user.get('role') != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    image = RoleImage.query.get_or_404(image_id)
+    image.is_hidden = False
+    db.session.commit()
+    
+    return jsonify({'success': True, 'image': image.to_dict()})
+
+@app.route('/api/role-images/<image_id>/', methods=['DELETE'])
+@require_auth
+def api_delete_role_image(image_id):
+    """Remove image (Project Admin only)"""
+    current_user = get_current_user()
+    if not current_user or current_user.get('role') != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    image = RoleImage.query.get_or_404(image_id)
+    
+    # Delete associated votes
+    RoleImageVote.query.filter_by(image_id=image_id).delete()
+    
+    # Delete file if it exists
+    if image.file_path and os.path.exists(image.file_path):
+        try:
+            os.remove(image.file_path)
+        except Exception as e:
+            app.logger.error(f"Failed to delete file {image.file_path}: {e}")
+    
+    db.session.delete(image)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/role-images/<image_id>/note/', methods=['PATCH'])
+@require_auth
+def api_update_role_image_note(image_id):
+    """Add/update admin note (Project Admin only)"""
+    current_user = get_current_user()
+    if not current_user or current_user.get('role') != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    image = RoleImage.query.get_or_404(image_id)
+    
+    data = request.get_json()
+    admin_note = data.get('admin_note', '')
+    
+    image.admin_note = admin_note
+    db.session.commit()
+    
+    return jsonify({'success': True, 'image': image.to_dict()})
+
+@app.route('/uploads/role_images/<filename>')
+def serve_role_image(filename):
+    """Serve uploaded role images"""
+    return send_from_directory(ROLE_IMAGE_UPLOAD_FOLDER, filename)
+
 @app.route('/profile/', methods=['GET', 'POST'])
 @require_auth
 def profile():
@@ -7333,6 +7784,238 @@ def meetings():
         content=content,
         user_menu=user_menu
     )
+
+# ============================================================================
+# Role Images Pages
+# ============================================================================
+
+@app.route('/roles/<role_slug>/images/')
+def role_images_gallery(role_slug):
+    """Gallery of role image proposals with voting"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    is_admin = current_user and current_user.get('role') == 'admin'
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <h1>Role Images: {role_slug}</h1>
+                <p class="lead">Community-proposed images for this role</p>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <label for="sort-select" class="form-label">Sort by:</label>
+                <select id="sort-select" class="form-select" onchange="loadImages()">
+                    <option value="net_score">Net Score (Votes)</option>
+                    <option value="upvotes">Most Upvotes</option>
+                    <option value="date">Most Recent</option>
+                </select>
+            </div>
+            <div class="col-md-6 text-end">
+                {'<button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#submitImageModal"><i class="fas fa-plus me-2"></i>Submit Image</button>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Submit</a>'}
+            </div>
+        </div>
+        
+        <div id="images-container" class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Submit Image Modal -->
+    <div class="modal fade" id="submitImageModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Submit Role Image</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="submitImageForm">
+                        <div class="mb-3">
+                            <label class="form-label">Source Type</label>
+                            <select class="form-select" id="sourceType" onchange="toggleSourceFields()">
+                                <option value="upload">Upload Image File</option>
+                                <option value="url">Image URL</option>
+                                <option value="ordinal">Bitcoin Ordinal</option>
+                            </select>
+                        </div>
+                        
+                        <div id="uploadField" class="mb-3">
+                            <label for="imageFile" class="form-label">Image File</label>
+                            <input type="file" class="form-control" id="imageFile" accept="image/*">
+                            <small class="text-muted">Max 10MB. Formats: PNG, JPG, GIF, WebP, SVG</small>
+                        </div>
+                        
+                        <div id="urlField" class="mb-3" style="display:none;">
+                            <label for="imageUrl" class="form-label">Image URL</label>
+                            <input type="url" class="form-control" id="imageUrl" placeholder="https://example.com/image.png">
+                        </div>
+                        
+                        <div id="ordinalFields" style="display:none;">
+                            <div class="mb-3">
+                                <label for="inscriptionId" class="form-label">Inscription ID</label>
+                                <input type="text" class="form-control" id="inscriptionId" placeholder="a455e1c4...e9aa72i0">
+                            </div>
+                            <div class="mb-3">
+                                <label for="contentType" class="form-label">Content Type</label>
+                                <input type="text" class="form-control" id="contentType" value="image/png">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="submitImage()">Submit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    const roleSlug = '{role_slug}';
+    const isAdmin = {'true' if is_admin else 'false'};
+    
+    function toggleSourceFields() {{
+        const sourceType = document.getElementById('sourceType').value;
+        document.getElementById('uploadField').style.display = sourceType === 'upload' ? 'block' : 'none';
+        document.getElementById('urlField').style.display = sourceType === 'url' ? 'block' : 'none';
+        document.getElementById('ordinalFields').style.display = sourceType === 'ordinal' ? 'block' : 'none';
+    }}
+    
+    async function loadImages() {{
+        const sortBy = document.getElementById('sort-select').value;
+        const container = document.getElementById('images-container');
+        
+        try {{
+            const response = await fetch(`/api/roles/${{roleSlug}}/images/?sort=${{sortBy}}`);
+            const data = await response.json();
+            
+            if (data.images.length === 0) {{
+                container.innerHTML = '<div class="col-12 text-center py-5"><p class="text-muted">No images yet. Be the first to submit one!</p></div>';
+                return;
+            }}
+            
+            container.innerHTML = data.images.map(img => `
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <a href="/roles/${{roleSlug}}/images/${{img.id}}/">
+                            <img src="${{img.image_url}}" class="card-img-top" alt="Role image" style="height: 250px; object-fit: cover;">
+                        </a>
+                        <div class="card-body">
+                            ${{img.is_primary ? '<span class="badge bg-success mb-2">Primary Image</span>' : ''}}
+                            ${{img.is_hidden && isAdmin ? '<span class="badge bg-warning mb-2">Hidden</span>' : ''}}
+                            <p class="small text-muted mb-2">
+                                By ${{img.submitted_by_name}}<br>
+                                ${{new Date(img.submitted_at).toLocaleDateString()}}
+                            </p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="btn-group">
+                                    <button class="btn btn-sm ${{img.user_vote === 1 ? 'btn-success' : 'btn-outline-success'}}" onclick="vote('${{img.id}}', 1, event)">
+                                        <i class="fas fa-thumbs-up"></i> ${{img.upvotes}}
+                                    </button>
+                                    <button class="btn btn-sm ${{img.user_vote === -1 ? 'btn-danger' : 'btn-outline-danger'}}" onclick="vote('${{img.id}}', -1, event)">
+                                        <i class="fas fa-thumbs-down"></i> ${{img.downvotes}}
+                                    </button>
+                                </div>
+                                <span class="badge bg-primary">Score: ${{img.net_score}}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }} catch (error) {{
+            console.error('Error loading images:', error);
+            container.innerHTML = '<div class="col-12 text-center py-5"><p class="text-danger">Error loading images</p></div>';
+        }}
+    }}
+    
+    async function vote(imageId, value, event) {{
+        event.preventDefault();
+        event.stopPropagation();
+        
+        try {{
+            const response = await fetch(`/api/role-images/${{imageId}}/vote/`, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{value}})
+            }});
+            
+            if (response.ok) {{
+                loadImages();
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to vote');
+            }}
+        }} catch (error) {{
+            console.error('Error voting:', error);
+            alert('Error voting on image');
+        }}
+    }}
+    
+    async function submitImage() {{
+        const sourceType = document.getElementById('sourceType').value;
+        const formData = new FormData();
+        formData.append('source_type', sourceType);
+        
+        if (sourceType === 'upload') {{
+            const file = document.getElementById('imageFile').files[0];
+            if (!file) {{
+                alert('Please select a file');
+                return;
+            }}
+            formData.append('file', file);
+        }} else if (sourceType === 'url') {{
+            const url = document.getElementById('imageUrl').value;
+            if (!url) {{
+                alert('Please enter an image URL');
+                return;
+            }}
+            formData.append('image_url', url);
+        }} else if (sourceType === 'ordinal') {{
+            const inscriptionId = document.getElementById('inscriptionId').value;
+            if (!inscriptionId) {{
+                alert('Please enter an inscription ID');
+                return;
+            }}
+            formData.append('inscription_id', inscriptionId);
+            formData.append('content_type', document.getElementById('contentType').value);
+            formData.append('chain', 'bitcoin');
+        }}
+        
+        try {{
+            const response = await fetch(`/api/roles/${{roleSlug}}/images/`, {{
+                method: 'POST',
+                body: formData
+            }});
+            
+            if (response.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('submitImageModal')).hide();
+                document.getElementById('submitImageForm').reset();
+                loadImages();
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to submit image');
+            }}
+        }} catch (error) {{
+            console.error('Error submitting image:', error);
+            alert('Error submitting image');
+        }}
+    }}
+    
+    // Load images on page load
+    loadImages();
+    </script>
+    """
+    
+    return render_page(f"Role Images: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 # Deployment API endpoint (development only)
 @app.route('/_deploy/reload', methods=['POST'])
