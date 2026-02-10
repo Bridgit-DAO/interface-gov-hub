@@ -13939,7 +13939,7 @@ def create_guild_page():
                     </div>
                 `;
                 setTimeout(() => {
-                    window.location.href = `/guilds/${data.guild.guild_slug}/`;
+                    window.location.href = `/guilds/${data.guild.slug}/`;
                 }, 1500);
             } else {
                 throw new Error(data.error || 'Failed to create guild');
