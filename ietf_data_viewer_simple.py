@@ -6532,6 +6532,61 @@ def api_update_user_profile():
     
     return jsonify({'success': True, 'message': 'Profile updated successfully'})
 
+@app.route('/api/user/upload-image/', methods=['POST'])
+@require_auth
+def api_upload_profile_image():
+    """Upload profile or banner image"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    user = User.query.get(current_user['id'])
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    image_type = request.form.get('type', 'profile')  # 'profile' or 'banner'
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # Check file extension
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+    if ext not in allowed_extensions:
+        return jsonify({'error': 'Invalid file type. Allowed: png, jpg, jpeg, gif, webp'}), 400
+    
+    # Generate unique filename
+    import uuid
+    filename = f"{image_type}_{user.id}_{uuid.uuid4().hex[:8]}.{ext}"
+    
+    # Create uploads directory if it doesn't exist
+    import os
+    upload_dir = os.path.join(app.root_path, 'static', 'uploads', 'profile_images')
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    # Save file
+    filepath = os.path.join(upload_dir, filename)
+    file.save(filepath)
+    
+    # Update user record
+    image_url = f'/static/uploads/profile_images/{filename}'
+    if image_type == 'profile':
+        user.profileImage = image_url
+    elif image_type == 'banner':
+        user.banner_image = image_url
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Image uploaded successfully',
+        'url': image_url
+    })
+
 # ============================================================================
 # Guilds API Endpoints
 # ============================================================================
@@ -15658,6 +15713,309 @@ def _format_activity_items(projects, submissions):
         '''
     
     return html if html else '<p class="text-muted">No recent activity.</p>'
+
+@app.route('/profile/edit/')
+@require_auth
+def profile_edit():
+    """Profile edit page"""
+    current_user_data = get_current_user()
+    if not current_user_data:
+        return redirect('/login')
+    
+    user = User.query.get(current_user_data['id'])
+    if not user:
+        return redirect('/')
+    
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    
+    # Parse social links
+    import json
+    social_links = []
+    if user.social_links:
+        try:
+            social_links = json.loads(user.social_links)
+        except:
+            social_links = []
+    
+    # Social link platforms
+    platforms = [
+        {'name': 'Twitter', 'icon': 'twitter', 'placeholder': 'https://twitter.com/username'},
+        {'name': 'GitHub', 'icon': 'github', 'placeholder': 'https://github.com/username'},
+        {'name': 'LinkedIn', 'icon': 'linkedin', 'placeholder': 'https://linkedin.com/in/username'},
+        {'name': 'Website', 'icon': 'globe', 'placeholder': 'https://yourwebsite.com'},
+    ]
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8 mx-auto">
+                <h1>Edit Profile</h1>
+                <p class="text-muted">Update your profile information</p>
+                
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Profile Images</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label class="form-label">Profile Picture</label>
+                                <div class="text-center mb-3">
+                                    <img 
+                                        id="profile-image-preview" 
+                                        src="{user.profileImage or '/static/images/default-avatar.png'}" 
+                                        class="img-thumbnail rounded-circle" 
+                                        style="width: 150px; height: 150px; object-fit: cover;"
+                                        onerror="this.src='/static/images/default-avatar.png'"
+                                    >
+                                </div>
+                                <input 
+                                    type="file" 
+                                    class="form-control" 
+                                    id="profile-image-file"
+                                    accept="image/*"
+                                    onchange="previewImage(this, 'profile-image-preview')"
+                                >
+                                <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadProfileImage()">
+                                    <i class="fas fa-upload me-2"></i>Upload Profile Picture
+                                </button>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Banner Image</label>
+                                <div class="mb-3" style="height: 150px; overflow: hidden; border-radius: 8px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                    <img 
+                                        id="banner-image-preview" 
+                                        src="{user.banner_image or ''}" 
+                                        class="w-100" 
+                                        style="height: 150px; object-fit: cover; display: {'block' if user.banner_image else 'none'};"
+                                    >
+                                </div>
+                                <input 
+                                    type="file" 
+                                    class="form-control" 
+                                    id="banner-image-file"
+                                    accept="image/*"
+                                    onchange="previewBannerImage(this)"
+                                >
+                                <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadBannerImage()">
+                                    <i class="fas fa-upload me-2"></i>Upload Banner
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Basic Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="profile-form">
+                            <div class="mb-3">
+                                <label for="headline" class="form-label">Headline</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="headline"
+                                    maxlength="200"
+                                    placeholder="Your professional headline..."
+                                    value="{user.headline or ''}"
+                                >
+                                <div class="form-text">A short description of what you do (max 200 characters)</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="bio" class="form-label">Bio</label>
+                                <textarea 
+                                    class="form-control" 
+                                    id="bio"
+                                    rows="4"
+                                    placeholder="Tell us about yourself..."
+                                >{user.bio or ''}</textarea>
+                                <div class="form-text">A longer description of your background and interests</div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Social Links</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="social-links-container">
+                            {self._render_social_link_inputs(platforms, social_links)}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="d-flex justify-content-between">
+                    <a href="/profile/{user.username}/" class="btn btn-secondary">
+                        <i class="fas fa-times me-2"></i>Cancel
+                    </a>
+                    <button class="btn btn-primary" onclick="saveProfile()">
+                        <i class="fas fa-save me-2"></i>Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    function previewImage(input, previewId) {{
+        if (input.files && input.files[0]) {{
+            const reader = new FileReader();
+            reader.onload = function(e) {{
+                document.getElementById(previewId).src = e.target.result;
+            }};
+            reader.readAsDataURL(input.files[0]);
+        }}
+    }}
+    
+    function previewBannerImage(input) {{
+        if (input.files && input.files[0]) {{
+            const reader = new FileReader();
+            const preview = document.getElementById('banner-image-preview');
+            reader.onload = function(e) {{
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+            }};
+            reader.readAsDataURL(input.files[0]);
+        }}
+    }}
+    
+    async function uploadProfileImage() {{
+        const fileInput = document.getElementById('profile-image-file');
+        if (!fileInput.files || !fileInput.files[0]) {{
+            alert('Please select an image first');
+            return;
+        }}
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('type', 'profile');
+        
+        try {{
+            const response = await fetch('/api/user/upload-image/', {{
+                method: 'POST',
+                body: formData
+            }});
+            
+            const data = await response.json();
+            if (response.ok) {{
+                alert('Profile picture uploaded successfully!');
+                location.reload();
+            }} else {{
+                alert(data.error || 'Failed to upload image');
+            }}
+        }} catch (error) {{
+            console.error('Error uploading image:', error);
+            alert('Failed to upload image');
+        }}
+    }}
+    
+    async function uploadBannerImage() {{
+        const fileInput = document.getElementById('banner-image-file');
+        if (!fileInput.files || !fileInput.files[0]) {{
+            alert('Please select an image first');
+            return;
+        }}
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('type', 'banner');
+        
+        try {{
+            const response = await fetch('/api/user/upload-image/', {{
+                method: 'POST',
+                body: formData
+            }});
+            
+            const data = await response.json();
+            if (response.ok) {{
+                alert('Banner image uploaded successfully!');
+                location.reload();
+            }} else {{
+                alert(data.error || 'Failed to upload image');
+            }}
+        }} catch (error) {{
+            console.error('Error uploading image:', error);
+            alert('Failed to upload image');
+        }}
+    }}
+    
+    async function saveProfile() {{
+        const headline = document.getElementById('headline').value;
+        const bio = document.getElementById('bio').value;
+        
+        // Collect social links
+        const socialLinks = [];
+        document.querySelectorAll('[data-social-platform]').forEach(input => {{
+            const url = input.value.trim();
+            if (url) {{
+                socialLinks.push({{
+                    platform: input.dataset.socialPlatform,
+                    icon: input.dataset.socialIcon,
+                    url: url
+                }});
+            }}
+        }});
+        
+        try {{
+            const response = await fetch('/api/user/profile/', {{
+                method: 'PUT',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    headline: headline,
+                    bio: bio,
+                    social_links: socialLinks
+                }})
+            }});
+            
+            const data = await response.json();
+            if (response.ok) {{
+                alert('Profile updated successfully!');
+                window.location.href = '/profile/{user.username}/';
+            }} else {{
+                alert(data.error || 'Failed to update profile');
+            }}
+        }} catch (error) {{
+            console.error('Error updating profile:', error);
+            alert('Failed to update profile');
+        }}
+    }}
+    </script>
+    """
+    
+    return render_page("Edit Profile - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+def _render_social_link_inputs(platforms, existing_links):
+    """Helper to render social link input fields"""
+    html = ''
+    
+    for platform in platforms:
+        # Find existing link for this platform
+        existing = next((link for link in existing_links if link.get('platform') == platform['name']), None)
+        value = existing['url'] if existing else ''
+        
+        html += f'''
+        <div class="mb-3">
+            <label class="form-label">
+                <i class="fab fa-{platform['icon']} me-2"></i>{platform['name']}
+            </label>
+            <input 
+                type="url" 
+                class="form-control" 
+                data-social-platform="{platform['name']}"
+                data-social-icon="{platform['icon']}"
+                placeholder="{platform['placeholder']}"
+                value="{value}"
+            >
+        </div>
+        '''
+    
+    return html
 
 @app.route('/roles/')
 def roles_directory():
