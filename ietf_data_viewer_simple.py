@@ -750,6 +750,19 @@ class Cluster(db.Model):
         db.Index('idx_cluster_project_status', 'project_id', 'status'),
         db.Index('idx_cluster_project_order', 'project_id', 'order'),
     )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'cluster_slug': self.cluster_slug,
+            'name': self.name,
+            'description': self.description,
+            'order': self.order,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
 
 class Role(db.Model):
     """Defined unit of responsibility scoped to a project"""
@@ -867,6 +880,25 @@ class Claim(db.Model):
         db.Index('idx_claim_claimant_status', 'claimant_id', 'status'),
         db.Index('idx_claim_created', 'created_at'),
     )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'role_id': self.role_id,
+            'claimant_id': self.claimant_id,
+            'intent': self.intent,
+            'evidence_links': self.evidence_links,
+            'status': self.status,
+            'approval_required': self.approval_required,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
+            'term_start': self.term_start.isoformat() if self.term_start else None,
+            'term_end': self.term_end.isoformat() if self.term_end else None,
+            'term_duration_days': self.term_duration_days,
+            'term_status': self.term_status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
 
 class Badge(db.Model):
     """Recognition artifact linked to a claim"""
@@ -925,6 +957,28 @@ class Badge(db.Model):
         db.Index('idx_badge_status', 'status'),
         db.Index('idx_badge_created', 'created_at'),
     )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'claim_id': self.claim_id,
+            'role_id': self.role_id,
+            'claimant_id': self.claimant_id,
+            'badge_type': self.badge_type,
+            'status': self.status,
+            'evidence_links': self.evidence_links,
+            'custody_mode': self.custody_mode,
+            'btc_taproot_address': self.btc_taproot_address,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
+            'approval_note': self.approval_note,
+            'issuance_kind': self.issuance_kind,
+            'inscription_id': self.inscription_id,
+            'tx_ref': self.tx_ref,
+            'chain': self.chain,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
 
 class StatusChange(db.Model):
     """Audit trail for status changes across all entities"""
@@ -1220,6 +1274,15 @@ def generate_user_menu():
             <a class="nav-link" href="#" onclick="event.preventDefault(); loginWithWeb3Auth(); return false;">Sign In</a>
         </div>
         """
+
+def render_page(title, content, theme='dark', user_menu=''):
+    """Helper function to render a page with BASE_TEMPLATE"""
+    return BASE_TEMPLATE.format(
+        title=title,
+        theme=theme,
+        user_menu=user_menu,
+        content=content
+    )
 
 def add_to_document_history(draft_name, action, user, details=""):
     """Add an entry to document history"""
@@ -5491,6 +5554,1013 @@ def api_invite_to_guild(guild_id):
         'expires_at': invitation.expires_at.isoformat()
     }), 201
 
+# ============================================================================
+# Clusters API
+# ============================================================================
+
+@app.route('/api/projects/<project_id>/clusters/', methods=['GET'])
+def api_list_clusters(project_id):
+    """List clusters for a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    # Filter by status if provided
+    status = request.args.get('status')
+    
+    query = Cluster.query.filter_by(project_id=project_id)
+    if status:
+        query = query.filter_by(status=status)
+    
+    clusters = query.order_by(Cluster.order, Cluster.name).all()
+    
+    return jsonify({'clusters': [c.to_dict() for c in clusters], 'count': len(clusters)})
+
+@app.route('/api/projects/<project_id>/clusters/', methods=['POST'])
+@require_auth
+def api_create_cluster(project_id):
+    """Create a cluster in a project"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    project = Project.query.get_or_404(project_id)
+    
+    # Check permissions (project initiator or admin)
+    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+        return jsonify({'error': 'Only project initiator or admins can create clusters'}), 403
+    
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    description = data.get('description', '').strip()
+    order = data.get('order', 0)
+    
+    if not name:
+        return jsonify({'error': 'Cluster name is required'}), 400
+    
+    # Generate slug
+    cluster_slug = create_slug(name)
+    
+    # Check for slug collision within project
+    existing = Cluster.query.filter_by(project_id=project_id, cluster_slug=cluster_slug).first()
+    if existing:
+        # Add number suffix
+        counter = 1
+        while existing:
+            cluster_slug = f"{create_slug(name)}-{counter}"
+            existing = Cluster.query.filter_by(project_id=project_id, cluster_slug=cluster_slug).first()
+            counter += 1
+    
+    cluster_id = generate_cluster_id()
+    cluster = Cluster(
+        id=cluster_id,
+        project_id=project_id,
+        cluster_slug=cluster_slug,
+        name=name,
+        description=description if description else None,
+        order=order,
+        created_by_id=current_user['id']
+    )
+    
+    db.session.add(cluster)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'cluster': cluster.to_dict()}), 201
+
+@app.route('/api/clusters/<cluster_id>/', methods=['GET'])
+def api_get_cluster(cluster_id):
+    """Get cluster details"""
+    cluster = Cluster.query.get_or_404(cluster_id)
+    
+    cluster_dict = cluster.to_dict()
+    
+    # Add roles count
+    roles_count = Role.query.filter_by(cluster_id=cluster_id).count()
+    cluster_dict['roles_count'] = roles_count
+    
+    return jsonify(cluster_dict)
+
+@app.route('/api/clusters/<cluster_id>/', methods=['PATCH'])
+@require_auth
+def api_update_cluster(cluster_id):
+    """Update cluster (project initiator or admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    cluster = Cluster.query.get_or_404(cluster_id)
+    project = Project.query.get_or_404(cluster.project_id)
+    
+    # Check permissions
+    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+        return jsonify({'error': 'Only project initiator or admins can update clusters'}), 403
+    
+    data = request.get_json()
+    
+    # Update fields
+    if 'name' in data:
+        name = data['name'].strip()
+        if name:
+            cluster.name = name
+            # Update slug if name changed
+            new_slug = create_slug(name)
+            if new_slug != cluster.cluster_slug:
+                # Check for collision
+                existing = Cluster.query.filter_by(
+                    project_id=cluster.project_id,
+                    cluster_slug=new_slug
+                ).filter(Cluster.id != cluster_id).first()
+                if not existing:
+                    cluster.cluster_slug = new_slug
+    
+    if 'description' in data:
+        cluster.description = data['description'].strip() if data['description'] else None
+    
+    if 'order' in data:
+        cluster.order = data['order']
+    
+    if 'status' in data and data['status'] in ['active', 'archived']:
+        old_status = cluster.status
+        cluster.status = data['status']
+        
+        # Record status change
+        if old_status != cluster.status:
+            status_change = StatusChange(
+                id=generate_status_change_id(),
+                entity_type='cluster',
+                entity_id=cluster_id,
+                field_name='status',
+                from_value=old_status,
+                to_value=cluster.status,
+                changed_by_id=current_user['id']
+            )
+            db.session.add(status_change)
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'cluster': cluster.to_dict()})
+
+@app.route('/api/clusters/<cluster_id>/', methods=['DELETE'])
+@require_auth
+def api_delete_cluster(cluster_id):
+    """Archive cluster (project initiator or admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    cluster = Cluster.query.get_or_404(cluster_id)
+    project = Project.query.get_or_404(cluster.project_id)
+    
+    # Check permissions
+    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+        return jsonify({'error': 'Only project initiator or admins can archive clusters'}), 403
+    
+    old_status = cluster.status
+    cluster.status = 'archived'
+    
+    # Record status change
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='cluster',
+        entity_id=cluster_id,
+        field_name='status',
+        from_value=old_status,
+        to_value='archived',
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Cluster archived'})
+
+@app.route('/api/clusters/<cluster_id>/roles/', methods=['GET'])
+def api_list_cluster_roles(cluster_id):
+    """List roles in a cluster"""
+    cluster = Cluster.query.get_or_404(cluster_id)
+    
+    # Filter by status if provided
+    status = request.args.get('status')
+    
+    query = Role.query.filter_by(cluster_id=cluster_id)
+    if status:
+        query = query.filter_by(status=status)
+    
+    roles = query.order_by(Role.order, Role.title_guild).all()
+    
+    return jsonify({'roles': [r.to_dict() for r in roles], 'count': len(roles)})
+
+# ============================================================================
+# Roles API
+# ============================================================================
+
+@app.route('/api/projects/<project_id>/roles/', methods=['GET'])
+def api_list_roles(project_id):
+    """List roles for a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    # Filter by status if provided
+    status = request.args.get('status')
+    cluster_id = request.args.get('cluster_id')
+    public_only = request.args.get('public_only', 'false').lower() == 'true'
+    
+    query = Role.query.filter_by(project_id=project_id)
+    
+    if status:
+        query = query.filter_by(status=status)
+    
+    if cluster_id:
+        query = query.filter_by(cluster_id=cluster_id)
+    
+    if public_only:
+        query = query.filter_by(public_visible=True)
+    
+    roles = query.order_by(Role.order, Role.title_guild).all()
+    
+    return jsonify({'roles': [r.to_dict() for r in roles], 'count': len(roles)})
+
+@app.route('/api/projects/<project_id>/roles/', methods=['POST'])
+@require_auth
+def api_create_role(project_id):
+    """Create a role in a project"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    project = Project.query.get_or_404(project_id)
+    
+    data = request.get_json()
+    title_guild = data.get('title_guild', '').strip()
+    title_operational = data.get('title_operational', '').strip()
+    description = data.get('description', '').strip()
+    cluster_id = data.get('cluster_id')
+    image_url = data.get('image_url', '').strip()
+    order = data.get('order', 0)
+    
+    if not title_guild:
+        return jsonify({'error': 'Guild title is required'}), 400
+    
+    if not description:
+        return jsonify({'error': 'Description is required'}), 400
+    
+    # Validate cluster if provided
+    if cluster_id:
+        cluster = Cluster.query.filter_by(id=cluster_id, project_id=project_id).first()
+        if not cluster:
+            return jsonify({'error': 'Invalid cluster for this project'}), 400
+    
+    # Generate slug from guild title
+    role_slug = create_slug(title_guild)
+    
+    # Check for slug collision within project
+    existing = Role.query.filter_by(project_id=project_id, role_slug=role_slug).first()
+    if existing:
+        counter = 1
+        while existing:
+            role_slug = f"{create_slug(title_guild)}-{counter}"
+            existing = Role.query.filter_by(project_id=project_id, role_slug=role_slug).first()
+            counter += 1
+    
+    role_id = generate_role_id()
+    role = Role(
+        id=role_id,
+        project_id=project_id,
+        role_slug=role_slug,
+        title_guild=title_guild,
+        title_operational=title_operational if title_operational else None,
+        description=description,
+        image_url=image_url if image_url else None,
+        cluster_id=cluster_id if cluster_id else None,
+        order=order,
+        status='draft',
+        created_by_id=current_user['id']
+    )
+    
+    # Set configuration options if provided
+    if 'claim_requires_approval' in data:
+        role.claim_requires_approval = data['claim_requires_approval']
+    if 'badge_enabled' in data:
+        role.badge_enabled = data['badge_enabled']
+    if 'badge_requires_approval' in data:
+        role.badge_requires_approval = data['badge_requires_approval']
+    if 'public_visible' in data:
+        role.public_visible = data['public_visible']
+    
+    db.session.add(role)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'role': role.to_dict()}), 201
+
+@app.route('/api/projects/<project_id>/roles/import/', methods=['POST'])
+@require_auth
+def api_import_roles(project_id):
+    """Import roles from JSON"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    project = Project.query.get_or_404(project_id)
+    
+    # Check permissions (project initiator or admin)
+    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+        return jsonify({'error': 'Only project initiator or admins can import roles'}), 403
+    
+    data = request.get_json()
+    roles_data = data.get('roles', [])
+    
+    if not roles_data or not isinstance(roles_data, list):
+        return jsonify({'error': 'Invalid roles data'}), 400
+    
+    imported_roles = []
+    errors = []
+    
+    for idx, role_data in enumerate(roles_data):
+        try:
+            title_guild = role_data.get('title_guild', '').strip()
+            description = role_data.get('description', '').strip()
+            
+            if not title_guild or not description:
+                errors.append(f"Role {idx}: Missing title_guild or description")
+                continue
+            
+            # Generate slug
+            role_slug = create_slug(title_guild)
+            existing = Role.query.filter_by(project_id=project_id, role_slug=role_slug).first()
+            if existing:
+                counter = 1
+                while existing:
+                    role_slug = f"{create_slug(title_guild)}-{counter}"
+                    existing = Role.query.filter_by(project_id=project_id, role_slug=role_slug).first()
+                    counter += 1
+            
+            role_id = generate_role_id()
+            role = Role(
+                id=role_id,
+                project_id=project_id,
+                role_slug=role_slug,
+                title_guild=title_guild,
+                title_operational=role_data.get('title_operational'),
+                description=description,
+                image_url=role_data.get('image_url'),
+                cluster_id=role_data.get('cluster_id'),
+                order=role_data.get('order', 0),
+                status='draft',
+                created_by_id=current_user['id']
+            )
+            
+            db.session.add(role)
+            imported_roles.append(role)
+            
+        except Exception as e:
+            errors.append(f"Role {idx}: {str(e)}")
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'imported_count': len(imported_roles),
+        'roles': [r.to_dict() for r in imported_roles],
+        'errors': errors
+    }), 201
+
+@app.route('/api/roles/<role_id>/', methods=['GET'])
+def api_get_role(role_id):
+    """Get role details"""
+    role = Role.query.get_or_404(role_id)
+    
+    role_dict = role.to_dict()
+    
+    # Add claims count
+    claims_count = Claim.query.filter_by(role_id=role_id, status='active').count()
+    role_dict['active_claims_count'] = claims_count
+    
+    return jsonify(role_dict)
+
+@app.route('/api/roles/<role_id>/', methods=['PATCH'])
+@require_auth
+def api_update_role(role_id):
+    """Update role (project initiator or admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    role = Role.query.get_or_404(role_id)
+    project = Project.query.get_or_404(role.project_id)
+    
+    # Check permissions
+    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+        return jsonify({'error': 'Only project initiator or admins can update roles'}), 403
+    
+    data = request.get_json()
+    
+    # Update fields
+    if 'title_guild' in data:
+        title = data['title_guild'].strip()
+        if title:
+            role.title_guild = title
+    
+    if 'title_operational' in data:
+        role.title_operational = data['title_operational'].strip() if data['title_operational'] else None
+    
+    if 'description' in data:
+        desc = data['description'].strip()
+        if desc:
+            role.description = desc
+    
+    if 'image_url' in data:
+        role.image_url = data['image_url'].strip() if data['image_url'] else None
+    
+    if 'cluster_id' in data:
+        if data['cluster_id']:
+            cluster = Cluster.query.filter_by(id=data['cluster_id'], project_id=role.project_id).first()
+            if cluster:
+                role.cluster_id = data['cluster_id']
+        else:
+            role.cluster_id = None
+    
+    if 'order' in data:
+        role.order = data['order']
+    
+    if 'public_visible' in data:
+        role.public_visible = data['public_visible']
+    
+    if 'claim_requires_approval' in data:
+        role.claim_requires_approval = data['claim_requires_approval']
+    
+    if 'badge_enabled' in data:
+        role.badge_enabled = data['badge_enabled']
+    
+    if 'badge_requires_approval' in data:
+        role.badge_requires_approval = data['badge_requires_approval']
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'role': role.to_dict()})
+
+@app.route('/api/roles/<role_id>/approve/', methods=['POST'])
+@require_auth
+def api_approve_role(role_id):
+    """Approve role (admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    if not current_user.get('is_admin'):
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    role = Role.query.get_or_404(role_id)
+    
+    data = request.get_json()
+    approve = data.get('approve', True)
+    
+    old_status = role.status
+    
+    if approve:
+        role.status = 'approved'
+        role.approved_by_id = current_user['id']
+        role.approved_at = datetime.utcnow()
+    else:
+        role.status = 'draft'
+        role.approved_by_id = None
+        role.approved_at = None
+    
+    # Record status change
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='role',
+        entity_id=role_id,
+        field_name='status',
+        from_value=old_status,
+        to_value=role.status,
+        note=data.get('note'),
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'role': role.to_dict()})
+
+@app.route('/api/roles/<role_id>/status/', methods=['POST'])
+@require_auth
+def api_change_role_status(role_id):
+    """Change role status (project initiator or admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    role = Role.query.get_or_404(role_id)
+    project = Project.query.get_or_404(role.project_id)
+    
+    # Check permissions
+    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+        return jsonify({'error': 'Only project initiator or admins can change role status'}), 403
+    
+    data = request.get_json()
+    new_status = data.get('status')
+    
+    if new_status not in ['draft', 'approved', 'deprecated', 'archived']:
+        return jsonify({'error': 'Invalid status'}), 400
+    
+    old_status = role.status
+    role.status = new_status
+    
+    # Record status change
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='role',
+        entity_id=role_id,
+        field_name='status',
+        from_value=old_status,
+        to_value=new_status,
+        note=data.get('note'),
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'role': role.to_dict()})
+
+@app.route('/api/roles/<role_id>/claims/', methods=['GET'])
+def api_list_role_claims(role_id):
+    """List claims for a role"""
+    role = Role.query.get_or_404(role_id)
+    
+    # Filter by status if provided
+    status = request.args.get('status')
+    
+    query = Claim.query.filter_by(role_id=role_id)
+    if status:
+        query = query.filter_by(status=status)
+    
+    claims = query.order_by(Claim.created_at.desc()).all()
+    
+    return jsonify({'claims': [c.to_dict() for c in claims], 'count': len(claims)})
+
+# ============================================================================
+# Claims API
+# ============================================================================
+
+@app.route('/api/projects/<project_id>/claims/', methods=['GET'])
+def api_list_claims(project_id):
+    """List claims for a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    # Filter by status if provided
+    status = request.args.get('status')
+    role_id = request.args.get('role_id')
+    claimant_id = request.args.get('claimant_id')
+    
+    query = Claim.query.filter_by(project_id=project_id)
+    
+    if status:
+        query = query.filter_by(status=status)
+    
+    if role_id:
+        query = query.filter_by(role_id=role_id)
+    
+    if claimant_id:
+        query = query.filter_by(claimant_id=int(claimant_id))
+    
+    claims = query.order_by(Claim.created_at.desc()).all()
+    
+    return jsonify({'claims': [c.to_dict() for c in claims], 'count': len(claims)})
+
+@app.route('/api/roles/<role_id>/claims/', methods=['POST'])
+@require_auth
+def api_create_claim(role_id):
+    """Create a claim for a role"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    role = Role.query.get_or_404(role_id)
+    
+    # Check if role is approved
+    if role.status != 'approved':
+        return jsonify({'error': 'Can only claim approved roles'}), 400
+    
+    data = request.get_json()
+    intent = data.get('intent', '').strip()
+    evidence_links = data.get('evidence_links', [])
+    term_duration_days = data.get('term_duration_days')
+    
+    # Check if user already has an active claim for this role
+    existing_claim = Claim.query.filter_by(
+        role_id=role_id,
+        claimant_id=current_user['id'],
+        status='active'
+    ).first()
+    
+    if existing_claim:
+        return jsonify({'error': 'You already have an active claim for this role'}), 400
+    
+    claim_id = generate_claim_id()
+    
+    # Determine if approval is required
+    approval_required = role.claim_requires_approval
+    initial_status = 'pending_approval' if approval_required else 'active'
+    
+    claim = Claim(
+        id=claim_id,
+        project_id=role.project_id,
+        role_id=role_id,
+        claimant_id=current_user['id'],
+        intent=intent if intent else None,
+        evidence_links=evidence_links,
+        status=initial_status,
+        approval_required=approval_required
+    )
+    
+    # Set term if provided
+    if term_duration_days:
+        claim.term_start = datetime.utcnow().date()
+        claim.term_duration_days = term_duration_days
+        from datetime import timedelta
+        claim.term_end = claim.term_start + timedelta(days=term_duration_days)
+        claim.term_status = 'active'
+    
+    db.session.add(claim)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'claim': claim.to_dict()}), 201
+
+@app.route('/api/claims/<claim_id>/', methods=['GET'])
+def api_get_claim(claim_id):
+    """Get claim details"""
+    claim = Claim.query.get_or_404(claim_id)
+    
+    claim_dict = claim.to_dict()
+    
+    # Add role info
+    role = Role.query.get(claim.role_id)
+    if role:
+        claim_dict['role'] = {
+            'id': role.id,
+            'title_guild': role.title_guild,
+            'title_operational': role.title_operational
+        }
+    
+    # Add claimant info
+    claimant = User.query.get(claim.claimant_id)
+    if claimant:
+        claim_dict['claimant'] = {
+            'id': claimant.id,
+            'username': claimant.username,
+            'name': claimant.name
+        }
+    
+    return jsonify(claim_dict)
+
+@app.route('/api/claims/<claim_id>/', methods=['PATCH'])
+@require_auth
+def api_update_claim(claim_id):
+    """Update claim (claimant only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    claim = Claim.query.get_or_404(claim_id)
+    
+    # Check permissions (only claimant can update)
+    if claim.claimant_id != current_user['id']:
+        return jsonify({'error': 'Only the claimant can update this claim'}), 403
+    
+    data = request.get_json()
+    
+    # Update fields
+    if 'intent' in data:
+        claim.intent = data['intent'].strip() if data['intent'] else None
+    
+    if 'evidence_links' in data:
+        claim.evidence_links = data['evidence_links']
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'claim': claim.to_dict()})
+
+@app.route('/api/claims/<claim_id>/approve/', methods=['POST'])
+@require_auth
+def api_approve_claim(claim_id):
+    """Approve claim (project initiator or admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    claim = Claim.query.get_or_404(claim_id)
+    project = Project.query.get_or_404(claim.project_id)
+    
+    # Check permissions
+    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+        return jsonify({'error': 'Only project initiator or admins can approve claims'}), 403
+    
+    data = request.get_json()
+    approve = data.get('approve', True)
+    
+    old_status = claim.status
+    
+    if approve:
+        claim.status = 'active'
+        claim.approved_by_id = current_user['id']
+        claim.approved_at = datetime.utcnow()
+    else:
+        claim.status = 'revoked'
+    
+    # Record status change
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='claim',
+        entity_id=claim_id,
+        field_name='status',
+        from_value=old_status,
+        to_value=claim.status,
+        note=data.get('note'),
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'claim': claim.to_dict()})
+
+@app.route('/api/claims/<claim_id>/status/', methods=['POST'])
+@require_auth
+def api_change_claim_status(claim_id):
+    """Change claim status (claimant, project initiator, or admin)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    claim = Claim.query.get_or_404(claim_id)
+    project = Project.query.get_or_404(claim.project_id)
+    
+    # Check permissions
+    is_claimant = claim.claimant_id == current_user['id']
+    is_project_admin = project.initiator_id == current_user['id'] or current_user.get('is_admin')
+    
+    if not (is_claimant or is_project_admin):
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    data = request.get_json()
+    new_status = data.get('status')
+    
+    # Validate status
+    valid_statuses = ['active', 'pending_approval', 'paused', 'expired', 'revoked']
+    if new_status not in valid_statuses:
+        return jsonify({'error': 'Invalid status'}), 400
+    
+    # Claimants can only pause/unpause their own claims
+    if is_claimant and not is_project_admin:
+        if new_status not in ['paused', 'active']:
+            return jsonify({'error': 'You can only pause or reactivate your claim'}), 403
+    
+    old_status = claim.status
+    claim.status = new_status
+    
+    # Record status change
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='claim',
+        entity_id=claim_id,
+        field_name='status',
+        from_value=old_status,
+        to_value=new_status,
+        note=data.get('note'),
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'claim': claim.to_dict()})
+
+# ============================================================================
+# Badges API
+# ============================================================================
+
+@app.route('/api/projects/<project_id>/badges/', methods=['GET'])
+def api_list_badges(project_id):
+    """List badges for a project"""
+    project = Project.query.get_or_404(project_id)
+    
+    # Filter by status if provided
+    status = request.args.get('status')
+    claim_id = request.args.get('claim_id')
+    claimant_id = request.args.get('claimant_id')
+    
+    query = Badge.query.filter_by(project_id=project_id)
+    
+    if status:
+        query = query.filter_by(status=status)
+    
+    if claim_id:
+        query = query.filter_by(claim_id=claim_id)
+    
+    if claimant_id:
+        query = query.filter_by(claimant_id=int(claimant_id))
+    
+    badges = query.order_by(Badge.created_at.desc()).all()
+    
+    return jsonify({'badges': [b.to_dict() for b in badges], 'count': len(badges)})
+
+@app.route('/api/claims/<claim_id>/badges/', methods=['GET'])
+def api_list_claim_badges(claim_id):
+    """List badges for a claim"""
+    claim = Claim.query.get_or_404(claim_id)
+    
+    badges = Badge.query.filter_by(claim_id=claim_id).order_by(Badge.created_at.desc()).all()
+    
+    return jsonify({'badges': [b.to_dict() for b in badges], 'count': len(badges)})
+
+@app.route('/api/claims/<claim_id>/badges/', methods=['POST'])
+@require_auth
+def api_request_badge(claim_id):
+    """Request a badge for a claim"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    claim = Claim.query.get_or_404(claim_id)
+    role = Role.query.get_or_404(claim.role_id)
+    
+    # Check if badges are enabled for this role
+    if not role.badge_enabled:
+        return jsonify({'error': 'Badges are not enabled for this role'}), 400
+    
+    # Check if claim is active
+    if claim.status != 'active':
+        return jsonify({'error': 'Can only request badges for active claims'}), 400
+    
+    # Check if requester is claimant or project admin
+    project = Project.query.get_or_404(claim.project_id)
+    is_claimant = claim.claimant_id == current_user['id']
+    is_project_admin = project.initiator_id == current_user['id'] or current_user.get('is_admin')
+    
+    if not (is_claimant or is_project_admin):
+        return jsonify({'error': 'Only the claimant or project admins can request badges'}), 403
+    
+    data = request.get_json()
+    badge_type = data.get('badge_type', 'role_badge')
+    evidence_links = data.get('evidence_links', [])
+    custody_mode = data.get('custody_mode', 'user_wallet')
+    btc_taproot_address = data.get('btc_taproot_address', '').strip()
+    
+    # Validate badge type
+    if badge_type not in ['role_badge', 'founding_wave_badge', 'term_renewal_marker']:
+        return jsonify({'error': 'Invalid badge type'}), 400
+    
+    # Validate custody mode
+    if custody_mode not in ['user_wallet', 'overweb_treasury']:
+        return jsonify({'error': 'Invalid custody mode'}), 400
+    
+    # If user_wallet, require BTC address
+    if custody_mode == 'user_wallet' and not btc_taproot_address:
+        return jsonify({'error': 'BTC Taproot address is required for user wallet custody'}), 400
+    
+    badge_id = generate_badge_id()
+    
+    # Determine initial status based on role configuration
+    initial_status = 'requested' if role.badge_requires_approval else 'approved'
+    
+    badge = Badge(
+        id=badge_id,
+        project_id=claim.project_id,
+        claim_id=claim_id,
+        role_id=claim.role_id,
+        claimant_id=claim.claimant_id,
+        requested_by_id=current_user['id'],
+        badge_type=badge_type,
+        status=initial_status,
+        evidence_links=evidence_links,
+        custody_mode=custody_mode,
+        btc_taproot_address=btc_taproot_address if btc_taproot_address else None
+    )
+    
+    # If auto-approved, set approval fields
+    if initial_status == 'approved':
+        badge.approved_by_id = current_user['id']
+        badge.approved_at = datetime.utcnow()
+    
+    db.session.add(badge)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'badge': badge.to_dict()}), 201
+
+@app.route('/api/badges/<badge_id>/', methods=['GET'])
+def api_get_badge(badge_id):
+    """Get badge details"""
+    badge = Badge.query.get_or_404(badge_id)
+    
+    badge_dict = badge.to_dict()
+    
+    # Add role info
+    role = Role.query.get(badge.role_id)
+    if role:
+        badge_dict['role'] = {
+            'id': role.id,
+            'title_guild': role.title_guild,
+            'title_operational': role.title_operational
+        }
+    
+    # Add claimant info
+    claimant = User.query.get(badge.claimant_id)
+    if claimant:
+        badge_dict['claimant'] = {
+            'id': claimant.id,
+            'username': claimant.username,
+            'name': claimant.name
+        }
+    
+    return jsonify(badge_dict)
+
+@app.route('/api/badges/<badge_id>/approve/', methods=['POST'])
+@require_auth
+def api_approve_badge(badge_id):
+    """Approve badge (project initiator or admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    badge = Badge.query.get_or_404(badge_id)
+    project = Project.query.get_or_404(badge.project_id)
+    
+    # Check permissions
+    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+        return jsonify({'error': 'Only project initiator or admins can approve badges'}), 403
+    
+    data = request.get_json()
+    approve = data.get('approve', True)
+    approval_note = data.get('approval_note', '').strip()
+    
+    old_status = badge.status
+    
+    if approve:
+        badge.status = 'approved'
+        badge.approved_by_id = current_user['id']
+        badge.approved_at = datetime.utcnow()
+        badge.approval_note = approval_note if approval_note else None
+    else:
+        badge.status = 'denied'
+        badge.approval_note = approval_note if approval_note else None
+    
+    # Record status change
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='badge',
+        entity_id=badge_id,
+        field_name='status',
+        from_value=old_status,
+        to_value=badge.status,
+        note=approval_note,
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'badge': badge.to_dict()})
+
+@app.route('/api/badges/<badge_id>/issue/', methods=['POST'])
+@require_auth
+def api_issue_badge(badge_id):
+    """Issue badge with inscription details (admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    if not current_user.get('is_admin'):
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    badge = Badge.query.get_or_404(badge_id)
+    
+    # Check if badge is approved
+    if badge.status != 'approved':
+        return jsonify({'error': 'Badge must be approved before issuance'}), 400
+    
+    data = request.get_json()
+    inscription_id = data.get('inscription_id', '').strip()
+    tx_ref = data.get('tx_ref', '').strip()
+    chain = data.get('chain', 'bitcoin').strip()
+    
+    if not inscription_id:
+        return jsonify({'error': 'Inscription ID is required'}), 400
+    
+    old_status = badge.status
+    badge.status = 'issued'
+    badge.issuance_kind = 'ordinal'
+    badge.inscription_id = inscription_id
+    badge.tx_ref = tx_ref if tx_ref else None
+    badge.chain = chain
+    
+    # Record status change
+    status_change = StatusChange(
+        id=generate_status_change_id(),
+        entity_type='badge',
+        entity_id=badge_id,
+        field_name='status',
+        from_value=old_status,
+        to_value='issued',
+        note=f"Issued with inscription {inscription_id}",
+        changed_by_id=current_user['id']
+    )
+    db.session.add(status_change)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'badge': badge.to_dict()})
+
 @app.route('/profile/', methods=['GET', 'POST'])
 @require_auth
 def profile():
@@ -9318,6 +10388,473 @@ def role_image_detail(role_slug, image_id):
     """
     
     return render_page(f"Image Detail: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+# ============================================================================
+# Projects, Workgroups, and Guilds UI Pages
+# ============================================================================
+
+@app.route('/projects/')
+def projects_directory():
+    """Projects directory page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h1>Projects Directory</h1>
+                <p class="lead">Browse and discover MLTF projects</p>
+            </div>
+            <div class="col-md-4 text-end">
+                {'<a href="/projects/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Project</a>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <label for="status-filter" class="form-label">Status:</label>
+                <select id="status-filter" class="form-select" onchange="loadProjects()">
+                    <option value="">All Statuses</option>
+                    <option value="proposed">Proposed</option>
+                    <option value="active">Active</option>
+                    <option value="stabilizing">Stabilizing</option>
+                    <option value="maintaining">Maintaining</option>
+                    <option value="dormant">Dormant</option>
+                    <option value="concluded">Concluded</option>
+                    <option value="archived">Archived</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="approval-filter" class="form-label">Approval:</label>
+                <select id="approval-filter" class="form-select" onchange="loadProjects()">
+                    <option value="">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="search-input" class="form-label">Search:</label>
+                <input type="text" id="search-input" class="form-control" placeholder="Search projects..." onkeyup="filterProjects()">
+            </div>
+        </div>
+        
+        <div id="projects-container" class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let allProjects = [];
+    
+    async function loadProjects() {{
+        const statusFilter = document.getElementById('status-filter').value;
+        const approvalFilter = document.getElementById('approval-filter').value;
+        
+        let url = '/api/projects/';
+        const params = new URLSearchParams();
+        if (statusFilter) params.append('status', statusFilter);
+        if (approvalFilter) params.append('approval_status', approvalFilter);
+        if (params.toString()) url += '?' + params.toString();
+        
+        try {{
+            const response = await fetch(url);
+            const data = await response.json();
+            allProjects = data.projects;
+            displayProjects(allProjects);
+        }} catch (error) {{
+            console.error('Error loading projects:', error);
+            document.getElementById('projects-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading projects</div></div>';
+        }}
+    }}
+    
+    function filterProjects() {{
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        const filtered = allProjects.filter(p => 
+            p.name.toLowerCase().includes(searchTerm) ||
+            (p.description && p.description.toLowerCase().includes(searchTerm))
+        );
+        displayProjects(filtered);
+    }}
+    
+    function displayProjects(projects) {{
+        const container = document.getElementById('projects-container');
+        
+        if (projects.length === 0) {{
+            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No projects found</div></div>';
+            return;
+        }}
+        
+        let html = '';
+        projects.forEach(project => {{
+            const statusBadge = getStatusBadge(project.status);
+            const approvalBadge = getApprovalBadge(project.approval_status);
+            
+            html += `
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <a href="/projects/${{project.project_slug}}/">${{project.name}}</a>
+                            </h5>
+                            <div class="mb-2">
+                                ${{statusBadge}}
+                                ${{approvalBadge}}
+                            </div>
+                            <p class="card-text text-muted">${{project.description || 'No description'}}</p>
+                            <div class="mt-3">
+                                <small class="text-muted">
+                                    <i class="fas fa-users me-1"></i> ${{project.workgroups_count || 0}} workgroups
+                                </small>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <small class="text-muted">Created ${{new Date(project.created_at).toLocaleDateString()}}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }});
+        
+        container.innerHTML = html;
+    }}
+    
+    function getStatusBadge(status) {{
+        const badges = {{
+            'proposed': '<span class="badge bg-info">Proposed</span>',
+            'active': '<span class="badge bg-success">Active</span>',
+            'stabilizing': '<span class="badge bg-primary">Stabilizing</span>',
+            'maintaining': '<span class="badge bg-secondary">Maintaining</span>',
+            'dormant': '<span class="badge bg-warning">Dormant</span>',
+            'concluded': '<span class="badge bg-dark">Concluded</span>',
+            'archived': '<span class="badge bg-secondary">Archived</span>'
+        }};
+        return badges[status] || '';
+    }}
+    
+    function getApprovalBadge(approval) {{
+        const badges = {{
+            'pending': '<span class="badge bg-warning">Pending Approval</span>',
+            'approved': '<span class="badge bg-success">Approved</span>',
+            'rejected': '<span class="badge bg-danger">Rejected</span>'
+        }};
+        return badges[approval] || '';
+    }}
+    
+    // Load projects on page load
+    loadProjects();
+    </script>
+    """
+    
+    return render_page("Projects Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/workgroups/')
+def workgroups_directory():
+    """Workgroups directory page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h1>Workgroups Directory</h1>
+                <p class="lead">Browse workgroups across all projects</p>
+            </div>
+            <div class="col-md-4 text-end">
+                <a href="/projects/" class="btn btn-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Projects</a>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <label for="project-filter" class="form-label">Project:</label>
+                <select id="project-filter" class="form-select" onchange="loadWorkgroups()">
+                    <option value="">All Projects</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="status-filter" class="form-label">Status:</label>
+                <select id="status-filter" class="form-select" onchange="loadWorkgroups()">
+                    <option value="">All Statuses</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="completed">Completed</option>
+                    <option value="archived">Archived</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="search-input" class="form-label">Search:</label>
+                <input type="text" id="search-input" class="form-control" placeholder="Search workgroups..." onkeyup="filterWorkgroups()">
+            </div>
+        </div>
+        
+        <div id="workgroups-container" class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let allWorkgroups = [];
+    let allProjects = [];
+    
+    async function loadProjects() {{
+        try {{
+            const response = await fetch('/api/projects/?approval_status=approved');
+            const data = await response.json();
+            allProjects = data.projects;
+            
+            const select = document.getElementById('project-filter');
+            allProjects.forEach(project => {{
+                const option = document.createElement('option');
+                option.value = project.id;
+                option.textContent = project.name;
+                select.appendChild(option);
+            }});
+        }} catch (error) {{
+            console.error('Error loading projects:', error);
+        }}
+    }}
+    
+    async function loadWorkgroups() {{
+        const projectFilter = document.getElementById('project-filter').value;
+        const statusFilter = document.getElementById('status-filter').value;
+        
+        try {{
+            allWorkgroups = [];
+            
+            if (projectFilter) {{
+                // Load workgroups for specific project
+                let url = `/api/projects/${{projectFilter}}/workgroups/`;
+                if (statusFilter) url += `?status=${{statusFilter}}`;
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                allWorkgroups = data.workgroups;
+            }} else {{
+                // Load workgroups from all projects
+                for (const project of allProjects) {{
+                    let url = `/api/projects/${{project.id}}/workgroups/`;
+                    if (statusFilter) url += `?status=${{statusFilter}}`;
+                    
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    allWorkgroups = allWorkgroups.concat(data.workgroups);
+                }}
+            }}
+            
+            displayWorkgroups(allWorkgroups);
+        }} catch (error) {{
+            console.error('Error loading workgroups:', error);
+            document.getElementById('workgroups-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading workgroups</div></div>';
+        }}
+    }}
+    
+    function filterWorkgroups() {{
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        const filtered = allWorkgroups.filter(wg => 
+            wg.name.toLowerCase().includes(searchTerm) ||
+            (wg.description && wg.description.toLowerCase().includes(searchTerm))
+        );
+        displayWorkgroups(filtered);
+    }}
+    
+    function displayWorkgroups(workgroups) {{
+        const container = document.getElementById('workgroups-container');
+        
+        if (workgroups.length === 0) {{
+            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No workgroups found</div></div>';
+            return;
+        }}
+        
+        let html = '';
+        workgroups.forEach(wg => {{
+            const statusBadge = getStatusBadge(wg.status);
+            const approvalBadge = getApprovalBadge(wg.approval_status);
+            const project = allProjects.find(p => p.id === wg.project_id);
+            
+            html += `
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <a href="/workgroups/${{wg.workgroup_slug}}/">${{wg.name}}</a>
+                            </h5>
+                            <div class="mb-2">
+                                ${{statusBadge}}
+                                ${{approvalBadge}}
+                            </div>
+                            <p class="card-text text-muted">${{wg.description || 'No description'}}</p>
+                            ${{project ? `<div class="mt-2"><small class="text-muted"><i class="fas fa-project-diagram me-1"></i> ${{project.name}}</small></div>` : ''}}
+                        </div>
+                        <div class="card-footer">
+                            <small class="text-muted">Created ${{new Date(wg.created_at).toLocaleDateString()}}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }});
+        
+        container.innerHTML = html;
+    }}
+    
+    function getStatusBadge(status) {{
+        const badges = {{
+            'active': '<span class="badge bg-success">Active</span>',
+            'inactive': '<span class="badge bg-warning">Inactive</span>',
+            'completed': '<span class="badge bg-primary">Completed</span>',
+            'archived': '<span class="badge bg-secondary">Archived</span>'
+        }};
+        return badges[status] || '';
+    }}
+    
+    function getApprovalBadge(approval) {{
+        const badges = {{
+            'pending': '<span class="badge bg-warning">Pending Approval</span>',
+            'approved': '<span class="badge bg-success">Approved</span>',
+            'rejected': '<span class="badge bg-danger">Rejected</span>'
+        }};
+        return badges[approval] || '';
+    }}
+    
+    // Load data on page load
+    loadProjects().then(() => loadWorkgroups());
+    </script>
+    """
+    
+    return render_page("Workgroups Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/guilds/')
+def guilds_directory():
+    """Guilds directory page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h1>Guilds Directory</h1>
+                <p class="lead">Cross-project collaboration groups</p>
+            </div>
+            <div class="col-md-4 text-end">
+                {'<a href="/guilds/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Guild</a>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <label for="status-filter" class="form-label">Status:</label>
+                <select id="status-filter" class="form-select" onchange="loadGuilds()">
+                    <option value="">All Statuses</option>
+                    <option value="active">Active</option>
+                    <option value="archived">Archived</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label for="search-input" class="form-label">Search:</label>
+                <input type="text" id="search-input" class="form-control" placeholder="Search guilds..." onkeyup="filterGuilds()">
+            </div>
+        </div>
+        
+        <div id="guilds-container" class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let allGuilds = [];
+    
+    async function loadGuilds() {{
+        const statusFilter = document.getElementById('status-filter').value;
+        
+        let url = '/api/guilds/';
+        if (statusFilter) url += `?status=${{statusFilter}}`;
+        
+        try {{
+            const response = await fetch(url);
+            const data = await response.json();
+            allGuilds = data.guilds;
+            displayGuilds(allGuilds);
+        }} catch (error) {{
+            console.error('Error loading guilds:', error);
+            document.getElementById('guilds-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading guilds</div></div>';
+        }}
+    }}
+    
+    function filterGuilds() {{
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        const filtered = allGuilds.filter(g => 
+            g.name.toLowerCase().includes(searchTerm) ||
+            (g.description && g.description.toLowerCase().includes(searchTerm))
+        );
+        displayGuilds(filtered);
+    }}
+    
+    function displayGuilds(guilds) {{
+        const container = document.getElementById('guilds-container');
+        
+        if (guilds.length === 0) {{
+            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No guilds found</div></div>';
+            return;
+        }}
+        
+        let html = '';
+        guilds.forEach(guild => {{
+            const statusBadge = guild.status === 'active' 
+                ? '<span class="badge bg-success">Active</span>' 
+                : '<span class="badge bg-secondary">Archived</span>';
+            
+            html += `
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <a href="/guilds/${{guild.guild_slug}}/">${{guild.name}}</a>
+                            </h5>
+                            <div class="mb-2">
+                                ${{statusBadge}}
+                            </div>
+                            <p class="card-text text-muted">${{guild.description || 'No description'}}</p>
+                            <div class="mt-3">
+                                <small class="text-muted">
+                                    <i class="fas fa-users me-1"></i> ${{guild.members_count || 0}} members
+                                </small>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <small class="text-muted">Created ${{new Date(guild.created_at).toLocaleDateString()}}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }});
+        
+        container.innerHTML = html;
+    }}
+    
+    // Load guilds on page load
+    loadGuilds();
+    </script>
+    """
+    
+    return render_page("Guilds Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 # Deployment API endpoint (development only)
 @app.route('/_deploy/reload', methods=['POST'])
