@@ -10856,6 +10856,726 @@ def guilds_directory():
     
     return render_page("Guilds Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
+@app.route('/projects/<project_slug>/')
+def project_detail(project_slug):
+    """Project detail page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div id="project-header" class="mb-4">
+            <div class="d-flex justify-content-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+        
+        <ul class="nav nav-tabs mb-4" id="projectTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button">Overview</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="workgroups-tab" data-bs-toggle="tab" data-bs-target="#workgroups" type="button">Workgroups</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="roles-tab" data-bs-toggle="tab" data-bs-target="#roles" type="button">Roles</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="claims-tab" data-bs-toggle="tab" data-bs-target="#claims" type="button">Claims</button>
+            </li>
+        </ul>
+        
+        <div class="tab-content" id="projectTabContent">
+            <div class="tab-pane fade show active" id="overview">
+                <div id="overview-content"></div>
+            </div>
+            <div class="tab-pane fade" id="workgroups">
+                <div id="workgroups-content"></div>
+            </div>
+            <div class="tab-pane fade" id="roles">
+                <div id="roles-content"></div>
+            </div>
+            <div class="tab-pane fade" id="claims">
+                <div id="claims-content"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let project = null;
+    const projectSlug = '{project_slug}';
+    const isAuthenticated = {'true' if current_user else 'false'};
+    const isAdmin = {('true' if current_user and current_user.get('is_admin') else 'false')};
+    
+    async function loadProject() {{
+        try {{
+            // Find project by slug
+            const response = await fetch('/api/projects/');
+            const data = await response.json();
+            project = data.projects.find(p => p.project_slug === projectSlug);
+            
+            if (!project) {{
+                document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Project not found</div>';
+                return;
+            }}
+            
+            displayProjectHeader();
+            loadOverview();
+        }} catch (error) {{
+            console.error('Error loading project:', error);
+            document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Error loading project</div>';
+        }}
+    }}
+    
+    function displayProjectHeader() {{
+        const statusBadge = getStatusBadge(project.status);
+        const approvalBadge = getApprovalBadge(project.approval_status);
+        const isInitiator = isAuthenticated && project.initiator_id === {current_user['id'] if current_user else 'null'};
+        
+        document.getElementById('project-header').innerHTML = `
+            <div class="row">
+                <div class="col-md-8">
+                    <h1>${{project.name}}</h1>
+                    <div class="mb-3">
+                        ${{statusBadge}}
+                        ${{approvalBadge}}
+                    </div>
+                    <p class="lead">${{project.description || 'No description'}}</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    ${{(isInitiator || isAdmin) ? `<button class="btn btn-secondary" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>` : ''}}
+                    <a href="/projects/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back</a>
+                </div>
+            </div>
+        `;
+    }}
+    
+    function loadOverview() {{
+        document.getElementById('overview-content').innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header"><h5>Project Information</h5></div>
+                        <div class="card-body">
+                            <p><strong>Status:</strong> ${{project.status}}</p>
+                            <p><strong>Approval:</strong> ${{project.approval_status}}</p>
+                            <p><strong>Created:</strong> ${{new Date(project.created_at).toLocaleDateString()}}</p>
+                            <p><strong>Last Activity:</strong> ${{project.last_activity_at ? new Date(project.last_activity_at).toLocaleDateString() : 'Never'}}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header"><h5>Quick Stats</h5></div>
+                        <div class="card-body">
+                            <p><strong>Workgroups:</strong> ${{project.workgroups_count || 0}}</p>
+                            <p><strong>Roles:</strong> <span id="roles-count">Loading...</span></p>
+                            <p><strong>Active Claims:</strong> <span id="claims-count">Loading...</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        loadRolesCounts();
+    }}
+    
+    async function loadRolesCounts() {{
+        try {{
+            const rolesResp = await fetch(`/api/projects/${{project.id}}/roles/`);
+            const rolesData = await rolesResp.json();
+            document.getElementById('roles-count').textContent = rolesData.count;
+            
+            const claimsResp = await fetch(`/api/projects/${{project.id}}/claims/?status=active`);
+            const claimsData = await claimsResp.json();
+            document.getElementById('claims-count').textContent = claimsData.count;
+        }} catch (error) {{
+            console.error('Error loading counts:', error);
+        }}
+    }}
+    
+    // Tab event listeners
+    document.getElementById('workgroups-tab').addEventListener('shown.bs.tab', loadWorkgroups);
+    document.getElementById('roles-tab').addEventListener('shown.bs.tab', loadRoles);
+    document.getElementById('claims-tab').addEventListener('shown.bs.tab', loadClaims);
+    
+    async function loadWorkgroups() {{
+        document.getElementById('workgroups-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+        
+        try {{
+            const response = await fetch(`/api/projects/${{project.id}}/workgroups/`);
+            const data = await response.json();
+            
+            let html = `
+                <div class="d-flex justify-content-between mb-3">
+                    <h4>Workgroups (${{data.count}})</h4>
+                    ${{isAuthenticated ? '<button class="btn btn-primary btn-sm" onclick="createWorkgroup()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>' : ''}}
+                </div>
+            `;
+            
+            if (data.workgroups.length === 0) {{
+                html += '<div class="alert alert-info">No workgroups yet</div>';
+            }} else {{
+                html += '<div class="row">';
+                data.workgroups.forEach(wg => {{
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title"><a href="/workgroups/${{wg.workgroup_slug}}/">${{wg.name}}</a></h5>
+                                    <p class="card-text text-muted">${{wg.description || 'No description'}}</p>
+                                    <span class="badge bg-${{wg.status === 'active' ? 'success' : 'secondary'}}">${{wg.status}}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }});
+                html += '</div>';
+            }}
+            
+            document.getElementById('workgroups-content').innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading workgroups:', error);
+            document.getElementById('workgroups-content').innerHTML = '<div class="alert alert-danger">Error loading workgroups</div>';
+        }}
+    }}
+    
+    async function loadRoles() {{
+        document.getElementById('roles-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+        
+        try {{
+            const response = await fetch(`/api/projects/${{project.id}}/roles/`);
+            const data = await response.json();
+            
+            let html = `
+                <div class="d-flex justify-content-between mb-3">
+                    <h4>Roles (${{data.count}})</h4>
+                    ${{(isAdmin || project.initiator_id === {current_user['id'] if current_user else 'null'}) ? '<button class="btn btn-primary btn-sm" onclick="createRole()"><i class="fas fa-plus me-2"></i>Create Role</button>' : ''}}
+                </div>
+            `;
+            
+            if (data.roles.length === 0) {{
+                html += '<div class="alert alert-info">No roles yet</div>';
+            }} else {{
+                html += '<div class="row">';
+                data.roles.forEach(role => {{
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">${{role.title_guild}}</h5>
+                                    ${{role.title_operational ? `<h6 class="card-subtitle mb-2 text-muted">${{role.title_operational}}</h6>` : ''}}
+                                    <p class="card-text">${{role.description.substring(0, 150)}}...</p>
+                                    <span class="badge bg-${{role.status === 'approved' ? 'success' : 'warning'}}">${{role.status}}</span>
+                                    ${{role.public_visible ? '<span class="badge bg-info ms-2">Public</span>' : ''}}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }});
+                html += '</div>';
+            }}
+            
+            document.getElementById('roles-content').innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading roles:', error);
+            document.getElementById('roles-content').innerHTML = '<div class="alert alert-danger">Error loading roles</div>';
+        }}
+    }}
+    
+    async function loadClaims() {{
+        document.getElementById('claims-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+        
+        try {{
+            const response = await fetch(`/api/projects/${{project.id}}/claims/`);
+            const data = await response.json();
+            
+            let html = `<h4 class="mb-3">Claims (${{data.count}})</h4>`;
+            
+            if (data.claims.length === 0) {{
+                html += '<div class="alert alert-info">No claims yet</div>';
+            }} else {{
+                html += '<div class="list-group">';
+                data.claims.forEach(claim => {{
+                    html += `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between">
+                                <h6>Claim ID: ${{claim.id}}</h6>
+                                <span class="badge bg-${{claim.status === 'active' ? 'success' : 'warning'}}">${{claim.status}}</span>
+                            </div>
+                            <p class="mb-1"><strong>Role ID:</strong> ${{claim.role_id}}</p>
+                            <p class="mb-1"><strong>Claimant ID:</strong> ${{claim.claimant_id}}</p>
+                            <small class="text-muted">Created: ${{new Date(claim.created_at).toLocaleDateString()}}</small>
+                        </div>
+                    `;
+                }});
+                html += '</div>';
+            }}
+            
+            document.getElementById('claims-content').innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading claims:', error);
+            document.getElementById('claims-content').innerHTML = '<div class="alert alert-danger">Error loading claims</div>';
+        }}
+    }}
+    
+    function getStatusBadge(status) {{
+        const badges = {{
+            'proposed': '<span class="badge bg-info">Proposed</span>',
+            'active': '<span class="badge bg-success">Active</span>',
+            'stabilizing': '<span class="badge bg-primary">Stabilizing</span>',
+            'maintaining': '<span class="badge bg-secondary">Maintaining</span>',
+            'dormant': '<span class="badge bg-warning">Dormant</span>',
+            'concluded': '<span class="badge bg-dark">Concluded</span>',
+            'archived': '<span class="badge bg-secondary">Archived</span>'
+        }};
+        return badges[status] || '';
+    }}
+    
+    function getApprovalBadge(approval) {{
+        const badges = {{
+            'pending': '<span class="badge bg-warning">Pending Approval</span>',
+            'approved': '<span class="badge bg-success">Approved</span>',
+            'rejected': '<span class="badge bg-danger">Rejected</span>'
+        }};
+        return badges[approval] || '';
+    }}
+    
+    function editProject() {{
+        alert('Edit functionality coming soon');
+    }}
+    
+    function createWorkgroup() {{
+        alert('Create workgroup functionality coming soon');
+    }}
+    
+    function createRole() {{
+        alert('Create role functionality coming soon');
+    }}
+    
+    // Load project on page load
+    loadProject();
+    </script>
+    """
+    
+    return render_page(f"Project: {project_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/projects/create/')
+@require_auth
+def create_project_page():
+    """Create project form page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = """
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <h1 class="mb-4">Create New Project</h1>
+                
+                <div id="alert-container"></div>
+                
+                <form id="createProjectForm">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Project Name *</label>
+                        <input type="text" class="form-control" id="name" required>
+                        <div class="form-text">A clear, descriptive name for your project</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description *</label>
+                        <textarea class="form-control" id="description" rows="4" required></textarea>
+                        <div class="form-text">Explain what this project is about and its goals</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="mission_statement" class="form-label">Mission Statement</label>
+                        <textarea class="form-control" id="mission_statement" rows="3"></textarea>
+                        <div class="form-text">Optional: The project's core purpose and values</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="repo_url" class="form-label">Repository URL</label>
+                        <input type="url" class="form-control" id="repo_url" placeholder="https://github.com/...">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="website_url" class="form-label">Website URL</label>
+                        <input type="url" class="form-control" id="website_url" placeholder="https://...">
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Note:</strong> New projects start with "proposed" status and require admin approval before becoming active.
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <i class="fas fa-plus me-2"></i>Create Project
+                        </button>
+                        <a href="/projects/" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    document.getElementById('createProjectForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+        
+        const formData = {
+            name: document.getElementById('name').value,
+            description: document.getElementById('description').value,
+            mission_statement: document.getElementById('mission_statement').value,
+            repo_url: document.getElementById('repo_url').value,
+            website_url: document.getElementById('website_url').value
+        };
+        
+        try {
+            const response = await fetch('/api/projects/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(formData)
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                document.getElementById('alert-container').innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle me-2"></i>
+                        Project created successfully! Redirecting...
+                    </div>
+                `;
+                setTimeout(() => {
+                    window.location.href = `/projects/${data.project.project_slug}/`;
+                }, 1500);
+            } else {
+                throw new Error(data.error || 'Failed to create project');
+            }
+        } catch (error) {
+            document.getElementById('alert-container').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    ${error.message}
+                </div>
+            `;
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Project';
+        }
+    });
+    </script>
+    """
+    
+    return render_page("Create Project - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/guilds/<guild_slug>/')
+def guild_detail(guild_slug):
+    """Guild detail page with members"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div id="guild-header" class="mb-4">
+            <div class="d-flex justify-content-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header"><h5>About</h5></div>
+                    <div class="card-body" id="guild-about">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header"><h5>Members</h5></div>
+                    <div class="card-body" id="guild-members">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header"><h5>Quick Actions</h5></div>
+                    <div class="card-body" id="guild-actions">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header"><h5>Statistics</h5></div>
+                    <div class="card-body" id="guild-stats">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let guild = null;
+    const guildSlug = '{guild_slug}';
+    const isAuthenticated = {'true' if current_user else 'false'};
+    const currentUserId = {current_user['id'] if current_user else 'null'};
+    
+    async function loadGuild() {{
+        try {{
+            // Find guild by slug
+            const response = await fetch('/api/guilds/');
+            const data = await response.json();
+            guild = data.guilds.find(g => g.guild_slug === guildSlug);
+            
+            if (!guild) {{
+                document.getElementById('guild-header').innerHTML = '<div class="alert alert-danger">Guild not found</div>';
+                return;
+            }}
+            
+            // Load full guild details with members
+            const detailResponse = await fetch(`/api/guilds/${{guild.id}}/`);
+            guild = await detailResponse.json();
+            
+            displayGuildHeader();
+            displayGuildAbout();
+            displayGuildMembers();
+            displayGuildActions();
+            displayGuildStats();
+        }} catch (error) {{
+            console.error('Error loading guild:', error);
+            document.getElementById('guild-header').innerHTML = '<div class="alert alert-danger">Error loading guild</div>';
+        }}
+    }}
+    
+    function displayGuildHeader() {{
+        const statusBadge = guild.status === 'active' 
+            ? '<span class="badge bg-success">Active</span>' 
+            : '<span class="badge bg-secondary">Archived</span>';
+        
+        document.getElementById('guild-header').innerHTML = `
+            <div class="row">
+                <div class="col-md-8">
+                    <h1>${{guild.name}}</h1>
+                    <div class="mb-3">${{statusBadge}}</div>
+                </div>
+                <div class="col-md-4 text-end">
+                    <a href="/guilds/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back</a>
+                </div>
+            </div>
+        `;
+    }}
+    
+    function displayGuildAbout() {{
+        document.getElementById('guild-about').innerHTML = `
+            <p>${{guild.description || 'No description provided'}}</p>
+            <hr>
+            <p><strong>Created:</strong> ${{new Date(guild.created_at).toLocaleDateString()}}</p>
+            <p><strong>Last Updated:</strong> ${{guild.updated_at ? new Date(guild.updated_at).toLocaleDateString() : 'Never'}}</p>
+        `;
+    }}
+    
+    function displayGuildMembers() {{
+        if (!guild.members || guild.members.length === 0) {{
+            document.getElementById('guild-members').innerHTML = '<p class="text-muted">No members yet</p>';
+            return;
+        }}
+        
+        let html = '<div class="list-group">';
+        guild.members.forEach(member => {{
+            const roleClass = member.role === 'initiator' ? 'primary' : member.role === 'admin' ? 'success' : 'secondary';
+            html += `
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${{member.username}}</strong>
+                        ${{member.name ? `<br><small class="text-muted">${{member.name}}</small>` : ''}}
+                    </div>
+                    <span class="badge bg-${{roleClass}}">${{member.role}}</span>
+                </div>
+            `;
+        }});
+        html += '</div>';
+        
+        document.getElementById('guild-members').innerHTML = html;
+    }}
+    
+    function displayGuildActions() {{
+        const userMembership = guild.members ? guild.members.find(m => m.user_id === currentUserId) : null;
+        const isAdmin = userMembership && (userMembership.role === 'initiator' || userMembership.role === 'admin');
+        
+        let html = '';
+        
+        if (!isAuthenticated) {{
+            html = '<a href="/login/" class="btn btn-primary w-100 mb-2"><i class="fas fa-sign-in-alt me-2"></i>Login to Join</a>';
+        }} else if (!userMembership) {{
+            html = '<p class="text-muted">Request an invitation from a guild admin to join</p>';
+        }} else {{
+            if (isAdmin) {{
+                html += '<button class="btn btn-primary w-100 mb-2" onclick="inviteMember()"><i class="fas fa-user-plus me-2"></i>Invite Member</button>';
+                html += '<button class="btn btn-secondary w-100 mb-2" onclick="manageGuild()"><i class="fas fa-cog me-2"></i>Manage Guild</button>';
+            }}
+            html += `<p class="text-muted mt-2">Your role: <strong>${{userMembership.role}}</strong></p>`;
+        }}
+        
+        document.getElementById('guild-actions').innerHTML = html;
+    }}
+    
+    function displayGuildStats() {{
+        const memberCount = guild.members ? guild.members.length : 0;
+        const adminCount = guild.members ? guild.members.filter(m => m.role === 'admin' || m.role === 'initiator').length : 0;
+        
+        document.getElementById('guild-stats').innerHTML = `
+            <p><strong>Total Members:</strong> ${{memberCount}}</p>
+            <p><strong>Admins:</strong> ${{adminCount}}</p>
+            <p><strong>Status:</strong> ${{guild.status}}</p>
+        `;
+    }}
+    
+    function inviteMember() {{
+        const email = prompt('Enter email address to invite:');
+        if (!email) return;
+        
+        fetch(`/api/guilds/${{guild.id}}/invite/`, {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{email: email}})
+        }})
+        .then(response => response.json())
+        .then(data => {{
+            if (data.success) {{
+                alert(`Invitation sent! Link: ${{data.invitation_link}}`);
+            }} else {{
+                alert('Error: ' + (data.error || 'Failed to send invitation'));
+            }}
+        }})
+        .catch(error => {{
+            console.error('Error:', error);
+            alert('Error sending invitation');
+        }});
+    }}
+    
+    function manageGuild() {{
+        alert('Guild management functionality coming soon');
+    }}
+    
+    // Load guild on page load
+    loadGuild();
+    </script>
+    """
+    
+    return render_page(f"Guild: {guild_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/guilds/create/')
+@require_auth
+def create_guild_page():
+    """Create guild form page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = """
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <h1 class="mb-4">Create New Guild</h1>
+                
+                <div id="alert-container"></div>
+                
+                <form id="createGuildForm">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Guild Name *</label>
+                        <input type="text" class="form-control" id="name" required>
+                        <div class="form-text">A clear, descriptive name for your guild</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description *</label>
+                        <textarea class="form-control" id="description" rows="4" required></textarea>
+                        <div class="form-text">Explain what this guild is about and its purpose</div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Note:</strong> Guilds are instantly created with no approval required. You will automatically become the guild initiator and admin.
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <i class="fas fa-plus me-2"></i>Create Guild
+                        </button>
+                        <a href="/guilds/" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    document.getElementById('createGuildForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+        
+        const formData = {
+            name: document.getElementById('name').value,
+            description: document.getElementById('description').value
+        };
+        
+        try {
+            const response = await fetch('/api/guilds/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(formData)
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                document.getElementById('alert-container').innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle me-2"></i>
+                        Guild created successfully! Redirecting...
+                    </div>
+                `;
+                setTimeout(() => {
+                    window.location.href = `/guilds/${data.guild.guild_slug}/`;
+                }, 1500);
+            } else {
+                throw new Error(data.error || 'Failed to create guild');
+            }
+        } catch (error) {
+            document.getElementById('alert-container').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    ${error.message}
+                </div>
+            `;
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Guild';
+        }
+    });
+    </script>
+    """
+    
+    return render_page("Create Guild - MLGH", content, theme=current_theme, user_menu=user_menu)
+
 # Deployment API endpoint (development only)
 @app.route('/_deploy/reload', methods=['POST'])
 def reload_app():
