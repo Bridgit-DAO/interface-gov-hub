@@ -6532,6 +6532,100 @@ def api_update_user_profile():
     
     return jsonify({'success': True, 'message': 'Profile updated successfully'})
 
+@app.route('/api/admin/chair-nominations/', methods=['GET'])
+@require_role('admin')
+def api_admin_get_chair_nominations():
+    """Get all chair nominations with full details for admin dashboard"""
+    from sqlalchemy import text
+    
+    query = text("""
+        SELECT 
+            wgc.id,
+            wgc.chair_name,
+            wgc.approved,
+            wgc.set_at,
+            wgc.statement,
+            wgc.is_self_nomination,
+            wgc.group_acronym,
+            wg.name as workgroup_name,
+            wg.slug as workgroup_slug,
+            p.name as project_name,
+            p.slug as project_slug,
+            u.id as nominee_id,
+            u.username as nominee_username,
+            u.profileImage as nominee_profile_image,
+            nominator.id as nominator_id,
+            nominator.username as nominator_username,
+            nominator.displayName as nominator_name
+        FROM working_group_chair wgc
+        LEFT JOIN working_group wg ON wgc.group_acronym = wg.acronym
+        LEFT JOIN project p ON wg.project_id = p.id
+        LEFT JOIN user u ON wgc.user_id = u.id
+        LEFT JOIN user nominator ON wgc.nominated_by_user_id = nominator.id
+        ORDER BY wgc.approved ASC, wgc.set_at DESC
+    """)
+    
+    results = db.session.execute(query).fetchall()
+    
+    nominations = []
+    for row in results:
+        nominations.append({
+            'id': row[0],
+            'chair_name': row[1],
+            'approved': bool(row[2]),
+            'set_at': row[3],
+            'statement': row[4],
+            'is_self_nomination': bool(row[5]),
+            'workgroup_acronym': row[6],
+            'workgroup_name': row[7],
+            'workgroup_slug': row[8],
+            'project_name': row[9],
+            'project_slug': row[10],
+            'nominee_id': row[11],
+            'nominee_username': row[12],
+            'nominee_profile_image': row[13],
+            'nominator_id': row[14],
+            'nominator_username': row[15],
+            'nominator_name': row[16]
+        })
+    
+    return jsonify({'nominations': nominations, 'count': len(nominations)})
+
+@app.route('/api/admin/chair-nominations/<int:nomination_id>/approve/', methods=['POST'])
+@require_role('admin')
+def api_admin_approve_chair_nomination(nomination_id):
+    """Approve a chair nomination"""
+    from sqlalchemy import text
+    
+    # Update the chair nomination to approved
+    update_query = text("""
+        UPDATE working_group_chair 
+        SET approved = 1
+        WHERE id = :id
+    """)
+    
+    db.session.execute(update_query, {'id': nomination_id})
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Chair nomination approved'})
+
+@app.route('/api/admin/chair-nominations/<int:nomination_id>/reject/', methods=['POST'])
+@require_role('admin')
+def api_admin_reject_chair_nomination(nomination_id):
+    """Reject and delete a chair nomination"""
+    from sqlalchemy import text
+    
+    # Delete the nomination
+    delete_query = text("""
+        DELETE FROM working_group_chair 
+        WHERE id = :id
+    """)
+    
+    db.session.execute(delete_query, {'id': nomination_id})
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Chair nomination rejected'})
+
 @app.route('/api/user/upload-image/', methods=['POST'])
 @require_auth
 def api_upload_profile_image():
@@ -7896,8 +7990,8 @@ def admin_dashboard():
         alerts_html += f"""
         <div class="alert alert-info alert-dismissible fade show" role="alert">
             <i class="fas fa-users me-2"></i>
-            <strong>{pending_chairs}</strong> workgroup coordinator(s) pending approval
-            <a href="/group/" class="alert-link">Manage coords</a>
+            <strong>{pending_chairs}</strong> chair nomination(s) pending approval
+            <a href="/admin/chair-nominations/" class="alert-link">Review nominations</a>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         """
@@ -9948,6 +10042,208 @@ def admin_workgroups():
     """
     
     return render_page("Admin: Manage Workgroups - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/admin/chair-nominations/')
+@require_role('admin')
+def admin_chair_nominations():
+    """Admin dashboard for managing chair nominations"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    
+    content = """
+    <div class="container mt-4">
+        <h1 class="mb-4">Chair/Coordinator Nominations</h1>
+        <p class="lead">Review and approve workgroup chair nominations</p>
+        
+        <ul class="nav nav-tabs mb-4" id="chairTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending" type="button">
+                    Pending <span class="badge bg-warning ms-2" id="pending-count">0</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="approved-tab" data-bs-toggle="tab" data-bs-target="#approved" type="button">
+                    Approved <span class="badge bg-success ms-2" id="approved-count">0</span>
+                </button>
+            </li>
+        </ul>
+        
+        <div class="tab-content" id="chairTabContent">
+            <div class="tab-pane fade show active" id="pending">
+                <div id="pending-nominations"></div>
+            </div>
+            <div class="tab-pane fade" id="approved">
+                <div id="approved-nominations"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    async function loadNominations() {
+        try {
+            const response = await fetch('/api/admin/chair-nominations/');
+            const data = await response.json();
+            
+            // Count nominations by status
+            const pendingNoms = data.nominations.filter(n => !n.approved);
+            const approvedNoms = data.nominations.filter(n => n.approved);
+            
+            document.getElementById('pending-count').textContent = pendingNoms.length;
+            document.getElementById('approved-count').textContent = approvedNoms.length;
+            
+            // Render pending nominations
+            let pendingHtml = '';
+            if (pendingNoms.length > 0) {
+                pendingHtml = '<div class="row">';
+                pendingNoms.forEach(nom => {
+                    pendingHtml += renderNominationCard(nom, 'pending');
+                });
+                pendingHtml += '</div>';
+            } else {
+                pendingHtml = '<div class="alert alert-info">No pending chair nominations</div>';
+            }
+            document.getElementById('pending-nominations').innerHTML = pendingHtml;
+            
+            // Render approved nominations
+            let approvedHtml = '';
+            if (approvedNoms.length > 0) {
+                approvedHtml = '<div class="row">';
+                approvedNoms.forEach(nom => {
+                    approvedHtml += renderNominationCard(nom, 'approved');
+                });
+                approvedHtml += '</div>';
+            } else {
+                approvedHtml = '<div class="alert alert-info">No approved chair nominations</div>';
+            }
+            document.getElementById('approved-nominations').innerHTML = approvedHtml;
+            
+        } catch (error) {
+            console.error('Error loading nominations:', error);
+            document.getElementById('pending-nominations').innerHTML = '<div class="alert alert-danger">Error loading nominations</div>';
+        }
+    }
+    
+    function renderNominationCard(nom, status) {
+        const selfNomBadge = nom.is_self_nomination ? '<span class="badge bg-info ms-2">Self-Nomination</span>' : '';
+        const statusBadge = nom.approved ? '<span class="badge bg-success">Approved</span>' : '<span class="badge bg-warning">Pending</span>';
+        
+        return `
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">${nom.workgroup_name}</h5>
+                            ${statusBadge}
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center mb-3">
+                            <img 
+                                src="${nom.nominee_profile_image || '/static/images/default-avatar.png'}" 
+                                class="rounded-circle me-3" 
+                                style="width: 60px; height: 60px; object-fit: cover;"
+                                onerror="this.src='/static/images/default-avatar.png'"
+                            >
+                            <div>
+                                <h6 class="mb-0">
+                                    <a href="/profile/${nom.nominee_username}/" target="_blank">
+                                        ${nom.chair_name}
+                                    </a>
+                                    ${selfNomBadge}
+                                </h6>
+                                <small class="text-muted">Nominated ${new Date(nom.set_at).toLocaleDateString()}</small>
+                            </div>
+                        </div>
+                        
+                        ${nom.nominator_name && !nom.is_self_nomination ? `
+                            <p class="mb-2"><small><strong>Nominated by:</strong> 
+                                <a href="/profile/${nom.nominator_username}/" target="_blank">${nom.nominator_name}</a>
+                            </small></p>
+                        ` : ''}
+                        
+                        <div class="mb-3">
+                            <strong>Statement:</strong>
+                            <p class="mt-1">${nom.statement || 'No statement provided'}</p>
+                        </div>
+                        
+                        <div class="mb-2">
+                            <strong>Workgroup:</strong> 
+                            <a href="/workgroups/${nom.workgroup_slug}/" target="_blank">${nom.workgroup_name}</a>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <strong>Project:</strong> 
+                            <a href="/projects/${nom.project_slug}/" target="_blank">${nom.project_name}</a>
+                        </div>
+                        
+                        ${status === 'pending' ? `
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-success flex-fill" onclick="approveNomination(${nom.id})">
+                                    <i class="fas fa-check me-2"></i>Approve
+                                </button>
+                                <button class="btn btn-danger flex-fill" onclick="rejectNomination(${nom.id})">
+                                    <i class="fas fa-times me-2"></i>Reject
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    async function approveNomination(nominationId) {
+        if (!confirm('Approve this chair nomination?')) return;
+        
+        try {
+            const response = await fetch(`/api/admin/chair-nominations/${nominationId}/approve/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const data = await response.json();
+            if (response.ok) {
+                alert('Nomination approved!');
+                loadNominations();
+            } else {
+                alert(data.error || 'Failed to approve nomination');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to approve nomination');
+        }
+    }
+    
+    async function rejectNomination(nominationId) {
+        const reason = prompt('Reason for rejection (optional):');
+        if (reason === null) return; // User cancelled
+        
+        try {
+            const response = await fetch(`/api/admin/chair-nominations/${nominationId}/reject/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: reason })
+            });
+            
+            const data = await response.json();
+            if (response.ok) {
+                alert('Nomination rejected');
+                loadNominations();
+            } else {
+                alert(data.error || 'Failed to reject nomination');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to reject nomination');
+        }
+    }
+    
+    // Load nominations on page load
+    loadNominations();
+    </script>
+    """
+    
+    return render_page("Admin: Chair Nominations - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/admin/roles/')
 @require_role('admin')
