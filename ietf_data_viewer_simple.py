@@ -498,6 +498,463 @@ class RoleImageVote(db.Model):
         db.Index('idx_vote_user', 'user_id'),
     )
 
+# ============================================================================
+# Projects, Workgroups, and Guilds Models
+# ============================================================================
+
+class Project(db.Model):
+    """Primary organizing entity for submissions, documents, and workgroups"""
+    __tablename__ = 'project'
+    
+    id = db.Column(db.String(50), primary_key=True)  # proj_...
+    name = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    slug = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    
+    # Initiator
+    initiator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # Status (descriptive, not evaluative)
+    status = db.Column(db.String(20), default='proposed', index=True)
+    # proposed, active, stabilizing, maintaining, dormant, concluded, archived
+    status_reason = db.Column(db.Text, nullable=True)
+    
+    # Admin approval
+    approval_status = db.Column(db.String(20), default='pending', index=True)
+    # pending, approved, rejected
+    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    
+    # Description
+    description = db.Column(db.Text, nullable=True)
+    
+    # Activity tracking
+    last_activity = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Succession
+    superseded_by_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    initiator = db.relationship('User', foreign_keys=[initiator_id], backref='initiated_projects')
+    approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_projects')
+    superseded_by = db.relationship('Project', remote_side=[id], backref='supersedes')
+    
+    __table_args__ = (
+        db.Index('idx_project_status', 'status'),
+        db.Index('idx_project_approval', 'approval_status'),
+    )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'slug': self.slug,
+            'initiator_id': self.initiator_id,
+            'initiator_name': self.initiator.displayName or self.initiator.username if self.initiator else None,
+            'status': self.status,
+            'status_reason': self.status_reason,
+            'approval_status': self.approval_status,
+            'description': self.description,
+            'last_activity': self.last_activity.isoformat() if self.last_activity else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class Workgroup(db.Model):
+    """Task-focused group within a project"""
+    __tablename__ = 'workgroup'
+    
+    id = db.Column(db.String(50), primary_key=True)  # wg_...
+    name = db.Column(db.String(255), nullable=False)
+    slug = db.Column(db.String(255), nullable=False, index=True)
+    
+    # Project relationship (required)
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    
+    # Coordinator (formerly "chair")
+    coordinator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    
+    # Status
+    status = db.Column(db.String(20), default='active', index=True)
+    # active, inactive, completed, archived
+    
+    # Approval
+    approval_status = db.Column(db.String(20), default='pending', index=True)
+    # pending, approved, rejected
+    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    
+    # Description
+    description = db.Column(db.Text, nullable=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = db.relationship('Project', backref=db.backref('workgroups', lazy=True))
+    coordinator = db.relationship('User', foreign_keys=[coordinator_id], backref='coordinated_workgroups')
+    approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_workgroups')
+    
+    __table_args__ = (
+        db.UniqueConstraint('project_id', 'slug', name='unique_workgroup_slug_per_project'),
+        db.Index('idx_workgroup_project', 'project_id'),
+        db.Index('idx_workgroup_status', 'status'),
+        db.Index('idx_workgroup_approval', 'approval_status'),
+    )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'slug': self.slug,
+            'project_id': self.project_id,
+            'project_name': self.project.name if self.project else None,
+            'coordinator_id': self.coordinator_id,
+            'coordinator_name': self.coordinator.displayName or self.coordinator.username if self.coordinator else None,
+            'status': self.status,
+            'approval_status': self.approval_status,
+            'description': self.description,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class Guild(db.Model):
+    """Cross-project collaboration group"""
+    __tablename__ = 'guild'
+    
+    id = db.Column(db.String(50), primary_key=True)  # guild_...
+    name = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    slug = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    
+    # Initiator (automatically becomes admin)
+    initiator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # Description
+    description = db.Column(db.Text, nullable=True)
+    
+    # Status (guilds don't require approval - instant registration)
+    status = db.Column(db.String(20), default='active', index=True)
+    # active, archived
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    initiator = db.relationship('User', backref='initiated_guilds')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'slug': self.slug,
+            'initiator_id': self.initiator_id,
+            'initiator_name': self.initiator.displayName or self.initiator.username if self.initiator else None,
+            'description': self.description,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class GuildMembership(db.Model):
+    """Guild membership with roles"""
+    __tablename__ = 'guild_membership'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    guild_id = db.Column(db.String(50), db.ForeignKey('guild.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    
+    # Role: initiator, admin, member
+    role = db.Column(db.String(20), default='member', nullable=False)
+    
+    # Timestamps
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    guild = db.relationship('Guild', backref=db.backref('memberships', lazy=True))
+    user = db.relationship('User', backref=db.backref('guild_memberships', lazy=True))
+    
+    __table_args__ = (
+        db.UniqueConstraint('guild_id', 'user_id', name='unique_guild_membership'),
+        db.Index('idx_guild_membership_guild', 'guild_id'),
+        db.Index('idx_guild_membership_user', 'user_id'),
+    )
+
+class GuildInvitation(db.Model):
+    """Guild invitation system"""
+    __tablename__ = 'guild_invitation'
+    
+    id = db.Column(db.String(50), primary_key=True)  # ginv_...
+    guild_id = db.Column(db.String(50), db.ForeignKey('guild.id'), nullable=False, index=True)
+    inviter_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    invitee_email = db.Column(db.String(255), nullable=False, index=True)
+    invitee_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # If user exists
+    
+    # Status
+    status = db.Column(db.String(20), default='pending', index=True)
+    # pending, accepted, declined, expired
+    
+    # Token for email verification
+    token = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)  # 7 days from creation
+    responded_at = db.Column(db.DateTime, nullable=True)
+    
+    # Relationships
+    guild = db.relationship('Guild', backref=db.backref('invitations', lazy=True))
+    inviter = db.relationship('User', foreign_keys=[inviter_id], backref='sent_guild_invitations')
+    invitee = db.relationship('User', foreign_keys=[invitee_id], backref='received_guild_invitations')
+    
+    __table_args__ = (
+        db.Index('idx_guild_invitation_guild', 'guild_id'),
+        db.Index('idx_guild_invitation_status', 'status'),
+        db.Index('idx_guild_invitation_token', 'token'),
+    )
+
+# ============================================================================
+# Roles, Claims, and Badges Models
+# ============================================================================
+
+class Cluster(db.Model):
+    """Organizational grouping of roles within a project"""
+    __tablename__ = 'cluster'
+    
+    id = db.Column(db.String(50), primary_key=True)  # clu_...
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    cluster_slug = db.Column(db.String(100), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    order = db.Column(db.Integer, default=0)
+    
+    # Status
+    status = db.Column(db.String(20), default='active')
+    # active, archived
+    
+    # Audit
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = db.relationship('Project', backref=db.backref('clusters', lazy=True))
+    created_by = db.relationship('User', backref='created_clusters')
+    
+    __table_args__ = (
+        db.UniqueConstraint('project_id', 'cluster_slug', name='unique_cluster_slug_per_project'),
+        db.Index('idx_cluster_project_status', 'project_id', 'status'),
+        db.Index('idx_cluster_project_order', 'project_id', 'order'),
+    )
+
+class Role(db.Model):
+    """Defined unit of responsibility scoped to a project"""
+    __tablename__ = 'role'
+    
+    id = db.Column(db.String(50), primary_key=True)  # rol_...
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    role_slug = db.Column(db.String(100), nullable=False)
+    
+    # Titles
+    title_guild = db.Column(db.String(255), nullable=False)
+    title_operational = db.Column(db.String(255), nullable=True)
+    
+    # Description and image
+    description = db.Column(db.Text, nullable=False)
+    image_url = db.Column(db.String(500), nullable=True)
+    
+    # Organization
+    cluster_id = db.Column(db.String(50), db.ForeignKey('cluster.id'), nullable=True)
+    order = db.Column(db.Integer, default=0)
+    
+    # Status
+    status = db.Column(db.String(20), default='draft', index=True)
+    # draft, approved, deprecated, archived
+    
+    # Visibility
+    public_visible = db.Column(db.Boolean, default=False, index=True)
+    
+    # Configuration
+    claim_requires_approval = db.Column(db.Boolean, default=False)
+    badge_enabled = db.Column(db.Boolean, default=True)
+    badge_requires_approval = db.Column(db.Boolean, default=True)
+    
+    # Audit
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = db.relationship('Project', backref=db.backref('roles', lazy=True))
+    cluster = db.relationship('Cluster', backref=db.backref('roles', lazy=True))
+    created_by = db.relationship('User', foreign_keys=[created_by_id], backref='created_roles')
+    approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_roles')
+    
+    __table_args__ = (
+        db.UniqueConstraint('project_id', 'role_slug', name='unique_role_slug_per_project'),
+        db.Index('idx_role_project_status', 'project_id', 'status'),
+        db.Index('idx_role_project_visible', 'project_id', 'public_visible'),
+        db.Index('idx_role_status_visible', 'status', 'public_visible'),
+    )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'role_slug': self.role_slug,
+            'title_guild': self.title_guild,
+            'title_operational': self.title_operational,
+            'description': self.description,
+            'image_url': self.image_url,
+            'cluster_id': self.cluster_id,
+            'order': self.order,
+            'status': self.status,
+            'public_visible': self.public_visible,
+            'claim_requires_approval': self.claim_requires_approval,
+            'badge_enabled': self.badge_enabled,
+            'badge_requires_approval': self.badge_requires_approval,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+class Claim(db.Model):
+    """User's declaration of stewarding a role"""
+    __tablename__ = 'claim'
+    
+    id = db.Column(db.String(50), primary_key=True)  # clm_...
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    role_id = db.Column(db.String(50), db.ForeignKey('role.id'), nullable=False, index=True)
+    claimant_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    
+    # Intent and evidence
+    intent = db.Column(db.Text, nullable=True)
+    evidence_links = db.Column(db.JSON, default=list)
+    
+    # Status
+    status = db.Column(db.String(20), default='active', index=True)
+    # active, pending_approval, paused, expired, revoked
+    
+    # Approval (if required)
+    approval_required = db.Column(db.Boolean, default=False)
+    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    
+    # Term (optional time-bounding)
+    term_start = db.Column(db.Date, nullable=True)
+    term_end = db.Column(db.Date, nullable=True)
+    term_duration_days = db.Column(db.Integer, nullable=True)
+    term_status = db.Column(db.String(20), nullable=True)
+    # active, expired, paused, canceled
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = db.relationship('Project', backref=db.backref('claims', lazy=True))
+    role = db.relationship('Role', backref=db.backref('claims', lazy=True))
+    claimant = db.relationship('User', foreign_keys=[claimant_id], backref='role_claims')
+    approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_claims')
+    
+    __table_args__ = (
+        db.Index('idx_claim_project_status', 'project_id', 'status'),
+        db.Index('idx_claim_role_status', 'role_id', 'status'),
+        db.Index('idx_claim_claimant_status', 'claimant_id', 'status'),
+        db.Index('idx_claim_created', 'created_at'),
+    )
+
+class Badge(db.Model):
+    """Recognition artifact linked to a claim"""
+    __tablename__ = 'badge'
+    
+    id = db.Column(db.String(50), primary_key=True)  # bdg_...
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    claim_id = db.Column(db.String(50), db.ForeignKey('claim.id'), nullable=False, index=True)
+    role_id = db.Column(db.String(50), db.ForeignKey('role.id'), nullable=False)
+    claimant_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    requested_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # Badge type
+    badge_type = db.Column(db.String(50), default='role_badge')
+    # role_badge, founding_wave_badge, term_renewal_marker
+    
+    # Status
+    status = db.Column(db.String(20), default='requested', index=True)
+    # requested, needs_info, approved, issued, denied, canceled
+    
+    # Evidence
+    evidence_links = db.Column(db.JSON, default=list)
+    
+    # Custody
+    custody_mode = db.Column(db.String(20), default='user_wallet')
+    # user_wallet, overweb_treasury
+    btc_taproot_address = db.Column(db.String(255), nullable=True)
+    
+    # Approval
+    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    approval_note = db.Column(db.Text, nullable=True)
+    
+    # Issuance (ordinal metadata)
+    issuance_kind = db.Column(db.String(20), default='offchain')
+    # offchain, ordinal
+    inscription_id = db.Column(db.String(255), nullable=True)
+    tx_ref = db.Column(db.String(255), nullable=True)
+    chain = db.Column(db.String(50), default='bitcoin', nullable=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = db.relationship('Project', backref=db.backref('badges', lazy=True))
+    claim = db.relationship('Claim', backref=db.backref('badges', lazy=True))
+    role = db.relationship('Role', backref=db.backref('badges', lazy=True))
+    claimant = db.relationship('User', foreign_keys=[claimant_id], backref='badges_received')
+    requested_by = db.relationship('User', foreign_keys=[requested_by_id], backref='badges_requested')
+    approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='badges_approved')
+    
+    __table_args__ = (
+        db.Index('idx_badge_project_status', 'project_id', 'status'),
+        db.Index('idx_badge_claim_status', 'claim_id', 'status'),
+        db.Index('idx_badge_status', 'status'),
+        db.Index('idx_badge_created', 'created_at'),
+    )
+
+class StatusChange(db.Model):
+    """Audit trail for status changes across all entities"""
+    __tablename__ = 'status_change'
+    
+    id = db.Column(db.String(50), primary_key=True)  # sc_...
+    
+    # Polymorphic reference
+    entity_type = db.Column(db.String(20), nullable=False)
+    # role, claim, badge, cluster, project, workgroup, guild
+    entity_id = db.Column(db.String(50), nullable=False, index=True)
+    
+    # Change details
+    field_name = db.Column(db.String(50), nullable=False)
+    from_value = db.Column(db.String(100), nullable=True)
+    to_value = db.Column(db.String(100), nullable=False)
+    note = db.Column(db.Text, nullable=True)
+    
+    # Audit
+    changed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    changed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    changed_by = db.relationship('User', backref='status_changes')
+    
+    __table_args__ = (
+        db.Index('idx_status_change_entity', 'entity_type', 'entity_id'),
+        db.Index('idx_status_change_changed_at', 'changed_at'),
+    )
+
 # Users are now stored in database - this dict is kept for backward compatibility during migration
 
 # Store document history in memory
@@ -573,6 +1030,82 @@ def update_image_vote_counts(image_id):
     image.net_score = upvotes - downvotes
     db.session.commit()
     return True
+
+def generate_project_id():
+    """Generate unique project ID with proj_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"proj_{suffix}"
+
+def generate_workgroup_id():
+    """Generate unique workgroup ID with wg_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"wg_{suffix}"
+
+def generate_guild_id():
+    """Generate unique guild ID with guild_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"guild_{suffix}"
+
+def generate_cluster_id():
+    """Generate unique cluster ID with clu_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"clu_{suffix}"
+
+def generate_role_id():
+    """Generate unique role ID with rol_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"rol_{suffix}"
+
+def generate_claim_id():
+    """Generate unique claim ID with clm_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"clm_{suffix}"
+
+def generate_badge_id():
+    """Generate unique badge ID with bdg_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"bdg_{suffix}"
+
+def generate_status_change_id():
+    """Generate unique status change ID with sc_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"sc_{suffix}"
+
+def generate_guild_invitation_id():
+    """Generate unique guild invitation ID with ginv_ prefix"""
+    import random
+    import string
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    return f"ginv_{suffix}"
+
+def generate_invitation_token():
+    """Generate secure token for guild invitations"""
+    import secrets
+    return secrets.token_urlsafe(32)
+
+def create_slug(text):
+    """Create URL-safe slug from text"""
+    import re
+    slug = text.lower()
+    slug = re.sub(r'[^a-z0-9\s-]', '', slug)
+    slug = re.sub(r'\s+', '-', slug.strip())
+    return slug[:100]
 
 def require_auth(f):
     """Decorator to require authentication"""
