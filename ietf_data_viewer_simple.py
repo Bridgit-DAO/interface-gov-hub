@@ -6468,6 +6468,71 @@ def api_nominate_chair(workgroup_id):
     return jsonify({'success': True, 'message': 'Chair nomination submitted for approval'})
 
 # ============================================================================
+# User Profile API Endpoints
+# ============================================================================
+
+@app.route('/api/user/<username>/', methods=['GET'])
+def api_get_user_profile(username):
+    """Get user profile data"""
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        user = User.query.filter_by(handle=username).first()
+    
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    import json
+    social_links = []
+    if user.social_links:
+        try:
+            social_links = json.loads(user.social_links)
+        except:
+            social_links = []
+    
+    return jsonify({
+        'id': user.id,
+        'username': user.username,
+        'displayName': user.displayName,
+        'handle': user.handle,
+        'profileImage': user.profileImage,
+        'banner_image': user.banner_image,
+        'headline': user.headline,
+        'bio': user.bio,
+        'social_links': social_links,
+        'role': user.role,
+        'created_at': user.created_at.isoformat() if user.created_at else None
+    })
+
+@app.route('/api/user/profile/', methods=['PUT'])
+@require_auth
+def api_update_user_profile():
+    """Update current user's profile"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    user = User.query.get(current_user['id'])
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    data = request.get_json()
+    
+    # Update allowed fields
+    if 'headline' in data:
+        user.headline = data['headline'][:200]  # Max 200 chars
+    
+    if 'bio' in data:
+        user.bio = data['bio']
+    
+    if 'social_links' in data:
+        import json
+        user.social_links = json.dumps(data['social_links'])
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Profile updated successfully'})
+
+# ============================================================================
 # Guilds API Endpoints
 # ============================================================================
 
@@ -15298,6 +15363,301 @@ def workgroup_detail(workgroup_slug):
     """
     
     return render_page(f"Workgroup: {workgroup_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+# ============================================================================
+# User Profile Routes
+# ============================================================================
+
+@app.route('/profile/<username>/')
+def user_profile(username):
+    """User profile page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    # Fetch user from database
+    profile_user = User.query.filter_by(username=username).first()
+    if not profile_user:
+        # Try by handle
+        profile_user = User.query.filter_by(handle=username).first()
+    
+    if not profile_user:
+        return render_page("User Not Found - MLGH", f"""
+            <div class="container mt-5">
+                <div class="alert alert-danger">
+                    <h4>User Not Found</h4>
+                    <p>The user "{username}" does not exist.</p>
+                    <a href="/" class="btn btn-primary">Back to Home</a>
+                </div>
+            </div>
+        """, theme=current_theme, user_menu=user_menu)
+    
+    # Check if viewing own profile
+    is_own_profile = current_user and current_user['id'] == profile_user.id
+    
+    # Parse social links (stored as JSON string)
+    import json
+    social_links = []
+    if profile_user.social_links:
+        try:
+            social_links = json.loads(profile_user.social_links)
+        except:
+            social_links = []
+    
+    # Get user stats
+    from sqlalchemy import text
+    
+    # Count projects initiated
+    projects_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM project WHERE initiator_id = :user_id
+    """), {'user_id': profile_user.id}).scalar() or 0
+    
+    # Count workgroups coordinated
+    workgroups_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM working_group WHERE coordinator_id = :user_id
+    """), {'user_id': profile_user.id}).scalar() or 0
+    
+    # Count workgroup memberships
+    memberships_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM working_group_member WHERE user_id = :user_id
+    """), {'user_id': profile_user.id}).scalar() or 0
+    
+    # Count chair positions
+    chair_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM working_group_chair WHERE user_id = :user_id AND approved = 1
+    """), {'user_id': profile_user.id}).scalar() or 0
+    
+    # Count submissions
+    submissions_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM submission WHERE submitted_by_id = :user_id
+    """), {'user_id': profile_user.id}).scalar() or 0
+    
+    # Get recent activity (simplified for now)
+    recent_projects = db.session.execute(text("""
+        SELECT name, slug, created_at FROM project 
+        WHERE initiator_id = :user_id 
+        ORDER BY created_at DESC LIMIT 5
+    """), {'user_id': profile_user.id}).fetchall()
+    
+    recent_submissions = db.session.execute(text("""
+        SELECT draft_name, created_at FROM submission 
+        WHERE submitted_by_id = :user_id 
+        ORDER BY created_at DESC LIMIT 5
+    """), {'user_id': profile_user.id}).fetchall()
+    
+    content = f"""
+    <style>
+        .profile-banner {{
+            width: 100%;
+            height: 300px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-size: cover;
+            background-position: center;
+            position: relative;
+        }}
+        
+        .profile-header {{
+            position: relative;
+            margin-top: -80px;
+            padding: 0 2rem;
+        }}
+        
+        .profile-avatar {{
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            border: 6px solid var(--bg-primary);
+            background: var(--bg-secondary);
+            object-fit: cover;
+            display: block;
+        }}
+        
+        .profile-stats {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }}
+        
+        .stat-card {{
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }}
+        
+        .stat-value {{
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: block;
+        }}
+        
+        .stat-label {{
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }}
+        
+        .social-links a {{
+            display: inline-block;
+            margin-right: 1rem;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            transition: color 0.2s;
+        }}
+        
+        .social-links a:hover {{
+            color: var(--text-primary);
+        }}
+    </style>
+    
+    <!-- Banner -->
+    <div class="profile-banner" style="{'background-image: url(' + profile_user.banner_image + ');' if profile_user.banner_image else ''}">
+    </div>
+    
+    <!-- Profile Header -->
+    <div class="container">
+        <div class="profile-header">
+            <div class="row">
+                <div class="col-md-8">
+                    <img 
+                        src="{profile_user.profileImage or '/static/images/default-avatar.png'}" 
+                        alt="{profile_user.displayName or profile_user.username}" 
+                        class="profile-avatar"
+                        onerror="this.src='/static/images/default-avatar.png'"
+                    >
+                    <h1 class="mt-3">{profile_user.displayName or profile_user.username}</h1>
+                    {f'<p class="text-muted">@{profile_user.handle}</p>' if profile_user.handle else ''}
+                    {f'<p class="lead mt-2">{profile_user.headline}</p>' if profile_user.headline else ''}
+                    
+                    {f'''<div class="social-links mt-3">
+                        {''.join([f'<a href="{link.get("url")}" target="_blank" title="{link.get("platform")}"><i class="fab fa-{link.get("icon", "link")}"></i></a>' for link in social_links])}
+                    </div>''' if social_links else ''}
+                </div>
+                <div class="col-md-4 text-end mt-5">
+                    {'<a href="/profile/edit/" class="btn btn-primary"><i class="fas fa-edit me-2"></i>Edit Profile</a>' if is_own_profile else ''}
+                </div>
+            </div>
+            
+            <!-- Stats -->
+            <div class="profile-stats mt-4">
+                <div class="stat-card">
+                    <span class="stat-value">{projects_count}</span>
+                    <span class="stat-label">Projects</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{workgroups_count}</span>
+                    <span class="stat-label">Coordinating</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{memberships_count}</span>
+                    <span class="stat-label">Memberships</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{chair_count}</span>
+                    <span class="stat-label">Chair</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{submissions_count}</span>
+                    <span class="stat-label">Submissions</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Content Tabs -->
+        <div class="row mt-5">
+            <div class="col-12">
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#about-tab">About</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#activity-tab">Activity</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#projects-tab">Projects</button>
+                    </li>
+                </ul>
+                
+                <div class="tab-content mt-4">
+                    <!-- About Tab -->
+                    <div class="tab-pane fade show active" id="about-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Bio</h5>
+                                {f'<p>{profile_user.bio}</p>' if profile_user.bio else '<p class="text-muted">No bio provided yet.</p>'}
+                                
+                                <h5 class="card-title mt-4">Details</h5>
+                                <p><strong>Member since:</strong> {profile_user.created_at.strftime('%B %Y') if profile_user.created_at else 'Unknown'}</p>
+                                {f'<p><strong>Email:</strong> {profile_user.email}</p>' if profile_user.email else ''}
+                                {f'<p><strong>Role:</strong> <span class="badge bg-primary">{profile_user.role}</span></p>' if profile_user.role else ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Activity Tab -->
+                    <div class="tab-pane fade" id="activity-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Recent Activity</h5>
+                                <div class="list-group list-group-flush">
+                                    {self._format_activity_items(recent_projects, recent_submissions)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Projects Tab -->
+                    <div class="tab-pane fade" id="projects-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Initiated Projects</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/projects/{p[1]}/" class="list-group-item list-group-item-action"><strong>{p[0]}</strong><br><small class="text-muted">Created {p[2]}</small></a>' for p in recent_projects]) if recent_projects else '<p class="text-muted">No projects yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    
+    return render_page(f"{profile_user.displayName or profile_user.username} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+def _format_activity_items(projects, submissions):
+    """Helper function to format activity items"""
+    items = []
+    
+    for project in projects:
+        items.append((project[2], 'project', f'Created project <strong>{project[0]}</strong>', f'/projects/{project[1]}/'))
+    
+    for submission in submissions:
+        items.append((submission[1], 'submission', f'Submitted draft <strong>{submission[0]}</strong>', '#'))
+    
+    # Sort by date
+    items.sort(key=lambda x: x[0], reverse=True)
+    
+    html = ''
+    for date, type, text, link in items[:10]:  # Show latest 10
+        icon = 'fa-folder' if type == 'project' else 'fa-file-alt'
+        html += f'''
+        <a href="{link}" class="list-group-item list-group-item-action">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas {icon} me-2"></i>
+                    {text}
+                </div>
+                <small class="text-muted">{date.strftime('%b %d, %Y') if date else ''}</small>
+            </div>
+        </a>
+        '''
+    
+    return html if html else '<p class="text-muted">No recent activity.</p>'
 
 @app.route('/roles/')
 def roles_directory():
