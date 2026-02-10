@@ -9295,7 +9295,7 @@ def admin_projects():
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
-                            <h5><a href="/projects/${project.project_slug}/" target="_blank">${project.name}</a></h5>
+                            <h5><a href="/projects/${project.slug}/" target="_blank">${project.name}</a></h5>
                             <p class="mb-2">${project.description || 'No description'}</p>
                             <small class="text-muted">
                                 Created: ${new Date(project.created_at).toLocaleDateString()} | 
@@ -9427,7 +9427,7 @@ def admin_workgroups():
                 // Add project info to each workgroup
                 wgData.workgroups.forEach(wg => {
                     wg.project_name = project.name;
-                    wg.project_slug = project.project_slug;
+                    wg.project_slug = project.slug;
                     allWorkgroups.push(wg);
                 });
             }
@@ -9459,7 +9459,7 @@ def admin_workgroups():
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
-                            <h5><a href="/workgroups/${wg.workgroup_slug}/" target="_blank">${wg.name}</a></h5>
+                            <h5><a href="/workgroups/${wg.slug}/" target="_blank">${wg.name}</a></h5>
                             <p class="mb-2">${wg.description || 'No description'}</p>
                             <small class="text-muted">
                                 Project: <a href="/projects/${wg.project_slug}/" target="_blank">${wg.project_name}</a> | 
@@ -9591,7 +9591,7 @@ def admin_roles():
                 // Add project info to each role
                 rolesData.roles.forEach(role => {
                     role.project_name = project.name;
-                    role.project_slug = project.project_slug;
+                    role.project_slug = project.slug;
                     allRoles.push(role);
                 });
             }
@@ -9737,7 +9737,7 @@ def admin_badges():
                 // Add project info to each badge
                 badgesData.badges.forEach(badge => {
                     badge.project_name = project.name;
-                    badge.project_slug = project.project_slug;
+                    badge.project_slug = project.slug;
                     allBadges.push(badge);
                 });
             }
@@ -12773,7 +12773,7 @@ def projects_directory():
                     <div class="card h-100">
                         <div class="card-body">
                             <h5 class="card-title">
-                                <a href="/projects/${{project.project_slug}}/">${{project.name}}</a>
+                                <a href="/projects/${{project.slug}}/">${{project.name}}</a>
                             </h5>
                             <div class="mb-2">
                                 ${{statusBadge}}
@@ -12961,7 +12961,7 @@ def workgroups_directory():
                     <div class="card h-100">
                         <div class="card-body">
                             <h5 class="card-title">
-                                <a href="/workgroups/${{wg.workgroup_slug}}/">${{wg.name}}</a>
+                                <a href="/workgroups/${{wg.slug}}/">${{wg.name}}</a>
                             </h5>
                             <div class="mb-2">
                                 ${{statusBadge}}
@@ -13297,7 +13297,7 @@ def project_detail(project_slug):
                         <div class="col-md-6 mb-3">
                             <div class="card">
                                 <div class="card-body">
-                                    <h5 class="card-title"><a href="/workgroups/${{wg.workgroup_slug}}/">${{wg.name}}</a></h5>
+                                    <h5 class="card-title"><a href="/workgroups/${{wg.slug}}/">${{wg.name}}</a></h5>
                                     <p class="card-text text-muted">${{wg.description || 'No description'}}</p>
                                     <span class="badge bg-${{wg.status === 'active' ? 'success' : 'secondary'}}">${{wg.status}}</span>
                                 </div>
@@ -13916,7 +13916,7 @@ def workgroup_detail(workgroup_slug):
             for (const proj of projectsData.projects) {{
                 const wgResp = await fetch(`/api/projects/${{proj.id}}/workgroups/`);
                 const wgData = await wgResp.json();
-                const found = wgData.workgroups.find(wg => wg.workgroup_slug === workgroupSlug);
+                const found = wgData.workgroups.find(wg => wg.slug === workgroupSlug);
                 
                 if (found) {{
                     workgroup = found;
@@ -13955,7 +13955,7 @@ def workgroup_detail(workgroup_slug):
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb">
                             <li class="breadcrumb-item"><a href="/projects/">Projects</a></li>
-                            <li class="breadcrumb-item"><a href="/projects/${{project.project_slug}}/">${{project.name}}</a></li>
+                            <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">${{project.name}}</a></li>
                             <li class="breadcrumb-item active">${{workgroup.name}}</li>
                         </ol>
                     </nav>
@@ -13966,7 +13966,7 @@ def workgroup_detail(workgroup_slug):
                     </div>
                 </div>
                 <div class="col-md-4 text-end">
-                    <a href="/projects/${{project.project_slug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>
+                    <a href="/projects/${{project.slug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>
                 </div>
             </div>
         `;
@@ -13996,7 +13996,7 @@ def workgroup_detail(workgroup_slug):
     
     function displayWorkgroupDetails() {{
         document.getElementById('workgroup-details').innerHTML = `
-            <p><strong>Project:</strong> <a href="/projects/${{project.project_slug}}/">${{project.name}}</a></p>
+            <p><strong>Project:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
             <p><strong>Status:</strong> ${{workgroup.status}}</p>
             <p><strong>Approval:</strong> ${{workgroup.approval_status}}</p>
             <p><strong>Created:</strong> ${{new Date(workgroup.created_at).toLocaleDateString()}}</p>
@@ -14177,7 +14177,7 @@ def role_detail(role_slug):
                 </div>
                 <div class="col-md-4 text-end">
                     <a href="/roles/${{roleSlug}}/images/" class="btn btn-outline-primary mb-2"><i class="fas fa-images me-2"></i>View Images</a>
-                    <a href="/projects/${{project.project_slug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>
+                    <a href="/projects/${{project.slug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>
                 </div>
             </div>
         `;
@@ -14195,7 +14195,7 @@ def role_detail(role_slug):
     
     function displayRoleDetails() {{
         document.getElementById('role-details').innerHTML = `
-            <p><strong>Project:</strong> <a href="/projects/${{project.project_slug}}/">${{project.name}}</a></p>
+            <p><strong>Project:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
             <p><strong>Status:</strong> ${{role.status}}</p>
             <p><strong>Visibility:</strong> ${{role.public_visible ? 'Public' : 'Private'}}</p>
             <p><strong>Active Claims:</strong> ${{role.active_claims_count || 0}}</p>
@@ -14382,7 +14382,7 @@ https://github.com/username/project"></textarea>
                 <h5>${{role.title_guild}}</h5>
                 ${{role.title_operational ? `<h6 class="text-muted">${{role.title_operational}}</h6>` : ''}}
                 <p class="mt-3">${{role.description}}</p>
-                <p class="mb-0"><strong>Project:</strong> <a href="/projects/${{project.project_slug}}/">${{project.name}}</a></p>
+                <p class="mb-0"><strong>Project:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
             </div>
         `;
     }}
