@@ -7501,6 +7501,19 @@ def admin_dashboard():
     total_submissions = Submission.query.count()
     approved_drafts = Submission.query.filter(Submission.status.in_(['approved', 'published'])).count()
     pending_chairs = WorkingGroupChair.query.filter_by(approved=False).count()
+    
+    # New statistics for Projects/Workgroups/Guilds
+    total_projects = Project.query.count()
+    pending_projects = Project.query.filter_by(approval_status='pending').count()
+    total_workgroups = Workgroup.query.count()
+    pending_workgroups = Workgroup.query.filter_by(approval_status='pending').count()
+    total_guilds = Guild.query.count()
+    total_roles = Role.query.count()
+    pending_roles = Role.query.filter_by(approval_status='pending').count()
+    total_claims = Claim.query.count()
+    pending_claims = Claim.query.filter_by(approval_status='pending').count()
+    total_badges = Badge.query.count()
+    pending_badges = Badge.query.filter_by(approval_status='pending').count()
 
     # Recent activity and alerts
     pending_submissions = Submission.query.filter_by(status='submitted').count()
@@ -7560,6 +7573,46 @@ def admin_dashboard():
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         """
+    
+    if pending_projects > 0:
+        alerts_html += f"""
+        <div class="alert alert-primary alert-dismissible fade show" role="alert">
+            <i class="fas fa-project-diagram me-2"></i>
+            <strong>{pending_projects}</strong> project(s) pending approval
+            <a href="/admin/projects/" class="alert-link">Review now</a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        """
+    
+    if pending_workgroups > 0:
+        alerts_html += f"""
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <i class="fas fa-users me-2"></i>
+            <strong>{pending_workgroups}</strong> workgroup(s) pending approval
+            <a href="/admin/workgroups/" class="alert-link">Review now</a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        """
+    
+    if pending_roles > 0:
+        alerts_html += f"""
+        <div class="alert alert-secondary alert-dismissible fade show" role="alert">
+            <i class="fas fa-user-tag me-2"></i>
+            <strong>{pending_roles}</strong> role(s) pending approval
+            <a href="/admin/roles/" class="alert-link">Review now</a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        """
+    
+    if pending_badges > 0:
+        alerts_html += f"""
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="fas fa-award me-2"></i>
+            <strong>{pending_badges}</strong> badge(s) pending issuance
+            <a href="/admin/badges/" class="alert-link">Issue now</a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        """
 
     content = f"""
     <div class="container mt-4">
@@ -7573,15 +7626,18 @@ def admin_dashboard():
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h1>Admin Dashboard</h1>
                     <div>
-                        <a href="/admin/users/" class="btn btn-outline-primary me-2">Manage Users</a>
-                        <a href="/admin/chairs/" class="btn btn-outline-warning me-2">Manage Coords</a>
-                        <a href="/admin/submissions/" class="btn btn-outline-success">Review Submissions</a>
+                        <a href="/admin/users/" class="btn btn-outline-primary me-2"><i class="fas fa-users me-1"></i>Users</a>
+                        <a href="/admin/submissions/" class="btn btn-outline-success me-2"><i class="fas fa-file-alt me-1"></i>Submissions</a>
+                        <a href="/admin/projects/" class="btn btn-outline-info me-2"><i class="fas fa-project-diagram me-1"></i>Projects</a>
+                        <a href="/admin/workgroups/" class="btn btn-outline-warning me-2"><i class="fas fa-users me-1"></i>Workgroups</a>
+                        <a href="/admin/roles/" class="btn btn-outline-secondary me-2"><i class="fas fa-user-tag me-1"></i>Roles</a>
+                        <a href="/admin/badges/" class="btn btn-outline-primary"><i class="fas fa-award me-1"></i>Badges</a>
                     </div>
                 </div>
 
                 <!-- Statistics Cards -->
                 <div class="row mb-4">
-                    <div class="col-md-2">
+                    <div class="col-md-3">
                         <div class="card h-100">
                             <div class="card-body text-center">
                                 <h4 class="text-primary mb-1">{total_users}</h4>
@@ -7589,43 +7645,68 @@ def admin_dashboard():
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-md-3">
                         <div class="card h-100">
                             <div class="card-body text-center">
-                                <h4 class="text-success mb-1">{total_groups}</h4>
-                                <p class="mb-0 small">Workgroups</p>
+                                <h4 class="text-info mb-1">{total_projects}</h4>
+                                <p class="mb-0 small">Projects</p>
+                                {f'<small class="text-warning">({pending_projects} pending)</small>' if pending_projects > 0 else ''}
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-md-3">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <h4 class="text-success mb-1">{total_workgroups}</h4>
+                                <p class="mb-0 small">Workgroups</p>
+                                {f'<small class="text-warning">({pending_workgroups} pending)</small>' if pending_workgroups > 0 else ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <h4 class="text-secondary mb-1">{total_roles}</h4>
+                                <p class="mb-0 small">Roles</p>
+                                {f'<small class="text-warning">({pending_roles} pending)</small>' if pending_roles > 0 else ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mb-4">
+                    <div class="col-md-3">
                         <div class="card h-100">
                             <div class="card-body text-center">
                                 <h4 class="text-warning mb-1">{total_submissions}</h4>
-                                <p class="mb-0 small">Total Submissions</p>
+                                <p class="mb-0 small">Submissions</p>
+                                {f'<small class="text-danger">({pending_submissions} pending)</small>' if pending_submissions > 0 else ''}
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-md-3">
                         <div class="card h-100">
                             <div class="card-body text-center">
-                                <h4 class="text-info mb-1">{approved_drafts}</h4>
-                                <p class="mb-0 small">Published Drafts</p>
+                                <h4 class="text-primary mb-1">{total_badges}</h4>
+                                <p class="mb-0 small">Badges</p>
+                                {f'<small class="text-warning">({pending_badges} pending)</small>' if pending_badges > 0 else ''}
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-md-3">
                         <div class="card h-100">
                             <div class="card-body text-center">
-                                <h4 class="text-danger mb-1">{pending_submissions}</h4>
-                                <p class="mb-0 small">Pending Review</p>
+                                <h4 class="text-success mb-1">{total_claims}</h4>
+                                <p class="mb-0 small">Claims</p>
+                                {f'<small class="text-warning">({pending_claims} pending)</small>' if pending_claims > 0 else ''}
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-md-3">
                         <div class="card h-100">
                             <div class="card-body text-center">
-                                <h4 class="text-secondary mb-1">{pending_chairs}</h4>
-                                <p class="mb-0 small">Pending Coordinators</p>
+                                <h4 class="text-info mb-1">{total_guilds}</h4>
+                                <p class="mb-0 small">Guilds</p>
                             </div>
                         </div>
                     </div>
