@@ -2372,6 +2372,12 @@ BASE_TEMPLATE = """
             filter: invert(1);
         }}
 
+        [data-theme="dark"] .list-group-item {{
+            background-color: var(--bg-secondary) !important;
+            color: var(--text-primary) !important;
+            border-color: var(--border-color) !important;
+        }}
+
         /* Alerts */
         .alert {{
             border-radius: 12px;
@@ -6398,6 +6404,52 @@ def api_join_workgroup(workgroup_id):
     db.session.commit()
     
     return jsonify({'success': True, 'message': 'Successfully joined workgroup'})
+
+@app.route('/api/workgroups/<int:workgroup_id>/nominate-chair/', methods=['POST'])
+@require_auth
+def api_nominate_chair(workgroup_id):
+    """Nominate yourself as a chair/coordinator for a workgroup"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    
+    # Check if workgroup is approved
+    if workgroup.approval_status != 'approved':
+        return jsonify({'error': 'Workgroup must be approved before nominating chairs'}), 400
+    
+    # Check if user is already a chair
+    from sqlalchemy import text
+    check_query = text("""
+        SELECT id FROM working_group_chair
+        WHERE group_acronym = :acronym AND user_id = :user_id
+    """)
+    
+    existing = db.session.execute(check_query, {
+        'acronym': workgroup.acronym,
+        'user_id': current_user['id']
+    }).fetchone()
+    
+    if existing:
+        return jsonify({'error': 'You are already nominated as a chair for this workgroup'}), 400
+    
+    # Add chair nomination (pending approval)
+    insert_query = text("""
+        INSERT INTO working_group_chair (group_acronym, user_id, chair_name, approved, set_at)
+        VALUES (:acronym, :user_id, :chair_name, :approved, :set_at)
+    """)
+    
+    db.session.execute(insert_query, {
+        'acronym': workgroup.acronym,
+        'user_id': current_user['id'],
+        'chair_name': current_user.get('displayName') or current_user.get('username'),
+        'approved': False,  # Requires approval
+        'set_at': datetime.utcnow()
+    })
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Chair nomination submitted for approval'})
 
 # ============================================================================
 # Guilds API Endpoints
@@ -14837,6 +14889,7 @@ def workgroup_detail(workgroup_slug):
                     <div class="card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Chairs / Coordinators</h5>
+                            {'<button class="btn btn-sm btn-success" onclick="nominateForChair()" id="nominate-btn" style="display:none;"><i class="fas fa-star me-1"></i>Nominate for Chair</button>' if current_user else ''}
                         </div>
                     </div>
                     <div class="card-body" id="workgroup-chairs">
@@ -15012,6 +15065,24 @@ def workgroup_detail(workgroup_slug):
             const response = await fetch(`/api/workgroups/${{workgroup.id}}/chairs/`);
             const data = await response.json();
             
+            // Check if current user is already a chair
+            const currentUserId = {current_user['id'] if current_user else 'null'};
+            let isCurrentUserChair = false;
+            if (isAuthenticated && data.chairs) {{
+                isCurrentUserChair = data.chairs.some(c => c.user_id === currentUserId);
+            }}
+            
+            // Show/hide nominate button (only if user is a member and not already a chair)
+            const nominateBtn = document.getElementById('nominate-btn');
+            if (nominateBtn) {{
+                // We'll check membership status from the members list
+                if (isAuthenticated && !isCurrentUserChair && workgroup.approval_status === 'approved') {{
+                    nominateBtn.style.display = 'block';
+                }} else {{
+                    nominateBtn.style.display = 'none';
+                }}
+            }}
+            
             let html = '';
             if (data.chairs && data.chairs.length > 0) {{
                 html = '<div class="list-group">';
@@ -15046,10 +15117,10 @@ def workgroup_detail(workgroup_slug):
             const data = await response.json();
             
             // Check if current user is already a member
+            const currentUserId = {current_user['id'] if current_user else 'null'};
             let isCurrentUserMember = false;
             if (isAuthenticated && data.members) {{
-                // We'll check by comparing user_name or user_id when available
-                isCurrentUserMember = data.members.some(m => m.user_id === '{current_user['id'] if current_user else 'null'}');
+                isCurrentUserMember = data.members.some(m => m.user_id === currentUserId);
             }}
             
             // Show/hide join button
@@ -15113,6 +15184,36 @@ def workgroup_detail(workgroup_slug):
         }} catch (error) {{
             console.error('Error joining workgroup:', error);
             alert('Failed to join workgroup');
+        }}
+    }}
+    
+    async function nominateForChair() {{
+        if (!isAuthenticated) {{
+            alert('Please sign in to nominate yourself for chair');
+            return;
+        }}
+        
+        if (!confirm('Nominate yourself as a chair/coordinator for this workgroup? This will require approval.')) {{
+            return;
+        }}
+        
+        try {{
+            const response = await fetch(`/api/workgroups/${{workgroup.id}}/nominate-chair/`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }}
+            }});
+            
+            const data = await response.json();
+            
+            if (response.ok) {{
+                alert('Chair nomination submitted! It will require approval.');
+                loadChairs(); // Reload chairs list
+            }} else {{
+                alert(data.error || 'Failed to nominate for chair');
+            }}
+        }} catch (error) {{
+            console.error('Error nominating for chair:', error);
+            alert('Failed to nominate for chair');
         }}
     }}
     
