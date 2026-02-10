@@ -463,8 +463,11 @@ Fully implemented in previous work:
 11. **2a983101e** - Add Workgroup, Role detail pages and Claim role form (3 pages)
 12. **1692237db** - Update status: 95% complete
 13. **27d0103d2** - Add admin dashboards for approval workflows (4 pages)
+14. **db931f227** - Final status update: 98% complete
+15. **ef3dc795f** - Merge origin/dev into feature branch (28 commits from dev)
 
-**Total Lines Added:** ~5700+ lines of code
+**Total Lines Added:** ~5700+ lines of code  
+**Dev Changes Merged:** Hypothesis integration, revision loading, schema updates, UI improvements
 
 ---
 
