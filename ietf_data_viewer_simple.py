@@ -1656,15 +1656,6 @@ def generate_user_menu():
         </div>
         """
 
-def render_page(title, content, theme='dark', user_menu=''):
-    """Helper function to render a page with BASE_TEMPLATE"""
-    return BASE_TEMPLATE.format(
-        title=title,
-        theme=theme,
-        user_menu=user_menu,
-        content=content
-    )
-
 def add_to_document_history(draft_name, action, user, details=""):
     """Add an entry to document history"""
     if draft_name not in DOCUMENT_HISTORY:
@@ -2682,18 +2673,18 @@ BASE_TEMPLATE = """
                 MLGH
             </a>
             <div class="navbar-nav">
+                <a class="nav-link" href="/projects/">
+                    <i class="fas fa-project-diagram me-1"></i>Projects
+                </a>
+                <a class="nav-link" href="/workgroups/">
+                    <i class="fas fa-users me-1"></i>Workgroups
+                </a>
+                <a class="nav-link" href="/guilds/">
+                    <i class="fas fa-shield-alt me-1"></i>Guilds
+                </a>
                 <a class="nav-link" href="/doc/all/">
                     <i class="fas fa-file-alt me-1"></i>Documents
                 </a>
-                <a class="nav-link" href="/group/">
-                    <i class="fas fa-users me-1"></i>Workgroups
-                </a>
-                <!-- <a class="nav-link" href="/meeting/">
-                    <i class="fas fa-calendar me-1"></i>Meetings
-                </a>
-                <a class="nav-link" href="/person/">
-                    <i class="fas fa-user-friends me-1"></i>People
-                </a> -->
                 <a class="nav-link" href="/submit/">
                     <i class="fas fa-plus me-1"></i>Submit Draft
                 </a>
@@ -10020,22 +10011,22 @@ def home():
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header">
-                                <h5>Recent Documents</h5>
+                                <h5><i class="fas fa-project-diagram me-2"></i>Projects</h5>
                             </div>
                             <div class="card-body">
-                                <p>View the latest Meta-Layer documents including drafts and RFCs.</p>
-                                <a href="/doc/all/" class="btn btn-primary">View All Documents</a>
+                                <p>Browse and discover MLTF projects and their workgroups.</p>
+                                <a href="/projects/" class="btn btn-primary">View Projects</a>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header">
-                                <h5>Workgroups</h5>
+                                <h5><i class="fas fa-users me-2"></i>Workgroups</h5>
                             </div>
                             <div class="card-body">
-                                <p>Browse Meta-Layer workgroups and their activities.</p>
-                                <a href="/group/" class="btn btn-primary">View Workgroups</a>
+                                <p>Browse workgroups across all projects and their activities.</p>
+                                <a href="/workgroups/" class="btn btn-primary">View Workgroups</a>
                             </div>
                         </div>
                     </div>
@@ -10045,22 +10036,22 @@ def home():
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header">
-                                <h5>Meetings</h5>
+                                <h5><i class="fas fa-shield-alt me-2"></i>Guilds</h5>
                             </div>
                             <div class="card-body">
-                                <p>Information about Meta-Layer meetings and sessions.</p>
-                                <a href="/meeting/" class="btn btn-primary">View Meetings</a>
+                                <p>Cross-project collaboration groups and communities.</p>
+                                <a href="/guilds/" class="btn btn-primary">View Guilds</a>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header">
-                                <h5>People</h5>
+                                <h5><i class="fas fa-file-alt me-2"></i>Documents</h5>
                             </div>
                             <div class="card-body">
-                                <p>Directory of Meta-Layer participants and contributors.</p>
-                                <a href="/person/" class="btn btn-primary">View People</a>
+                                <p>View the latest Meta-Layer documents including drafts and RFCs.</p>
+                                <a href="/doc/all/" class="btn btn-primary">View All Documents</a>
                             </div>
                         </div>
                     </div>
