@@ -9410,7 +9410,7 @@ def admin_projects():
             const response = await fetch(`/api/projects/${projectId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({approve: true})
+                body: JSON.stringify({action: 'approve'})
             });
             
             if (response.ok) {
@@ -9434,7 +9434,7 @@ def admin_projects():
             const response = await fetch(`/api/projects/${projectId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({approve: false, note: note})
+                body: JSON.stringify({action: 'reject', note: note})
             });
             
             if (response.ok) {
@@ -9574,7 +9574,7 @@ def admin_workgroups():
             const response = await fetch(`/api/workgroups/${workgroupId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({approve: true})
+                body: JSON.stringify({action: 'approve'})
             });
             
             if (response.ok) {
@@ -9598,7 +9598,7 @@ def admin_workgroups():
             const response = await fetch(`/api/workgroups/${workgroupId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({approve: false, note: note})
+                body: JSON.stringify({action: 'reject', note: note})
             });
             
             if (response.ok) {
@@ -9736,7 +9736,7 @@ def admin_roles():
             const response = await fetch(`/api/roles/${roleId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({approve: true})
+                body: JSON.stringify({action: 'approve'})
             });
             
             if (response.ok) {
@@ -9899,7 +9899,7 @@ def admin_badges():
             const response = await fetch(`/api/badges/${badgeId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({approve: true, approval_note: note})
+                body: JSON.stringify({action: 'approve', approval_note: note})
             });
             
             if (response.ok) {
