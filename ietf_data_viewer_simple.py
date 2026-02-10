@@ -7509,11 +7509,11 @@ def admin_dashboard():
     pending_workgroups = Workgroup.query.filter_by(approval_status='pending').count()
     total_guilds = Guild.query.count()
     total_roles = Role.query.count()
-    pending_roles = Role.query.filter_by(approval_status='pending').count()
+    pending_roles = Role.query.filter_by(status='draft').count()  # Roles use 'draft' status before approval
     total_claims = Claim.query.count()
-    pending_claims = Claim.query.filter_by(approval_status='pending').count()
+    pending_claims = Claim.query.filter_by(status='pending_approval').count()  # Claims use 'pending_approval'
     total_badges = Badge.query.count()
-    pending_badges = Badge.query.filter_by(approval_status='pending').count()
+    pending_badges = Badge.query.filter_by(status='requested').count()  # Badges use 'requested' status
 
     # Recent activity and alerts
     pending_submissions = Submission.query.filter_by(status='submitted').count()
