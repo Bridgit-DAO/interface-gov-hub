@@ -1096,6 +1096,7 @@ class Role(db.Model):
             'id': self.id,
             'project_id': self.project_id,
             'role_slug': self.role_slug,
+            'slug': self.role_slug,  # Alias for consistency
             'title_guild': self.title_guild,
             'title_operational': self.title_operational,
             'description': self.description,
