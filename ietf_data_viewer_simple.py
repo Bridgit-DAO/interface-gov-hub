@@ -6354,6 +6354,51 @@ def api_list_workgroup_members(workgroup_id):
     
     return jsonify({'members': members, 'count': len(members)})
 
+@app.route('/api/workgroups/<int:workgroup_id>/join/', methods=['POST'])
+@require_auth
+def api_join_workgroup(workgroup_id):
+    """Join a workgroup as a member"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    
+    # Check if workgroup is approved
+    if workgroup.approval_status != 'approved':
+        return jsonify({'error': 'Workgroup must be approved before joining'}), 400
+    
+    # Check if user is already a member
+    from sqlalchemy import text
+    check_query = text("""
+        SELECT id FROM working_group_member
+        WHERE group_acronym = :acronym AND user_id = :user_id
+    """)
+    
+    existing = db.session.execute(check_query, {
+        'acronym': workgroup.acronym,
+        'user_id': current_user['id']
+    }).fetchone()
+    
+    if existing:
+        return jsonify({'error': 'You are already a member of this workgroup'}), 400
+    
+    # Add member
+    insert_query = text("""
+        INSERT INTO working_group_member (group_acronym, user_id, user_name, joined_at)
+        VALUES (:acronym, :user_id, :user_name, :joined_at)
+    """)
+    
+    db.session.execute(insert_query, {
+        'acronym': workgroup.acronym,
+        'user_id': current_user['id'],
+        'user_name': current_user.get('displayName') or current_user.get('username'),
+        'joined_at': datetime.utcnow()
+    })
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Successfully joined workgroup'})
+
 # ============================================================================
 # Guilds API Endpoints
 # ============================================================================
@@ -14803,6 +14848,7 @@ def workgroup_detail(workgroup_slug):
                     <div class="card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Members</h5>
+                            {'<button class="btn btn-sm btn-primary" onclick="joinWorkgroup()" id="join-btn" style="display:none;"><i class="fas fa-user-plus me-1"></i>Join</button>' if current_user else ''}
                         </div>
                     </div>
                     <div class="card-body" id="workgroup-members">
@@ -14999,6 +15045,23 @@ def workgroup_detail(workgroup_slug):
             const response = await fetch(`/api/workgroups/${{workgroup.id}}/members/`);
             const data = await response.json();
             
+            // Check if current user is already a member
+            let isCurrentUserMember = false;
+            if (isAuthenticated && data.members) {{
+                // We'll check by comparing user_name or user_id when available
+                isCurrentUserMember = data.members.some(m => m.user_id === '{current_user['id'] if current_user else 'null'}');
+            }}
+            
+            // Show/hide join button
+            const joinBtn = document.getElementById('join-btn');
+            if (joinBtn) {{
+                if (isAuthenticated && !isCurrentUserMember && workgroup.approval_status === 'approved') {{
+                    joinBtn.style.display = 'block';
+                }} else {{
+                    joinBtn.style.display = 'none';
+                }}
+            }}
+            
             let html = '';
             if (data.members && data.members.length > 0) {{
                 html = `<p class="text-muted mb-2">${{data.members.length}} member(s)</p>`;
@@ -15020,6 +15083,36 @@ def workgroup_detail(workgroup_slug):
         }} catch (error) {{
             console.error('Error loading members:', error);
             document.getElementById('workgroup-members').innerHTML = '<p class="text-muted">No members yet</p>';
+        }}
+    }}
+    
+    async function joinWorkgroup() {{
+        if (!isAuthenticated) {{
+            alert('Please sign in to join this workgroup');
+            return;
+        }}
+        
+        if (!confirm('Join this workgroup?')) {{
+            return;
+        }}
+        
+        try {{
+            const response = await fetch(`/api/workgroups/${{workgroup.id}}/join/`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }}
+            }});
+            
+            const data = await response.json();
+            
+            if (response.ok) {{
+                alert('Successfully joined workgroup!');
+                loadMembers(); // Reload members list
+            }} else {{
+                alert(data.error || 'Failed to join workgroup');
+            }}
+        }} catch (error) {{
+            console.error('Error joining workgroup:', error);
+            alert('Failed to join workgroup');
         }}
     }}
     
