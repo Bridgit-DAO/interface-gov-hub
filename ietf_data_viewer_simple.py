@@ -11576,6 +11576,607 @@ def create_guild_page():
     
     return render_page("Create Guild - MLGH", content, theme=current_theme, user_menu=user_menu)
 
+@app.route('/workgroups/<workgroup_slug>/')
+def workgroup_detail(workgroup_slug):
+    """Workgroup detail page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div id="workgroup-header" class="mb-4">
+            <div class="d-flex justify-content-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header"><h5>About</h5></div>
+                    <div class="card-body" id="workgroup-about">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header"><h5>Charter & Goals</h5></div>
+                    <div class="card-body" id="workgroup-charter">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header"><h5>Details</h5></div>
+                    <div class="card-body" id="workgroup-details">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header"><h5>Links</h5></div>
+                    <div class="card-body" id="workgroup-links">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let workgroup = null;
+    let project = null;
+    const workgroupSlug = '{workgroup_slug}';
+    const isAuthenticated = {'true' if current_user else 'false'};
+    
+    async function loadWorkgroup() {{
+        try {{
+            // Load all projects first to find the workgroup
+            const projectsResp = await fetch('/api/projects/');
+            const projectsData = await projectsResp.json();
+            
+            // Search for workgroup across all projects
+            for (const proj of projectsData.projects) {{
+                const wgResp = await fetch(`/api/projects/${{proj.id}}/workgroups/`);
+                const wgData = await wgResp.json();
+                const found = wgData.workgroups.find(wg => wg.workgroup_slug === workgroupSlug);
+                
+                if (found) {{
+                    workgroup = found;
+                    project = proj;
+                    break;
+                }}
+            }}
+            
+            if (!workgroup) {{
+                document.getElementById('workgroup-header').innerHTML = '<div class="alert alert-danger">Workgroup not found</div>';
+                return;
+            }}
+            
+            // Load full workgroup details
+            const detailResp = await fetch(`/api/workgroups/${{workgroup.id}}/`);
+            workgroup = await detailResp.json();
+            
+            displayWorkgroupHeader();
+            displayWorkgroupAbout();
+            displayWorkgroupCharter();
+            displayWorkgroupDetails();
+            displayWorkgroupLinks();
+        }} catch (error) {{
+            console.error('Error loading workgroup:', error);
+            document.getElementById('workgroup-header').innerHTML = '<div class="alert alert-danger">Error loading workgroup</div>';
+        }}
+    }}
+    
+    function displayWorkgroupHeader() {{
+        const statusBadge = getStatusBadge(workgroup.status);
+        const approvalBadge = getApprovalBadge(workgroup.approval_status);
+        
+        document.getElementById('workgroup-header').innerHTML = `
+            <div class="row">
+                <div class="col-md-8">
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a href="/projects/">Projects</a></li>
+                            <li class="breadcrumb-item"><a href="/projects/${{project.project_slug}}/">${{project.name}}</a></li>
+                            <li class="breadcrumb-item active">${{workgroup.name}}</li>
+                        </ol>
+                    </nav>
+                    <h1>${{workgroup.name}}</h1>
+                    <div class="mb-3">
+                        ${{statusBadge}}
+                        ${{approvalBadge}}
+                    </div>
+                </div>
+                <div class="col-md-4 text-end">
+                    <a href="/projects/${{project.project_slug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>
+                </div>
+            </div>
+        `;
+    }}
+    
+    function displayWorkgroupAbout() {{
+        document.getElementById('workgroup-about').innerHTML = `
+            <p>${{workgroup.description || 'No description provided'}}</p>
+        `;
+    }}
+    
+    function displayWorkgroupCharter() {{
+        let html = '';
+        if (workgroup.charter) {{
+            html = `<p>${{workgroup.charter}}</p>`;
+        }} else {{
+            html = '<p class="text-muted">No charter defined yet</p>';
+        }}
+        
+        if (workgroup.goals) {{
+            html += '<h6 class="mt-3">Goals</h6>';
+            html += `<p>${{workgroup.goals}}</p>`;
+        }}
+        
+        document.getElementById('workgroup-charter').innerHTML = html;
+    }}
+    
+    function displayWorkgroupDetails() {{
+        document.getElementById('workgroup-details').innerHTML = `
+            <p><strong>Project:</strong> <a href="/projects/${{project.project_slug}}/">${{project.name}}</a></p>
+            <p><strong>Status:</strong> ${{workgroup.status}}</p>
+            <p><strong>Approval:</strong> ${{workgroup.approval_status}}</p>
+            <p><strong>Created:</strong> ${{new Date(workgroup.created_at).toLocaleDateString()}}</p>
+            ${{workgroup.coordinator_id ? `<p><strong>Coordinator ID:</strong> ${{workgroup.coordinator_id}}</p>` : ''}}
+        `;
+    }}
+    
+    function displayWorkgroupLinks() {{
+        let html = '';
+        
+        if (workgroup.mailing_list_url) {{
+            html += `<p><a href="${{workgroup.mailing_list_url}}" target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-2"><i class="fas fa-envelope me-2"></i>Mailing List</a></p>`;
+        }}
+        
+        if (workgroup.chat_url) {{
+            html += `<p><a href="${{workgroup.chat_url}}" target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-2"><i class="fas fa-comments me-2"></i>Chat</a></p>`;
+        }}
+        
+        if (workgroup.repo_url) {{
+            html += `<p><a href="${{workgroup.repo_url}}" target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-2"><i class="fas fa-code-branch me-2"></i>Repository</a></p>`;
+        }}
+        
+        if (!html) {{
+            html = '<p class="text-muted">No links available</p>';
+        }}
+        
+        document.getElementById('workgroup-links').innerHTML = html;
+    }}
+    
+    function getStatusBadge(status) {{
+        const badges = {{
+            'active': '<span class="badge bg-success">Active</span>',
+            'inactive': '<span class="badge bg-warning">Inactive</span>',
+            'completed': '<span class="badge bg-primary">Completed</span>',
+            'archived': '<span class="badge bg-secondary">Archived</span>'
+        }};
+        return badges[status] || '';
+    }}
+    
+    function getApprovalBadge(approval) {{
+        const badges = {{
+            'pending': '<span class="badge bg-warning">Pending Approval</span>',
+            'approved': '<span class="badge bg-success">Approved</span>',
+            'rejected': '<span class="badge bg-danger">Rejected</span>'
+        }};
+        return badges[approval] || '';
+    }}
+    
+    // Load workgroup on page load
+    loadWorkgroup();
+    </script>
+    """
+    
+    return render_page(f"Workgroup: {workgroup_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/roles/<role_slug>/')
+def role_detail(role_slug):
+    """Role detail page with claims"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div id="role-header" class="mb-4">
+            <div class="d-flex justify-content-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header"><h5>Description</h5></div>
+                    <div class="card-body" id="role-description">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Active Claims</h5>
+                            {'<button class="btn btn-sm btn-primary" onclick="claimRole()"><i class="fas fa-hand-paper me-2"></i>Claim This Role</button>' if current_user else '<a href="/login/" class="btn btn-sm btn-primary">Login to Claim</a>'}
+                        </div>
+                    </div>
+                    <div class="card-body" id="role-claims">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header"><h5>Role Details</h5></div>
+                    <div class="card-body" id="role-details">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header"><h5>Configuration</h5></div>
+                    <div class="card-body" id="role-config">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let role = null;
+    let project = null;
+    const roleSlug = '{role_slug}';
+    const isAuthenticated = {'true' if current_user else 'false'};
+    const currentUserId = {current_user['id'] if current_user else 'null'};
+    
+    async function loadRole() {{
+        try {{
+            // Load all projects to find the role
+            const projectsResp = await fetch('/api/projects/');
+            const projectsData = await projectsResp.json();
+            
+            // Search for role across all projects
+            for (const proj of projectsData.projects) {{
+                const rolesResp = await fetch(`/api/projects/${{proj.id}}/roles/`);
+                const rolesData = await rolesResp.json();
+                const found = rolesData.roles.find(r => r.role_slug === roleSlug);
+                
+                if (found) {{
+                    role = found;
+                    project = proj;
+                    break;
+                }}
+            }}
+            
+            if (!role) {{
+                document.getElementById('role-header').innerHTML = '<div class="alert alert-danger">Role not found</div>';
+                return;
+            }}
+            
+            // Load full role details
+            const detailResp = await fetch(`/api/roles/${{role.id}}/`);
+            role = await detailResp.json();
+            
+            displayRoleHeader();
+            displayRoleDescription();
+            displayRoleDetails();
+            displayRoleConfig();
+            loadClaims();
+        }} catch (error) {{
+            console.error('Error loading role:', error);
+            document.getElementById('role-header').innerHTML = '<div class="alert alert-danger">Error loading role</div>';
+        }}
+    }}
+    
+    function displayRoleHeader() {{
+        const statusBadge = getStatusBadge(role.status);
+        
+        document.getElementById('role-header').innerHTML = `
+            <div class="row">
+                <div class="col-md-8">
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a href="/projects/">Projects</a></li>
+                            <li class="breadcrumb-item"><a href="/projects/${{project.project_slug}}/">${{project.name}}</a></li>
+                            <li class="breadcrumb-item active">${{role.title_guild}}</li>
+                        </ol>
+                    </nav>
+                    <h1>${{role.title_guild}}</h1>
+                    ${{role.title_operational ? `<h5 class="text-muted">${{role.title_operational}}</h5>` : ''}}
+                    <div class="mb-3">
+                        ${{statusBadge}}
+                        ${{role.public_visible ? '<span class="badge bg-info ms-2">Public</span>' : ''}}
+                    </div>
+                </div>
+                <div class="col-md-4 text-end">
+                    <a href="/roles/${{roleSlug}}/images/" class="btn btn-outline-primary mb-2"><i class="fas fa-images me-2"></i>View Images</a>
+                    <a href="/projects/${{project.project_slug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>
+                </div>
+            </div>
+        `;
+    }}
+    
+    function displayRoleDescription() {{
+        let html = `<p>${{role.description}}</p>`;
+        
+        if (role.image_url) {{
+            html += `<div class="mt-3"><img src="${{role.image_url}}" alt="${{role.title_guild}}" class="img-fluid rounded" style="max-height: 300px;"></div>`;
+        }}
+        
+        document.getElementById('role-description').innerHTML = html;
+    }}
+    
+    function displayRoleDetails() {{
+        document.getElementById('role-details').innerHTML = `
+            <p><strong>Project:</strong> <a href="/projects/${{project.project_slug}}/">${{project.name}}</a></p>
+            <p><strong>Status:</strong> ${{role.status}}</p>
+            <p><strong>Visibility:</strong> ${{role.public_visible ? 'Public' : 'Private'}}</p>
+            <p><strong>Active Claims:</strong> ${{role.active_claims_count || 0}}</p>
+            <p><strong>Created:</strong> ${{new Date(role.created_at).toLocaleDateString()}}</p>
+            ${{role.cluster_id ? `<p><strong>Cluster ID:</strong> ${{role.cluster_id}}</p>` : ''}}
+        `;
+    }}
+    
+    function displayRoleConfig() {{
+        document.getElementById('role-config').innerHTML = `
+            <p><strong>Claim Approval:</strong> ${{role.claim_requires_approval ? 'Required' : 'Not Required'}}</p>
+            <p><strong>Badges:</strong> ${{role.badge_enabled ? 'Enabled' : 'Disabled'}}</p>
+            ${{role.badge_enabled ? `<p><strong>Badge Approval:</strong> ${{role.badge_requires_approval ? 'Required' : 'Not Required'}}</p>` : ''}}
+        `;
+    }}
+    
+    async function loadClaims() {{
+        try {{
+            const response = await fetch(`/api/roles/${{role.id}}/claims/?status=active`);
+            const data = await response.json();
+            
+            if (data.claims.length === 0) {{
+                document.getElementById('role-claims').innerHTML = '<p class="text-muted">No active claims yet</p>';
+                return;
+            }}
+            
+            let html = '<div class="list-group">';
+            data.claims.forEach(claim => {{
+                html += `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between">
+                            <h6>Claimant ID: ${{claim.claimant_id}}</h6>
+                            <span class="badge bg-success">Active</span>
+                        </div>
+                        ${{claim.intent ? `<p class="mb-1">${{claim.intent}}</p>` : ''}}
+                        <small class="text-muted">Claimed: ${{new Date(claim.created_at).toLocaleDateString()}}</small>
+                    </div>
+                `;
+            }});
+            html += '</div>';
+            
+            document.getElementById('role-claims').innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading claims:', error);
+            document.getElementById('role-claims').innerHTML = '<div class="alert alert-danger">Error loading claims</div>';
+        }}
+    }}
+    
+    function getStatusBadge(status) {{
+        const badges = {{
+            'draft': '<span class="badge bg-secondary">Draft</span>',
+            'approved': '<span class="badge bg-success">Approved</span>',
+            'deprecated': '<span class="badge bg-warning">Deprecated</span>',
+            'archived': '<span class="badge bg-dark">Archived</span>'
+        }};
+        return badges[status] || '';
+    }}
+    
+    function claimRole() {{
+        if (role.status !== 'approved') {{
+            alert('This role must be approved before it can be claimed');
+            return;
+        }}
+        
+        window.location.href = `/roles/${{roleSlug}}/claim/`;
+    }}
+    
+    // Load role on page load
+    loadRole();
+    </script>
+    """
+    
+    return render_page(f"Role: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/roles/<role_slug>/claim/')
+@require_auth
+def claim_role_page(role_slug):
+    """Claim role form page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <h1 class="mb-4" id="page-title">Claim Role</h1>
+                
+                <div id="alert-container"></div>
+                
+                <div id="role-info" class="card mb-4">
+                    <div class="card-body text-center">
+                        <div class="spinner-border text-primary"></div>
+                    </div>
+                </div>
+                
+                <form id="claimRoleForm" style="display: none;">
+                    <div class="mb-3">
+                        <label for="intent" class="form-label">Intent Statement</label>
+                        <textarea class="form-control" id="intent" rows="4" placeholder="Describe your intent in claiming this role and how you plan to contribute..."></textarea>
+                        <div class="form-text">Optional: Explain your motivation and plans</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="evidence_links" class="form-label">Evidence Links</label>
+                        <textarea class="form-control" id="evidence_links" rows="3" placeholder="https://example.com/my-work
+https://github.com/username/project"></textarea>
+                        <div class="form-text">Optional: Links to relevant work or contributions (one per line)</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="term_duration_days" class="form-label">Term Duration (days)</label>
+                        <input type="number" class="form-control" id="term_duration_days" min="1" placeholder="Leave empty for indefinite">
+                        <div class="form-text">Optional: Set a time limit for this claim</div>
+                    </div>
+                    
+                    <div id="approval-notice" class="alert alert-warning" style="display: none;">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Note:</strong> This role requires approval. Your claim will be pending until reviewed by a project admin.
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <i class="fas fa-hand-paper me-2"></i>Submit Claim
+                        </button>
+                        <a href="/roles/{role_slug}/" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let role = null;
+    let project = null;
+    const roleSlug = '{role_slug}';
+    
+    async function loadRole() {{
+        try {{
+            // Load all projects to find the role
+            const projectsResp = await fetch('/api/projects/');
+            const projectsData = await projectsResp.json();
+            
+            // Search for role across all projects
+            for (const proj of projectsData.projects) {{
+                const rolesResp = await fetch(`/api/projects/${{proj.id}}/roles/`);
+                const rolesData = await rolesResp.json();
+                const found = rolesData.roles.find(r => r.role_slug === roleSlug);
+                
+                if (found) {{
+                    role = found;
+                    project = proj;
+                    break;
+                }}
+            }}
+            
+            if (!role) {{
+                document.getElementById('alert-container').innerHTML = '<div class="alert alert-danger">Role not found</div>';
+                return;
+            }}
+            
+            // Load full role details
+            const detailResp = await fetch(`/api/roles/${{role.id}}/`);
+            role = await detailResp.json();
+            
+            displayRoleInfo();
+            
+            if (role.claim_requires_approval) {{
+                document.getElementById('approval-notice').style.display = 'block';
+            }}
+            
+            document.getElementById('claimRoleForm').style.display = 'block';
+        }} catch (error) {{
+            console.error('Error loading role:', error);
+            document.getElementById('alert-container').innerHTML = '<div class="alert alert-danger">Error loading role</div>';
+        }}
+    }}
+    
+    function displayRoleInfo() {{
+        document.getElementById('page-title').textContent = `Claim Role: ${{role.title_guild}}`;
+        
+        document.getElementById('role-info').innerHTML = `
+            <div class="card-body">
+                <h5>${{role.title_guild}}</h5>
+                ${{role.title_operational ? `<h6 class="text-muted">${{role.title_operational}}</h6>` : ''}}
+                <p class="mt-3">${{role.description}}</p>
+                <p class="mb-0"><strong>Project:</strong> <a href="/projects/${{project.project_slug}}/">${{project.name}}</a></p>
+            </div>
+        `;
+    }}
+    
+    document.getElementById('claimRoleForm').addEventListener('submit', async (e) => {{
+        e.preventDefault();
+        
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
+        
+        // Parse evidence links
+        const evidenceText = document.getElementById('evidence_links').value.trim();
+        const evidenceLinks = evidenceText ? evidenceText.split('\\n').filter(l => l.trim()) : [];
+        
+        const formData = {{
+            intent: document.getElementById('intent').value.trim() || null,
+            evidence_links: evidenceLinks,
+            term_duration_days: document.getElementById('term_duration_days').value ? parseInt(document.getElementById('term_duration_days').value) : null
+        }};
+        
+        try {{
+            const response = await fetch(`/api/roles/${{role.id}}/claims/`, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify(formData)
+            }});
+            
+            const data = await response.json();
+            
+            if (response.ok) {{
+                const statusMsg = role.claim_requires_approval 
+                    ? 'Your claim has been submitted and is pending approval.'
+                    : 'Your claim has been submitted successfully!';
+                    
+                document.getElementById('alert-container').innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle me-2"></i>
+                        ${{statusMsg}} Redirecting...
+                    </div>
+                `;
+                setTimeout(() => {{
+                    window.location.href = `/roles/${{roleSlug}}/`;
+                }}, 2000);
+            }} else {{
+                throw new Error(data.error || 'Failed to submit claim');
+            }}
+        }} catch (error) {{
+            document.getElementById('alert-container').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    ${{error.message}}
+                </div>
+            `;
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-hand-paper me-2"></i>Submit Claim';
+        }}
+    }});
+    
+    // Load role on page load
+    loadRole();
+    </script>
+    """
+    
+    return render_page(f"Claim Role: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
 # Deployment API endpoint (development only)
 @app.route('/_deploy/reload', methods=['POST'])
 def reload_app():
