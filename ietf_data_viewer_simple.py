@@ -14867,7 +14867,6 @@ def workgroup_detail(workgroup_slug):
             displayWorkgroupAbout();
             displayWorkgroupCharter();
             displayWorkgroupDetails();
-            displayWorkgroupLinks();
             loadChairs();
             loadMembers();
         }} catch (error) {{
@@ -14940,28 +14939,6 @@ def workgroup_detail(workgroup_slug):
             <p><strong>Created:</strong> ${{new Date(workgroup.created_at).toLocaleDateString()}}</p>
             ${{workgroup.coordinator_name ? `<p><strong>Coordinator:</strong> ${{workgroup.coordinator_name}}</p>` : ''}}
         `;
-    }}
-    
-    function displayWorkgroupLinks() {{
-        let html = '';
-        
-        if (workgroup.mailing_list_url) {{
-            html += `<p><a href="${{workgroup.mailing_list_url}}" target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-2"><i class="fas fa-envelope me-2"></i>Mailing List</a></p>`;
-        }}
-        
-        if (workgroup.chat_url) {{
-            html += `<p><a href="${{workgroup.chat_url}}" target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-2"><i class="fas fa-comments me-2"></i>Chat</a></p>`;
-        }}
-        
-        if (workgroup.repo_url) {{
-            html += `<p><a href="${{workgroup.repo_url}}" target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-2"><i class="fas fa-code-branch me-2"></i>Repository</a></p>`;
-        }}
-        
-        if (!html) {{
-            html = '<p class="text-muted">No links available</p>';
-        }}
-        
-        document.getElementById('workgroup-links').innerHTML = html;
     }}
     
     function getStatusBadge(status) {{
