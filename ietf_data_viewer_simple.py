@@ -13187,7 +13187,7 @@ def project_detail(project_slug):
             // Find project by slug
             const response = await fetch('/api/projects/');
             const data = await response.json();
-            project = data.projects.find(p => p.project_slug === projectSlug);
+            project = data.projects.find(p => p.slug === projectSlug);
             
             if (!project) {{
                 document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Project not found</div>';
@@ -13613,7 +13613,7 @@ def guild_detail(guild_slug):
             // Find guild by slug
             const response = await fetch('/api/guilds/');
             const data = await response.json();
-            guild = data.guilds.find(g => g.guild_slug === guildSlug);
+            guild = data.guilds.find(g => g.slug === guildSlug);
             
             if (!guild) {{
                 document.getElementById('guild-header').innerHTML = '<div class="alert alert-danger">Guild not found</div>';
@@ -14126,7 +14126,7 @@ def role_detail(role_slug):
             for (const proj of projectsData.projects) {{
                 const rolesResp = await fetch(`/api/projects/${{proj.id}}/roles/`);
                 const rolesData = await rolesResp.json();
-                const found = rolesData.roles.find(r => r.role_slug === roleSlug);
+                const found = rolesData.roles.find(r => r.slug === roleSlug);
                 
                 if (found) {{
                     role = found;
@@ -14343,7 +14343,7 @@ https://github.com/username/project"></textarea>
             for (const proj of projectsData.projects) {{
                 const rolesResp = await fetch(`/api/projects/${{proj.id}}/roles/`);
                 const rolesData = await rolesResp.json();
-                const found = rolesData.roles.find(r => r.role_slug === roleSlug);
+                const found = rolesData.roles.find(r => r.slug === roleSlug);
                 
                 if (found) {{
                     role = found;
