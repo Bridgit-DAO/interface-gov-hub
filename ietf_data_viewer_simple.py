@@ -8061,6 +8061,688 @@ def delete_chair(chair_id):
         flash('Chair not found', 'error')
     return redirect('/admin/chairs/')
 
+# ============================================================================
+# Admin Dashboards for Projects/Workgroups/Guilds/Roles/Badges
+# ============================================================================
+
+@app.route('/admin/projects/')
+@require_role('admin')
+def admin_projects():
+    """Admin dashboard for managing projects"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    
+    content = """
+    <div class="container mt-4">
+        <h1 class="mb-4">Manage Projects</h1>
+        
+        <ul class="nav nav-tabs mb-4" id="projectTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending" type="button">
+                    Pending Approval <span class="badge bg-warning ms-2" id="pending-count">0</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="approved-tab" data-bs-toggle="tab" data-bs-target="#approved" type="button">
+                    Approved <span class="badge bg-success ms-2" id="approved-count">0</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="rejected-tab" data-bs-toggle="tab" data-bs-target="#rejected" type="button">
+                    Rejected <span class="badge bg-danger ms-2" id="rejected-count">0</span>
+                </button>
+            </li>
+        </ul>
+        
+        <div class="tab-content" id="projectTabContent">
+            <div class="tab-pane fade show active" id="pending">
+                <div id="pending-projects"></div>
+            </div>
+            <div class="tab-pane fade" id="approved">
+                <div id="approved-projects"></div>
+            </div>
+            <div class="tab-pane fade" id="rejected">
+                <div id="rejected-projects"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    async function loadProjects() {
+        try {
+            const response = await fetch('/api/projects/');
+            const data = await response.json();
+            
+            const pending = data.projects.filter(p => p.approval_status === 'pending');
+            const approved = data.projects.filter(p => p.approval_status === 'approved');
+            const rejected = data.projects.filter(p => p.approval_status === 'rejected');
+            
+            document.getElementById('pending-count').textContent = pending.length;
+            document.getElementById('approved-count').textContent = approved.length;
+            document.getElementById('rejected-count').textContent = rejected.length;
+            
+            displayProjects('pending-projects', pending, true);
+            displayProjects('approved-projects', approved, false);
+            displayProjects('rejected-projects', rejected, false);
+        } catch (error) {
+            console.error('Error loading projects:', error);
+        }
+    }
+    
+    function displayProjects(containerId, projects, showActions) {
+        const container = document.getElementById(containerId);
+        
+        if (projects.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">No projects in this category</div>';
+            return;
+        }
+        
+        let html = '<div class="list-group">';
+        projects.forEach(project => {
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <h5><a href="/projects/${project.project_slug}/" target="_blank">${project.name}</a></h5>
+                            <p class="mb-2">${project.description || 'No description'}</p>
+                            <small class="text-muted">
+                                Created: ${new Date(project.created_at).toLocaleDateString()} | 
+                                Status: ${project.status} | 
+                                Workgroups: ${project.workgroups_count || 0}
+                            </small>
+                        </div>
+                        ${showActions ? `
+                            <div class="btn-group-vertical ms-3">
+                                <button class="btn btn-sm btn-success" onclick="approveProject('${project.id}')">
+                                    <i class="fas fa-check me-1"></i>Approve
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectProject('${project.id}')">
+                                    <i class="fas fa-times me-1"></i>Reject
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+    }
+    
+    async function approveProject(projectId) {
+        if (!confirm('Approve this project?')) return;
+        
+        try {
+            const response = await fetch(`/api/projects/${projectId}/approve/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approve: true})
+            });
+            
+            if (response.ok) {
+                alert('Project approved successfully');
+                loadProjects();
+            } else {
+                const data = await response.json();
+                alert('Error: ' + (data.error || 'Failed to approve'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error approving project');
+        }
+    }
+    
+    async function rejectProject(projectId) {
+        const note = prompt('Reason for rejection (optional):');
+        if (note === null) return;
+        
+        try {
+            const response = await fetch(`/api/projects/${projectId}/approve/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approve: false, note: note})
+            });
+            
+            if (response.ok) {
+                alert('Project rejected');
+                loadProjects();
+            } else {
+                const data = await response.json();
+                alert('Error: ' + (data.error || 'Failed to reject'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error rejecting project');
+        }
+    }
+    
+    // Load projects on page load
+    loadProjects();
+    </script>
+    """
+    
+    return render_page("Admin: Manage Projects - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/admin/workgroups/')
+@require_role('admin')
+def admin_workgroups():
+    """Admin dashboard for managing workgroups"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    
+    content = """
+    <div class="container mt-4">
+        <h1 class="mb-4">Manage Workgroups</h1>
+        
+        <ul class="nav nav-tabs mb-4" id="workgroupTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending" type="button">
+                    Pending Approval <span class="badge bg-warning ms-2" id="pending-count">0</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="approved-tab" data-bs-toggle="tab" data-bs-target="#approved" type="button">
+                    Approved <span class="badge bg-success ms-2" id="approved-count">0</span>
+                </button>
+            </li>
+        </ul>
+        
+        <div class="tab-content" id="workgroupTabContent">
+            <div class="tab-pane fade show active" id="pending">
+                <div id="pending-workgroups"></div>
+            </div>
+            <div class="tab-pane fade" id="approved">
+                <div id="approved-workgroups"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    async function loadWorkgroups() {
+        try {
+            // Load all projects first
+            const projectsResp = await fetch('/api/projects/');
+            const projectsData = await projectsResp.json();
+            
+            let allWorkgroups = [];
+            
+            // Load workgroups from all projects
+            for (const project of projectsData.projects) {
+                const wgResp = await fetch(`/api/projects/${project.id}/workgroups/`);
+                const wgData = await wgResp.json();
+                
+                // Add project info to each workgroup
+                wgData.workgroups.forEach(wg => {
+                    wg.project_name = project.name;
+                    wg.project_slug = project.project_slug;
+                    allWorkgroups.push(wg);
+                });
+            }
+            
+            const pending = allWorkgroups.filter(wg => wg.approval_status === 'pending');
+            const approved = allWorkgroups.filter(wg => wg.approval_status === 'approved');
+            
+            document.getElementById('pending-count').textContent = pending.length;
+            document.getElementById('approved-count').textContent = approved.length;
+            
+            displayWorkgroups('pending-workgroups', pending, true);
+            displayWorkgroups('approved-workgroups', approved, false);
+        } catch (error) {
+            console.error('Error loading workgroups:', error);
+        }
+    }
+    
+    function displayWorkgroups(containerId, workgroups, showActions) {
+        const container = document.getElementById(containerId);
+        
+        if (workgroups.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">No workgroups in this category</div>';
+            return;
+        }
+        
+        let html = '<div class="list-group">';
+        workgroups.forEach(wg => {
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <h5><a href="/workgroups/${wg.workgroup_slug}/" target="_blank">${wg.name}</a></h5>
+                            <p class="mb-2">${wg.description || 'No description'}</p>
+                            <small class="text-muted">
+                                Project: <a href="/projects/${wg.project_slug}/" target="_blank">${wg.project_name}</a> | 
+                                Created: ${new Date(wg.created_at).toLocaleDateString()} | 
+                                Status: ${wg.status}
+                            </small>
+                        </div>
+                        ${showActions ? `
+                            <div class="btn-group-vertical ms-3">
+                                <button class="btn btn-sm btn-success" onclick="approveWorkgroup('${wg.id}')">
+                                    <i class="fas fa-check me-1"></i>Approve
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectWorkgroup('${wg.id}')">
+                                    <i class="fas fa-times me-1"></i>Reject
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+    }
+    
+    async function approveWorkgroup(workgroupId) {
+        if (!confirm('Approve this workgroup?')) return;
+        
+        try {
+            const response = await fetch(`/api/workgroups/${workgroupId}/approve/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approve: true})
+            });
+            
+            if (response.ok) {
+                alert('Workgroup approved successfully');
+                loadWorkgroups();
+            } else {
+                const data = await response.json();
+                alert('Error: ' + (data.error || 'Failed to approve'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error approving workgroup');
+        }
+    }
+    
+    async function rejectWorkgroup(workgroupId) {
+        const note = prompt('Reason for rejection (optional):');
+        if (note === null) return;
+        
+        try {
+            const response = await fetch(`/api/workgroups/${workgroupId}/approve/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approve: false, note: note})
+            });
+            
+            if (response.ok) {
+                alert('Workgroup rejected');
+                loadWorkgroups();
+            } else {
+                const data = await response.json();
+                alert('Error: ' + (data.error || 'Failed to reject'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error rejecting workgroup');
+        }
+    }
+    
+    // Load workgroups on page load
+    loadWorkgroups();
+    </script>
+    """
+    
+    return render_page("Admin: Manage Workgroups - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/admin/roles/')
+@require_role('admin')
+def admin_roles():
+    """Admin dashboard for managing roles"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    
+    content = """
+    <div class="container mt-4">
+        <h1 class="mb-4">Manage Roles</h1>
+        
+        <ul class="nav nav-tabs mb-4" id="roleTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="draft-tab" data-bs-toggle="tab" data-bs-target="#draft" type="button">
+                    Draft <span class="badge bg-secondary ms-2" id="draft-count">0</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="approved-tab" data-bs-toggle="tab" data-bs-target="#approved" type="button">
+                    Approved <span class="badge bg-success ms-2" id="approved-count">0</span>
+                </button>
+            </li>
+        </ul>
+        
+        <div class="tab-content" id="roleTabContent">
+            <div class="tab-pane fade show active" id="draft">
+                <div id="draft-roles"></div>
+            </div>
+            <div class="tab-pane fade" id="approved">
+                <div id="approved-roles"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    async function loadRoles() {
+        try {
+            // Load all projects first
+            const projectsResp = await fetch('/api/projects/');
+            const projectsData = await projectsResp.json();
+            
+            let allRoles = [];
+            
+            // Load roles from all projects
+            for (const project of projectsData.projects) {
+                const rolesResp = await fetch(`/api/projects/${project.id}/roles/`);
+                const rolesData = await rolesResp.json();
+                
+                // Add project info to each role
+                rolesData.roles.forEach(role => {
+                    role.project_name = project.name;
+                    role.project_slug = project.project_slug;
+                    allRoles.push(role);
+                });
+            }
+            
+            const draft = allRoles.filter(r => r.status === 'draft');
+            const approved = allRoles.filter(r => r.status === 'approved');
+            
+            document.getElementById('draft-count').textContent = draft.length;
+            document.getElementById('approved-count').textContent = approved.length;
+            
+            displayRoles('draft-roles', draft, true);
+            displayRoles('approved-roles', approved, false);
+        } catch (error) {
+            console.error('Error loading roles:', error);
+        }
+    }
+    
+    function displayRoles(containerId, roles, showActions) {
+        const container = document.getElementById(containerId);
+        
+        if (roles.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">No roles in this category</div>';
+            return;
+        }
+        
+        let html = '<div class="list-group">';
+        roles.forEach(role => {
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <h5>${role.title_guild}</h5>
+                            ${role.title_operational ? `<h6 class="text-muted">${role.title_operational}</h6>` : ''}
+                            <p class="mb-2">${role.description.substring(0, 200)}...</p>
+                            <small class="text-muted">
+                                Project: <a href="/projects/${role.project_slug}/" target="_blank">${role.project_name}</a> | 
+                                Created: ${new Date(role.created_at).toLocaleDateString()} | 
+                                Public: ${role.public_visible ? 'Yes' : 'No'}
+                            </small>
+                        </div>
+                        ${showActions ? `
+                            <div class="btn-group-vertical ms-3">
+                                <button class="btn btn-sm btn-success" onclick="approveRole('${role.id}')">
+                                    <i class="fas fa-check me-1"></i>Approve
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+    }
+    
+    async function approveRole(roleId) {
+        if (!confirm('Approve this role?')) return;
+        
+        try {
+            const response = await fetch(`/api/roles/${roleId}/approve/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approve: true})
+            });
+            
+            if (response.ok) {
+                alert('Role approved successfully');
+                loadRoles();
+            } else {
+                const data = await response.json();
+                alert('Error: ' + (data.error || 'Failed to approve'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error approving role');
+        }
+    }
+    
+    // Load roles on page load
+    loadRoles();
+    </script>
+    """
+    
+    return render_page("Admin: Manage Roles - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/admin/badges/')
+@require_role('admin')
+def admin_badges():
+    """Admin dashboard for managing and issuing badges"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    
+    content = """
+    <div class="container mt-4">
+        <h1 class="mb-4">Manage Badges</h1>
+        
+        <ul class="nav nav-tabs mb-4" id="badgeTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="requested-tab" data-bs-toggle="tab" data-bs-target="#requested" type="button">
+                    Requested <span class="badge bg-warning ms-2" id="requested-count">0</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="approved-tab" data-bs-toggle="tab" data-bs-target="#approved" type="button">
+                    Approved <span class="badge bg-success ms-2" id="approved-count">0</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="issued-tab" data-bs-toggle="tab" data-bs-target="#issued" type="button">
+                    Issued <span class="badge bg-primary ms-2" id="issued-count">0</span>
+                </button>
+            </li>
+        </ul>
+        
+        <div class="tab-content" id="badgeTabContent">
+            <div class="tab-pane fade show active" id="requested">
+                <div id="requested-badges"></div>
+            </div>
+            <div class="tab-pane fade" id="approved">
+                <div id="approved-badges"></div>
+            </div>
+            <div class="tab-pane fade" id="issued">
+                <div id="issued-badges"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    async function loadBadges() {
+        try {
+            // Load all projects first
+            const projectsResp = await fetch('/api/projects/');
+            const projectsData = await projectsResp.json();
+            
+            let allBadges = [];
+            
+            // Load badges from all projects
+            for (const project of projectsData.projects) {
+                const badgesResp = await fetch(`/api/projects/${project.id}/badges/`);
+                const badgesData = await badgesResp.json();
+                
+                // Add project info to each badge
+                badgesData.badges.forEach(badge => {
+                    badge.project_name = project.name;
+                    badge.project_slug = project.project_slug;
+                    allBadges.push(badge);
+                });
+            }
+            
+            const requested = allBadges.filter(b => b.status === 'requested');
+            const approved = allBadges.filter(b => b.status === 'approved');
+            const issued = allBadges.filter(b => b.status === 'issued');
+            
+            document.getElementById('requested-count').textContent = requested.length;
+            document.getElementById('approved-count').textContent = approved.length;
+            document.getElementById('issued-count').textContent = issued.length;
+            
+            displayBadges('requested-badges', requested, 'approve');
+            displayBadges('approved-badges', approved, 'issue');
+            displayBadges('issued-badges', issued, 'none');
+        } catch (error) {
+            console.error('Error loading badges:', error);
+        }
+    }
+    
+    function displayBadges(containerId, badges, actionType) {
+        const container = document.getElementById(containerId);
+        
+        if (badges.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">No badges in this category</div>';
+            return;
+        }
+        
+        let html = '<div class="list-group">';
+        badges.forEach(badge => {
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <h5>Badge: ${badge.badge_type}</h5>
+                            <p class="mb-2">
+                                <strong>Claim ID:</strong> ${badge.claim_id}<br>
+                                <strong>Claimant ID:</strong> ${badge.claimant_id}<br>
+                                <strong>Custody:</strong> ${badge.custody_mode}<br>
+                                ${badge.btc_taproot_address ? `<strong>BTC Address:</strong> ${badge.btc_taproot_address}<br>` : ''}
+                                ${badge.inscription_id ? `<strong>Inscription:</strong> ${badge.inscription_id}<br>` : ''}
+                            </p>
+                            <small class="text-muted">
+                                Project: <a href="/projects/${badge.project_slug}/" target="_blank">${badge.project_name}</a> | 
+                                Created: ${new Date(badge.created_at).toLocaleDateString()}
+                            </small>
+                        </div>
+                        ${actionType === 'approve' ? `
+                            <div class="btn-group-vertical ms-3">
+                                <button class="btn btn-sm btn-success" onclick="approveBadge('${badge.id}')">
+                                    <i class="fas fa-check me-1"></i>Approve
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="denyBadge('${badge.id}')">
+                                    <i class="fas fa-times me-1"></i>Deny
+                                </button>
+                            </div>
+                        ` : actionType === 'issue' ? `
+                            <div class="btn-group-vertical ms-3">
+                                <button class="btn btn-sm btn-primary" onclick="issueBadge('${badge.id}')">
+                                    <i class="fas fa-certificate me-1"></i>Issue
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+    }
+    
+    async function approveBadge(badgeId) {
+        const note = prompt('Approval note (optional):');
+        if (note === null) return;
+        
+        try {
+            const response = await fetch(`/api/badges/${badgeId}/approve/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approve: true, approval_note: note})
+            });
+            
+            if (response.ok) {
+                alert('Badge approved successfully');
+                loadBadges();
+            } else {
+                const data = await response.json();
+                alert('Error: ' + (data.error || 'Failed to approve'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error approving badge');
+        }
+    }
+    
+    async function denyBadge(badgeId) {
+        const note = prompt('Reason for denial:');
+        if (!note) return;
+        
+        try {
+            const response = await fetch(`/api/badges/${badgeId}/approve/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approve: false, approval_note: note})
+            });
+            
+            if (response.ok) {
+                alert('Badge denied');
+                loadBadges();
+            } else {
+                const data = await response.json();
+                alert('Error: ' + (data.error || 'Failed to deny'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error denying badge');
+        }
+    }
+    
+    async function issueBadge(badgeId) {
+        const inscriptionId = prompt('Enter inscription ID:');
+        if (!inscriptionId) return;
+        
+        const txRef = prompt('Enter transaction reference (optional):');
+        
+        try {
+            const response = await fetch(`/api/badges/${badgeId}/issue/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    inscription_id: inscriptionId,
+                    tx_ref: txRef || null,
+                    chain: 'bitcoin'
+                })
+            });
+            
+            if (response.ok) {
+                alert('Badge issued successfully');
+                loadBadges();
+            } else {
+                const data = await response.json();
+                alert('Error: ' + (data.error || 'Failed to issue'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error issuing badge');
+        }
+    }
+    
+    // Load badges on page load
+    loadBadges();
+    </script>
+    """
+    
+    return render_page("Admin: Manage Badges - MLGH", content, theme=current_theme, user_menu=user_menu)
+
 # Routes
 @app.route('/')
 def home():
