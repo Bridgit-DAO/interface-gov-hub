@@ -5661,6 +5661,45 @@ def api_logout():
 # Role Images API Endpoints
 # ============================================================================
 
+@app.route('/api/role-images/roles-with-stats/', methods=['GET'])
+def api_role_images_roles_with_stats():
+    """List roles with image count and vote count for role-images gallery page"""
+    from sqlalchemy import func
+    
+    project_id = request.args.get('project_id')
+    
+    # Subquery: image_count and total_votes (upvotes+downvotes) per role_slug
+    stats_subq = db.session.query(
+        RoleImage.role_slug,
+        func.count(RoleImage.id).label('image_count'),
+        func.coalesce(func.sum(RoleImage.upvotes + RoleImage.downvotes), 0).label('vote_count')
+    ).group_by(RoleImage.role_slug).subquery()
+    
+    query = db.session.query(
+        Role,
+        stats_subq.c.image_count,
+        stats_subq.c.vote_count
+    ).outerjoin(stats_subq, Role.role_slug == stats_subq.c.role_slug)
+    
+    if project_id:
+        query = query.filter(Role.project_id == project_id)
+    
+    query = query.order_by(Role.project_id, Role.order, Role.title_guild)
+    rows = query.all()
+    
+    # Build list with role dict + image_count, vote_count
+    result = []
+    for row in rows:
+        role, image_count, vote_count = row
+        d = role.to_dict()
+        d['image_count'] = image_count or 0
+        d['vote_count'] = int(vote_count or 0)
+        d['project_name'] = role.project.name if role.project else None
+        d['project_slug'] = role.project.slug if role.project else None
+        result.append(d)
+    
+    return jsonify({'roles': result, 'count': len(result)})
+
 @app.route('/api/roles/<role_slug>/images/', methods=['GET'])
 def api_list_role_images(role_slug):
     """List role image proposals with vote counts"""
@@ -12887,11 +12926,15 @@ def role_images_gallery(role_slug):
     current_user = get_current_user()
     is_admin = current_user and current_user.get('role') == 'admin'
     
+    # Load role for display name and link back to role
+    role = Role.query.filter_by(role_slug=role_slug).first()
+    role_title = role.title_guild if role else role_slug
+    
     content = f"""
     <div class="container mt-4">
         <div class="row mb-4">
             <div class="col-md-12">
-                <h1>Role Images: {role_slug}</h1>
+                <h1>Role Images: <a href="/roles/{role_slug}/" class="text-decoration-none">{role_title}</a></h1>
                 <p class="lead">Community-proposed images for this role</p>
             </div>
         </div>
@@ -16555,21 +16598,12 @@ def role_images_directory():
         `;
         
         try {{
-            allRoles = [];
+            let url = '/api/role-images/roles-with-stats/';
+            if (projectFilter) url += '?project_id=' + encodeURIComponent(projectFilter);
             
-            if (projectFilter) {{
-                // Load roles for specific project
-                const response = await fetch(`/api/projects/${{projectFilter}}/roles/`);
-                const data = await response.json();
-                allRoles = data.roles;
-            }} else {{
-                // Load roles from all projects
-                for (const project of allProjects) {{
-                    const response = await fetch(`/api/projects/${{project.id}}/roles/`);
-                    const data = await response.json();
-                    allRoles = allRoles.concat(data.roles.map(r => ({{...r, project_name: project.name, project_slug: project.slug}})));
-                }}
-            }}
+            const response = await fetch(url);
+            const data = await response.json();
+            allRoles = data.roles || [];
             
             displayRoles(allRoles);
         }} catch (error) {{
@@ -16589,26 +16623,27 @@ def role_images_directory():
         let html = '';
         roles.forEach(role => {{
             const projectName = role.project_name || 'Unknown Project';
-            const projectSlug = role.project_slug || '';
             const roleSlug = role.role_slug || role.slug || '';
+            const imageCount = role.image_count != null ? role.image_count : 0;
+            const voteCount = role.vote_count != null ? role.vote_count : 0;
             
             html += `
                 <div class="col-md-4 mb-4">
                     <div class="card h-100">
                         <div class="card-body">
-                            <h5 class="card-title">${{role.title_guild}}</h5>
+                            <h5 class="card-title">
+                                <a href="/roles/${{roleSlug}}/images/" class="text-decoration-none">${{role.title_guild}}</a>
+                            </h5>
                             ${{role.title_operational ? `<h6 class="card-subtitle mb-2 text-muted">${{role.title_operational}}</h6>` : ''}}
                             <p class="card-text text-muted small">
                                 <i class="fas fa-project-diagram me-1"></i>${{projectName}}
                             </p>
-                            <p class="card-text">${{role.description.substring(0, 100)}}...</p>
-                            <div class="d-flex gap-2">
+                            <p class="card-text">${{role.description ? role.description.substring(0, 100) + '...' : ''}}</p>
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                                 <a href="/roles/${{roleSlug}}/images/" class="btn btn-primary btn-sm">
                                     <i class="fas fa-images me-1"></i>View Images
                                 </a>
-                                <a href="/roles/${{roleSlug}}/" class="btn btn-outline-secondary btn-sm">
-                                    <i class="fas fa-info-circle me-1"></i>Details
-                                </a>
+                                <span class="text-muted small">${{imageCount}} image${{imageCount !== 1 ? 's' : ''}} · ${{voteCount}} vote${{voteCount !== 1 ? 's' : ''}}</span>
                             </div>
                         </div>
                     </div>
