@@ -13066,8 +13066,8 @@ def workgroups_directory():
                 <p class="lead">Browse workgroups across all projects</p>
             </div>
             <div class="col-md-4 text-end">
-                {'<button class="btn btn-primary me-2" onclick="showCreateWorkgroupModal()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>' if current_user else ''}
-                <a href="/projects/" class="btn btn-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Projects</a>
+                <a href="/projects/" class="btn btn-secondary mb-2 w-100"><i class="fas fa-arrow-left me-2"></i>Back to Projects</a>
+                {'<button class="btn btn-primary w-100" onclick="showCreateWorkgroupModal()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>' if current_user else ''}
             </div>
         </div>
         
@@ -14880,13 +14880,17 @@ def workgroup_detail(workgroup_slug):
         const statusBadge = getStatusBadge(workgroup.status);
         const approvalBadge = getApprovalBadge(workgroup.approval_status);
         
+        // Use project data if available, otherwise use workgroup's project_name
+        const projectSlug = project ? project.slug : '';
+        const projectName = project ? project.name : (workgroup.project_name || 'Project');
+        
         document.getElementById('workgroup-header').innerHTML = `
             <div class="row">
                 <div class="col-md-8">
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb">
                             <li class="breadcrumb-item"><a href="/projects/">Projects</a></li>
-                            <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">${{project.name}}</a></li>
+                            ${{projectSlug ? `<li class="breadcrumb-item"><a href="/projects/${{projectSlug}}/">${{projectName}}</a></li>` : `<li class="breadcrumb-item">${{projectName}}</li>`}}
                             <li class="breadcrumb-item active">${{workgroup.name}}</li>
                         </ol>
                     </nav>
@@ -14897,7 +14901,7 @@ def workgroup_detail(workgroup_slug):
                     </div>
                 </div>
                 <div class="col-md-4 text-end">
-                    <a href="/projects/${{project.slug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>
+                    ${{projectSlug ? `<a href="/projects/${{projectSlug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>` : '<a href="/workgroups/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Workgroups</a>'}}
                 </div>
             </div>
         `;
@@ -14926,12 +14930,15 @@ def workgroup_detail(workgroup_slug):
     }}
     
     function displayWorkgroupDetails() {{
+        const projectSlug = project ? project.slug : '';
+        const projectName = project ? project.name : (workgroup.project_name || 'Unknown Project');
+        
         document.getElementById('workgroup-details').innerHTML = `
-            <p><strong>Project:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
+            <p><strong>Project:</strong> ${{projectSlug ? `<a href="/projects/${{projectSlug}}/">${{projectName}}</a>` : projectName}}</p>
             <p><strong>Status:</strong> ${{workgroup.status}}</p>
             <p><strong>Approval:</strong> ${{workgroup.approval_status}}</p>
             <p><strong>Created:</strong> ${{new Date(workgroup.created_at).toLocaleDateString()}}</p>
-            ${{workgroup.coordinator_id ? `<p><strong>Coordinator ID:</strong> ${{workgroup.coordinator_id}}</p>` : ''}}
+            ${{workgroup.coordinator_name ? `<p><strong>Coordinator:</strong> ${{workgroup.coordinator_name}}</p>` : ''}}
         `;
     }}
     
