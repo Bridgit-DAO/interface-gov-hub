@@ -13529,7 +13529,7 @@ def create_project_page():
                     </div>
                 `;
                 setTimeout(() => {
-                    window.location.href = `/projects/${data.project.project_slug}/`;
+                    window.location.href = `/projects/${data.project.slug}/`;
                 }, 1500);
             } else {
                 throw new Error(data.error || 'Failed to create project');
