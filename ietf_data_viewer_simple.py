@@ -11,8 +11,23 @@ BUILD: 1
 Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
-# Build number for cache busting and version tracking
-BUILD_NUMBER = 74
+# Build number for cache busting and version tracking (increments from file on each run)
+def _load_and_increment_build_number():
+    import os
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance_dev', 'build_number.txt')
+    try:
+        with open(path, 'r') as f:
+            n = int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        n = 74
+    try:
+        with open(path, 'w') as f:
+            f.write(str(n + 1))
+    except Exception:
+        pass
+    return n
+
+BUILD_NUMBER = _load_and_increment_build_number()
 
 def create_hypothesis_account(user):
     """Create a Hypothesis account for a Meta-Layer user via API"""
@@ -309,6 +324,96 @@ def init_db():
             print("🔄 Creating HypothesisAccount table...")
             db.create_all()
             print("✅ HypothesisAccount table created")
+        
+        # Add banner_image, headline, bio, social_links to user table if missing
+        try:
+            import sqlite3
+            db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(user)")
+            user_columns = [c[1] for c in cursor.fetchall()]
+            if 'banner_image' not in user_columns:
+                cursor.execute("ALTER TABLE user ADD COLUMN banner_image VARCHAR(500)")
+                conn.commit()
+                print("✅ Added banner_image column to user table")
+            if 'headline' not in user_columns:
+                cursor.execute("ALTER TABLE user ADD COLUMN headline VARCHAR(200)")
+                conn.commit()
+                print("✅ Added headline column to user table")
+            if 'bio' not in user_columns:
+                cursor.execute("ALTER TABLE user ADD COLUMN bio TEXT")
+                conn.commit()
+                print("✅ Added bio column to user table")
+            if 'social_links' not in user_columns:
+                cursor.execute("ALTER TABLE user ADD COLUMN social_links TEXT")
+                conn.commit()
+                print("✅ Added social_links column to user table")
+            if 'referral_code' not in user_columns:
+                cursor.execute("ALTER TABLE user ADD COLUMN referral_code VARCHAR(50)")
+                conn.commit()
+                print("✅ Added referral_code column to user table")
+            conn.close()
+        except Exception as e:
+            print(f"⚠️  Error adding profile columns: {e}")
+        
+        # Ensure project_member table exists
+        try:
+            db.session.execute(db.text("SELECT 1 FROM project_member LIMIT 1"))
+            print("✅ project_member table exists")
+        except Exception:
+            db.create_all()
+            print("✅ project_member table created")
+        
+        # Ensure waitlist tables exist
+        try:
+            db.session.execute(db.text("SELECT 1 FROM waitlist LIMIT 1"))
+            print("✅ waitlist tables exist")
+        except Exception:
+            db.create_all()
+            print("✅ waitlist tables created")
+        
+        # Add image_url columns to project, workgroup, guild, waitlist
+        try:
+            import sqlite3
+            conn = sqlite3.connect(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', ''))
+            cursor = conn.cursor()
+            
+            # Check and add image_url to project
+            cursor.execute("PRAGMA table_info(project)")
+            project_columns = [c[1] for c in cursor.fetchall()]
+            if 'image_url' not in project_columns:
+                cursor.execute("ALTER TABLE project ADD COLUMN image_url VARCHAR(500)")
+                conn.commit()
+                print("✅ Added image_url column to project table")
+            
+            # Check and add image_url to waitlist
+            cursor.execute("PRAGMA table_info(waitlist)")
+            waitlist_columns = [c[1] for c in cursor.fetchall()]
+            if 'image_url' not in waitlist_columns:
+                cursor.execute("ALTER TABLE waitlist ADD COLUMN image_url VARCHAR(500)")
+                conn.commit()
+                print("✅ Added image_url column to waitlist table")
+            
+            # Check and add image_url to working_group
+            cursor.execute("PRAGMA table_info(working_group)")
+            wg_columns = [c[1] for c in cursor.fetchall()]
+            if 'image_url' not in wg_columns:
+                cursor.execute("ALTER TABLE working_group ADD COLUMN image_url VARCHAR(500)")
+                conn.commit()
+                print("✅ Added image_url column to working_group table")
+            
+            # Check and add image_url to guild
+            cursor.execute("PRAGMA table_info(guild)")
+            guild_columns = [c[1] for c in cursor.fetchall()]
+            if 'image_url' not in guild_columns:
+                cursor.execute("ALTER TABLE guild ADD COLUMN image_url VARCHAR(500)")
+                conn.commit()
+                print("✅ Added image_url column to guild table")
+            
+            conn.close()
+        except Exception as e:
+            print(f"⚠️  Error adding image_url columns: {e}")
 
         # Migrate hardcoded users to database if not already done
         if User.query.count() == 0:
@@ -616,6 +721,9 @@ class User(db.Model):
     headline = db.Column(db.String(200))  # Short headline/tagline
     bio = db.Column(db.Text)  # Longer bio/description
     social_links = db.Column(db.Text)  # JSON string of social media links
+    
+    # Referral system
+    referral_code = db.Column(db.String(50), unique=True, index=True)  # User's unique referral code
 
     # Other fields
     role = db.Column(db.String(20), default='user')  # admin, editor, user
@@ -802,13 +910,17 @@ class Project(db.Model):
     # proposed, active, stabilizing, maintaining, dormant, concluded, archived
     status_reason = db.Column(db.Text, nullable=True)
     
+    # Image
+    image_url = db.Column(db.String(500), nullable=True)
+    
     # Admin approval
     approval_status = db.Column(db.String(20), default='pending', index=True)
     # pending, approved, rejected
     approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
     
-    # Description
+    # Mission and description
+    mission = db.Column(db.Text, nullable=True)
     description = db.Column(db.Text, nullable=True)
     
     # Activity tracking
@@ -826,11 +938,6 @@ class Project(db.Model):
     approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_projects')
     superseded_by = db.relationship('Project', remote_side=[id], backref='supersedes')
     
-    __table_args__ = (
-        db.Index('idx_project_status', 'status'),
-        db.Index('idx_project_approval', 'approval_status'),
-    )
-    
     def to_dict(self):
         return {
             'id': self.id,
@@ -841,11 +948,187 @@ class Project(db.Model):
             'status': self.status,
             'status_reason': self.status_reason,
             'approval_status': self.approval_status,
+            'mission': self.mission,
             'description': self.description,
+            'image_url': self.image_url,
             'last_activity': self.last_activity.isoformat() if self.last_activity else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class ProjectMember(db.Model):
+    """Track project membership and referrals"""
+    __tablename__ = 'project_member'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    
+    # Referral tracking
+    referred_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    referral_code = db.Column(db.String(50), nullable=True)  # The referral code used to join
+    
+    # Role in project (optional)
+    role = db.Column(db.String(100), nullable=True)  # contributor, maintainer, etc.
+    
+    # Status
+    status = db.Column(db.String(20), default='active')  # active, inactive, left
+    
+    # Timestamps
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    left_at = db.Column(db.DateTime, nullable=True)
+    
+    # Relationships
+    project = db.relationship('Project', backref='project_members', foreign_keys=[project_id])
+    user = db.relationship('User', backref='project_memberships', foreign_keys=[user_id])
+    referred_by = db.relationship('User', backref='referrals_made', foreign_keys=[referred_by_id])
+    
+    # Unique constraint: one membership per user per project
+    __table_args__ = (
+        db.UniqueConstraint('project_id', 'user_id', name='unique_project_member'),
+        db.Index('idx_project_member_status', 'status'),
+    )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'user_id': self.user_id,
+            'referred_by_id': self.referred_by_id,
+            'role': self.role,
+            'status': self.status,
+            'joined_at': self.joined_at.isoformat() if self.joined_at else None,
+            'left_at': self.left_at.isoformat() if self.left_at else None,
+        }
+
+
+class ProjectAdmin(db.Model):
+    """Assigned project admins (in addition to initiator/owner). Owner cannot be removed."""
+    __tablename__ = 'project_admin'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        db.UniqueConstraint('project_id', 'user_id', name='uq_project_admin_project_user'),
+    )
+    
+    project = db.relationship('Project', backref=db.backref('project_admins', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('project_admin_of', lazy='dynamic'))
+
+
+class Waitlist(db.Model):
+    """Project waitlist: name, description, public/private, referrals, active, dates, max, milestones."""
+    __tablename__ = 'waitlist'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    
+    public = db.Column(db.Boolean, default=True)  # False = only project members or link-holders see it
+    referrals = db.Column(db.Boolean, default=False)  # If True, joiners get referral link; referrer gets credit
+    active = db.Column(db.Boolean, default=True)  # If False, tab not shown
+    start_date = db.Column(db.DateTime, nullable=False)  # Join disabled until start
+    closing_date = db.Column(db.DateTime, nullable=True)
+    max_number = db.Column(db.Integer, nullable=True)  # "Full" when reached
+    archived = db.Column(db.Boolean, default=False)  # Soft delete / archive
+    
+    # Image
+    image_url = db.Column(db.String(500), nullable=True)
+    
+    milestones = db.Column(db.Boolean, default=False)
+    show_milestones = db.Column(db.String(20), default='all')  # 'all', 'next', 'future'
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    project = db.relationship('Project', backref=db.backref('waitlists', lazy='dynamic'))
+    
+    def to_dict(self):
+        count = WaitlistEntry.query.filter_by(waitlist_id=self.id, left_at=None).count()
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'name': self.name,
+            'description': self.description,
+            'public': self.public,
+            'referrals': self.referrals,
+            'active': self.active,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'closing_date': self.closing_date.isoformat() if self.closing_date else None,
+            'max_number': self.max_number,
+            'archived': self.archived,
+            'image_url': self.image_url,
+            'milestones': self.milestones,
+            'show_milestones': self.show_milestones,
+            'count': count,
+            'full': self.max_number is not None and count >= self.max_number,
+            'closed': self.closing_date is not None and datetime.utcnow() >= self.closing_date,
+            'started': self.start_date is not None and datetime.utcnow() >= self.start_date,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WaitlistEntry(db.Model):
+    """One user on a waitlist; can leave (left_at set). Position = order of join."""
+    __tablename__ = 'waitlist_entry'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    waitlist_id = db.Column(db.Integer, db.ForeignKey('waitlist.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    message = db.Column(db.Text, nullable=True)
+    position = db.Column(db.Integer, nullable=False)  # 1-based queue order
+    referred_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    referral_code = db.Column(db.String(50), nullable=True)
+    source = db.Column(db.String(255), nullable=True)  # Track signup source (e.g., 'embed:example.com', 'direct', 'referral')
+    source_url = db.Column(db.String(500), nullable=True)  # Full URL where signup occurred
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+    left_at = db.Column(db.DateTime, nullable=True)  # If set, user left
+    
+    waitlist = db.relationship('Waitlist', backref=db.backref('entries', lazy='dynamic'))
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('waitlist_entries', lazy='dynamic'))
+    referred_by = db.relationship('User', foreign_keys=[referred_by_id])
+    
+    __table_args__ = (db.UniqueConstraint('waitlist_id', 'user_id', name='uq_waitlist_entry_user'),)
+
+
+class WaitlistMilestone(db.Model):
+    """Milestone: activates at threshold (number on waitlist). Order by threshold."""
+    __tablename__ = 'waitlist_milestone'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    waitlist_id = db.Column(db.Integer, db.ForeignKey('waitlist.id'), nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    threshold = db.Column(db.Integer, nullable=False)  # Number on waitlist to activate (ordering = by this)
+    action_type = db.Column(db.String(50), nullable=True)  # e.g. email, badge, webhook
+    action_payload = db.Column(db.Text, nullable=True)  # JSON
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    waitlist = db.relationship('Waitlist', backref=db.backref('milestone_list', lazy='dynamic', order_by='WaitlistMilestone.threshold'))
+
+
+def is_project_admin(project, user):
+    """True if user is project owner (initiator), an assigned project admin, or site admin."""
+    if not user:
+        return False
+    if user.get('role') == 'admin':
+        return True
+    if not project:
+        return False
+    initiator_id = project.initiator_id if hasattr(project, 'initiator_id') else project.get('initiator_id')
+    if initiator_id == user['id']:
+        return True
+    if hasattr(project, 'id'):
+        pid = project.id
+    else:
+        pid = project.get('id')
+    return ProjectAdmin.query.filter_by(project_id=pid, user_id=user['id']).first() is not None
+
 
 class Workgroup(db.Model):
     """Task-focused group within a project"""
@@ -861,6 +1144,9 @@ class Workgroup(db.Model):
     
     # Project relationship (required)
     project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    
+    # Image
+    image_url = db.Column(db.String(500), nullable=True)
     
     # Coordinator (formerly "chair")
     coordinator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
@@ -897,6 +1183,7 @@ class Workgroup(db.Model):
             'status': self.status,
             'approval_status': self.approval_status,
             'description': self.description,
+            'image_url': self.image_url,
             'type': self.type,  # Legacy field
             'state': self.state,  # Legacy field
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -917,6 +1204,9 @@ class Guild(db.Model):
     # Description
     description = db.Column(db.Text, nullable=True)
     
+    # Image
+    image_url = db.Column(db.String(500), nullable=True)
+    
     # Status (guilds don't require approval - instant registration)
     status = db.Column(db.String(20), default='active', index=True)
     # active, archived
@@ -936,6 +1226,7 @@ class Guild(db.Model):
             'initiator_id': self.initiator_id,
             'initiator_name': self.initiator.displayName or self.initiator.username if self.initiator else None,
             'description': self.description,
+            'image_url': self.image_url,
             'status': self.status,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -1315,7 +1606,22 @@ ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 ROLE_IMAGE_UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads/role_images'
+ENTITY_IMAGE_UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads/entity_images'
+PROFILE_IMAGE_UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads/profile_images'
 os.makedirs(ROLE_IMAGE_UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(ENTITY_IMAGE_UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PROFILE_IMAGE_UPLOAD_FOLDER, exist_ok=True)
+
+# Image dimension constraints
+IMAGE_MAX_WIDTH = 600
+IMAGE_MAX_HEIGHT = 600
+IMAGE_MAX_SIZE_MB = 5
+
+# Entity images (projects, workgroups, guilds, waitlists): same 600×600 limit as role images
+ENTITY_IMAGE_MAX_DIMENSION = 600
+ENTITY_IMAGE_UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads/entity_images'
+MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024  # 5MB for 600×600 images
+os.makedirs(ENTITY_IMAGE_UPLOAD_FOLDER, exist_ok=True)
 
 # Comment edit/delete time limit (in minutes)
 EDIT_DELETE_TIME_MINUTES = 15
@@ -1330,6 +1636,47 @@ def allowed_file(filename):
 def allowed_image_file(filename):
     """Check if image file extension is allowed"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
+def upload_image_600x600(file_storage, upload_folder, url_prefix, filename_prefix='img'):
+    """
+    Validate and save an uploaded image with max dimensions 600×600.
+    Returns (image_url, None) on success, or (None, error_message) on failure.
+    file_storage: FileStorage from request.files['file']
+    upload_folder: absolute path to directory to save the file
+    url_prefix: URL path prefix for the saved file (e.g. '/uploads/role_images' or '/uploads/entity_images')
+    filename_prefix: prefix for the saved filename (e.g. 'rimg' or 'entity')
+    """
+    if not file_storage or not file_storage.filename:
+        return None, 'No file provided'
+    filename = file_storage.filename
+    if not allowed_image_file(filename):
+        return None, 'Invalid file type. Allowed: PNG, JPG, GIF, WebP, SVG'
+    ext = filename.rsplit('.', 1)[1].lower()
+    file_storage.seek(0, os.SEEK_END)
+    file_size = file_storage.tell()
+    file_storage.seek(0)
+    if file_size > MAX_IMAGE_FILE_SIZE:
+        return None, f'File too large. Maximum size is {MAX_IMAGE_FILE_SIZE // (1024*1024)}MB.'
+    # Validate dimensions for raster formats (PIL); SVG is allowed without dimension check
+    if ext != 'svg':
+        try:
+            from PIL import Image
+            img = Image.open(file_storage)
+            img.load()
+            w, h = img.size
+            if w > ENTITY_IMAGE_MAX_DIMENSION or h > ENTITY_IMAGE_MAX_DIMENSION:
+                return None, f'Image dimensions must be at most {ENTITY_IMAGE_MAX_DIMENSION}×{ENTITY_IMAGE_MAX_DIMENSION} pixels (got {w}×{h}).'
+            file_storage.seek(0)
+        except Exception as e:
+            file_storage.seek(0)
+            return None, f'Invalid image or unsupported format: {e}'
+    safe_name = f"{filename_prefix}_{os.urandom(8).hex()}.{ext}"
+    file_path = os.path.join(upload_folder, safe_name)
+    try:
+        file_storage.save(file_path)
+    except Exception as e:
+        return None, f'Failed to save file: {e}'
+    return f"{url_prefix}/{safe_name}", None
 
 def generate_draft_name(title, authors):
     """Generate a draft name from title and authors"""
@@ -1500,6 +1847,22 @@ def shorten_inscription_id(inscription_id, chars_each_side=8):
     
     return f'{start}....{end}'
 
+def generate_referral_code(username):
+    """Generate a unique referral code for a user"""
+    import hashlib
+    import time
+    # Create a unique code based on username and timestamp
+    raw = f"{username}-{time.time()}"
+    hash_obj = hashlib.md5(raw.encode())
+    return hash_obj.hexdigest()[:8].upper()
+
+def get_or_create_referral_code(user):
+    """Get user's referral code or create one if it doesn't exist"""
+    if not user.referral_code:
+        user.referral_code = generate_referral_code(user.username)
+        db.session.commit()
+    return user.referral_code
+
 def get_current_user():
     """Get current logged in user"""
     if 'user' in session:
@@ -1646,9 +2009,11 @@ def generate_user_menu():
                 {display_name}
             </a>
             <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="/profile/">Profile</a></li>
+                <li><a class="dropdown-item" href="/my-projects/">My Projects</a></li>
                 <li><a class="dropdown-item" href="/submit/status/">My Submissions</a></li>
                 {admin_link}
-                <li><a class="dropdown-item" href="/profile/">Profile</a></li>
+                <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item" href="/logout/">Logout</a></li>
             </ul>
         </div>
@@ -2211,6 +2576,23 @@ BASE_TEMPLATE = """
             border-radius: 0;
             transition: all 0.2s ease;
         }}
+        
+        .waitlist-tab-flair {{
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            border-radius: 8px 8px 0 0 !important;
+            font-weight: 600 !important;
+            position: relative;
+        }}
+        
+        .waitlist-tab-flair::after {{
+            content: '✨';
+            margin-left: 6px;
+            font-size: 0.9em;
+        }}
+        
+        .waitlist-tab-flair.active {{
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+        }}
 
         .nav-link:hover {{
             background-color: var(--bg-secondary);
@@ -2372,6 +2754,32 @@ BASE_TEMPLATE = """
 
         [data-theme="dark"] .modal-footer {{
             border-top-color: var(--border-color) !important;
+        }}
+
+        /* App modals: same style for all (no default Bootstrap look) */
+        .modal-content {{
+            border-radius: 12px;
+            border: 1px solid var(--border-color, #dee2e6);
+            box-shadow: 0 0.5rem 2rem rgba(0,0,0,0.15);
+        }}
+        [data-theme="dark"] .modal-content {{
+            box-shadow: 0 0.5rem 2rem rgba(0,0,0,0.4);
+        }}
+        .modal-header {{
+            border-bottom: 1px solid var(--border-color, #dee2e6);
+            padding: 1rem 1.25rem;
+            border-radius: 12px 12px 0 0;
+        }}
+        .modal-body {{
+            padding: 1.25rem;
+        }}
+        .modal-footer {{
+            border-top: 1px solid var(--border-color, #dee2e6);
+            padding: 1rem 1.25rem;
+            border-radius: 0 0 12px 12px;
+        }}
+        .modal-title {{
+            font-weight: 600;
         }}
 
         [data-theme="dark"] .btn-close {{
@@ -2702,30 +3110,15 @@ BASE_TEMPLATE = """
                 MLGH
             </a>
             <div class="navbar-nav">
-                <a class="nav-link" href="/projects/">
-                    <i class="fas fa-project-diagram me-1"></i>Projects
-                </a>
-                <a class="nav-link" href="/roles/">
-                    <i class="fas fa-user-tag me-1"></i>Roles
-                </a>
-                <a class="nav-link" href="/workgroups/">
-                    <i class="fas fa-users me-1"></i>Workgroups
-                </a>
-                <a class="nav-link" href="/guilds/">
-                    <i class="fas fa-shield-alt me-1"></i>Guilds
-                </a>
-                <a class="nav-link" href="/person/">
-                    <i class="fas fa-user-friends me-1"></i>People
-                </a>
-                <a class="nav-link" href="/role-images/">
-                    <i class="fas fa-images me-1"></i>Imagery
-                </a>
-                <a class="nav-link" href="/doc/all/">
-                    <i class="fas fa-file-alt me-1"></i>Docs
-                </a>
-                <a class="nav-link" href="/submit/">
-                    <i class="fas fa-plus me-1"></i>Submit
-                </a>
+                <a class="nav-link" href="/projects/">Projects</a>
+                <a class="nav-link" href="/roles/">Roles</a>
+                <a class="nav-link" href="/workgroups/">Workgroups</a>
+                <a class="nav-link" href="/guilds/">Guilds</a>
+                <a class="nav-link" href="/person/">People</a>
+                <a class="nav-link" href="/waitlists/">Waitlists</a>
+                <a class="nav-link" href="/role-images/">Imagery</a>
+                <a class="nav-link" href="/doc/all/">Docs</a>
+                <a class="nav-link" href="/submit/">Submit</a>
             </div>
             <div class="navbar-nav ms-auto">
                 {user_menu}
@@ -5466,11 +5859,12 @@ def web3auth_login():
         if not user and email:
             user = User.query.filter_by(email=email).first()
 
-        # If user exists, update their Web3Auth info
+        # If user exists, update their Web3Auth info and last login
         if user:
             # Update existing user with new Web3Auth data
             user.web3authVerifierId = verifierId
             user.typeOfLogin = typeOfLogin
+            user.last_login = datetime.utcnow()
             if name:
                 user.displayName = name
                 user.displayNameSetAt = datetime.utcnow()
@@ -5521,7 +5915,8 @@ def web3auth_login():
                 username=handle,
                 handle=handle,
                 role='user',
-                theme='dark'
+                theme='dark',
+                last_login=datetime.utcnow()
             )
             db.session.add(user)
             db.session.commit()
@@ -5781,26 +6176,14 @@ def api_submit_role_image(role_slug):
             return jsonify({'error': 'No file provided'}), 400
         
         file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+        image_url, err = upload_image_600x600(
+            file, ROLE_IMAGE_UPLOAD_FOLDER, '/uploads/role_images', filename_prefix=image_id
+        )
+        if err:
+            return jsonify({'error': err}), 400
         
-        if not allowed_image_file(file.filename):
-            return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, GIF, WebP, SVG'}), 400
-        
-        # Check file size (10MB limit)
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-        if file_size > 10 * 1024 * 1024:
-            return jsonify({'error': 'File too large. Maximum size is 10MB.'}), 400
-        
-        # Save file
-        filename = f"{image_id}_{file.filename}"
-        file_path = os.path.join(ROLE_IMAGE_UPLOAD_FOLDER, filename)
-        file.save(file_path)
-        
-        image.file_path = file_path
-        image.image_url = f"/uploads/role_images/{filename}"
+        image.file_path = os.path.join(ROLE_IMAGE_UPLOAD_FOLDER, image_url.split('/')[-1])
+        image.image_url = image_url
         
     elif source_type == 'url':
         image_url = request.form.get('image_url')
@@ -6020,6 +6403,32 @@ def serve_role_image(filename):
     """Serve uploaded role images"""
     return send_from_directory(ROLE_IMAGE_UPLOAD_FOLDER, filename)
 
+@app.route('/api/upload/entity-image', methods=['POST'])
+@require_auth
+def api_upload_entity_image():
+    """Upload an image for project/workgroup/guild/waitlist. Max 600×600, 5MB. Returns { image_url }."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'No file selected'}), 400
+    entity_type = (request.form.get('entity_type') or 'entity').strip()[:20].replace('/', '_') or 'entity'
+    prefix = entity_type.lower()
+    image_url, err = upload_image_600x600(
+        file, ENTITY_IMAGE_UPLOAD_FOLDER, '/uploads/entity_images', filename_prefix=prefix
+    )
+    if err:
+        return jsonify({'error': err}), 400
+    return jsonify({'success': True, 'image_url': image_url}), 201
+
+@app.route('/uploads/entity_images/<filename>')
+def serve_entity_image(filename):
+    """Serve uploaded entity images (projects, workgroups, guilds, waitlists)"""
+    return send_from_directory(ENTITY_IMAGE_UPLOAD_FOLDER, filename)
+
 # ============================================================================
 # Projects API Endpoints
 # ============================================================================
@@ -6043,7 +6452,9 @@ def api_list_projects():
     query = query.order_by(Project.last_activity.desc())
     
     projects = query.all()
-    return jsonify({'projects': [p.to_dict() for p in projects], 'count': len(projects)})
+    resp = jsonify({'projects': [p.to_dict() for p in projects], 'count': len(projects)})
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    return resp
 
 @app.route('/api/projects/', methods=['POST'])
 @require_auth
@@ -6055,6 +6466,8 @@ def api_create_project():
     
     data = request.get_json()
     name = data.get('name', '').strip()
+    mission = data.get('mission') or data.get('mission_statement') or ''
+    mission = mission.strip() if mission else None
     description = data.get('description', '').strip()
     
     if not name:
@@ -6082,6 +6495,7 @@ def api_create_project():
         name=name,
         slug=slug,
         initiator_id=current_user['id'],
+        mission=mission or None,
         description=description,
         status='proposed',
         approval_status='pending'
@@ -6103,6 +6517,18 @@ def api_get_project(project_id):
     project_dict = project.to_dict()
     project_dict['workgroups_count'] = workgroups_count
     
+    # Include membership for current user if authenticated
+    current_user = get_current_user()
+    if current_user:
+        member = ProjectMember.query.filter_by(
+            project_id=project_id, user_id=current_user['id'], status='active'
+        ).first()
+        project_dict['is_member'] = member is not None
+        project_dict['member_role'] = member.role if member else None
+    else:
+        project_dict['is_member'] = False
+        project_dict['member_role'] = None
+    
     return jsonify(project_dict)
 
 @app.route('/api/projects/<project_id>/', methods=['PATCH'])
@@ -6115,15 +6541,34 @@ def api_update_project(project_id):
     
     project = Project.query.get_or_404(project_id)
     
-    # Check permissions (initiator or admin)
-    if project.initiator_id != current_user['id'] and current_user.get('role') != 'admin':
+    # Check permissions (initiator, assigned admin, or site admin)
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Permission denied'}), 403
     
     data = request.get_json()
     
     # Update allowed fields
+    if 'name' in data:
+        name = (data['name'] or '').strip()
+        if not name:
+            return jsonify({'error': 'Project name cannot be empty'}), 400
+        if name != project.name:
+            if Project.query.filter_by(name=name).first():
+                return jsonify({'error': 'A project with this name already exists'}), 400
+            project.name = name
+            slug = create_slug(name)
+            original_slug = slug
+            counter = 1
+            while Project.query.filter(Project.slug == slug, Project.id != project_id).first():
+                slug = f'{original_slug}-{counter}'
+                counter += 1
+            project.slug = slug
+    if 'mission' in data:
+        project.mission = data['mission'] if data['mission'] else None
     if 'description' in data:
         project.description = data['description']
+    if 'image_url' in data:
+        project.image_url = data['image_url'].strip() if data['image_url'] else None
     if 'status' in data and data['status'] in ['proposed', 'active', 'stabilizing', 'maintaining', 'dormant', 'concluded', 'archived']:
         old_status = project.status
         project.status = data['status']
@@ -6186,6 +6631,789 @@ def api_approve_project(project_id):
     db.session.commit()
     
     return jsonify({'success': True, 'project': project.to_dict()})
+
+# ============================================================================
+# Project Admins API
+# ============================================================================
+
+@app.route('/api/projects/<project_id>/admins/', methods=['GET'])
+def api_list_project_admins(project_id):
+    """List project admins (owner + assigned). Only project admins can see this."""
+    project = Project.query.get_or_404(project_id)
+    current_user = get_current_user()
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can view the admin list'}), 403
+    
+    owner = project.initiator
+    owner_dict = {
+        'user_id': owner.id,
+        'username': owner.username,
+        'display_name': owner.displayName or owner.username,
+        'is_owner': True,
+        'added_at': project.created_at.isoformat() if project.created_at else None
+    }
+    
+    assigned = ProjectAdmin.query.filter_by(project_id=project_id).all()
+    assigned_list = []
+    for pa in assigned:
+        u = pa.user
+        assigned_list.append({
+            'user_id': u.id,
+            'username': u.username,
+            'display_name': u.displayName or u.username,
+            'is_owner': False,
+            'added_at': pa.added_at.isoformat() if pa.added_at else None
+        })
+    
+    return jsonify({
+        'owner': owner_dict,
+        'admins': assigned_list,
+        'count': 1 + len(assigned_list)
+    })
+
+
+@app.route('/api/projects/<project_id>/admins/', methods=['POST'])
+@require_auth
+def api_add_project_admin(project_id):
+    """Add a project admin. Only existing project admins can add."""
+    project = Project.query.get_or_404(project_id)
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can add admins'}), 403
+    
+    data = request.get_json()
+    user_id = data.get('user_id')
+    username = data.get('username')
+    
+    if user_id is not None:
+        user_id = int(user_id)
+    elif username:
+        u = User.query.filter_by(username=username).first()
+        if not u:
+            return jsonify({'error': 'User not found'}), 404
+        user_id = u.id
+    else:
+        return jsonify({'error': 'Provide user_id or username'}), 400
+    
+    if user_id == project.initiator_id:
+        return jsonify({'error': 'Owner is already an admin'}), 400
+    
+    existing = ProjectAdmin.query.filter_by(project_id=project_id, user_id=user_id).first()
+    if existing:
+        return jsonify({'error': 'User is already a project admin'}), 400
+    
+    pa = ProjectAdmin(project_id=project_id, user_id=user_id)
+    db.session.add(pa)
+    db.session.commit()
+    
+    u = User.query.get(user_id)
+    return jsonify({
+        'success': True,
+        'admin': {
+            'user_id': u.id,
+            'username': u.username,
+            'display_name': u.displayName or u.username,
+            'is_owner': False,
+            'added_at': pa.added_at.isoformat() if pa.added_at else None
+        }
+    })
+
+
+@app.route('/api/projects/<project_id>/admins/<int:user_id>/', methods=['DELETE'])
+@require_auth
+def api_remove_project_admin(project_id, user_id):
+    """Remove a project admin. Owner cannot be removed."""
+    project = Project.query.get_or_404(project_id)
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can remove admins'}), 403
+    
+    if user_id == project.initiator_id:
+        return jsonify({'error': 'Cannot remove the project owner'}), 400
+    
+    pa = ProjectAdmin.query.filter_by(project_id=project_id, user_id=user_id).first()
+    if not pa:
+        return jsonify({'error': 'User is not an assigned admin'}), 404
+    
+    db.session.delete(pa)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/users/search/', methods=['GET'])
+def api_search_users():
+    """Search users by username or display name (for adding project admins)."""
+    q = request.args.get('q', '').strip()
+    if not q or len(q) < 2:
+        return jsonify({'users': [], 'count': 0})
+    
+    users = User.query.filter(
+        db.or_(
+            User.username.ilike(f'%{q}%'),
+            User.displayName.ilike(f'%{q}%'),
+            User.name.ilike(f'%{q}%')
+        )
+    ).limit(20).all()
+    
+    return jsonify({
+        'users': [{'id': u.id, 'username': u.username, 'display_name': u.displayName or u.username} for u in users],
+        'count': len(users)
+    })
+
+@app.route('/api/projects/<project_id>/members/', methods=['GET'])
+def api_list_project_members(project_id):
+    """List project members"""
+    project = Project.query.get_or_404(project_id)
+    
+    members = ProjectMember.query.filter_by(project_id=project_id, status='active').all()
+    
+    return jsonify({
+        'members': [{
+            'id': m.id,
+            'user_id': m.user_id,
+            'username': m.user.username,
+            'display_name': m.user.displayName or m.user.username,
+            'role': m.role,
+            'joined_at': m.joined_at.isoformat() if m.joined_at else None,
+            'referred_by': m.referred_by.displayName or m.referred_by.username if m.referred_by else None
+        } for m in members]
+    }), 200
+
+@app.route('/api/projects/<project_id>/join/', methods=['POST'])
+@require_auth
+def api_join_project(project_id):
+    """Join a project (with optional referral tracking)"""
+    current_user_data = get_current_user()
+    if not current_user_data:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    user = User.query.get(current_user_data['id'])
+    project = Project.query.get_or_404(project_id)
+    
+    # Check if already a member
+    existing = ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first()
+    if existing and existing.status == 'active':
+        return jsonify({'error': 'Already a member of this project'}), 400
+    
+    data = request.get_json() or {}
+    referral_code = data.get('referral_code')
+    
+    # Find referrer if referral code provided
+    referred_by_id = None
+    if referral_code:
+        referrer = User.query.filter_by(referral_code=referral_code).first()
+        if referrer and referrer.id != user.id:  # Can't refer yourself
+            referred_by_id = referrer.id
+    
+    # Create or reactivate membership
+    if existing:
+        existing.status = 'active'
+        existing.joined_at = datetime.utcnow()
+        existing.left_at = None
+        if referred_by_id and not existing.referred_by_id:  # Only set referrer if not already set
+            existing.referred_by_id = referred_by_id
+            existing.referral_code = referral_code
+        member = existing
+    else:
+        member = ProjectMember(
+            project_id=project_id,
+            user_id=user.id,
+            referred_by_id=referred_by_id,
+            referral_code=referral_code,
+            role='contributor'
+        )
+        db.session.add(member)
+    
+    db.session.commit()
+    
+    return jsonify({
+        'message': 'Successfully joined project',
+        'member': {
+            'id': member.id,
+            'project_id': member.project_id,
+            'user_id': member.user_id,
+            'role': member.role,
+            'joined_at': member.joined_at.isoformat() if member.joined_at else None,
+            'referred_by': member.referred_by.displayName or member.referred_by.username if member.referred_by else None
+        }
+    }), 201
+
+@app.route('/api/projects/<project_id>/leave/', methods=['POST'])
+@require_auth
+def api_leave_project(project_id):
+    """Leave a project"""
+    current_user_data = get_current_user()
+    if not current_user_data:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    user = User.query.get(current_user_data['id'])
+    project = Project.query.get_or_404(project_id)
+    
+    member = ProjectMember.query.filter_by(project_id=project_id, user_id=user.id, status='active').first()
+    if not member:
+        return jsonify({'error': 'Not a member of this project'}), 404
+    
+    member.status = 'left'
+    member.left_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({'message': 'Successfully left project'}), 200
+
+@app.route('/api/user/referral-code/', methods=['GET'])
+@require_auth
+def api_get_referral_code():
+    """Get current user's referral code"""
+    current_user_data = get_current_user()
+    if not current_user_data:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    user = User.query.get(current_user_data['id'])
+    referral_code = get_or_create_referral_code(user)
+    
+    # Count referrals
+    referral_count = ProjectMember.query.filter_by(referred_by_id=user.id).count()
+    
+    return jsonify({
+        'referral_code': referral_code,
+        'referral_count': referral_count,
+        'referral_url': f"{request.host_url}?ref={referral_code}"
+    }), 200
+
+
+# ============================================================================
+# Waitlist API Endpoints
+# ============================================================================
+
+@app.route('/api/projects/<project_id>/waitlists/', methods=['GET'])
+def api_list_waitlists(project_id):
+    """List waitlists for a project. Only active+visible ones for non-admins."""
+    project = Project.query.get_or_404(project_id)
+    current_user = get_current_user()
+    is_admin = current_user and is_project_admin(project, current_user)
+    
+    query = Waitlist.query.filter_by(project_id=project_id, archived=False)
+    
+    if not is_admin:
+        query = query.filter_by(active=True)
+        if not current_user:
+            query = query.filter_by(public=True)
+        else:
+            is_member = ProjectMember.query.filter_by(project_id=project_id, user_id=current_user['id'], status='active').first() is not None
+            if not is_member:
+                query = query.filter_by(public=True)
+    
+    waitlists = query.order_by(Waitlist.created_at.desc()).all()
+    
+    result = []
+    for w in waitlists:
+        d = w.to_dict()
+        # Expose milestone objects as array for UI; to_dict has milestones as bool
+        if d.get('milestones'):
+            d['milestones'] = [{'id': m.id, 'title': m.title, 'description': m.description, 'threshold': m.threshold, 'action_type': m.action_type} for m in w.milestone_list.order_by(WaitlistMilestone.threshold).all()]
+        else:
+            d['milestones'] = []
+        if current_user:
+            entry = WaitlistEntry.query.filter_by(waitlist_id=w.id, user_id=current_user['id'], left_at=None).first()
+            d['my_entry'] = {'position': entry.position, 'joined_at': entry.joined_at.isoformat()} if entry else None
+            if w.referrals:
+                user = User.query.get(current_user['id'])
+                ref_code = get_or_create_referral_code(user)
+                d['referral_url'] = f"{request.host_url}projects/{project.slug}/waitlist/{w.id}/?ref={ref_code}"
+        else:
+            d['my_entry'] = None
+            d['referral_url'] = None
+        result.append(d)
+    
+    return jsonify({'waitlists': result, 'count': len(result)})
+
+@app.route('/api/projects/<project_id>/waitlists/', methods=['POST'])
+@require_auth
+def api_create_waitlist(project_id):
+    """Create waitlist - project admin only"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    project = Project.query.get_or_404(project_id)
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can create waitlists'}), 403
+    
+    data = request.get_json() or {}
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    
+    from dateutil import parser as date_parser
+    start_date = None
+    if data.get('start_date'):
+        try:
+            start_date = date_parser.parse(data['start_date'])
+        except Exception:
+            return jsonify({'error': 'Invalid start_date'}), 400
+    if not start_date:
+        start_date = datetime.utcnow()
+    
+    closing_date = None
+    if data.get('closing_date'):
+        try:
+            closing_date = date_parser.parse(data['closing_date'])
+        except Exception:
+            pass
+    
+    waitlist = Waitlist(
+        project_id=project_id,
+        name=name,
+        description=data.get('description', ''),
+        image_url=data.get('image_url'),
+        public=data.get('public', True),
+        referrals=data.get('referrals', False),
+        active=data.get('active', True),
+        start_date=start_date,
+        closing_date=closing_date,
+        max_number=data.get('max_number'),
+        milestones=data.get('milestones', False),
+        show_milestones=(data.get('show_milestones') or 'all')[:20]
+    )
+    db.session.add(waitlist)
+    db.session.commit()
+    
+    return jsonify({'waitlist': waitlist.to_dict()}), 201
+
+@app.route('/api/waitlists/<int:waitlist_id>/', methods=['GET'])
+def api_get_waitlist(waitlist_id):
+    """Get single waitlist with milestones and user's entry"""
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Project.query.get_or_404(waitlist.project_id)
+    current_user = get_current_user()
+    is_admin = current_user and is_project_admin(project, current_user)
+    
+    if not waitlist.active and not is_admin:
+        return jsonify({'error': 'Waitlist not found'}), 404
+    
+    d = waitlist.to_dict()
+    d['milestones'] = [{'id': m.id, 'title': m.title, 'description': m.description, 'threshold': m.threshold, 'action_type': m.action_type} for m in waitlist.milestone_list.order_by(WaitlistMilestone.threshold).all()]
+    
+    if current_user:
+        entry = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id'], left_at=None).first()
+        d['my_entry'] = {'position': entry.position, 'joined_at': entry.joined_at.isoformat()} if entry else None
+        if waitlist.referrals:
+            user = User.query.get(current_user['id'])
+            ref_code = get_or_create_referral_code(user)
+            d['referral_url'] = f"{request.host_url}projects/{project.slug}/waitlist/{waitlist.id}/?ref={ref_code}"
+    else:
+        d['my_entry'] = None
+        d['referral_url'] = None
+    
+    return jsonify(d)
+
+@app.route('/api/waitlists/<int:waitlist_id>/', methods=['PATCH'])
+@require_auth
+def api_update_waitlist(waitlist_id):
+    """Update waitlist - project admin only"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Project.query.get_or_404(waitlist.project_id)
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can edit waitlists'}), 403
+    
+    data = request.get_json() or {}
+    if 'name' in data and data['name']:
+        waitlist.name = data['name'].strip()
+    if 'description' in data:
+        waitlist.description = data['description']
+    if 'public' in data:
+        waitlist.public = bool(data['public'])
+    if 'referrals' in data:
+        waitlist.referrals = bool(data['referrals'])
+    if 'active' in data:
+        waitlist.active = bool(data['active'])
+    if 'archived' in data:
+        waitlist.archived = bool(data['archived'])
+    if 'max_number' in data:
+        waitlist.max_number = data['max_number'] if data['max_number'] is not None else None
+    if 'milestones' in data:
+        waitlist.milestones = bool(data['milestones'])
+    if 'show_milestones' in data:
+        waitlist.show_milestones = (data['show_milestones'] or 'all')[:20]
+    if 'start_date' in data and data['start_date']:
+        try:
+            from dateutil import parser as date_parser
+            waitlist.start_date = date_parser.parse(data['start_date'])
+        except Exception:
+            pass
+    if 'closing_date' in data:
+        if data['closing_date'] is None or data['closing_date'] == '':
+            waitlist.closing_date = None
+        else:
+            try:
+                from dateutil import parser as date_parser
+                waitlist.closing_date = date_parser.parse(data['closing_date'])
+            except Exception:
+                pass
+    
+    db.session.commit()
+    return jsonify({'waitlist': waitlist.to_dict()}), 200
+
+@app.route('/api/waitlists/<int:waitlist_id>/entries/', methods=['GET'])
+@require_auth
+def api_list_waitlist_entries(waitlist_id):
+    """List entries (names) - project admin only"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Project.query.get_or_404(waitlist.project_id)
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can view the entry list'}), 403
+    
+    entries = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).order_by(WaitlistEntry.position).all()
+    return jsonify({
+        'entries': [{'id': e.id, 'user_id': e.user_id, 'username': e.user.username, 'display_name': e.user.displayName or e.user.username, 'position': e.position, 'joined_at': e.joined_at.isoformat() if e.joined_at else None, 'referred_by': e.referred_by.displayName or e.referred_by.username if e.referred_by else None} for e in entries]
+    }), 200
+
+@app.route('/api/waitlists/<int:waitlist_id>/join/', methods=['POST'])
+@require_auth
+def api_join_waitlist(waitlist_id):
+    """Join waitlist. If referred and not on project, add to project. Optional message."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Project.query.get_or_404(waitlist.project_id)
+    
+    now = datetime.utcnow()
+    if now < waitlist.start_date:
+        return jsonify({'error': 'Waitlist has not started yet'}), 400
+    if waitlist.closing_date and now >= waitlist.closing_date:
+        return jsonify({'error': 'Waitlist is closed'}), 400
+    count = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).count()
+    if waitlist.max_number is not None and count >= waitlist.max_number:
+        return jsonify({'error': 'Waitlist is full'}), 400
+    
+    existing = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id']).first()
+    if existing:
+        if existing.left_at:
+            existing.left_at = None
+            existing.position = count + 1
+            existing.message = (request.get_json() or {}).get('message', existing.message)
+            existing.referred_by_id = None
+            existing.referral_code = None
+            db.session.commit()
+        else:
+            return jsonify({'error': 'Already on waitlist'}), 400
+    else:
+        data = request.get_json() or {}
+        message = data.get('message', '')
+        referral_code = data.get('referral_code')
+        source = data.get('source')  # e.g., 'embed:example.com', 'direct'
+        source_url = data.get('source_url')  # Full URL where signup occurred
+        referred_by_id = None
+        if referral_code:
+            referrer = User.query.filter_by(referral_code=referral_code).first()
+            if referrer and referrer.id != current_user['id']:
+                referred_by_id = referrer.id
+                pm = ProjectMember.query.filter_by(project_id=project.id, user_id=current_user['id'], status='active').first()
+                if not pm:
+                    pm = ProjectMember(project_id=project.id, user_id=current_user['id'], referred_by_id=referred_by_id, referral_code=referral_code, role='contributor')
+                    db.session.add(pm)
+        
+        entry = WaitlistEntry(waitlist_id=waitlist_id, user_id=current_user['id'], message=message, position=count + 1, referred_by_id=referred_by_id, referral_code=referral_code, source=source, source_url=source_url)
+        db.session.add(entry)
+        db.session.commit()
+    
+    entry = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id'], left_at=None).first()
+    return jsonify({'entry': {'position': entry.position, 'joined_at': entry.joined_at.isoformat()}, 'waitlist': waitlist.to_dict()}), 201
+
+@app.route('/api/waitlists/<int:waitlist_id>/leave/', methods=['POST'])
+@require_auth
+def api_leave_waitlist(waitlist_id):
+    """Leave waitlist"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    entry = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id'], left_at=None).first()
+    if not entry:
+        return jsonify({'error': 'Not on waitlist'}), 404
+    entry.left_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'message': 'Left waitlist'}), 200
+
+@app.route('/api/waitlists/<int:waitlist_id>/milestones/', methods=['GET'])
+def api_list_waitlist_milestones(waitlist_id):
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    ms = waitlist.milestone_list.order_by(WaitlistMilestone.threshold).all()
+    return jsonify({'milestones': [{'id': m.id, 'title': m.title, 'description': m.description, 'threshold': m.threshold, 'action_type': m.action_type} for m in ms]}), 200
+
+@app.route('/api/waitlists/<int:waitlist_id>/milestones/', methods=['POST'])
+@require_auth
+def api_create_waitlist_milestone(waitlist_id):
+    """Add milestone - project admin only"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Project.query.get_or_404(waitlist.project_id)
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can add milestones'}), 403
+    
+    data = request.get_json() or {}
+    title = data.get('title', '').strip()
+    if not title:
+        return jsonify({'error': 'Title is required'}), 400
+    threshold = data.get('threshold', 0)
+    try:
+        threshold = int(threshold)
+    except (TypeError, ValueError):
+        threshold = 0
+    
+    m = WaitlistMilestone(waitlist_id=waitlist_id, title=title, description=data.get('description'), threshold=threshold, action_type=data.get('action_type'), action_payload=data.get('action_payload'))
+    db.session.add(m)
+    db.session.commit()
+    return jsonify({'milestone': {'id': m.id, 'title': m.title, 'description': m.description, 'threshold': m.threshold, 'action_type': m.action_type}}), 201
+
+@app.route('/embed/waitlist/<int:waitlist_id>/')
+def embed_waitlist_widget(waitlist_id):
+    """Embeddable waitlist widget - returns HTML/JS that can be embedded in external pages"""
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Project.query.get_or_404(waitlist.project_id)
+    
+    # Check if waitlist is public or active
+    if not waitlist.public and not waitlist.active:
+        return "Waitlist not available", 404
+    
+    # Get current entry count
+    entry_count = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).count()
+    
+    # Determine status
+    now = datetime.utcnow()
+    is_upcoming = now < waitlist.start_date
+    is_closed = waitlist.archived or not waitlist.active or (waitlist.closing_date and now >= waitlist.closing_date)
+    is_full = waitlist.max_number and entry_count >= waitlist.max_number
+    
+    # Get the base URL for API calls
+    base_url = request.url_root.rstrip('/')
+    
+    widget_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .waitlist-widget {{
+            max-width: 600px;
+            margin: 0 auto;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }}
+        .waitlist-header {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 12px 12px 0 0;
+        }}
+        .waitlist-body {{
+            background: white;
+            padding: 2rem;
+            border: 1px solid #e1e8ed;
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+        }}
+        .waitlist-stats {{
+            display: flex;
+            justify-content: space-around;
+            margin: 1.5rem 0;
+            padding: 1rem;
+            background: #f7f9fa;
+            border-radius: 8px;
+        }}
+        .stat {{
+            text-align: center;
+        }}
+        .stat-value {{
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }}
+        .stat-label {{
+            font-size: 0.875rem;
+            color: #657786;
+            margin-top: 0.25rem;
+        }}
+        .join-button {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.125rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }}
+        .join-button:hover {{
+            transform: translateY(-2px);
+        }}
+        .join-button:disabled {{
+            opacity: 0.6;
+            cursor: not-allowed;
+        }}
+        .success-message {{
+            background: #00ba7c;
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            text-align: center;
+        }}
+        .error-message {{
+            background: #f4212e;
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            text-align: center;
+        }}
+    </style>
+</head>
+<body>
+    <div class="waitlist-widget">
+        <div class="waitlist-header">
+            <h2 style="margin: 0;">{waitlist.name}</h2>
+            <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">{waitlist.description or ''}</p>
+            <small style="opacity: 0.8;">Part of {project.name}</small>
+        </div>
+        <div class="waitlist-body">
+            <div class="waitlist-stats">
+                <div class="stat">
+                    <div class="stat-value" id="entry-count">{entry_count}</div>
+                    <div class="stat-label">Members</div>
+                </div>
+                {f'''<div class="stat">
+                    <div class="stat-value">{waitlist.max_number - entry_count}</div>
+                    <div class="stat-label">Spots Left</div>
+                </div>''' if waitlist.max_number else ''}
+            </div>
+            
+            <div id="join-section">
+                {f'<p class="text-center text-muted">Opens {waitlist.start_date.strftime("%B %d, %Y")}</p>' if is_upcoming else ''}
+                {f'<p class="text-center text-muted">This waitlist is closed</p>' if is_closed else ''}
+                {f'<p class="text-center text-muted">Waitlist is full</p>' if is_full and not is_closed else ''}
+                
+                {'<button class="join-button" onclick="joinWaitlist()" id="join-btn" disabled>Join Waitlist</button>' if is_upcoming or is_closed or is_full else '<button class="join-button" onclick="joinWaitlist()" id="join-btn">Join Waitlist</button>'}
+            </div>
+            
+            <div id="message-area"></div>
+            
+            <div style="text-align: center; margin-top: 1.5rem;">
+                <small class="text-muted">
+                    Powered by <a href="{base_url}" target="_blank" style="color: #667eea;">MLGH</a>
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/web3auth@latest/dist/web3auth.umd.min.js"></script>
+    <script>
+        const WAITLIST_ID = {waitlist_id};
+        const API_BASE = '{base_url}';
+        const SOURCE_URL = window.location.href;
+        const SOURCE_DOMAIN = window.location.hostname;
+        
+        let web3auth = null;
+        let currentUser = null;
+        
+        // Initialize Web3Auth
+        async function initWeb3Auth() {{
+            try {{
+                web3auth = new window.Web3auth.Web3Auth({{
+                    clientId: "YOUR_WEB3AUTH_CLIENT_ID", // This should be configured
+                    chainConfig: {{
+                        chainNamespace: "eip155",
+                        chainId: "0x1",
+                    }},
+                }});
+                await web3auth.initModal();
+            }} catch (error) {{
+                console.error("Web3Auth init error:", error);
+            }}
+        }}
+        
+        async function joinWaitlist() {{
+            const btn = document.getElementById('join-btn');
+            const messageArea = document.getElementById('message-area');
+            
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+            
+            try {{
+                // Check if user is authenticated
+                const response = await fetch(API_BASE + '/api/user/', {{
+                    credentials: 'include'
+                }});
+                
+                if (!response.ok) {{
+                    // Need to authenticate
+                    messageArea.innerHTML = '<div class="error-message">Please sign in first. Redirecting to login...</div>';
+                    setTimeout(() => {{
+                        window.open(API_BASE + '/login/?redirect=' + encodeURIComponent(SOURCE_URL), '_blank');
+                    }}, 1500);
+                    btn.disabled = false;
+                    btn.textContent = 'Join Waitlist';
+                    return;
+                }}
+                
+                currentUser = await response.json();
+                
+                // Join the waitlist
+                const joinResponse = await fetch(API_BASE + '/api/waitlists/' + WAITLIST_ID + '/join/', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                    }},
+                    credentials: 'include',
+                    body: JSON.stringify({{
+                        source: 'embed:' + SOURCE_DOMAIN,
+                        source_url: SOURCE_URL
+                    }})
+                }});
+                
+                const data = await joinResponse.json();
+                
+                if (joinResponse.ok) {{
+                    messageArea.innerHTML = '<div class="success-message"><i class="fas fa-check-circle"></i> You\'re on the list! Position: ' + data.entry.position + '</div>';
+                    document.getElementById('entry-count').textContent = parseInt(document.getElementById('entry-count').textContent) + 1;
+                    btn.style.display = 'none';
+                }} else {{
+                    messageArea.innerHTML = '<div class="error-message">' + (data.error || 'Failed to join waitlist') + '</div>';
+                    btn.disabled = false;
+                    btn.textContent = 'Join Waitlist';
+                }}
+            }} catch (error) {{
+                console.error('Error:', error);
+                messageArea.innerHTML = '<div class="error-message">An error occurred. Please try again.</div>';
+                btn.disabled = false;
+                btn.textContent = 'Join Waitlist';
+            }}
+        }}
+        
+        // Initialize on load
+        // initWeb3Auth(); // Uncomment when Web3Auth is configured
+    </script>
+</body>
+</html>
+    """
+    
+    return widget_html, 200, {'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'ALLOWALL'}
+
 
 # ============================================================================
 # Workgroups API Endpoints
@@ -6266,26 +7494,48 @@ def api_create_workgroup(project_id):
 def api_get_workgroup(workgroup_id):
     """Get workgroup details"""
     workgroup = Workgroup.query.get_or_404(workgroup_id)
-    return jsonify(workgroup.to_dict())
+    d = workgroup.to_dict()
+    current_user = get_current_user()
+    project = Project.query.get(workgroup.project_id)
+    # Coordinator, project admin, or site admin can edit
+    d['can_edit'] = bool(
+        current_user
+        and (
+            workgroup.coordinator_id == current_user['id']
+            or (project and is_project_admin(project, current_user))
+            or current_user.get('role') == 'admin'
+        )
+    )
+    return jsonify(d)
 
 @app.route('/api/workgroups/<workgroup_id>/', methods=['PATCH'])
 @require_auth
 def api_update_workgroup(workgroup_id):
-    """Update workgroup details"""
+    """Update workgroup details (coordinator, project admin, or site admin)"""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
     workgroup = Workgroup.query.get_or_404(workgroup_id)
+    project = Project.query.get(workgroup.project_id)
     
-    # Check permissions (coordinator or admin)
-    if workgroup.coordinator_id != current_user['id'] and current_user.get('role') != 'admin':
+    # Check permissions: coordinator, project admin, or site admin
+    can_edit = (
+        workgroup.coordinator_id == current_user['id']
+        or (project and is_project_admin(project, current_user))
+        or current_user.get('role') == 'admin'
+    )
+    if not can_edit:
         return jsonify({'error': 'Permission denied'}), 403
     
     data = request.get_json()
     
+    if 'name' in data and data['name']:
+        workgroup.name = data['name'].strip()
     if 'description' in data:
         workgroup.description = data['description']
+    if 'image_url' in data:
+        workgroup.image_url = data['image_url'].strip() if data['image_url'] else None
     if 'status' in data and data['status'] in ['active', 'inactive', 'completed', 'archived']:
         old_status = workgroup.status
         workgroup.status = data['status']
@@ -6319,7 +7569,7 @@ def api_approve_workgroup(workgroup_id):
     
     # Check permissions: site admin, editor, or project initiator
     is_site_admin = current_user.get('role') in ['admin', 'editor']
-    is_project_initiator = workgroup.project and workgroup.project.initiator_id == current_user['id']
+    is_project_initiator = workgroup.project and is_project_admin(workgroup.project, current_user)
     
     if not (is_site_admin or is_project_initiator):
         return jsonify({'error': 'Only project admin or site admin can approve workgroups'}), 403
@@ -6665,10 +7915,16 @@ def api_admin_reject_chair_nomination(nomination_id):
     
     return jsonify({'success': True, 'message': 'Chair nomination rejected'})
 
+@app.route('/uploads/profile_images/<filename>')
+def serve_profile_image(filename):
+    """Serve uploaded profile/banner images"""
+    return send_from_directory(PROFILE_IMAGE_UPLOAD_FOLDER, filename)
+
+@app.route('/api/user/upload-image', methods=['POST'])
 @app.route('/api/user/upload-image/', methods=['POST'])
 @require_auth
 def api_upload_profile_image():
-    """Upload profile or banner image"""
+    """Upload profile or banner image. Max 600×600px, 5MB."""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
@@ -6686,27 +7942,13 @@ def api_upload_profile_image():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
     
-    # Check file extension
-    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-    ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-    if ext not in allowed_extensions:
-        return jsonify({'error': 'Invalid file type. Allowed: png, jpg, jpeg, gif, webp'}), 400
+    prefix = f"{image_type}_{user.id}"
+    image_url, err = upload_image_600x600(
+        file, PROFILE_IMAGE_UPLOAD_FOLDER, '/uploads/profile_images', filename_prefix=prefix
+    )
+    if err:
+        return jsonify({'error': err}), 400
     
-    # Generate unique filename
-    import uuid
-    filename = f"{image_type}_{user.id}_{uuid.uuid4().hex[:8]}.{ext}"
-    
-    # Create uploads directory if it doesn't exist
-    import os
-    upload_dir = os.path.join(app.root_path, 'static', 'uploads', 'profile_images')
-    os.makedirs(upload_dir, exist_ok=True)
-    
-    # Save file
-    filepath = os.path.join(upload_dir, filename)
-    file.save(filepath)
-    
-    # Update user record
-    image_url = f'/static/uploads/profile_images/{filename}'
     if image_type == 'profile':
         user.profileImage = image_url
     elif image_type == 'banner':
@@ -6812,6 +8054,38 @@ def api_get_guild(guild_id):
     
     return jsonify(guild_dict)
 
+@app.route('/api/guilds/<guild_id>/', methods=['PATCH'])
+@require_auth
+def api_update_guild(guild_id):
+    """Update guild details (initiator/admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    guild = Guild.query.get_or_404(guild_id)
+    membership = GuildMembership.query.filter_by(guild_id=guild_id, user_id=current_user['id']).first()
+    if not membership or membership.role not in ['initiator', 'admin']:
+        return jsonify({'error': 'Only guild admins can edit'}), 403
+    
+    data = request.get_json()
+    if 'name' in data and data['name']:
+        name = data['name'].strip()
+        if name != guild.name and Guild.query.filter_by(name=name).first():
+            return jsonify({'error': 'A guild with this name already exists'}), 400
+        guild.name = name
+        guild.slug = create_slug(name)
+    if 'description' in data:
+        guild.description = data['description']
+    if 'image_url' in data:
+        guild.image_url = data['image_url'].strip() if data['image_url'] else None
+    if 'status' in data and data['status'] in ['active', 'archived']:
+        guild.status = data['status']
+    
+    guild.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({'success': True, 'guild': guild.to_dict()})
+
 @app.route('/api/guilds/<guild_id>/invite/', methods=['POST'])
 @require_auth
 def api_invite_to_guild(guild_id):
@@ -6881,19 +8155,30 @@ def api_invite_to_guild(guild_id):
 
 @app.route('/api/projects/<project_id>/clusters/', methods=['GET'])
 def api_list_clusters(project_id):
-    """List clusters for a project"""
+    """List clusters for a project. By default excludes archived (deleted) clusters. ?include_roles=1 adds roles per cluster."""
     project = Project.query.get_or_404(project_id)
     
-    # Filter by status if provided
+    # Filter by status if provided; default to excluding archived so "deleted" clusters disappear
     status = request.args.get('status')
+    include_roles = request.args.get('include_roles', '').lower() in ('1', 'true', 'yes')
     
     query = Cluster.query.filter_by(project_id=project_id)
     if status:
         query = query.filter_by(status=status)
+    else:
+        query = query.filter(Cluster.status != 'archived')
     
     clusters = query.order_by(Cluster.order, Cluster.name).all()
     
-    return jsonify({'clusters': [c.to_dict() for c in clusters], 'count': len(clusters)})
+    result = []
+    for c in clusters:
+        d = c.to_dict()
+        if include_roles:
+            roles = Role.query.filter_by(cluster_id=c.id).order_by(Role.order, Role.title_guild).all()
+            d['roles'] = [r.to_dict() for r in roles]
+        result.append(d)
+    
+    return jsonify({'clusters': result, 'count': len(result)})
 
 @app.route('/api/projects/<project_id>/clusters/', methods=['POST'])
 @require_auth
@@ -6906,7 +8191,7 @@ def api_create_cluster(project_id):
     project = Project.query.get_or_404(project_id)
     
     # Check permissions (project initiator or admin)
-    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can create clusters'}), 403
     
     data = request.get_json()
@@ -6957,7 +8242,8 @@ def api_get_cluster(cluster_id):
     roles_count = Role.query.filter_by(cluster_id=cluster_id).count()
     cluster_dict['roles_count'] = roles_count
     
-    return jsonify(cluster_dict)
+    # Return under 'cluster' key for consistent frontend consumption
+    return jsonify({'cluster': cluster_dict})
 
 @app.route('/api/clusters/<cluster_id>/', methods=['PATCH'])
 @require_auth
@@ -6971,7 +8257,7 @@ def api_update_cluster(cluster_id):
     project = Project.query.get_or_404(cluster.project_id)
     
     # Check permissions
-    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can update clusters'}), 403
     
     data = request.get_json()
@@ -7031,7 +8317,7 @@ def api_delete_cluster(cluster_id):
     project = Project.query.get_or_404(cluster.project_id)
     
     # Check permissions
-    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can archive clusters'}), 403
     
     old_status = cluster.status
@@ -7180,7 +8466,7 @@ def api_import_roles(project_id):
     project = Project.query.get_or_404(project_id)
     
     # Check permissions (project initiator or admin)
-    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can import roles'}), 403
     
     data = request.get_json()
@@ -7252,6 +8538,17 @@ def api_get_role(role_id):
     claims_count = Claim.query.filter_by(role_id=role_id, status='active').count()
     role_dict['active_claims_count'] = claims_count
     
+    # Add cluster name for role detail display
+    if role.cluster_id and role.cluster:
+        role_dict['cluster_name'] = role.cluster.name
+    else:
+        role_dict['cluster_name'] = None
+    
+    # Add can_edit for project admin (role detail page Edit button)
+    current_user = get_current_user()
+    project = Project.query.get(role.project_id)
+    role_dict['can_edit'] = bool(project and current_user and is_project_admin(project, current_user))
+    
     return jsonify(role_dict)
 
 @app.route('/api/roles/<role_id>/', methods=['PATCH'])
@@ -7266,7 +8563,7 @@ def api_update_role(role_id):
     project = Project.query.get_or_404(role.project_id)
     
     # Check permissions
-    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can update roles'}), 403
     
     data = request.get_json()
@@ -7370,7 +8667,7 @@ def api_change_role_status(role_id):
     project = Project.query.get_or_404(role.project_id)
     
     # Check permissions
-    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can change role status'}), 403
     
     data = request.get_json()
@@ -7412,7 +8709,19 @@ def api_list_role_claims(role_id):
     
     claims = query.order_by(Claim.created_at.desc()).all()
     
-    return jsonify({'claims': [c.to_dict() for c in claims], 'count': len(claims)})
+    # Enrich with claimant name and username for profile link
+    result = []
+    for c in claims:
+        d = c.to_dict()
+        if c.claimant:
+            d['claimant_name'] = c.claimant.displayName or c.claimant.username or c.claimant.name
+            d['claimant_username'] = c.claimant.username
+        else:
+            d['claimant_name'] = None
+            d['claimant_username'] = None
+        result.append(d)
+    
+    return jsonify({'claims': result, 'count': len(result)})
 
 # ============================================================================
 # Claims API
@@ -7441,7 +8750,25 @@ def api_list_claims(project_id):
     
     claims = query.order_by(Claim.created_at.desc()).all()
     
-    return jsonify({'claims': [c.to_dict() for c in claims], 'count': len(claims)})
+    # Enrich with role name/slug and claimant name/username for project claims tab
+    result = []
+    for c in claims:
+        d = c.to_dict()
+        if c.role:
+            d['role_name'] = c.role.title_operational or c.role.title_guild
+            d['role_slug'] = c.role.role_slug
+        else:
+            d['role_name'] = None
+            d['role_slug'] = None
+        if c.claimant:
+            d['claimant_name'] = c.claimant.displayName or c.claimant.username or getattr(c.claimant, 'name', None)
+            d['claimant_username'] = c.claimant.username
+        else:
+            d['claimant_name'] = None
+            d['claimant_username'] = None
+        result.append(d)
+    
+    return jsonify({'claims': result, 'count': len(result)})
 
 @app.route('/api/roles/<role_id>/claims/', methods=['POST'])
 @require_auth
@@ -7460,7 +8787,14 @@ def api_create_claim(role_id):
     data = request.get_json()
     intent = data.get('intent', '').strip()
     evidence_links = data.get('evidence_links', [])
-    term_duration_days = data.get('term_duration_days')
+    # Accept term in months (default 3) or legacy days
+    term_duration_months = data.get('term_duration_months')
+    if term_duration_months is not None:
+        months = int(term_duration_months) if term_duration_months else 3
+        months = max(1, min(12, months))
+        term_duration_days = {1: 30, 3: 90, 6: 182, 12: 365}.get(months, months * 30)
+    else:
+        term_duration_days = data.get('term_duration_days')
     
     # Check if user already has an active claim for this role
     existing_claim = Claim.query.filter_by(
@@ -7568,7 +8902,7 @@ def api_approve_claim(claim_id):
     project = Project.query.get_or_404(claim.project_id)
     
     # Check permissions
-    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can approve claims'}), 403
     
     data = request.get_json()
@@ -7612,9 +8946,9 @@ def api_change_claim_status(claim_id):
     
     # Check permissions
     is_claimant = claim.claimant_id == current_user['id']
-    is_project_admin = project.initiator_id == current_user['id'] or current_user.get('is_admin')
+    is_padmin = is_project_admin(project, current_user)
     
-    if not (is_claimant or is_project_admin):
+    if not (is_claimant or is_padmin):
         return jsonify({'error': 'Permission denied'}), 403
     
     data = request.get_json()
@@ -7626,7 +8960,7 @@ def api_change_claim_status(claim_id):
         return jsonify({'error': 'Invalid status'}), 400
     
     # Claimants can only pause/unpause their own claims
-    if is_claimant and not is_project_admin:
+    if is_claimant and not is_padmin:
         if new_status not in ['paused', 'active']:
             return jsonify({'error': 'You can only pause or reactivate your claim'}), 403
     
@@ -7709,9 +9043,9 @@ def api_request_badge(claim_id):
     # Check if requester is claimant or project admin
     project = Project.query.get_or_404(claim.project_id)
     is_claimant = claim.claimant_id == current_user['id']
-    is_project_admin = project.initiator_id == current_user['id'] or current_user.get('is_admin')
+    is_padmin = is_project_admin(project, current_user)
     
-    if not (is_claimant or is_project_admin):
+    if not (is_claimant or is_padmin):
         return jsonify({'error': 'Only the claimant or project admins can request badges'}), 403
     
     data = request.get_json()
@@ -7800,7 +9134,7 @@ def api_approve_badge(badge_id):
     project = Project.query.get_or_404(badge.project_id)
     
     # Check permissions
-    if project.initiator_id != current_user['id'] and not current_user.get('is_admin'):
+    if not is_project_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can approve badges'}), 403
     
     data = request.get_json()
@@ -7882,10 +9216,26 @@ def api_issue_badge(badge_id):
     
     return jsonify({'success': True, 'badge': badge.to_dict()})
 
+@app.route('/my-projects/')
+@require_auth
+def my_projects():
+    """Redirect to current user's profile with My Projects tab active"""
+    current_user = get_current_user()
+    if not current_user:
+        return redirect('/')
+    user = User.query.get(current_user['id'])
+    if not user:
+        return redirect('/')
+    return redirect(f'/profile/{user.username}/#my-projects')
+
 @app.route('/profile/', methods=['GET', 'POST'])
 @require_auth
 def profile():
-    """User profile management"""
+    """User profile management - redirects to new profile page"""
+    # Redirect GET requests to the new profile edit page
+    if request.method == 'GET':
+        return redirect(url_for('profile_edit'))
+    
     current_user = get_current_user()
     
     if request.method == 'POST':
@@ -9765,61 +11115,139 @@ def admin_projects():
     """Admin dashboard for managing projects"""
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
+    # Use same DB counts as admin dashboard so badge matches "Review now" alert
+    pending_projects = Project.query.filter_by(approval_status='pending').order_by(Project.last_activity.desc()).all()
+    approved_projects = Project.query.filter_by(approval_status='approved').order_by(Project.last_activity.desc()).all()
+    rejected_projects = Project.query.filter_by(approval_status='rejected').order_by(Project.last_activity.desc()).all()
+    pending_count = len(pending_projects)
+    approved_count = len(approved_projects)
+    rejected_count = len(rejected_projects)
+    
+    def _escape(s):
+        if not s:
+            return ''
+        return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+    
+    def _project_row_html(p, show_actions=False):
+        mission = ('<p class="mb-2">' + _escape(p.mission) + '</p>') if p.mission else ''
+        wg_count = Workgroup.query.filter_by(project_id=p.id).count()
+        created = p.created_at.strftime('%x') if p.created_at else ''
+        safe_id = str(p.id).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+        actions = ''
+        if show_actions:
+            actions = '''
+                <div class="btn-group-vertical ms-3">
+                    <button type="button" class="btn btn-sm btn-success btn-approve-project" data-project-id="''' + safe_id + '''">
+                        <i class="fas fa-check me-1"></i>Approve
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger btn-reject-project" data-project-id="''' + safe_id + '''">
+                        <i class="fas fa-times me-1"></i>Reject
+                    </button>
+                </div>
+            '''
+        return '''
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <h5><a href="/projects/''' + (p.slug or '') + '''/" target="_blank">''' + _escape(p.name) + '''</a></h5>
+                        ''' + mission + '''
+                        <p class="mb-2">''' + _escape(p.description or 'No description') + '''</p>
+                        <small class="text-muted">
+                            Created: ''' + created + ''' | Status: ''' + _escape(p.status) + ''' | Workgroups: ''' + str(wg_count) + '''
+                        </small>
+                    </div>
+                    ''' + actions + '''
+                </div>
+            </div>
+        '''
+    
+    def _list_html(projects, show_actions=False):
+        if not projects:
+            return '<div class="alert alert-info">No projects in this category</div>'
+        parts = ['<div class="list-group">']
+        for p in projects:
+            parts.append(_project_row_html(p, show_actions))
+        parts.append('</div>')
+        return ''.join(parts)
     
     content = """
-    <div class="container mt-4">
+    <div class="container mt-4" id="manage-projects-container" data-server-pending=""" + str(pending_count) + """ data-server-approved=""" + str(approved_count) + """ data-server-rejected=""" + str(rejected_count) + """>
         <h1 class="mb-4">Manage Projects</h1>
+        <div id="project-load-error" class="alert alert-danger d-none" role="alert"></div>
         
         <ul class="nav nav-tabs mb-4" id="projectTabs" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending" type="button">
-                    Pending Approval <span class="badge bg-warning ms-2" id="pending-count">0</span>
+                    Pending Approval <span class="badge bg-warning ms-2" id="pending-count">""" + str(pending_count) + """</span>
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="approved-tab" data-bs-toggle="tab" data-bs-target="#approved" type="button">
-                    Approved <span class="badge bg-success ms-2" id="approved-count">0</span>
+                    Approved <span class="badge bg-success ms-2" id="approved-count">""" + str(approved_count) + """</span>
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="rejected-tab" data-bs-toggle="tab" data-bs-target="#rejected" type="button">
-                    Rejected <span class="badge bg-danger ms-2" id="rejected-count">0</span>
+                    Rejected <span class="badge bg-danger ms-2" id="rejected-count">""" + str(rejected_count) + """</span>
                 </button>
             </li>
         </ul>
         
         <div class="tab-content" id="projectTabContent">
             <div class="tab-pane fade show active" id="pending">
-                <div id="pending-projects"></div>
+                <div id="pending-projects">""" + _list_html(pending_projects, show_actions=True) + """</div>
             </div>
             <div class="tab-pane fade" id="approved">
-                <div id="approved-projects"></div>
+                <div id="approved-projects">""" + _list_html(approved_projects, show_actions=False) + """</div>
             </div>
             <div class="tab-pane fade" id="rejected">
-                <div id="rejected-projects"></div>
+                <div id="rejected-projects">""" + _list_html(rejected_projects, show_actions=False) + """</div>
             </div>
         </div>
     </div>
     
     <script>
     async function loadProjects() {
+        const errEl = document.getElementById('project-load-error');
+        const container = document.getElementById('manage-projects-container');
+        const serverPending = container ? parseInt(container.getAttribute('data-server-pending') || '0', 10) : 0;
         try {
-            const response = await fetch('/api/projects/');
+            const response = await fetch('/api/projects/?_t=' + Date.now(), { credentials: 'include', cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error('API returned ' + response.status);
+            }
             const data = await response.json();
-            
-            const pending = data.projects.filter(p => p.approval_status === 'pending');
-            const approved = data.projects.filter(p => p.approval_status === 'approved');
-            const rejected = data.projects.filter(p => p.approval_status === 'rejected');
+            const projects = Array.isArray(data.projects) ? data.projects : [];
+            function approvalStatus(p) { return (p && p.approval_status != null) ? String(p.approval_status).toLowerCase() : ''; }
+            const pending = projects.filter(p => approvalStatus(p) === 'pending');
+            const approved = projects.filter(p => approvalStatus(p) === 'approved');
+            const rejected = projects.filter(p => approvalStatus(p) === 'rejected');
             
             document.getElementById('pending-count').textContent = pending.length;
             document.getElementById('approved-count').textContent = approved.length;
             document.getElementById('rejected-count').textContent = rejected.length;
             
-            displayProjects('pending-projects', pending, true);
+            if (serverPending > 0 && pending.length === 0) {
+                document.getElementById('pending-projects').innerHTML =
+                    '<div class="alert alert-warning">The list from the server did not load. Showing server-rendered list below. <a href="#" onclick="loadProjects(); return false;">Refresh the list</a>.</div>' +
+                    document.getElementById('pending-projects').innerHTML;
+            } else {
+                displayProjects('pending-projects', pending, true);
+            }
             displayProjects('approved-projects', approved, false);
             displayProjects('rejected-projects', rejected, false);
+            if (errEl) { errEl.classList.add('d-none'); errEl.textContent = ''; }
         } catch (error) {
             console.error('Error loading projects:', error);
+            const msg = 'Failed to load projects: ' + (error.message || 'Please refresh or check console.');
+            const pendingEl = document.getElementById('pending-projects');
+            if (pendingEl) {
+                pendingEl.innerHTML = '<div class="alert alert-danger">' + msg + (serverPending > 0 ? ' The server reports ' + serverPending + ' pending project(s).' : '') + ' <a href="#" onclick="loadProjects(); return false;">Try again</a> or reload the page.</div>';
+            }
+            if (errEl) {
+                errEl.textContent = msg;
+                errEl.classList.remove('d-none');
+            }
         }
     }
     
@@ -9831,33 +11259,40 @@ def admin_projects():
             return;
         }
         
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>');
+        }
+        
         let html = '<div class="list-group">';
         projects.forEach(project => {
-            html += `
-                <div class="list-group-item">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div class="flex-grow-1">
-                            <h5><a href="/projects/${project.slug}/" target="_blank">${project.name}</a></h5>
-                            <p class="mb-2">${project.description || 'No description'}</p>
-                            <small class="text-muted">
-                                Created: ${new Date(project.created_at).toLocaleDateString()} | 
-                                Status: ${project.status} | 
-                                Workgroups: ${project.workgroups_count || 0}
-                            </small>
-                        </div>
-                        ${showActions ? `
-                            <div class="btn-group-vertical ms-3">
-                                <button class="btn btn-sm btn-success" onclick="approveProject('${project.id}')">
-                                    <i class="fas fa-check me-1"></i>Approve
-                                </button>
-                                <button class="btn btn-sm btn-danger" onclick="rejectProject('${project.id}')">
-                                    <i class="fas fa-times me-1"></i>Reject
-                                </button>
-                            </div>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
+            const missionHtml = project.mission ? '<p class="mb-2">' + escapeHtml(project.mission) + '</p>' : '';
+            const descHtml = '<p class="mb-2">' + escapeHtml(project.description || 'No description') + '</p>';
+            const actionsHtml = showActions ? 
+                '<div class="btn-group-vertical ms-3">' +
+                    '<button type="button" class="btn btn-sm btn-success btn-approve-project" data-project-id="' + project.id + '">' +
+                        '<i class="fas fa-check me-1"></i>Approve' +
+                    '</button>' +
+                    '<button type="button" class="btn btn-sm btn-danger btn-reject-project" data-project-id="' + project.id + '">' +
+                        '<i class="fas fa-times me-1"></i>Reject' +
+                    '</button>' +
+                '</div>' : '';
+            
+            html += '<div class="list-group-item">' +
+                '<div class="d-flex justify-content-between align-items-start">' +
+                    '<div class="flex-grow-1">' +
+                        '<h5><a href="/projects/' + project.slug + '/" target="_blank">' + escapeHtml(project.name) + '</a></h5>' +
+                        missionHtml +
+                        descHtml +
+                        '<small class="text-muted">' +
+                            'Created: ' + new Date(project.created_at).toLocaleDateString() + ' | ' +
+                            'Status: ' + project.status + ' | ' +
+                            'Workgroups: ' + (project.workgroups_count || 0) +
+                        '</small>' +
+                    '</div>' +
+                    actionsHtml +
+                '</div>' +
+            '</div>';
         });
         html += '</div>';
         
@@ -9871,12 +11306,13 @@ def admin_projects():
             const response = await fetch(`/api/projects/${projectId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
+                credentials: 'include',
                 body: JSON.stringify({action: 'approve'})
             });
             
             if (response.ok) {
                 alert('Project approved successfully');
-                loadProjects();
+                window.location.reload();
             } else {
                 const data = await response.json();
                 alert('Error: ' + (data.error || 'Failed to approve'));
@@ -9895,12 +11331,13 @@ def admin_projects():
             const response = await fetch(`/api/projects/${projectId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
+                credentials: 'include',
                 body: JSON.stringify({action: 'reject', note: note})
             });
             
             if (response.ok) {
                 alert('Project rejected');
-                loadProjects();
+                window.location.reload();
             } else {
                 const data = await response.json();
                 alert('Error: ' + (data.error || 'Failed to reject'));
@@ -9911,8 +11348,23 @@ def admin_projects():
         }
     }
     
-    // Load projects on page load
-    loadProjects();
+    // Projects are server-rendered; no API load on page init
+    // Event delegation for approve/reject buttons
+    const manageContainer = document.getElementById('manage-projects-container');
+    if (manageContainer) {
+        manageContainer.addEventListener('click', function(e) {
+            const approveBtn = e.target.closest('.btn-approve-project');
+            const rejectBtn = e.target.closest('.btn-reject-project');
+            if (approveBtn) {
+                e.preventDefault();
+                approveProject(approveBtn.getAttribute('data-project-id'));
+            }
+            if (rejectBtn) {
+                e.preventDefault();
+                rejectProject(rejectBtn.getAttribute('data-project-id'));
+            }
+        });
+    }
     </script>
     """
     
@@ -10835,6 +12287,17 @@ def home():
                             <div class="card-body">
                                 <p>Browse and vote on visual representations for roles across all projects.</p>
                                 <a href="/role-images/" class="btn btn-primary">View Gallery</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-list-ol me-2"></i>Waitlists</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>Join waitlists for upcoming projects, features, and opportunities.</p>
+                                <a href="/waitlists/" class="btn btn-primary">View Waitlists</a>
                             </div>
                         </div>
                     </div>
@@ -12984,7 +14447,7 @@ def role_images_gallery(role_slug):
                         <div id="uploadField" class="mb-3">
                             <label for="imageFile" class="form-label">Image File</label>
                             <input type="file" class="form-control" id="imageFile" accept="image/*">
-                            <small class="text-muted">Max 10MB. Formats: PNG, JPG, GIF, WebP, SVG</small>
+                            <small class="text-muted">Max 600×600 px, 5MB. Formats: PNG, JPG, GIF, WebP, SVG</small>
                         </div>
                         
                         <div id="urlField" class="mb-3" style="display:none;">
@@ -13562,12 +15025,14 @@ def projects_directory():
         
         let html = '';
         projects.forEach(project => {{
-            const statusBadge = getStatusBadge(project.status);
+            const statusBadge = (project.approval_status === 'approved' && project.status === 'proposed') ? '' : getStatusBadge(project.status);
             const approvalBadge = getApprovalBadge(project.approval_status);
             
+            const projectImgHtml = project.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{project.image_url}}" alt="${{project.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
             html += `
                 <div class="col-md-6 col-lg-4 mb-4">
                     <div class="card h-100">
+                        ${{projectImgHtml}}
                         <div class="card-body">
                             <h5 class="card-title">
                                 <a href="/projects/${{project.slug}}/">${{project.name}}</a>
@@ -13576,7 +15041,8 @@ def projects_directory():
                                 ${{statusBadge}}
                                 ${{approvalBadge}}
                             </div>
-                            <p class="card-text text-muted">${{project.description || 'No description'}}</p>
+                            ${{project.mission ? '<p class="card-text fw-medium">' + (project.mission || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>') + '</p>' : ''}}
+                            <p class="card-text text-muted">${{(project.description || 'No description').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>')}}</p>
                             <div class="mt-3">
                                 <small class="text-muted">
                                     <i class="fas fa-users me-1"></i> ${{project.workgroups_count || 0}} workgroups
@@ -13754,9 +15220,11 @@ def workgroups_directory():
             const approvalBadge = getApprovalBadge(wg.approval_status);
             const project = allProjects.find(p => p.id === wg.project_id);
             
+            const wgImgHtml = wg.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{wg.image_url}}" alt="${{wg.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
             html += `
                 <div class="col-md-6 col-lg-4 mb-4">
                     <div class="card h-100">
+                        ${{wgImgHtml}}
                         <div class="card-body">
                             <h5 class="card-title">
                                 <a href="/workgroups/${{wg.slug}}/">${{wg.name}}</a>
@@ -13930,6 +15398,214 @@ def workgroups_directory():
     
     return render_page("Workgroups Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
+@app.route('/waitlists/')
+def waitlists_directory():
+    """Waitlists directory page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    
+    content = f"""
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h1>Waitlists Directory</h1>
+                <p class="lead">Join waitlists for upcoming projects, features, and opportunities</p>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <label for="project-filter" class="form-label">Project:</label>
+                <select id="project-filter" class="form-select" onchange="loadWaitlists()">
+                    <option value="">All Projects</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="status-filter" class="form-label">Status:</label>
+                <select id="status-filter" class="form-select" onchange="loadWaitlists()">
+                    <option value="">All</option>
+                    <option value="active">Active</option>
+                    <option value="upcoming">Upcoming</option>
+                    <option value="closed">Closed</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="search-input" class="form-label">Search:</label>
+                <input type="text" id="search-input" class="form-control" placeholder="Search waitlists..." onkeyup="filterWaitlists()">
+            </div>
+        </div>
+        
+        <div id="waitlists-container" class="row">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    let allWaitlists = [];
+    let allProjects = [];
+    
+    async function loadProjects() {{
+        try {{
+            const response = await fetch('/api/projects/?approval_status=approved');
+            const data = await response.json();
+            allProjects = data.projects;
+            
+            const select = document.getElementById('project-filter');
+            allProjects.forEach(project => {{
+                const option = document.createElement('option');
+                option.value = project.id;
+                option.textContent = project.name;
+                select.appendChild(option);
+            }});
+        }} catch (error) {{
+            console.error('Error loading projects:', error);
+        }}
+    }}
+    
+    async function loadWaitlists() {{
+        const projectFilter = document.getElementById('project-filter').value;
+        const statusFilter = document.getElementById('status-filter').value;
+        
+        try {{
+            allWaitlists = [];
+            
+            if (projectFilter) {{
+                // Load waitlists for specific project
+                const response = await fetch(`/api/projects/${{projectFilter}}/waitlists/`);
+                const data = await response.json();
+                allWaitlists = data.waitlists || [];
+            }} else {{
+                // Load waitlists from all projects
+                for (const project of allProjects) {{
+                    const response = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+                    const data = await response.json();
+                    if (data.waitlists) {{
+                        allWaitlists = allWaitlists.concat(data.waitlists);
+                    }}
+                }}
+            }}
+            
+            // Filter by status
+            if (statusFilter) {{
+                const now = new Date();
+                allWaitlists = allWaitlists.filter(wl => {{
+                    const startDate = new Date(wl.start_date);
+                    const closingDate = wl.closing_date ? new Date(wl.closing_date) : null;
+                    const isFull = wl.max_number && wl.entry_count >= wl.max_number;
+                    
+                    if (statusFilter === 'active') {{
+                        return wl.active && !wl.archived && now >= startDate && (!closingDate || now <= closingDate) && !isFull;
+                    }} else if (statusFilter === 'upcoming') {{
+                        return wl.active && !wl.archived && now < startDate;
+                    }} else if (statusFilter === 'closed') {{
+                        return wl.archived || !wl.active || (closingDate && now > closingDate) || isFull;
+                    }}
+                    return true;
+                }});
+            }}
+            
+            displayWaitlists(allWaitlists);
+        }} catch (error) {{
+            console.error('Error loading waitlists:', error);
+            document.getElementById('waitlists-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading waitlists</div></div>';
+        }}
+    }}
+    
+    function filterWaitlists() {{
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        const filtered = allWaitlists.filter(wl => 
+            wl.name.toLowerCase().includes(searchTerm) ||
+            (wl.description && wl.description.toLowerCase().includes(searchTerm))
+        );
+        displayWaitlists(filtered);
+    }}
+    
+    function displayWaitlists(waitlists) {{
+        const container = document.getElementById('waitlists-container');
+        
+        if (waitlists.length === 0) {{
+            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No waitlists found</div></div>';
+            return;
+        }}
+        
+        let html = '';
+        waitlists.forEach(wl => {{
+            const project = allProjects.find(p => p.id === wl.project_id);
+            const now = new Date();
+            const startDate = new Date(wl.start_date);
+            const closingDate = wl.closing_date ? new Date(wl.closing_date) : null;
+            const isFull = wl.max_number && wl.count >= wl.max_number;
+            
+            let statusBadge = '';
+            let statusText = '';
+            
+            if (!wl.active || wl.archived) {{
+                statusBadge = '<span class="badge bg-secondary">Closed</span>';
+                statusText = 'This waitlist is closed';
+            }} else if (now < startDate) {{
+                statusBadge = '<span class="badge bg-info">Upcoming</span>';
+                statusText = `Opens ${{startDate.toLocaleDateString()}}`;
+            }} else if (isFull) {{
+                statusBadge = '<span class="badge bg-warning">Full</span>';
+                statusText = `${{wl.count}} / ${{wl.max_number}} spots filled`;
+            }} else if (closingDate && now > closingDate) {{
+                statusBadge = '<span class="badge bg-secondary">Closed</span>';
+                statusText = `Closed ${{closingDate.toLocaleDateString()}}`;
+            }} else {{
+                statusBadge = '<span class="badge bg-success">Active</span>';
+                if (wl.max_number) {{
+                    statusText = `${{wl.count}} / ${{wl.max_number}} spots filled`;
+                }} else {{
+                    statusText = `${{wl.count}} member${{wl.count !== 1 ? 's' : ''}}`;
+                }}
+            }}
+            
+            const imgHtml = wl.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{wl.image_url}}" alt="${{wl.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
+            html += `
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        ${{imgHtml}}
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <a href="/projects/${{project ? project.slug : wl.project_id}}/waitlist/${{wl.id}}/">${{wl.name}}</a>
+                            </h5>
+                            <div class="mb-2">
+                                ${{statusBadge}}
+                                ${{wl.referrals ? '<span class="badge bg-primary ms-1"><i class="fas fa-users"></i> Referrals</span>' : ''}}
+                                ${{wl.milestones ? '<span class="badge bg-info ms-1"><i class="fas fa-flag"></i> Milestones</span>' : ''}}
+                            </div>
+                            <p class="card-text text-muted small mb-2">
+                                <i class="fas fa-project-diagram me-1"></i>
+                                <a href="/projects/${{project ? project.slug : wl.project_id}}/">${{project ? project.name : 'Unknown Project'}}</a>
+                            </p>
+                            <p class="card-text">${{wl.description || 'No description'}}</p>
+                            <div class="mt-3">
+                                <small class="text-muted">${{statusText}}</small>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <small class="text-muted">Created ${{new Date(wl.created_at).toLocaleDateString()}}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }});
+        
+        container.innerHTML = html;
+    }}
+    
+    // Load data on page load
+    loadProjects().then(() => loadWaitlists());
+    </script>
+    """
+    
+    return render_page("Waitlists Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+
 @app.route('/guilds/')
 def guilds_directory():
     """Guilds directory page"""
@@ -14016,9 +15692,11 @@ def guilds_directory():
                 ? '<span class="badge bg-success">Active</span>' 
                 : '<span class="badge bg-secondary">Archived</span>';
             
+            const guildImgHtml = guild.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{"guild.image_url"}}" alt="${{"guild.name"}}" class="w-100 h-100 object-fit-cover"></div>` : '';
             html += `
                 <div class="col-md-6 col-lg-4 mb-4">
                     <div class="card h-100">
+                        ${{"guildImgHtml"}}
                         <div class="card-body">
                             <h5 class="card-title">
                                 <a href="/guilds/${{guild.slug}}/">${{guild.name}}</a>
@@ -14051,12 +15729,31 @@ def guilds_directory():
     
     return render_page("Guilds Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
-@app.route('/projects/<project_slug>/')
-def project_detail(project_slug):
-    """Project detail page"""
+def _render_project_detail(project_slug, waitlist_id=None):
+    """Shared logic for project detail page. waitlist_id when from /projects/<slug>/waitlist/<id>/"""
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
+    
+    project_obj = Project.query.filter_by(slug=project_slug).first()
+    show_admin_tab = bool(project_obj and current_user and is_project_admin(project_obj, current_user))
+    initial_waitlist_id = int(waitlist_id) if waitlist_id else None
+    
+    admin_tab_html = ''
+    admin_tab_pane_html = ''
+    admin_tab_listener = ''
+    if show_admin_tab:
+        admin_tab_html = '''
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin" type="button">Admin</button>
+            </li>
+        '''
+        admin_tab_pane_html = '''
+            <div class="tab-pane fade" id="admin">
+                <div id="admin-content"></div>
+            </div>
+        '''
+        admin_tab_listener = "document.getElementById('admin-tab').addEventListener('shown.bs.tab', loadAdmins);"
     
     content = f"""
     <div class="container mt-4">
@@ -14084,6 +15781,8 @@ def project_detail(project_slug):
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="claims-tab" data-bs-toggle="tab" data-bs-target="#claims" type="button">Claims</button>
             </li>
+            {admin_tab_html}
+            <li id="waitlist-tabs-marker" class="nav-item d-none"></li>
         </ul>
         
         <div class="tab-content" id="projectTabContent">
@@ -14102,18 +15801,209 @@ def project_detail(project_slug):
             <div class="tab-pane fade" id="claims">
                 <div id="claims-content"></div>
             </div>
+            {admin_tab_pane_html}
+            <div id="waitlist-panes-marker" class="d-none"></div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="joinProjectModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Join Project</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">You will join this project as a contributor. Optionally add a referral code if you were invited via a link.</p>
+                    <div class="mb-0">
+                        <label for="join-project-referral" class="form-label">Referral code (optional)</label>
+                        <input type="text" class="form-control" id="join-project-referral" placeholder="Leave blank if none">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="join-project-confirm-btn" onclick="submitJoinProjectModal()"><i class="fas fa-check me-2"></i>Join</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="joinWaitlistModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="join-waitlist-modal-title"><i class="fas fa-list-alt me-2"></i>Join Waitlist</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3" id="join-waitlist-modal-desc">Add an optional message for the waitlist owner.</p>
+                    <div class="mb-0">
+                        <label for="join-waitlist-message" class="form-label">Message (optional)</label>
+                        <textarea class="form-control" id="join-waitlist-message" rows="3" placeholder="Leave blank to skip"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="join-waitlist-confirm-btn" onclick="submitJoinWaitlistModal()"><i class="fas fa-check me-2"></i>Join</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="addAdminModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add project admin</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label">Search by username or name</label>
+                    <input type="text" class="form-control" id="add-admin-username" placeholder="Type to search..." oninput="searchUsersForAdmin()">
+                    <div id="add-admin-results" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="embedCodeModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Embed Waitlist Widget</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="lead" id="embed-waitlist-name"></p>
+                    <p class="text-muted">Copy and paste this code into your website to embed the waitlist widget. Signups will be tracked with the source URL.</p>
+                    
+                    <div class="mb-4">
+                        <label class="form-label"><strong>Embed Code (iframe)</strong></label>
+                        <div class="input-group">
+                            <textarea class="form-control font-monospace" id="embed-code-iframe" rows="3" readonly></textarea>
+                            <button class="btn btn-outline-primary" onclick="copyEmbedCode('iframe')"><i class="fas fa-copy"></i> Copy</button>
+                        </div>
+                        <small class="text-muted">Recommended: Simple iframe embed with automatic sizing</small>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="form-label"><strong>Direct Widget URL</strong></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control font-monospace" id="embed-url" readonly>
+                            <button class="btn btn-outline-primary" onclick="copyEmbedCode('url')"><i class="fas fa-copy"></i> Copy</button>
+                        </div>
+                        <small class="text-muted">Use this URL to embed in an iframe or link directly</small>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Source Tracking:</strong> All signups from the embedded widget will be tracked with the source domain and URL where the signup occurred.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="editProjectModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Project</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div id="edit-project-alert" class="alert d-none" role="alert"></div>
+                    <form id="editProjectForm">
+                        <div class="card bg-secondary bg-opacity-10 mb-4">
+                            <div class="card-body py-3">
+                                <h6 class="card-title mb-2"><i class="fas fa-user-shield me-2"></i>Project Admins</h6>
+                                <p class="text-muted small mb-2">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p>
+                                <div id="edit-modal-admins-list" class="list-group mb-3"></div>
+                                <div class="mb-0">
+                                    <label class="form-label small">Add admin</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control" id="edit-modal-add-admin-q" placeholder="Search by username (min 2 chars)..." oninput="searchUsersForEditModalAdmin()">
+                                        <button type="button" class="btn btn-outline-primary" onclick="searchUsersForEditModalAdmin()"><i class="fas fa-search"></i></button>
+                                    </div>
+                                    <div id="edit-modal-add-admin-results" class="mt-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label for="edit-project-name" class="form-label">Project Name *</label>
+                            <input type="text" class="form-control" id="edit-project-name" required maxlength="255">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-project-mission" class="form-label">Mission</label>
+                            <textarea class="form-control" id="edit-project-mission" rows="3"></textarea>
+                            <div class="form-text">Core purpose and values (line breaks preserved)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-project-description" class="form-label">Description</label>
+                            <textarea class="form-control" id="edit-project-description" rows="4"></textarea>
+                            <div class="form-text">Line breaks are preserved when displayed</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-project-image-url" class="form-label">Image (optional)</label>
+                            <input type="url" class="form-control mb-2" id="edit-project-image-url" placeholder="https://example.com/image.png or upload below">
+                            <div class="input-group">
+                                <input type="file" class="form-control" id="edit-project-image-file" accept="image/*">
+                                <button class="btn btn-outline-primary" type="button" onclick="uploadProjectImage()">
+                                    <i class="fas fa-upload"></i> Upload
+                                </button>
+                            </div>
+                            <div class="form-text">Project logo or banner image. Max 600×600px, 5MB. Upload or paste URL above.</div>
+                            <div id="edit-project-image-upload-status" class="mt-1"></div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-project-status" class="form-label">Status</label>
+                            <select class="form-select" id="edit-project-status">
+                                <option value="proposed">Proposed</option>
+                                <option value="active">Active</option>
+                                <option value="stabilizing">Stabilizing</option>
+                                <option value="maintaining">Maintaining</option>
+                                <option value="dormant">Dormant</option>
+                                <option value="concluded">Concluded</option>
+                                <option value="archived">Archived</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-project-status-reason" class="form-label">Status Reason (optional)</label>
+                            <input type="text" class="form-control" id="edit-project-status-reason" placeholder="e.g. reason for status change">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="edit-project-save-btn" onclick="saveProjectEdit()"><i class="fas fa-save me-2"></i>Save</button>
+                </div>
+            </div>
         </div>
     </div>
     
     <script>
     let project = null;
     const projectSlug = '{project_slug}';
+    const initialWaitlistId = {json.dumps(initial_waitlist_id)};
     const isAuthenticated = {'true' if current_user else 'false'};
     const isAdmin = {('true' if current_user and current_user.get('is_admin') else 'false')};
+    const isProjectAdmin = {'true' if show_admin_tab else 'false'};
+    
+    const referralRef = {json.dumps(request.args.get('ref') or '')};
+    
+    function escapeHtml(text) {{
+        if (!text) return '';
+        return String(text).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split('\\n').join('<br>');
+    }}
+    
+    function escapeHtmlBasic(text) {{
+        if (!text) return '';
+        return String(text).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
+    }}
     
     async function loadProject() {{
         try {{
-            // Find project by slug
             const response = await fetch('/api/projects/');
             const data = await response.json();
             project = data.projects.find(p => p.slug === projectSlug);
@@ -14122,36 +16012,109 @@ def project_detail(project_slug):
                 document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Project not found</div>';
                 return;
             }}
+            const detailResp = await fetch('/api/projects/' + project.id + '/');
+            const detail = await detailResp.json();
+            project.is_member = detail.is_member === true;
+            project.member_role = detail.member_role || null;
             
             displayProjectHeader();
             loadOverview();
+            const wlResp = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+            const wlData = await wlResp.json().catch(() => ({{ waitlists: [], count: 0 }}));
+            const enabledWaitlists = (wlData.waitlists || []).filter(w => w.active !== false);
+            buildWaitlistTabs(enabledWaitlists);
+            if (initialWaitlistId) {{
+                const wl = enabledWaitlists.find(w => w.id === initialWaitlistId);
+                if (wl) {{
+                    document.getElementById('waitlist-tab-' + wl.id)?.click();
+                }} else {{
+                    showWaitlistInactiveMessage(initialWaitlistId);
+                }}
+            }}
         }} catch (error) {{
             console.error('Error loading project:', error);
             document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Error loading project</div>';
         }}
     }}
     
+    function showJoinProjectModal() {{
+        if (!isAuthenticated) {{ alert('Please sign in to join this project'); return; }}
+        const refInput = document.getElementById('join-project-referral');
+        if (refInput) refInput.value = referralRef || '';
+        const modal = new bootstrap.Modal(document.getElementById('joinProjectModal'));
+        modal.show();
+    }}
+    
+    async function submitJoinProjectModal() {{
+        const refInput = document.getElementById('join-project-referral');
+        const ref = refInput && refInput.value ? refInput.value.trim() : (referralRef || '');
+        const body = ref ? {{ referral_code: ref }} : {{}};
+        try {{
+            const res = await fetch('/api/projects/' + project.id + '/join/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify(body)
+            }});
+            const data = await res.json();
+            if (res.ok) {{
+                project.is_member = true;
+                project.member_role = data.member && data.member.role ? data.member.role : 'contributor';
+                displayProjectHeader();
+                bootstrap.Modal.getInstance(document.getElementById('joinProjectModal')).hide();
+            }} else {{ alert(data.error || 'Failed to join'); }}
+        }} catch (e) {{ console.error(e); alert('Failed to join project'); }}
+    }}
+    
+    async function leaveProject() {{
+        if (!confirm('Leave this project?')) return;
+        try {{
+            const res = await fetch('/api/projects/' + project.id + '/leave/', {{ method: 'POST' }});
+            if (res.ok) {{
+                project.is_member = false;
+                project.member_role = null;
+                displayProjectHeader();
+            }} else {{ const d = await res.json(); alert(d.error || 'Failed to leave'); }}
+        }} catch (e) {{ alert('Failed to leave project'); }}
+    }}
+    
     function displayProjectHeader() {{
-        const statusBadge = getStatusBadge(project.status);
+        const statusBadge = (project.approval_status === 'approved' && project.status === 'proposed') ? '' : getStatusBadge(project.status);
         const approvalBadge = getApprovalBadge(project.approval_status);
-        const isInitiator = isAuthenticated && project.initiator_id === {current_user['id'] if current_user else 'null'};
-        
-        document.getElementById('project-header').innerHTML = `
-            <div class="row">
-                <div class="col-md-8">
-                    <h1>${{project.name}}</h1>
-                    <div class="mb-3">
-                        ${{statusBadge}}
-                        ${{approvalBadge}}
-                    </div>
-                    <p class="lead">${{project.description || 'No description'}}</p>
-                </div>
-                <div class="col-md-4 text-end">
-                    ${{(isInitiator || isAdmin) ? `<button class="btn btn-secondary" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>` : ''}}
-                    <a href="/projects/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back</a>
-                </div>
-            </div>
-        `;
+        const isJoined = project.is_member || isProjectAdmin;
+        let actionsHtml = '';
+        if (project.mission) {{
+            actionsHtml += '<div class="mb-3"><strong>Mission</strong><p class="mb-0 small">' + escapeHtml(project.mission || '') + '</p></div>';
+        }}
+        if (isAuthenticated) {{
+            if (isJoined) {{
+                actionsHtml += '<div class="mb-3"><span class="badge bg-success">Joined</span></div>';
+            }} else {{
+                actionsHtml += '<div class="mb-3"><button class="btn btn-primary btn-sm w-100" onclick="showJoinProjectModal()"><i class="fas fa-plus me-2"></i>Join Project</button></div>';
+            }}
+        }}
+        if (isProjectAdmin) {{
+            actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
+        }}
+        actionsHtml += '<div class="mb-2"><a href="/projects/" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>Back</a></div>';
+        if (isProjectAdmin) {{
+            actionsHtml += '<button class="btn btn-secondary btn-sm w-100" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>';
+        }}
+        const imageHtml = project.image_url ? '<div class="card mb-3"><div class="card-body p-2 text-center"><img src="' + project.image_url + '" alt="' + escapeHtmlBasic(project.name) + '" class="img-fluid rounded" style="max-height: 200px; max-width: 100%;"></div></div>' : '';
+        document.getElementById('project-header').innerHTML =
+            '<div class="row">' +
+                '<div class="col-md-8">' +
+                    '<h1>' + escapeHtml(project.name) + '</h1>' +
+                    '<div class="mb-3">' + statusBadge + approvalBadge + '</div>' +
+                    '<p class="lead">' + escapeHtml(project.description || 'No description') + '</p>' +
+                '</div>' +
+                '<div class="col-md-4">' +
+                    imageHtml +
+                    '<div class="card">' +
+                        '<div class="card-header py-2"><strong>Actions</strong></div>' +
+                        '<div class="card-body py-3">' + actionsHtml + '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
     }}
     
     function loadOverview() {{
@@ -14203,6 +16166,347 @@ def project_detail(project_slug):
     document.getElementById('clusters-tab').addEventListener('shown.bs.tab', loadClusters);
     document.getElementById('roles-tab').addEventListener('shown.bs.tab', loadRoles);
     document.getElementById('claims-tab').addEventListener('shown.bs.tab', loadClaims);
+    {admin_tab_listener}
+    
+    function buildWaitlistTabs(waitlists) {{
+        const marker = document.getElementById('waitlist-tabs-marker');
+        const paneMarker = document.getElementById('waitlist-panes-marker');
+        if (!marker || !paneMarker) return;
+        while (marker.previousElementSibling && marker.previousElementSibling.id && marker.previousElementSibling.id.startsWith('waitlist-tab-li-')) {{
+            marker.previousElementSibling.remove();
+        }}
+        document.querySelectorAll('[id^="waitlist-pane-"]').forEach(el => el.remove());
+        if (waitlists.length === 0) return;
+        waitlists.forEach((w, idx) => {{
+            const li = document.createElement('li');
+            li.className = 'nav-item';
+            li.id = 'waitlist-tab-li-' + w.id;
+            li.innerHTML = '<button class="nav-link" id="waitlist-tab-' + w.id + '" data-bs-toggle="tab" data-bs-target="#waitlist-pane-' + w.id + '" type="button" data-waitlist-id="' + w.id + '">' + escapeHtmlBasic(w.name || '') + '</button>';
+            marker.parentNode.insertBefore(li, marker);
+            const pane = document.createElement('div');
+            pane.className = 'tab-pane fade' + (idx === 0 ? '' : '');
+            pane.id = 'waitlist-pane-' + w.id;
+            pane.dataset.waitlistId = w.id;
+            pane.innerHTML = '<div class="py-4 text-center"><div class="spinner-border text-primary"></div></div>';
+            paneMarker.parentNode.insertBefore(pane, paneMarker);
+            li.querySelector('button').addEventListener('shown.bs.tab', () => loadWaitlistPane(w.id));
+        }});
+    }}
+    
+    function showWaitlistInactiveMessage(waitlistId) {{
+        const header = document.getElementById('project-header');
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-warning alert-dismissible fade show';
+        alert.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>This waitlist is no longer active.<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+        header.insertAdjacentElement('afterend', alert);
+    }}
+    
+    async function loadWaitlistPane(waitlistId) {{
+        const pane = document.getElementById('waitlist-pane-' + waitlistId);
+        if (!pane || !project) return;
+        pane.innerHTML = '<div class="py-4 text-center"><div class="spinner-border text-primary"></div></div>';
+        try {{
+            const res = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+            const data = await res.json();
+            const w = (data.waitlists || []).find(x => x.id === waitlistId);
+            if (!w) {{
+                pane.innerHTML = '<div class="alert alert-warning">Waitlist not found or no longer active.</div>';
+                return;
+            }}
+            const started = w.started !== false;
+            const closed = w.closed === true;
+            const full = w.full === true;
+            const canJoin = isAuthenticated && started && !closed && !full && !w.my_entry;
+            const countStr = w.max_number != null ? `${{w.count}} of ${{w.max_number}}` : `${{w.count}}`;
+            const closingStr = w.closing_date ? new Date(w.closing_date).toLocaleDateString() : '-';
+            const link = w.referral_url || (window.location.origin + '/projects/' + projectSlug + '/waitlist/' + w.id + '/');
+            const wName = escapeHtmlBasic(w.name || '');
+            const wDesc = escapeHtmlBasic(w.description || 'No description');
+            let milestonesHtml = '';
+            if (w.milestones && w.milestones.length) {{
+                const items = w.milestones.map(function(m) {{
+                    return '<li><strong>' + escapeHtmlBasic(m.title || '') + '</strong> at ' + m.threshold + ' - ' + escapeHtmlBasic(m.description || '') + '</li>';
+                }});
+                milestonesHtml = '<div class="mt-3"><h6>Milestones</h6><ul class="list-unstyled small">' + items.join('') + '</ul></div>';
+            }}
+            let actionHtml = '';
+            if (w.my_entry) {{
+                actionHtml = '<span class="badge bg-success">Joined</span><span class="text-muted">Position #' + w.my_entry.position + '</span>';
+            }} else if (canJoin) {{
+                const wlNameForJs = (w.name || 'Waitlist').split("\\\\").join("\\\\\\\\").split("'").join("\\\\'");
+                actionHtml = '<button class="btn btn-primary btn-sm" onclick="showJoinWaitlistModal(' + w.id + ', \\'' + wlNameForJs + '\\')">Join</button>';
+            }} else if (!started) {{
+                actionHtml = '<span class="badge bg-secondary">Not started</span>';
+            }} else if (full) {{
+                actionHtml = '<span class="badge bg-secondary">Full</span>';
+            }} else if (closed) {{
+                actionHtml = '<span class="badge bg-secondary">Closed</span>';
+            }} else if (!isAuthenticated) {{
+                actionHtml = '<a href="/login/" class="btn btn-primary btn-sm">Sign in to join</a>';
+            }}
+            const leaveBtn = w.my_entry ? '<button class="btn btn-outline-danger btn-sm" onclick="leaveWaitlist(' + w.id + ')">Leave</button>' : '';
+            const linkHtml = w.referrals ? 'Your referral link: <a href="' + link + '" target="_blank">' + link + '</a>' : 'Link: <a href="' + link + '">' + link + '</a>';
+            const dateStarted = w.start_date ? new Date(w.start_date).toLocaleDateString() : '-';
+            const visibility = w.public ? 'Public' : 'Private';
+            
+            const wImg = (w.image_url) ? '<div class="mb-3"><img src="' + w.image_url + '" alt="' + wName + '" class="img-fluid rounded" style="max-height: 180px;"></div>' : '';
+            const html = '<div class="card mb-4"><div class="card-body">' +
+                '<nav aria-label="breadcrumb"><ol class="breadcrumb mb-2"><li class="breadcrumb-item"><a href="/projects/">Projects</a></li><li class="breadcrumb-item"><a href="/projects/' + projectSlug + '/">' + escapeHtmlBasic(project.name) + '</a></li><li class="breadcrumb-item active">' + wName + ' Waitlist</li></ol></nav>' +
+                wImg +
+                '<h5 class="card-title">' + wName + '</h5>' +
+                '<p class="text-muted">' + wDesc + '</p>' +
+                '<p class="small mb-2">Date started: ' + dateStarted + ' · ' + visibility + '</p>' +
+                '<p class="small">' + linkHtml + '</p>' +
+                '<div class="d-flex flex-wrap align-items-center gap-3 mt-3">' +
+                actionHtml +
+                '<span class="text-muted">' + countStr + ' on waitlist</span>' +
+                '<span class="text-muted">Closing: ' + closingStr + '</span>' +
+                leaveBtn +
+                '</div>' + milestonesHtml + '</div></div>';
+            pane.innerHTML = html;
+        }} catch (e) {{
+            console.error(e);
+            pane.innerHTML = '<div class="alert alert-danger">Error loading waitlist</div>';
+        }}
+    }}
+    
+    let pendingWaitlistId = null;
+    
+    function showJoinWaitlistModal(waitlistId, waitlistName) {{
+        if (!isAuthenticated) {{ alert('Please sign in to join this waitlist'); return; }}
+        pendingWaitlistId = waitlistId;
+        const titleEl = document.getElementById('join-waitlist-modal-title');
+        if (titleEl) titleEl.innerHTML = '<i class="fas fa-list-alt me-2"></i>Join: ' + escapeHtmlBasic(waitlistName || 'Waitlist');
+        const msgEl = document.getElementById('join-waitlist-message');
+        if (msgEl) msgEl.value = '';
+        const modal = new bootstrap.Modal(document.getElementById('joinWaitlistModal'));
+        modal.show();
+    }}
+    
+    async function submitJoinWaitlistModal() {{
+        if (!pendingWaitlistId) return;
+        const msgEl = document.getElementById('join-waitlist-message');
+        const msg = msgEl ? msgEl.value : '';
+        try {{
+            const body = {{ message: msg || '' }};
+            if (referralRef) body.referral_code = referralRef;
+            const res = await fetch('/api/waitlists/' + pendingWaitlistId + '/join/', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(body) }});
+            const data = await res.json();
+            if (res.ok) {{
+                loadWaitlistPane(pendingWaitlistId);
+                bootstrap.Modal.getInstance(document.getElementById('joinWaitlistModal')).hide();
+            }} else {{ alert(data.error || 'Failed to join'); }}
+        }} catch (e) {{ alert('Failed to join'); }}
+        pendingWaitlistId = null;
+    }}
+    
+    async function leaveWaitlist(waitlistId) {{
+        if (!confirm('Leave this waitlist?')) return;
+        try {{
+            const res = await fetch(`/api/waitlists/${{waitlistId}}/leave/`, {{ method: 'POST' }});
+            if (res.ok) loadWaitlistPane(waitlistId); else {{ const d = await res.json(); alert(d.error || 'Failed to leave'); }}
+        }} catch (e) {{ alert('Failed to leave'); }}
+    }}
+    
+    async function loadAdmins() {{
+        const container = document.getElementById('admin-content');
+        if (!container) return;
+        container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+        
+        try {{
+            const response = await fetch(`/api/projects/${{project.id}}/admins/`);
+            if (response.status === 403) {{
+                container.innerHTML = '<div class="alert alert-warning">You do not have permission to view project admins.</div>';
+                return;
+            }}
+            const data = await response.json();
+            
+            let html = `
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4>Project admins</h4>
+                    <button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button>
+                </div>
+                <p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p>
+                <div class="list-group">
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <a href="/profile/${{data.owner.username}}/" class="fw-bold text-decoration-none">${{data.owner.display_name}}</a>
+                            <span class="badge bg-primary ms-2">Owner</span>
+                        </div>
+                        <span class="text-muted">—</span>
+                    </div>
+            `;
+            (data.admins || []).forEach(a => {{
+                html += `
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="/profile/${{a.username}}/" class="text-decoration-none">${{a.display_name}}</a>
+                        <button class="btn btn-outline-danger btn-sm" onclick="removeAdmin(${{a.user_id}}, this)">Remove</button>
+                    </div>
+                `;
+            }});
+            html += '</div>';
+            
+            // Add pending workgroups section for approval
+            html += '<hr class="my-4"><h4 class="mb-3">Pending workgroups</h4>';
+            const wgResponse = await fetch(`/api/projects/${{project.id}}/workgroups/?approval_status=pending`);
+            const wgData = await wgResponse.json();
+            if (wgData.workgroups && wgData.workgroups.length > 0) {{
+                html += '<div class="list-group">';
+                wgData.workgroups.forEach(wg => {{
+                    html += `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h6 class="mb-1">${{wg.name}}</h6>
+                                    <p class="mb-1 text-muted small">${{wg.description || 'No description'}}</p>
+                                </div>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-success" onclick="approveWorkgroup('${{wg.id}}')"><i class="fas fa-check me-1"></i>Approve</button>
+                                    <button class="btn btn-danger" onclick="rejectWorkgroup('${{wg.id}}')"><i class="fas fa-times me-1"></i>Reject</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }});
+                html += '</div>';
+            }} else {{
+                html += '<p class="text-muted">No pending workgroups</p>';
+            }}
+            
+            // Add waitlist management section
+            html += '<hr class="my-4"><div class="d-flex justify-content-between align-items-center mb-3"><h4>Waitlists</h4><button class="btn btn-primary btn-sm" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
+            const wlResponse = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+            const wlData = await wlResponse.json();
+            if (wlData.waitlists && wlData.waitlists.length > 0) {{
+                html += '<div class="list-group">';
+                wlData.waitlists.forEach(wl => {{
+                    const statusBadge = wl.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>';
+                    const wlNameEsc = escapeHtmlBasic(wl.name || '');
+                    const wlDescEsc = escapeHtmlBasic(wl.description || 'No description');
+                    const wlNameAttr = (wl.name || '').split("\\\\").join("\\\\\\\\").split("'").join("\\\\'");
+                    html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start">' +
+                        '<div class="flex-grow-1">' +
+                        '<h6 class="mb-1">' + wlNameEsc + ' ' + statusBadge + '</h6>' +
+                        '<p class="mb-1 text-muted small">' + wlDescEsc + '</p>' +
+                        '<p class="mb-0 small text-muted">Members: ' + wl.count + (wl.max_number ? ' / ' + wl.max_number : '') + '</p>' +
+                        '</div><div class="btn-group btn-group-sm">' +
+                        '<button class="btn btn-outline-primary" onclick="showEmbedCode(' + wl.id + ', \\'' + wlNameAttr + '\\')"><i class="fas fa-code"></i></button>' +
+                        '<a href="/projects/' + projectSlug + '/waitlist/' + wl.id + '/" class="btn btn-outline-secondary" target="_blank"><i class="fas fa-external-link-alt"></i></a>' +
+                        '</div></div></div>';
+                }});
+                html += '</div>';
+            }} else {{
+                html += '<p class="text-muted">No waitlists yet. Create one to start collecting signups.</p>';
+            }}
+            
+            container.innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading admins:', error);
+            container.innerHTML = '<div class="alert alert-danger">Error loading admins</div>';
+        }}
+    }}
+    
+    async function approveWorkgroup(wgId) {{
+        if (!confirm('Approve this workgroup?')) return;
+        try {{
+            const response = await fetch(`/api/workgroups/${{wgId}}/approve/`, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{action: 'approve'}})
+            }});
+            if (response.ok) {{
+                loadAdmins();
+                loadWorkgroups();
+                alert('Workgroup approved!');
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to approve workgroup');
+            }}
+        }} catch (e) {{
+            alert('Failed to approve workgroup');
+        }}
+    }}
+    
+    async function rejectWorkgroup(wgId) {{
+        if (!confirm('Reject this workgroup?')) return;
+        try {{
+            const response = await fetch(`/api/workgroups/${{wgId}}/approve/`, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{action: 'reject'}})
+            }});
+            if (response.ok) {{
+                loadAdmins();
+                loadWorkgroups();
+                alert('Workgroup rejected');
+            }} else {{
+                const data = await response.json();
+                alert(data.error || 'Failed to reject workgroup');
+            }}
+        }} catch (e) {{
+            alert('Failed to reject workgroup');
+        }}
+    }}
+    
+    function showAddAdminModal() {{
+        const modal = new bootstrap.Modal(document.getElementById('addAdminModal'));
+        document.getElementById('add-admin-username').value = '';
+        document.getElementById('add-admin-results').innerHTML = '';
+        modal.show();
+    }}
+    
+    async function searchUsersForAdmin() {{
+        const q = document.getElementById('add-admin-username').value.trim();
+        const resultsEl = document.getElementById('add-admin-results');
+        if (q.length < 2) {{ resultsEl.innerHTML = ''; return; }}
+        const response = await fetch('/api/users/search/?q=' + encodeURIComponent(q));
+        const data = await response.json();
+        if (data.users.length === 0) {{
+            resultsEl.innerHTML = '<p class="text-muted small">No users found</p>';
+            return;
+        }}
+        resultsEl.innerHTML = data.users.map(u => `
+            <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+                <span>${{u.display_name}} <small class="text-muted">@${{u.username}}</small></span>
+                <button class="btn btn-sm btn-primary" onclick="addAdmin(${{u.id}})">Add</button>
+            </div>
+        `).join('');
+    }}
+    
+    async function addAdmin(userId) {{
+        try {{
+            const response = await fetch(`/api/projects/${{project.id}}/admins/`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ user_id: userId }})
+            }});
+            const data = await response.json();
+            if (response.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('addAdminModal')).hide();
+                loadAdmins();
+            }} else {{
+                alert(data.error || 'Failed to add admin');
+            }}
+        }} catch (e) {{
+            alert('Failed to add admin');
+        }}
+    }}
+    
+    async function removeAdmin(userId, btn) {{
+        const displayName = (btn && btn.closest('.list-group-item')) ? btn.closest('.list-group-item').querySelector('a').textContent : 'this user';
+        if (!confirm('Remove "' + displayName + '" as project admin?')) return;
+        try {{
+            const response = await fetch(`/api/projects/${{project.id}}/admins/${{userId}}/`, {{ method: 'DELETE' }});
+            const data = await response.json();
+            if (response.ok) {{
+                loadAdmins();
+            }} else {{
+                alert(data.error || 'Failed to remove admin');
+            }}
+        }} catch (e) {{
+            alert('Failed to remove admin');
+        }}
+    }}
     
     async function loadWorkgroups() {{
         document.getElementById('workgroups-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
@@ -14223,13 +16527,17 @@ def project_detail(project_slug):
             }} else {{
                 html += '<div class="row">';
                 data.workgroups.forEach(wg => {{
+                    const approvalBadge = wg.approval_status === 'pending' ? '<span class="badge bg-warning ms-2">Pending Approval</span>' : (wg.approval_status === 'rejected' ? '<span class="badge bg-danger ms-2">Rejected</span>' : '');
+                    const wgImg = wg.image_url ? `<div class="card-img-top overflow-hidden" style="height: 120px; background: var(--bg-secondary, #f8f9fa);"><img src="${{wg.image_url}}" alt="${{wg.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
                     html += `
                         <div class="col-md-6 mb-3">
                             <div class="card">
+                                ${{wgImg}}
                                 <div class="card-body">
                                     <h5 class="card-title"><a href="/workgroups/${{wg.slug}}/">${{wg.name}}</a></h5>
                                     <p class="card-text text-muted">${{wg.description || 'No description'}}</p>
                                     <span class="badge bg-${{wg.status === 'active' ? 'success' : 'secondary'}}">${{wg.status}}</span>
+                                    ${{approvalBadge}}
                                 </div>
                             </div>
                         </div>
@@ -14249,38 +16557,47 @@ def project_detail(project_slug):
         document.getElementById('clusters-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
         
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/clusters/`);
+            const response = await fetch(`/api/projects/${{project.id}}/clusters/?include_roles=1`);
             const data = await response.json();
             
             let html = `
                 <div class="d-flex justify-content-between mb-3">
                     <h4>Role Clusters (${{data.count}})</h4>
-                    ${{(isAdmin || project.initiator_id === {current_user['id'] if current_user else 'null'}) ? '<button class="btn btn-primary btn-sm" onclick="createCluster()"><i class="fas fa-plus me-2"></i>Create Cluster</button>' : ''}}
+                    ${{isProjectAdmin ? '<button class="btn btn-primary btn-sm" onclick="createCluster()"><i class="fas fa-plus me-2"></i>Create Cluster</button>' : ''}}
                 </div>
                 <p class="text-muted">Clusters group related roles together for better organization.</p>
             `;
             
-            if (data.clusters.length === 0) {{
+            const clusters = Array.isArray(data.clusters) ? data.clusters : [];
+            if (clusters.length === 0) {{
                 html += '<div class="alert alert-info">No clusters yet. Create one to organize your roles!</div>';
             }} else {{
                 html += '<div class="row">';
-                data.clusters.forEach(cluster => {{
+                clusters.forEach(cluster => {{
+                    if (!cluster) return;
+                    const cName = (cluster.name != null && cluster.name !== '') ? cluster.name : 'Unnamed';
+                    const cNameEsc = (cName + '').replace(/'/g, "\\\\'");
+                    const roles = cluster.roles || [];
+                    const rolesHtml = roles.length
+                        ? '<ul class="list-unstyled mb-0 mt-2 small">' + roles.map(r => '<li><a href="/roles/' + (r.role_slug || r.slug || '') + '/">' + (r.title_guild || r.title_operational || 'Role') + '</a></li>').join('') + '</ul>'
+                        : '<p class="text-muted small mb-0 mt-2">No roles in this cluster</p>';
                     html += `
                         <div class="col-md-6 mb-3">
                             <div class="card">
                                 <div class="card-body">
                                     <div class="d-flex justify-content-between align-items-start">
                                         <div>
-                                            <h5 class="card-title">${{cluster.name}}</h5>
-                                            <p class="card-text text-muted">${{cluster.description || 'No description'}}</p>
-                                            <small class="text-muted">Order: ${{cluster.order}}</small>
+                                            <h5 class="card-title">${{cName}}</h5>
+                                            <p class="card-text text-muted">${{(cluster.description || 'No description')}}</p>
+                                            <small class="text-muted">Order: ${{cluster.order != null ? cluster.order : '—'}}</small>
+                                            <div class="mt-2"><strong>Roles:</strong> ${{rolesHtml}}</div>
                                         </div>
-                                        ${{(isAdmin || project.initiator_id === {current_user['id'] if current_user else 'null'}) ? `
+                                        ${{isProjectAdmin ? `
                                             <div class="btn-group btn-group-sm">
-                                                <button class="btn btn-outline-secondary" onclick="editCluster('${{cluster.id}}')">
+                                                <button class="btn btn-outline-secondary" onclick="editCluster('${{cluster.id || ''}}')">
                                                     <i class="fas fa-edit"></i>
                                                 </button>
-                                                <button class="btn btn-outline-danger" onclick="deleteCluster('${{cluster.id}}', '${{cluster.name}}')">
+                                                <button class="btn btn-outline-danger" onclick="deleteCluster('${{cluster.id || ''}}', '${{cNameEsc}}')">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
                                             </div>
@@ -14311,7 +16628,7 @@ def project_detail(project_slug):
             let html = `
                 <div class="d-flex justify-content-between mb-3">
                     <h4>Roles (${{data.count}})</h4>
-                    ${{(isAdmin || project.initiator_id === {current_user['id'] if current_user else 'null'}) ? '<button class="btn btn-primary btn-sm" onclick="createRole()"><i class="fas fa-plus me-2"></i>Create Role</button>' : ''}}
+                    ${{isProjectAdmin ? '<button class="btn btn-primary btn-sm" onclick="createRole()"><i class="fas fa-plus me-2"></i>Create Role</button>' : ''}}
                 </div>
             `;
             
@@ -14355,31 +16672,354 @@ def project_detail(project_slug):
             
             let html = `<h4 class="mb-3">Claims (${{data.count}})</h4>`;
             
-            if (data.claims.length === 0) {{
+            if (!data.claims || data.claims.length === 0) {{
                 html += '<div class="alert alert-info">No claims yet</div>';
             }} else {{
-                html += '<div class="list-group">';
-                data.claims.forEach(claim => {{
+                html += '<div class="table-responsive"><table class="table table-hover"><thead><tr><th>Claim</th><th>Status</th><th>Role</th><th>User</th></tr></thead><tbody>';
+                data.claims.forEach((claim, idx) => {{
+                    const claimName = claim.role_name ? (claim.intent ? (claim.intent.substring(0, 40) + (claim.intent.length > 40 ? '…' : '')) : ('Claim: ' + claim.role_name)) : ('Claim #' + (claim.id || '').toString().slice(-6));
+                    const roleName = claim.role_name || ('Role ' + (claim.role_id || '').toString().slice(-6));
+                    const roleLink = claim.role_slug ? `/roles/${{claim.role_slug}}/` : '#';
+                    const userName = claim.claimant_name || ('User #' + (claim.claimant_id || ''));
+                    const userLink = claim.claimant_username ? '/profile/' + claim.claimant_username + '/' : '#';
+                    const statusClass = claim.status === 'active' ? 'success' : (claim.status === 'pending_approval' ? 'warning' : 'secondary');
                     html += `
-                        <div class="list-group-item">
-                            <div class="d-flex justify-content-between">
-                                <h6>Claim ID: ${{claim.id}}</h6>
-                                <span class="badge bg-${{claim.status === 'active' ? 'success' : 'warning'}}">${{claim.status}}</span>
-                            </div>
-                            <p class="mb-1"><strong>Role ID:</strong> ${{claim.role_id}}</p>
-                            <p class="mb-1"><strong>Claimant ID:</strong> ${{claim.claimant_id}}</p>
-                            <small class="text-muted">Created: ${{new Date(claim.created_at).toLocaleDateString()}}</small>
-                        </div>
+                        <tr class="project-claim-row" data-claim-index="${{idx}}" tabindex="0" title="Hover for claim details">
+                            <td>${{claimName}}</td>
+                            <td><span class="badge bg-${{statusClass}}">${{claim.status || '—'}}</span></td>
+                            <td>${{claim.role_slug ? '<a href="' + roleLink + '">' + roleName + '</a>' : roleName}}</td>
+                            <td>${{claim.claimant_username ? '<a href="' + userLink + '">' + userName + '</a>' : userName}}</td>
+                        </tr>
                     `;
                 }});
-                html += '</div>';
+                html += '</tbody></table></div>';
             }}
             
             document.getElementById('claims-content').innerHTML = html;
+            
+            // Attach claim popover (same content as role detail page) on hover
+            if (data.claims && data.claims.length > 0) {{
+                function getClaimPopoverContent(c) {{
+                    const intent = c.intent ? '<p class="mb-2"><strong>Intent:</strong><br><span style="white-space: pre-wrap; word-wrap: break-word;">' + (c.intent || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></p>' : '';
+                    const links = (c.evidence_links || []).filter(u => u && u.trim());
+                    const evidenceHtml = links.length ? links.map(u => '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>').join('<br>') : '<span class="text-muted">No evidence yet</span>';
+                    const termStr = c.term_duration_days ? (c.term_duration_days + ' days' + (c.term_end ? ', until ' + new Date(c.term_end).toLocaleDateString() : '')) : 'Indefinite';
+                    return '<div class="text-start" style="min-width: 280px; max-width: 480px; white-space: normal; word-wrap: break-word;">' + intent +
+                        '<p class="mb-2"><strong>Supporting work:</strong><br>' + evidenceHtml + '</p>' +
+                        '<p class="mb-2"><strong>Term:</strong> ' + termStr + '</p>' +
+                        '<p class="mb-0 small text-muted">Claimed: ' + new Date(c.created_at).toLocaleDateString() + '</p></div>';
+                }}
+                document.querySelectorAll('.project-claim-row').forEach(el => {{
+                    const idx = parseInt(el.getAttribute('data-claim-index'), 10);
+                    const claim = data.claims[idx];
+                    if (claim) {{
+                        new bootstrap.Popover(el, {{ content: getClaimPopoverContent(claim), html: true, trigger: 'hover focus', placement: 'auto', container: 'body' }});
+                    }}
+                }});
+            }}
         }} catch (error) {{
             console.error('Error loading claims:', error);
             document.getElementById('claims-content').innerHTML = '<div class="alert alert-danger">Error loading claims</div>';
         }}
+    }}
+    
+    async function loadWaitlists() {{
+        document.getElementById('waitlist-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+        try {{
+            const response = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+            const data = await response.json();
+            
+            let html = `<div class="d-flex justify-content-between align-items-center mb-4">
+                <h4>Waitlists (${{data.count}})</h4>
+                ${{isProjectAdmin ? '<button class="btn btn-primary btn-sm" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button>' : ''}}
+            </div>`;
+            
+            if (!data.waitlists || data.waitlists.length === 0) {{
+                html += '<div class="alert alert-info">No waitlists yet</div>';
+            }} else {{
+                data.waitlists.forEach(wl => {{
+                    const started = wl.started;
+                    const closed = wl.closed;
+                    const full = wl.full;
+                    const canJoin = isAuthenticated && started && !closed && !full && !wl.my_entry;
+                    const statusBadge = full ? '<span class="badge bg-danger">Full</span>' : (closed ? '<span class="badge bg-secondary">Closed</span>' : (started ? '<span class="badge bg-success">Open</span>' : '<span class="badge bg-warning">Not Started</span>'));
+                    const myEntry = wl.my_entry;
+                    
+                    html += `
+                    <div class="card mb-4 waitlist-card" id="waitlist-${{wl.id}}" style="border-left: 4px solid var(--accent-color);">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <nav aria-label="breadcrumb">
+                                        <ol class="breadcrumb">
+                                            <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">Project</a></li>
+                                            <li class="breadcrumb-item active">${{wl.name}} Waitlist</li>
+                                        </ol>
+                                    </nav>
+                                    <h3 class="mb-3">${{wl.name}}</h3>
+                                    <p class="lead">${{wl.description || 'No description'}}</p>
+                                    <p class="text-muted mb-2"><strong>Started:</strong> ${{new Date(wl.start_date).toLocaleDateString()}}</p>
+                                    <p class="text-muted mb-2"><strong>Visibility:</strong> ${{wl.public ? 'Public' : 'Private (project members or link)'}}</p>
+                                    ${{wl.referral_url && myEntry ? '<p class="mb-2"><strong>Your referral link:</strong> <code class="user-select-all">' + wl.referral_url + '</code> <button class="btn btn-sm btn-outline-primary" onclick="copyText(\\''+wl.referral_url+'\\')"><i class="fas fa-copy"></i></button></p>' : ''}}
+                                    ${{!myEntry && wl.referrals ? '<p class="text-muted mb-2"><em>Join to get your referral link</em></p>' : ''}}
+                                    
+                                    ${{wl.milestones && wl.milestones.length > 0 ? '<hr><h5 class="mt-3">Milestones</h5><ul class="list-unstyled">' + wl.milestones.map(m => '<li class="mb-2"><strong>' + m.title + '</strong> (at ' + m.threshold + ' members)' + (m.description ? '<br><small class="text-muted">' + m.description + '</small>' : '') + '</li>').join('') + '</ul>' : ''}}
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h5 class="card-title">Actions</h5>
+                                            ${{myEntry ? '<div class="mb-3"><span class="badge bg-success fs-6">Joined</span> <span class="text-muted">#' + myEntry.position + '</span><br><button class="btn btn-outline-danger btn-sm mt-2" onclick="leaveWaitlist(' + wl.id + ')">Leave</button></div>' : (canJoin ? '<button class="btn btn-primary w-100 mb-3" onclick="joinWaitlist(' + wl.id + ')">Join Waitlist</button>' : '<p class="text-muted">' + (started ? (closed ? 'Closed' : (full ? 'Full' : 'Login to join')) : 'Not started') + '</p>')}}
+                                            <p class="mb-2"><strong>On waitlist:</strong> ${{wl.count}}${{wl.max_number ? ' of ' + wl.max_number : ''}}</p>
+                                            ${{wl.closing_date ? '<p class="mb-2"><strong>Closes:</strong> ' + new Date(wl.closing_date).toLocaleDateString() + '</p>' : ''}}
+                                            ${{statusBadge}}
+                                            ${{isProjectAdmin ? '<hr><button class="btn btn-outline-primary btn-sm w-100 mt-2" onclick="showEmbedCode(' + wl.id + ', this.dataset.wlName)" data-wl-name="' + wl.name + '"><i class="fas fa-code me-2"></i>Get Embed Code</button>' : ''}}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                }});
+            }}
+            
+            document.getElementById('waitlist-content').innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading waitlists:', error);
+            document.getElementById('waitlist-content').innerHTML = '<div class="alert alert-danger">Error loading waitlists</div>';
+        }}
+    }}
+    
+    async function joinWaitlist(wlId) {{
+        if (!isAuthenticated) {{ alert('Please sign in to join'); return; }}
+        const msg = prompt('Optional message:');
+        if (msg === null) return;
+        try {{
+            const body = {{ message: msg }};
+            if (referralRef) body.referral_code = referralRef;
+            const res = await fetch(`/api/waitlists/${{wlId}}/join/`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify(body)
+            }});
+            const d = await res.json();
+            if (res.ok) {{
+                alert('Joined! Position: #' + d.entry.position);
+                loadWaitlists();
+            }} else {{ alert(d.error || 'Failed to join'); }}
+        }} catch (e) {{ alert('Failed to join waitlist'); }}
+    }}
+    
+    async function leaveWaitlist(wlId) {{
+        if (!confirm('Leave this waitlist?')) return;
+        try {{
+            const res = await fetch(`/api/waitlists/${{wlId}}/leave/`, {{ method: 'POST' }});
+            if (res.ok) {{ loadWaitlists(); }} else {{ alert('Failed to leave'); }}
+        }} catch (e) {{ alert('Failed to leave waitlist'); }}
+    }}
+    
+    function copyText(text) {{
+        navigator.clipboard.writeText(text).then(() => {{
+            const btn = event.target.closest('button');
+            if (btn) {{ const o = btn.innerHTML; btn.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => btn.innerHTML = o, 1500); }}
+        }});
+    }}
+    
+    function showEmbedCode(waitlistId, waitlistName) {{
+        const baseUrl = window.location.origin;
+        const embedUrl = `${{baseUrl}}/embed/waitlist/${{waitlistId}}/`;
+        const iframeCode = `<iframe src="${{embedUrl}}" width="100%" height="600" frameborder="0" style="border: none; border-radius: 12px;"></iframe>`;
+        
+        document.getElementById('embed-waitlist-name').textContent = waitlistName;
+        document.getElementById('embed-url').value = embedUrl;
+        document.getElementById('embed-code-iframe').value = iframeCode;
+        
+        const modal = new bootstrap.Modal(document.getElementById('embedCodeModal'));
+        modal.show();
+    }}
+    
+    function copyEmbedCode(type) {{
+        const elementId = type === 'iframe' ? 'embed-code-iframe' : 'embed-url';
+        const element = document.getElementById(elementId);
+        element.select();
+        navigator.clipboard.writeText(element.value).then(() => {{
+            const btn = event.target.closest('button');
+            if (btn) {{
+                const original = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                setTimeout(() => btn.innerHTML = original, 2000);
+            }}
+        }});
+    }}
+    
+    async function uploadWaitlistImage() {{
+        const fileInput = document.getElementById('wl-image-file');
+        const statusEl = document.getElementById('wl-image-upload-status');
+        const urlInput = document.getElementById('wl-image-url');
+        
+        if (!fileInput.files || !fileInput.files[0]) {{
+            statusEl.innerHTML = '<small class="text-danger">Please select a file first</small>';
+            return;
+        }}
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('entity_type', 'waitlist');
+        
+        statusEl.innerHTML = '<small class="text-info"><i class="fas fa-spinner fa-spin"></i> Uploading...</small>';
+        
+        try {{
+            const response = await fetch('/api/upload/entity-image', {{
+                method: 'POST',
+                credentials: 'include',
+                body: formData
+            }});
+            
+            const data = await response.json();
+            
+            if (response.ok && data.image_url) {{
+                urlInput.value = data.image_url;
+                statusEl.innerHTML = '<small class="text-success"><i class="fas fa-check"></i> Uploaded successfully</small>';
+                fileInput.value = '';
+            }} else {{
+                statusEl.innerHTML = `<small class="text-danger">${{data.error || 'Upload failed'}}</small>`;
+            }}
+        }} catch (error) {{
+            console.error('Upload error:', error);
+            statusEl.innerHTML = '<small class="text-danger">Upload failed. Please try again.</small>';
+        }}
+    }}
+    
+    function createWaitlist() {{
+        const modalHtml = `
+            <div class="modal fade" id="createWaitlistModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Create Waitlist</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="wl-alert-container"></div>
+                            <form id="createWaitlistForm">
+                                <div class="mb-3">
+                                    <label for="wl-name" class="form-label">Waitlist Name *</label>
+                                    <input type="text" class="form-control" id="wl-name" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="wl-description" class="form-label">Description</label>
+                                    <textarea class="form-control" id="wl-description" rows="3"></textarea>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="wl-start-date" class="form-label">Start Date *</label>
+                                        <input type="date" class="form-control" id="wl-start-date" required>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="wl-closing-date" class="form-label">Closing Date (optional)</label>
+                                        <input type="date" class="form-control" id="wl-closing-date">
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="wl-max-number" class="form-label">Max Number of Entries (optional)</label>
+                                    <input type="number" class="form-control" id="wl-max-number" min="1">
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="wl-public" checked>
+                                    <label class="form-check-label" for="wl-public">Public (visible to all)</label>
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="wl-referrals" checked>
+                                    <label class="form-check-label" for="wl-referrals">Enable Referrals</label>
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="wl-active" checked>
+                                    <label class="form-check-label" for="wl-active">Active</label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="wl-image-url" class="form-label">Image (optional)</label>
+                                    <input type="url" class="form-control mb-2" id="wl-image-url" placeholder="https://example.com/image.png or upload below">
+                                    <div class="input-group">
+                                        <input type="file" class="form-control" id="wl-image-file" accept="image/*">
+                                        <button class="btn btn-outline-primary" type="button" onclick="uploadWaitlistImage()">
+                                            <i class="fas fa-upload"></i> Upload
+                                        </button>
+                                    </div>
+                                    <div class="form-text">Waitlist banner or icon. Max 600×600px, 5MB. Upload or paste URL above.</div>
+                                    <div id="wl-image-upload-status" class="mt-1"></div>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="submitWaitlistBtn">
+                                <i class="fas fa-plus me-2"></i>Create Waitlist
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        if (!document.getElementById('createWaitlistModal')) {{
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }}
+        document.getElementById('wl-alert-container').innerHTML = '';
+        document.getElementById('wl-name').value = '';
+        document.getElementById('wl-description').value = '';
+        document.getElementById('wl-image-url').value = '';
+        document.getElementById('wl-start-date').value = new Date().toISOString().split('T')[0];
+        document.getElementById('wl-closing-date').value = '';
+        document.getElementById('wl-max-number').value = '';
+        document.getElementById('wl-public').checked = true;
+        document.getElementById('wl-referrals').checked = true;
+        document.getElementById('wl-active').checked = true;
+        if (document.getElementById('wl-image-url')) document.getElementById('wl-image-url').value = '';
+        if (document.getElementById('wl-image-file')) document.getElementById('wl-image-file').value = '';
+        if (document.getElementById('wl-image-upload-status')) document.getElementById('wl-image-upload-status').innerHTML = '';
+        const modal = new bootstrap.Modal(document.getElementById('createWaitlistModal'));
+        modal.show();
+        document.getElementById('submitWaitlistBtn').onclick = async () => {{
+            const name = document.getElementById('wl-name').value.trim();
+            const description = document.getElementById('wl-description').value.trim();
+            const image_url = document.getElementById('wl-image-url').value.trim();
+            const startDate = document.getElementById('wl-start-date').value;
+            const closingDate = document.getElementById('wl-closing-date').value;
+            const maxNumber = document.getElementById('wl-max-number').value;
+            const isPublic = document.getElementById('wl-public').checked;
+            const referrals = document.getElementById('wl-referrals').checked;
+            const active = document.getElementById('wl-active').checked;
+            if (!name || !startDate) {{
+                document.getElementById('wl-alert-container').innerHTML = '<div class="alert alert-danger">Name and start date are required.</div>';
+                return;
+            }}
+            const btn = document.getElementById('submitWaitlistBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+            try {{
+                const body = {{ name, description, image_url: image_url || null, start_date: startDate, public: isPublic, referrals, active }};
+                if (closingDate) body.closing_date = closingDate;
+                if (maxNumber) body.max_number = parseInt(maxNumber, 10);
+                const res = await fetch(`/api/projects/${{project.id}}/waitlists/`, {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(body)
+                }});
+                const d = await res.json();
+                if (res.ok) {{
+                    modal.hide();
+                    loadWaitlists();
+                }} else {{
+                    document.getElementById('wl-alert-container').innerHTML = '<div class="alert alert-danger">' + (d.error || 'Failed to create waitlist') + '</div>';
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Waitlist';
+                }}
+            }} catch (e) {{
+                document.getElementById('wl-alert-container').innerHTML = '<div class="alert alert-danger">Failed to create waitlist</div>';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Waitlist';
+            }}
+        }};
     }}
     
     function getStatusBadge(status) {{
@@ -14404,12 +17044,293 @@ def project_detail(project_slug):
         return badges[approval] || '';
     }}
     
+    async function uploadProjectImage() {{
+        const fileInput = document.getElementById('edit-project-image-file');
+        const statusEl = document.getElementById('edit-project-image-upload-status');
+        const urlInput = document.getElementById('edit-project-image-url');
+        
+        if (!fileInput.files || !fileInput.files[0]) {{
+            statusEl.innerHTML = '<small class="text-danger">Please select a file first</small>';
+            return;
+        }}
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('entity_type', 'project');
+        
+        statusEl.innerHTML = '<small class="text-info"><i class="fas fa-spinner fa-spin"></i> Uploading...</small>';
+        
+        try {{
+            const response = await fetch('/api/upload/entity-image', {{
+                method: 'POST',
+                credentials: 'include',
+                body: formData
+            }});
+            
+            const data = await response.json();
+            
+            if (response.ok && data.image_url) {{
+                urlInput.value = data.image_url;
+                statusEl.innerHTML = '<small class="text-success"><i class="fas fa-check"></i> Uploaded successfully</small>';
+                fileInput.value = '';
+            }} else {{
+                statusEl.innerHTML = `<small class="text-danger">${{data.error || 'Upload failed'}}</small>`;
+            }}
+        }} catch (error) {{
+            console.error('Upload error:', error);
+            statusEl.innerHTML = '<small class="text-danger">Upload failed. Please try again.</small>';
+        }}
+    }}
+    
     function editProject() {{
-        alert('Edit functionality coming soon');
+        if (!project) return;
+        document.getElementById('edit-project-name').value = project.name || '';
+        document.getElementById('edit-project-mission').value = project.mission || '';
+        document.getElementById('edit-project-description').value = project.description || '';
+        document.getElementById('edit-project-image-url').value = project.image_url || '';
+        document.getElementById('edit-project-image-file').value = '';
+        document.getElementById('edit-project-image-upload-status').innerHTML = '';
+        document.getElementById('edit-project-status').value = project.status || 'proposed';
+        document.getElementById('edit-project-status-reason').value = project.status_reason || '';
+        document.getElementById('edit-modal-add-admin-q').value = '';
+        document.getElementById('edit-modal-add-admin-results').innerHTML = '';
+        const alertEl = document.getElementById('edit-project-alert');
+        alertEl.classList.add('d-none');
+        alertEl.textContent = '';
+        loadEditModalAdmins();
+        const modal = new bootstrap.Modal(document.getElementById('editProjectModal'));
+        modal.show();
+    }}
+    
+    async function loadEditModalAdmins() {{
+        const container = document.getElementById('edit-modal-admins-list');
+        if (!container || !project) return;
+        container.innerHTML = '<div class="list-group-item text-muted small">Loading...</div>';
+        try {{
+            const response = await fetch('/api/projects/' + project.id + '/admins/', {{ credentials: 'include' }});
+            if (response.status === 403) {{
+                container.innerHTML = '<div class="list-group-item text-warning small">You need project admin access to view or manage admins.</div>';
+                return;
+            }}
+            if (!response.ok) {{
+                container.innerHTML = '<div class="list-group-item text-danger small">Failed to load admins (status ' + response.status + '). Try refreshing.</div>';
+                return;
+            }}
+            const data = await response.json();
+            let html = `
+                <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                    <div>
+                        <a href="/profile/${{data.owner.username}}/" class="fw-bold text-decoration-none small">${{data.owner.display_name}}</a>
+                        <span class="badge bg-primary ms-2">Owner</span>
+                    </div>
+                    <span class="text-muted small">-</span>
+                </div>
+            `;
+            (data.admins || []).forEach(a => {{
+                html += `
+                    <div class="list-group-item d-flex justify-content-between align-items-center py-2" id="edit-modal-admin-${{a.user_id}}">
+                        <a href="/profile/${{a.username}}/" class="text-decoration-none small">${{a.display_name}}</a>
+                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAdminFromEditModal(${{a.user_id}})">Remove</button>
+                    </div>
+                `;
+            }});
+            container.innerHTML = html || '<div class="list-group-item text-muted small">No assigned admins</div>';
+        }} catch (e) {{
+            console.error('loadEditModalAdmins error:', e);
+            container.innerHTML = '<div class="list-group-item text-danger small">Failed to load admins. Check console for details.</div>';
+        }}
+    }}
+    
+    function searchUsersForEditModalAdmin() {{
+        const q = document.getElementById('edit-modal-add-admin-q').value.trim();
+        const resultsEl = document.getElementById('edit-modal-add-admin-results');
+        if (q.length < 2) {{ resultsEl.innerHTML = ''; return; }}
+        fetch('/api/users/search/?q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(data => {{
+                if (!data.users || data.users.length === 0) {{
+                    resultsEl.innerHTML = '<p class="text-muted small mb-0">No users found</p>';
+                    return;
+                }}
+                resultsEl.innerHTML = data.users.map(u => `
+                    <div class="d-flex justify-content-between align-items-center border-bottom py-1 small">
+                        <span>${{u.display_name}} <small class="text-muted">@${{u.username}}</small></span>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="addAdminFromEditModal(${{u.id}})">Add</button>
+                    </div>
+                `).join('');
+            }})
+            .catch(() => {{ resultsEl.innerHTML = '<p class="text-danger small mb-0">Search failed</p>'; }});
+    }}
+    
+    async function addAdminFromEditModal(userId) {{
+        try {{
+            const response = await fetch('/api/projects/' + project.id + '/admins/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'include',
+                body: JSON.stringify({{ user_id: userId }})
+            }});
+            const data = await response.json();
+            if (response.ok) {{
+                document.getElementById('edit-modal-add-admin-q').value = '';
+                document.getElementById('edit-modal-add-admin-results').innerHTML = '';
+                loadEditModalAdmins();
+                if (typeof loadAdmins === 'function') loadAdmins();
+            }} else {{
+                alert(data.error || 'Failed to add admin');
+            }}
+        }} catch (e) {{
+            alert('Failed to add admin');
+        }}
+    }}
+    
+    async function removeAdminFromEditModal(userId) {{
+        if (!confirm('Remove this user as project admin?')) return;
+        try {{
+            const response = await fetch('/api/projects/' + project.id + '/admins/' + userId + '/', {{
+                method: 'DELETE',
+                credentials: 'include'
+            }});
+            const data = await response.json();
+            if (response.ok) {{
+                loadEditModalAdmins();
+                if (typeof loadAdmins === 'function') loadAdmins();
+            }} else {{
+                alert(data.error || 'Failed to remove admin');
+            }}
+        }} catch (e) {{
+            alert('Failed to remove admin');
+        }}
+    }}
+    
+    async function saveProjectEdit() {{
+        if (!project) return;
+        const name = document.getElementById('edit-project-name').value.trim();
+        const mission = document.getElementById('edit-project-mission').value;
+        const description = document.getElementById('edit-project-description').value;
+        const image_url = document.getElementById('edit-project-image-url').value.trim();
+        const status = document.getElementById('edit-project-status').value;
+        const status_reason = document.getElementById('edit-project-status-reason').value.trim();
+        const alertEl = document.getElementById('edit-project-alert');
+        const saveBtn = document.getElementById('edit-project-save-btn');
+        
+        if (!name) {{
+            alertEl.textContent = 'Project name is required.';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        
+        saveBtn.disabled = true;
+        alertEl.classList.add('d-none');
+        try {{
+            const res = await fetch('/api/projects/' + project.id + '/', {{
+                method: 'PATCH',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'include',
+                body: JSON.stringify({{ name: name, mission: mission || null, description: description, image_url: image_url || null, status: status, status_reason: status_reason || null }})
+            }});
+            let data;
+            try {{ data = await res.json(); }} catch (_) {{
+                alertEl.textContent = res.status === 401 ? 'Please sign in to edit projects.' : 'Server error. Please try again.';
+                alertEl.className = 'alert alert-danger';
+                alertEl.classList.remove('d-none');
+                saveBtn.disabled = false;
+                return;
+            }}
+            if (res.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('editProjectModal')).hide();
+                project = data.project;
+                if (project.slug !== projectSlug) {{
+                    window.location.href = '/projects/' + project.slug + '/';
+                    return;
+                }}
+                displayProjectHeader();
+                loadOverview();
+            }} else {{
+                alertEl.textContent = data.error || 'Failed to update project';
+                alertEl.className = 'alert alert-danger';
+                alertEl.classList.remove('d-none');
+            }}
+        }} catch (e) {{
+            alertEl.textContent = 'Network error. Please try again.';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+        }}
+        saveBtn.disabled = false;
     }}
     
     function createWorkgroup() {{
-        alert('Create workgroup functionality coming soon');
+        const modalHtml = `
+            <div class="modal fade" id="projectCreateWorkgroupModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Create Workgroup</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="project-wg-alert-container"></div>
+                            <form id="projectCreateWorkgroupForm">
+                                <div class="mb-3">
+                                    <label for="project-wg-name" class="form-label">Workgroup Name *</label>
+                                    <input type="text" class="form-control" id="project-wg-name" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="project-wg-description" class="form-label">Description *</label>
+                                    <textarea class="form-control" id="project-wg-description" rows="3" required></textarea>
+                                </div>
+                                <p class="text-muted small">New workgroups require approval from the project admin before becoming active.</p>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="projectSubmitWorkgroupBtn">
+                                <i class="fas fa-plus me-2"></i>Create Workgroup
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        if (!document.getElementById('projectCreateWorkgroupModal')) {{
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }}
+        document.getElementById('project-wg-alert-container').innerHTML = '';
+        document.getElementById('project-wg-name').value = '';
+        document.getElementById('project-wg-description').value = '';
+        const modal = new bootstrap.Modal(document.getElementById('projectCreateWorkgroupModal'));
+        modal.show();
+        document.getElementById('projectSubmitWorkgroupBtn').onclick = async () => {{
+            const name = document.getElementById('project-wg-name').value.trim();
+            const description = document.getElementById('project-wg-description').value.trim();
+            if (!name || !description) {{
+                document.getElementById('project-wg-alert-container').innerHTML = '<div class="alert alert-danger">Name and description are required.</div>';
+                return;
+            }}
+            const btn = document.getElementById('projectSubmitWorkgroupBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+            try {{
+                const response = await fetch(`/api/projects/${{project.id}}/workgroups/`, {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{ name, description }})
+                }});
+                const data = await response.json();
+                if (response.ok) {{
+                    modal.hide();
+                    loadWorkgroups();
+                    alert('Workgroup created! It will be visible once approved by the project admin.');
+                }} else {{
+                    throw new Error(data.error || 'Failed to create workgroup');
+                }}
+            }} catch (err) {{
+                document.getElementById('project-wg-alert-container').innerHTML = '<div class="alert alert-danger">' + (err.message || 'Failed to create workgroup') + '</div>';
+            }}
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Workgroup';
+        }};
     }}
     
     function createRole() {{
@@ -14513,10 +17434,11 @@ def project_detail(project_slug):
             .then(r => r.json())
             .then(data => {{
                 const select = document.getElementById('role-cluster');
-                data.clusters.forEach(cluster => {{
+                (data.clusters || []).forEach(cluster => {{
+                    if (!cluster) return;
                     const option = document.createElement('option');
-                    option.value = cluster.id;
-                    option.textContent = cluster.name;
+                    option.value = cluster.id || '';
+                    option.textContent = (cluster.name != null && cluster.name !== '') ? cluster.name : 'Unnamed';
                     select.appendChild(option);
                 }});
             }});
@@ -14634,6 +17556,15 @@ def project_detail(project_slug):
             document.body.insertAdjacentHTML('beforeend', modalHtml);
         }}
         
+        // Reset form and button so each open is fresh (and not stuck from a previous submit)
+        document.getElementById('cluster-name').value = '';
+        document.getElementById('cluster-description').value = '';
+        document.getElementById('cluster-order').value = '0';
+        document.getElementById('cluster-alert-container').innerHTML = '';
+        const submitClusterBtn = document.getElementById('submitClusterBtn');
+        submitClusterBtn.disabled = false;
+        submitClusterBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Cluster';
+        
         const modal = new bootstrap.Modal(document.getElementById('createClusterModal'));
         modal.show();
         
@@ -14666,6 +17597,12 @@ def project_detail(project_slug):
                 const data = await response.json();
                 
                 if (response.ok) {{
+                    document.getElementById('cluster-name').value = '';
+                    document.getElementById('cluster-description').value = '';
+                    document.getElementById('cluster-order').value = '0';
+                    document.getElementById('cluster-alert-container').innerHTML = '';
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Cluster';
                     modal.hide();
                     loadClusters();
                     alert('Cluster created successfully!');
@@ -14689,7 +17626,13 @@ def project_detail(project_slug):
         try {{
             const response = await fetch(`/api/clusters/${{clusterId}}/`);
             const data = await response.json();
-            const cluster = data.cluster;
+            const cluster = data.cluster || data;
+            if (!cluster) {{
+                throw new Error('Cluster not found');
+            }}
+            const cName = (cluster.name != null && cluster.name !== '') ? String(cluster.name) : '';
+            const cDesc = (cluster.description != null) ? String(cluster.description) : '';
+            const cOrder = (cluster.order != null && cluster.order !== '') ? cluster.order : 0;
             
             const modalHtml = `
                 <div class="modal fade" id="editClusterModal" tabindex="-1">
@@ -14705,17 +17648,17 @@ def project_detail(project_slug):
                                 <form id="editClusterForm">
                                     <div class="mb-3">
                                         <label for="edit-cluster-name" class="form-label">Cluster Name *</label>
-                                        <input type="text" class="form-control" id="edit-cluster-name" value="${{cluster.name}}" required>
+                                        <input type="text" class="form-control" id="edit-cluster-name" value="${{cName.replace(/"/g, '&quot;')}}" required>
                                     </div>
                                     
                                     <div class="mb-3">
                                         <label for="edit-cluster-description" class="form-label">Description</label>
-                                        <textarea class="form-control" id="edit-cluster-description" rows="3">${{cluster.description || ''}}</textarea>
+                                        <textarea class="form-control" id="edit-cluster-description" rows="3">${{cDesc.replace(/</g, '&lt;').replace(/>/g, '&gt;')}}</textarea>
                                     </div>
                                     
                                     <div class="mb-3">
                                         <label for="edit-cluster-order" class="form-label">Display Order</label>
-                                        <input type="number" class="form-control" id="edit-cluster-order" value="${{cluster.order}}">
+                                        <input type="number" class="form-control" id="edit-cluster-order" value="${{cOrder}}">
                                     </div>
                                 </form>
                             </div>
@@ -14819,6 +17762,16 @@ def project_detail(project_slug):
     
     return render_page(f"Project: {project_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
 
+@app.route('/projects/<project_slug>/')
+def project_detail(project_slug):
+    """Project detail page"""
+    return _render_project_detail(project_slug)
+
+@app.route('/projects/<project_slug>/waitlist/<int:waitlist_id>/')
+def project_detail_waitlist(project_slug, waitlist_id):
+    """Project detail with specific waitlist tab (for referral links)"""
+    return _render_project_detail(project_slug, waitlist_id=waitlist_id)
+
 @app.route('/projects/create/')
 @require_auth
 def create_project_page():
@@ -14843,15 +17796,15 @@ def create_project_page():
                     </div>
                     
                     <div class="mb-3">
-                        <label for="description" class="form-label">Description *</label>
-                        <textarea class="form-control" id="description" rows="4" required></textarea>
-                        <div class="form-text">Explain what this project is about and its goals</div>
+                        <label for="mission" class="form-label">Mission</label>
+                        <textarea class="form-control" id="mission" rows="3" style="white-space: pre-wrap;"></textarea>
+                        <div class="form-text">Optional: The project's core purpose and values (line breaks preserved)</div>
                     </div>
                     
                     <div class="mb-3">
-                        <label for="mission_statement" class="form-label">Mission Statement</label>
-                        <textarea class="form-control" id="mission_statement" rows="3"></textarea>
-                        <div class="form-text">Optional: The project's core purpose and values</div>
+                        <label for="description" class="form-label">Description *</label>
+                        <textarea class="form-control" id="description" rows="4" required style="white-space: pre-wrap;"></textarea>
+                        <div class="form-text">Explain what this project is about and its goals (line breaks preserved)</div>
                     </div>
                     
                     <div class="mb-3">
@@ -14867,6 +17820,7 @@ def create_project_page():
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
                         <strong>Note:</strong> New projects start with "proposed" status and require admin approval before becoming active.
+                        You will be the project owner; you can add more admins after creation via <strong>Edit</strong> on the project page.
                     </div>
                     
                     <div class="d-flex gap-2">
@@ -14890,8 +17844,8 @@ def create_project_page():
         
         const formData = {
             name: document.getElementById('name').value,
+            mission: document.getElementById('mission').value,
             description: document.getElementById('description').value,
-            mission_statement: document.getElementById('mission_statement').value,
             repo_url: document.getElementById('repo_url').value,
             website_url: document.getElementById('website_url').value
         };
@@ -15026,18 +17980,17 @@ def guild_detail(guild_slug):
         
         const isInitiator = isAuthenticated && guild.initiator_id === currentUserId;
         
-        document.getElementById('guild-header').innerHTML = `
-            <div class="row">
-                <div class="col-md-8">
-                    <h1>${{guild.name}}</h1>
-                    <div class="mb-3">${{statusBadge}}</div>
-                </div>
-                <div class="col-md-4 text-end">
-                    ${{isInitiator ? '<button class="btn btn-secondary me-2" onclick="editGuild()"><i class="fas fa-edit me-2"></i>Edit</button>' : ''}}
-                    <a href="/guilds/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back</a>
-                </div>
-            </div>
-        `;
+        document.getElementById('guild-header').innerHTML =
+            '<div class="row">' +
+                '<div class="col-md-8">' +
+                    '<h1>' + (guild.name || '') + '</h1>' +
+                    '<div class="mb-3">' + statusBadge + '</div>' +
+                '</div>' +
+                '<div class="col-md-4 text-end">' +
+                    '${{isInitiator ? \'<button class="btn btn-secondary me-2" onclick="editGuild()"><i class="fas fa-edit me-2"></i>Edit</button>\' : \'\'}}' +
+                    '<a href="/guilds/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back</a>' +
+                '</div>' +
+            '</div>';
     }}
     
     function displayGuildAbout() {{
@@ -15079,10 +18032,15 @@ def guild_detail(guild_slug):
         
         let html = '';
         
+        // Add image at the top if available
+        if (guild.image_url) {{
+            html += '<div class="mb-3 text-center"><img src="' + guild.image_url + '" alt="' + (guild.name || '') + '" class="img-fluid rounded" style="max-height: 180px;"></div>';
+        }}
+        
         if (!isAuthenticated) {{
-            html = '<a href="/login/" class="btn btn-primary w-100 mb-2"><i class="fas fa-sign-in-alt me-2"></i>Login to Join</a>';
+            html += '<a href="/login/" class="btn btn-primary w-100 mb-2"><i class="fas fa-sign-in-alt me-2"></i>Login to Join</a>';
         }} else if (!userMembership) {{
-            html = '<p class="text-muted">Request an invitation from a guild admin to join</p>';
+            html += '<p class="text-muted">Request an invitation from a guild admin to join</p>';
         }} else {{
             if (isAdmin) {{
                 html += '<button class="btn btn-primary w-100 mb-2" onclick="inviteMember()"><i class="fas fa-user-plus me-2"></i>Invite Member</button>';
@@ -15133,6 +18091,44 @@ def guild_detail(guild_slug):
     }}
     
     // Load guild on page load
+    async function uploadGuildImage() {{
+        const fileInput = document.getElementById('edit-guild-image-file');
+        const statusEl = document.getElementById('edit-guild-image-upload-status');
+        const urlInput = document.getElementById('edit-guild-image-url');
+        
+        if (!fileInput.files || !fileInput.files[0]) {{
+            statusEl.innerHTML = '<small class="text-danger">Please select a file first</small>';
+            return;
+        }}
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('entity_type', 'guild');
+        
+        statusEl.innerHTML = '<small class="text-info"><i class="fas fa-spinner fa-spin"></i> Uploading...</small>';
+        
+        try {{
+            const response = await fetch('/api/upload/entity-image', {{
+                method: 'POST',
+                credentials: 'include',
+                body: formData
+            }});
+            
+            const data = await response.json();
+            
+            if (response.ok && data.image_url) {{
+                urlInput.value = data.image_url;
+                statusEl.innerHTML = '<small class="text-success"><i class="fas fa-check"></i> Uploaded successfully</small>';
+                fileInput.value = '';
+            }} else {{
+                statusEl.innerHTML = `<small class="text-danger">${{data.error || 'Upload failed'}}</small>`;
+            }}
+        }} catch (error) {{
+            console.error('Upload error:', error);
+            statusEl.innerHTML = '<small class="text-danger">Upload failed. Please try again.</small>';
+        }}
+    }}
+    
     function editGuild() {{
         const modalHtml = `
             <div class="modal fade" id="editGuildModal" tabindex="-1">
@@ -15154,6 +18150,19 @@ def guild_detail(guild_slug):
                                 <div class="mb-3">
                                     <label for="edit-guild-description" class="form-label">Description *</label>
                                     <textarea class="form-control" id="edit-guild-description" rows="4" required>${{guild.description}}</textarea>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="edit-guild-image-url" class="form-label">Image (optional)</label>
+                                    <input type="url" class="form-control mb-2" id="edit-guild-image-url" value="${{guild.image_url || ''}}" placeholder="https://example.com/image.png or upload below">
+                                    <div class="input-group">
+                                        <input type="file" class="form-control" id="edit-guild-image-file" accept="image/*">
+                                        <button class="btn btn-outline-primary" type="button" onclick="uploadGuildImage()">
+                                            <i class="fas fa-upload"></i> Upload
+                                        </button>
+                                    </div>
+                                    <div class="form-text">Guild logo or banner. Max 600×600px, 5MB. Upload or paste URL above.</div>
+                                    <div id="edit-guild-image-upload-status" class="mt-1"></div>
                                 </div>
                                 
                                 <div class="mb-3">
@@ -15187,6 +18196,7 @@ def guild_detail(guild_slug):
         document.getElementById('updateGuildBtn').onclick = async () => {{
             const name = document.getElementById('edit-guild-name').value.trim();
             const description = document.getElementById('edit-guild-description').value.trim();
+            const image_url = document.getElementById('edit-guild-image-url') ? document.getElementById('edit-guild-image-url').value.trim() : '';
             const status = document.getElementById('edit-guild-status').value;
             
             if (!name || !description) {{
@@ -15207,7 +18217,7 @@ def guild_detail(guild_slug):
                 const response = await fetch(`/api/guilds/${{guild.id}}/`, {{
                     method: 'PATCH',
                     headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{ name, description, status }})
+                    body: JSON.stringify({{ name, description, image_url: image_url || null, status }})
                 }});
                 
                 const data = await response.json();
@@ -15514,8 +18524,12 @@ def workgroup_detail(workgroup_slug):
                         ${{approvalBadge}}
                     </div>
                 </div>
-                <div class="col-md-4 text-end">
-                    ${{projectSlug ? `<a href="/projects/${{projectSlug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>` : '<a href="/workgroups/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Workgroups</a>'}}
+                <div class="col-md-4">
+                    ${{workgroup.image_url ? `<div class="card mb-3"><div class="card-body p-2 text-center"><img src="${{workgroup.image_url}}" alt="${{workgroup.name}}" class="img-fluid rounded" style="max-height: 200px;"></div></div>` : ''}}
+                    <div class="text-end">
+                        ${{workgroup.can_edit ? '<button type="button" class="btn btn-outline-secondary me-2" onclick="editWorkgroup()"><i class="fas fa-edit me-2"></i>Edit Workgroup</button>' : ''}}
+                        ${{projectSlug ? `<a href="/projects/${{projectSlug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>` : '<a href="/workgroups/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Workgroups</a>'}}
+                    </div>
                 </div>
             </div>
         `;
@@ -15751,6 +18765,151 @@ def workgroup_detail(workgroup_slug):
         }}
     }}
     
+    async function uploadWorkgroupImage() {{
+        const fileInput = document.getElementById('edit-wg-image-file');
+        const statusEl = document.getElementById('edit-wg-image-upload-status');
+        const urlInput = document.getElementById('edit-wg-image-url');
+        
+        if (!fileInput.files || !fileInput.files[0]) {{
+            statusEl.innerHTML = '<small class="text-danger">Please select a file first</small>';
+            return;
+        }}
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('entity_type', 'workgroup');
+        
+        statusEl.innerHTML = '<small class="text-info"><i class="fas fa-spinner fa-spin"></i> Uploading...</small>';
+        
+        try {{
+            const response = await fetch('/api/upload/entity-image', {{
+                method: 'POST',
+                credentials: 'include',
+                body: formData
+            }});
+            
+            const data = await response.json();
+            
+            if (response.ok && data.image_url) {{
+                urlInput.value = data.image_url;
+                statusEl.innerHTML = '<small class="text-success"><i class="fas fa-check"></i> Uploaded successfully</small>';
+                fileInput.value = '';
+            }} else {{
+                statusEl.innerHTML = `<small class="text-danger">${{data.error || 'Upload failed'}}</small>`;
+            }}
+        }} catch (error) {{
+            console.error('Upload error:', error);
+            statusEl.innerHTML = '<small class="text-danger">Upload failed. Please try again.</small>';
+        }}
+    }}
+    
+    function editWorkgroup() {{
+        const modalHtml = `
+            <div class="modal fade" id="editWorkgroupModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Edit Workgroup</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="edit-workgroup-alert-container"></div>
+                            <form id="editWorkgroupForm">
+                                <div class="mb-3">
+                                    <label for="edit-wg-name" class="form-label">Name *</label>
+                                    <input type="text" class="form-control" id="edit-wg-name" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="edit-wg-description" class="form-label">Description</label>
+                                    <textarea class="form-control" id="edit-wg-description" rows="3"></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="edit-wg-image-url" class="form-label">Image (optional)</label>
+                                    <input type="url" class="form-control mb-2" id="edit-wg-image-url" placeholder="https://example.com/image.png or upload below">
+                                    <div class="input-group">
+                                        <input type="file" class="form-control" id="edit-wg-image-file" accept="image/*">
+                                        <button class="btn btn-outline-primary" type="button" onclick="uploadWorkgroupImage()">
+                                            <i class="fas fa-upload"></i> Upload
+                                        </button>
+                                    </div>
+                                    <div class="form-text">Workgroup logo or banner. Max 600×600px, 5MB. Upload or paste URL above.</div>
+                                    <div id="edit-wg-image-upload-status" class="mt-1"></div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="edit-wg-status" class="form-label">Status</label>
+                                    <select class="form-select" id="edit-wg-status">
+                                        <option value="active">Active</option>
+                                        <option value="inactive">Inactive</option>
+                                        <option value="completed">Completed</option>
+                                        <option value="archived">Archived</option>
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="editWorkgroupSubmitBtn">
+                                <i class="fas fa-save me-2"></i>Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        if (!document.getElementById('editWorkgroupModal')) {{
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }}
+        document.getElementById('edit-wg-name').value = workgroup.name || '';
+        document.getElementById('edit-wg-description').value = workgroup.description || '';
+        const wgImgEl = document.getElementById('edit-wg-image-url');
+        if (wgImgEl) wgImgEl.value = workgroup.image_url || '';
+        const wgImgFileEl = document.getElementById('edit-wg-image-file');
+        if (wgImgFileEl) wgImgFileEl.value = '';
+        const wgImgStatusEl = document.getElementById('edit-wg-image-upload-status');
+        if (wgImgStatusEl) wgImgStatusEl.innerHTML = '';
+        document.getElementById('edit-wg-status').value = workgroup.status || 'active';
+        document.getElementById('edit-workgroup-alert-container').innerHTML = '';
+        const modal = new bootstrap.Modal(document.getElementById('editWorkgroupModal'));
+        modal.show();
+        document.getElementById('editWorkgroupSubmitBtn').onclick = async () => {{
+            const name = document.getElementById('edit-wg-name').value.trim();
+            const description = document.getElementById('edit-wg-description').value.trim();
+            const image_url = document.getElementById('edit-wg-image-url') ? document.getElementById('edit-wg-image-url').value.trim() : '';
+            const status = document.getElementById('edit-wg-status').value;
+            if (!name) {{
+                document.getElementById('edit-workgroup-alert-container').innerHTML = '<div class="alert alert-danger">Name is required.</div>';
+                return;
+            }}
+            const btn = document.getElementById('editWorkgroupSubmitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+            try {{
+                const response = await fetch(`/api/workgroups/${{workgroup.id}}/`, {{
+                    method: 'PATCH',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{ name, description, image_url: image_url || null, status }})
+                }});
+                if (!response.ok) {{
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to update workgroup');
+                }}
+                const data = await response.json();
+                workgroup.name = data.workgroup.name;
+                workgroup.description = data.workgroup.description;
+                workgroup.image_url = data.workgroup.image_url || null;
+                workgroup.status = data.workgroup.status;
+                modal.hide();
+                displayWorkgroupHeader();
+                displayWorkgroupAbout();
+                displayWorkgroupDetails();
+            }} catch (err) {{
+                document.getElementById('edit-workgroup-alert-container').innerHTML = '<div class="alert alert-danger">' + (err.message || 'Failed to update workgroup') + '</div>';
+            }}
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
+        }};
+    }}
+    
     // Load workgroup on page load
     loadWorkgroup();
     </script>
@@ -15821,10 +18980,12 @@ def user_profile(username):
         SELECT COUNT(*) FROM working_group_chair WHERE user_id = :user_id AND approved = 1
     """), {'user_id': profile_user.id}).scalar() or 0
     
-    # Count submissions
-    submissions_count = db.session.execute(text("""
-        SELECT COUNT(*) FROM submission WHERE submitted_by_id = :user_id
-    """), {'user_id': profile_user.id}).scalar() or 0
+    # Count submissions (submission table uses submitted_by string, not submitted_by_id)
+    name_variants = [x for x in (profile_user.name, profile_user.displayName, profile_user.oauthName, profile_user.username) if x]
+    submissions_count = Submission.query.filter(Submission.submitted_by.in_(name_variants)).count() if name_variants else 0
+    
+    # Count comments
+    comments_count = Comment.query.filter(Comment.author.in_(name_variants)).count() if name_variants else 0
     
     # Get recent activity (simplified for now)
     recent_projects = db.session.execute(text("""
@@ -15833,11 +18994,59 @@ def user_profile(username):
         ORDER BY created_at DESC LIMIT 5
     """), {'user_id': profile_user.id}).fetchall()
     
-    recent_submissions = db.session.execute(text("""
-        SELECT draft_name, created_at FROM submission 
-        WHERE submitted_by_id = :user_id 
-        ORDER BY created_at DESC LIMIT 5
+    # Recent submissions (submission has submitted_by string and submitted_at, not created_at)
+    if name_variants:
+        recent_submissions_q = Submission.query.filter(
+            Submission.submitted_by.in_(name_variants)
+        ).order_by(Submission.submitted_at.desc()).limit(5).all()
+        recent_submissions = [(s.draft_name or f"Draft {s.id}", s.submitted_at, s.id, s.status == 'approved') for s in recent_submissions_q]
+        all_submissions_q = Submission.query.filter(
+            Submission.submitted_by.in_(name_variants)
+        ).order_by(Submission.submitted_at.desc()).all()
+    else:
+        recent_submissions = []
+        all_submissions_q = []
+    
+    # Get coordinated workgroups
+    coordinated_workgroups = Workgroup.query.filter_by(coordinator_id=profile_user.id).order_by(Workgroup.created_at.desc()).all()
+    
+    # Get memberships
+    memberships_q = db.session.execute(text("""
+        SELECT wg.name, wg.slug, wgm.joined_at 
+        FROM working_group_member wgm
+        JOIN working_group wg ON wgm.group_acronym = wg.acronym
+        WHERE wgm.user_id = :user_id
+        ORDER BY wgm.joined_at DESC
     """), {'user_id': profile_user.id}).fetchall()
+    
+    # Get chair positions
+    chairs_q = db.session.execute(text("""
+        SELECT wg.name, wg.slug, wgc.set_at, wgc.approved
+        FROM working_group_chair wgc
+        JOIN working_group wg ON wgc.group_acronym = wg.acronym
+        WHERE wgc.user_id = :user_id
+        ORDER BY wgc.set_at DESC
+    """), {'user_id': profile_user.id}).fetchall()
+    
+    # Get project memberships (projects user has joined)
+    project_memberships = ProjectMember.query.filter_by(user_id=profile_user.id, status='active').order_by(ProjectMember.joined_at.desc()).all()
+    
+    # Get referral stats if viewing own profile
+    referral_code = None
+    referral_count = 0
+    if current_user and current_user['id'] == profile_user.id:
+        referral_code = get_or_create_referral_code(profile_user)
+        referral_count = ProjectMember.query.filter_by(referred_by_id=profile_user.id).count()
+    
+    # Get project memberships
+    project_memberships = ProjectMember.query.filter_by(user_id=profile_user.id, status='active').order_by(ProjectMember.joined_at.desc()).all()
+    
+    # Get referral stats if viewing own profile
+    referral_code = None
+    referral_count = 0
+    if is_own_profile:
+        referral_code = get_or_create_referral_code(profile_user)
+        referral_count = ProjectMember.query.filter_by(referred_by_id=profile_user.id).count()
     
     content = f"""
     <style>
@@ -15864,6 +19073,9 @@ def user_profile(username):
             background: var(--bg-secondary);
             object-fit: cover;
             display: block;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
         }}
         
         .profile-stats {{
@@ -15940,6 +19152,10 @@ def user_profile(username):
             <div class="profile-stats mt-4">
                 <div class="stat-card">
                     <span class="stat-value">{projects_count}</span>
+                    <span class="stat-label">Initiated</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{len(project_memberships)}</span>
                     <span class="stat-label">Projects</span>
                 </div>
                 <div class="stat-card">
@@ -15948,7 +19164,7 @@ def user_profile(username):
                 </div>
                 <div class="stat-card">
                     <span class="stat-value">{memberships_count}</span>
-                    <span class="stat-label">Memberships</span>
+                    <span class="stat-label">Workgroups</span>
                 </div>
                 <div class="stat-card">
                     <span class="stat-value">{chair_count}</span>
@@ -15958,7 +19174,25 @@ def user_profile(username):
                     <span class="stat-value">{submissions_count}</span>
                     <span class="stat-label">Submissions</span>
                 </div>
+                <div class="stat-card">
+                    <span class="stat-value">{comments_count}</span>
+                    <span class="stat-label">Comments</span>
+                </div>
+                {f'''<div class="stat-card">
+                    <span class="stat-value">{referral_count}</span>
+                    <span class="stat-label">Referrals</span>
+                </div>''' if is_own_profile else ''}
             </div>
+            
+            {f'''<!-- Referral Code -->
+            <div class="alert alert-info mt-3">
+                <strong><i class="fas fa-share-alt me-2"></i>Your Referral Code:</strong> 
+                <code id="referral-code">{referral_code}</code>
+                <button class="btn btn-sm btn-outline-primary ms-2" onclick="copyReferralLink(this)">
+                    <i class="fas fa-copy me-1"></i>Copy Link
+                </button>
+                <small class="d-block mt-2">Share this link to get credit when people join projects!</small>
+            </div>''' if is_own_profile and referral_code else ''}
         </div>
         
         <!-- Content Tabs -->
@@ -15972,7 +19206,22 @@ def user_profile(username):
                         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#activity-tab">Activity</button>
                     </li>
                     <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#projects-tab">Projects</button>
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#projects-tab">Initiated</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#my-projects-tab" id="my-projects">My Projects</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#coordinating-tab">Coordinating</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#memberships-tab">Memberships</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#chair-tab">Chair</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#submissions-tab">Submissions</button>
                     </li>
                 </ul>
                 
@@ -15998,7 +19247,7 @@ def user_profile(username):
                             <div class="card-body">
                                 <h5 class="card-title">Recent Activity</h5>
                                 <div class="list-group list-group-flush">
-                                    {self._format_activity_items(recent_projects, recent_submissions)}
+                                    {_format_activity_items(recent_projects, recent_submissions)}
                                 </div>
                             </div>
                         </div>
@@ -16015,25 +19264,129 @@ def user_profile(username):
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- My Projects Tab -->
+                    <div class="tab-pane fade" id="my-projects-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Project Memberships</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'''<a href="/projects/{pm.project.slug}/" class="list-group-item list-group-item-action">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <strong>{pm.project.name}</strong>
+                                                <br><small class="text-muted">Role: {pm.role or "Member"} • Joined {pm.joined_at.strftime("%b %Y") if pm.joined_at else "Unknown"}</small>
+                                                {f'<br><small class="text-success"><i class="fas fa-user-plus me-1"></i>Referred by {pm.referred_by.displayName or pm.referred_by.username}</small>' if pm.referred_by else ''}
+                                            </div>
+                                        </div>
+                                    </a>''' for pm in project_memberships]) if project_memberships else '<p class="text-muted">Not a member of any projects yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Coordinating Tab -->
+                    <div class="tab-pane fade" id="coordinating-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Coordinating Workgroups</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/workgroups/{wg.slug}/" class="list-group-item list-group-item-action"><strong>{wg.name}</strong><br><small class="text-muted">Status: {wg.status}</small></a>' for wg in coordinated_workgroups]) if coordinated_workgroups else '<p class="text-muted">Not coordinating any workgroups yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Memberships Tab -->
+                    <div class="tab-pane fade" id="memberships-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Workgroup Memberships</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/workgroups/{m[1]}/" class="list-group-item list-group-item-action"><strong>{m[0]}</strong><br><small class="text-muted">Joined {m[2]}</small></a>' for m in memberships_q]) if memberships_q else '<p class="text-muted">Not a member of any workgroups yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Chair Tab -->
+                    <div class="tab-pane fade" id="chair-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Chair Positions</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/workgroups/{c[1]}/" class="list-group-item list-group-item-action"><strong>{c[0]}</strong><br><small class="text-muted">{"Approved" if c[3] else "Pending approval"} - Set {c[2]}</small></a>' for c in chairs_q]) if chairs_q else '<p class="text-muted">No chair positions yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Submissions Tab -->
+                    <div class="tab-pane fade" id="submissions-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">All Submissions</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/submit/status/{s.id}/" class="list-group-item list-group-item-action"><strong>{s.draft_name or s.id}</strong><br><small class="text-muted">{s.status.title()} - Submitted {s.submitted_at.strftime("%Y-%m-%d") if s.submitted_at else "Unknown"}</small></a>' for s in all_submissions_q]) if all_submissions_q else '<p class="text-muted">No submissions yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+    
+    <script>
+    (function() {{
+        var hash = window.location.hash;
+        if (hash === '#my-projects') {{
+            var tab = document.querySelector('[data-bs-target="#my-projects-tab"]');
+            if (tab) bootstrap.Tab.getOrCreateInstance(tab).show();
+        }}
+    }})();
+    function copyReferralLink(btn) {{
+        var el = document.getElementById('referral-code');
+        if (!el) return;
+        var url = window.location.origin + '/?ref=' + el.textContent;
+        navigator.clipboard.writeText(url).then(function() {{
+            if (btn) {{
+                var orig = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check me-1"></i>Copied!';
+                setTimeout(function() {{ btn.innerHTML = orig; }}, 2000);
+            }}
+        }}).catch(function() {{ alert('Failed to copy'); }});
+    }}
+    </script>
     """
     
     return render_page(f"{profile_user.displayName or profile_user.username} - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 def _format_activity_items(projects, submissions):
     """Helper function to format activity items"""
+    from datetime import datetime
     items = []
     
     for project in projects:
-        items.append((project[2], 'project', f'Created project <strong>{project[0]}</strong>', f'/projects/{project[1]}/'))
+        # project[2] is created_at from raw SQL (might be string or datetime)
+        date = project[2]
+        if isinstance(date, str):
+            try:
+                date = datetime.fromisoformat(date.replace('Z', '+00:00'))
+            except:
+                date = datetime.utcnow()
+        items.append((date, 'project', f'Created project <strong>{project[0]}</strong>', f'/projects/{project[1]}/'))
     
     for submission in submissions:
-        items.append((submission[1], 'submission', f'Submitted draft <strong>{submission[0]}</strong>', '#'))
+        # submission is a tuple (draft_name, submitted_at, id, approved) from recent_submissions
+        draft_name = submission[0]
+        date = submission[1] if submission[1] else datetime.utcnow()
+        submission_id = submission[2]
+        approved = submission[3]
+        status = "Approved" if approved else "Draft"
+        items.append((date, 'submission', f'Submitted <strong>{draft_name}</strong> <span class="badge bg-{"success" if approved else "secondary"}">{status}</span>', f'/submit/status/{submission_id}/'))
     
-    # Sort by date
+    # Sort by date (all datetime objects now)
     items.sort(key=lambda x: x[0], reverse=True)
     
     html = ''
@@ -16116,6 +19469,7 @@ def profile_edit():
                                     accept="image/*"
                                     onchange="previewImage(this, 'profile-image-preview')"
                                 >
+                                <div class="form-text">Max 600×600px, 5MB. PNG, JPG, GIF, WebP, SVG</div>
                                 <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadProfileImage()">
                                     <i class="fas fa-upload me-2"></i>Upload Profile Picture
                                 </button>
@@ -16137,6 +19491,7 @@ def profile_edit():
                                     accept="image/*"
                                     onchange="previewBannerImage(this)"
                                 >
+                                <div class="form-text">Max 600×600px, 5MB. PNG, JPG, GIF, WebP, SVG</div>
                                 <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadBannerImage()">
                                     <i class="fas fa-upload me-2"></i>Upload Banner
                                 </button>
@@ -16184,7 +19539,7 @@ def profile_edit():
                     </div>
                     <div class="card-body">
                         <div id="social-links-container">
-                            {self._render_social_link_inputs(platforms, social_links)}
+                            {_render_social_link_inputs(platforms, social_links)}
                         </div>
                     </div>
                 </div>
@@ -16236,8 +19591,9 @@ def profile_edit():
         formData.append('type', 'profile');
         
         try {{
-            const response = await fetch('/api/user/upload-image/', {{
+            const response = await fetch('/api/user/upload-image', {{
                 method: 'POST',
+                credentials: 'include',
                 body: formData
             }});
             
@@ -16266,8 +19622,9 @@ def profile_edit():
         formData.append('type', 'banner');
         
         try {{
-            const response = await fetch('/api/user/upload-image/', {{
+            const response = await fetch('/api/user/upload-image', {{
                 method: 'POST',
+                credentials: 'include',
                 body: formData
             }});
             
@@ -16603,7 +19960,7 @@ def role_images_directory():
             
             const response = await fetch(url);
             const data = await response.json();
-            allRoles = data.roles || [];
+            allRoles = (data.roles || []).filter(r => (r.image_count || 0) > 0);
             
             displayRoles(allRoles);
         }} catch (error) {{
@@ -16701,7 +20058,7 @@ def role_detail(role_slug):
                     <div class="card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Active Claims</h5>
-                            {'<button class="btn btn-sm btn-primary" onclick="claimRole()"><i class="fas fa-hand-paper me-2"></i>Claim This Role</button>' if current_user else '<a href="/login/" class="btn btn-sm btn-primary">Login to Claim</a>'}
+                            <span id="role-claim-btn-placeholder"></span>
                         </div>
                     </div>
                     <div class="card-body" id="role-claims">
@@ -16776,6 +20133,7 @@ def role_detail(role_slug):
     
     function displayRoleHeader() {{
         const statusBadge = getStatusBadge(role.status);
+        const editBtn = (role.can_edit) ? '<button type="button" class="btn btn-outline-secondary mb-2 me-2" onclick="editRole()"><i class="fas fa-edit me-2"></i>Edit Role</button>' : '';
         
         document.getElementById('role-header').innerHTML = `
             <div class="row">
@@ -16783,7 +20141,7 @@ def role_detail(role_slug):
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb">
                             <li class="breadcrumb-item"><a href="/projects/">Projects</a></li>
-                            <li class="breadcrumb-item"><a href="/projects/${{project.project_slug}}/">${{project.name}}</a></li>
+                            <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">${{project.name}}</a></li>
                             <li class="breadcrumb-item active">${{role.title_guild}}</li>
                         </ol>
                     </nav>
@@ -16795,8 +20153,8 @@ def role_detail(role_slug):
                     </div>
                 </div>
                 <div class="col-md-4 text-end">
+                    ${{editBtn}}
                     <a href="/roles/${{roleSlug}}/images/" class="btn btn-outline-primary mb-2"><i class="fas fa-images me-2"></i>View Images</a>
-                    <a href="/projects/${{project.slug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>
                 </div>
             </div>
         `;
@@ -16804,22 +20162,24 @@ def role_detail(role_slug):
     
     function displayRoleDescription() {{
         let html = `<p>${{role.description}}</p>`;
-        
-        if (role.image_url) {{
-            html += `<div class="mt-3"><img src="${{role.image_url}}" alt="${{role.title_guild}}" class="img-fluid rounded" style="max-height: 300px;"></div>`;
-        }}
-        
         document.getElementById('role-description').innerHTML = html;
     }}
     
     function displayRoleDetails() {{
+        const clusterLine = role.cluster_name
+            ? `<p><strong>Cluster:</strong> <a href="/projects/${{project.slug}}/#clusters">${{role.cluster_name}}</a></p>`
+            : (role.cluster_id ? '<p><strong>Cluster:</strong> <span class="text-muted">—</span></p>' : '');
+        
+        const imageHtml = role.image_url ? `<div class="mb-3 text-center"><img src="${{role.image_url}}" alt="${{role.title_guild}}" class="img-fluid rounded" style="max-height: 200px;"></div>` : '';
+        
         document.getElementById('role-details').innerHTML = `
+            ${{imageHtml}}
             <p><strong>Project:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
+            ${{clusterLine}}
             <p><strong>Status:</strong> ${{role.status}}</p>
             <p><strong>Visibility:</strong> ${{role.public_visible ? 'Public' : 'Private'}}</p>
             <p><strong>Active Claims:</strong> ${{role.active_claims_count || 0}}</p>
             <p><strong>Created:</strong> ${{new Date(role.created_at).toLocaleDateString()}}</p>
-            ${{role.cluster_id ? `<p><strong>Cluster ID:</strong> ${{role.cluster_id}}</p>` : ''}}
         `;
     }}
     
@@ -16831,35 +20191,89 @@ def role_detail(role_slug):
         `;
     }}
     
+    function getClaimPopoverContent(claim) {{
+        const intent = claim.intent ? '<p class="mb-2"><strong>Intent:</strong><br><span style="white-space: pre-wrap; word-wrap: break-word;">' + (claim.intent || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></p>' : '';
+        const links = (claim.evidence_links || []).filter(u => u && u.trim());
+        const evidenceHtml = links.length ? links.map(u => '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>').join('<br>') : '<span class="text-muted">No evidence yet</span>';
+        const termStr = claim.term_duration_days 
+            ? (claim.term_duration_days + ' days' + (claim.term_end ? ', until ' + new Date(claim.term_end).toLocaleDateString() : '')) 
+            : 'Indefinite';
+        return '<div class="text-start" style="min-width: 280px; max-width: 480px; white-space: normal; word-wrap: break-word;">' + intent +
+            '<p class="mb-2"><strong>Supporting work:</strong><br>' + evidenceHtml + '</p>' +
+            '<p class="mb-2"><strong>Term:</strong> ' + termStr + '</p>' +
+            '<p class="mb-0 small text-muted">Claimed: ' + new Date(claim.created_at).toLocaleDateString() + '</p></div>';
+    }}
+    
     async function loadClaims() {{
+        const container = document.getElementById('role-claims');
+        const btnPlaceholder = document.getElementById('role-claim-btn-placeholder');
+        
+        if (!role.public_visible) {{
+            if (btnPlaceholder) btnPlaceholder.innerHTML = '';
+            container.innerHTML = '<p class="text-muted">Claims are only visible for public roles.</p>';
+            return;
+        }}
+        
         try {{
-            const response = await fetch(`/api/roles/${{role.id}}/claims/?status=active`);
+            const response = await fetch(`/api/roles/${{role.id}}/claims/`);
             const data = await response.json();
+            const claimsData = data.claims || [];
+            const activeClaims = claimsData.filter(c => c.status === 'active' || c.status === 'pending_approval');
+            const hasClaimed = isAuthenticated && claimsData.some(c => Number(c.claimant_id) === Number(currentUserId));
             
-            if (data.claims.length === 0) {{
-                document.getElementById('role-claims').innerHTML = '<p class="text-muted">No active claims yet</p>';
+            if (btnPlaceholder) {{
+                if (hasClaimed) {{
+                    btnPlaceholder.innerHTML = '';
+                }} else if (isAuthenticated) {{
+                    btnPlaceholder.innerHTML = '<button class="btn btn-sm btn-primary" onclick="claimRole()"><i class="fas fa-hand-paper me-2"></i>Claim This Role</button>';
+                }} else {{
+                    btnPlaceholder.innerHTML = '<a href="/login/" class="btn btn-sm btn-primary">Login to Claim</a>';
+                }}
+            }}
+            
+            if (activeClaims.length === 0) {{
+                container.innerHTML = '<p class="text-muted">No active claims yet</p>';
                 return;
             }}
             
+            const claimsDataDisplay = activeClaims;
             let html = '<div class="list-group">';
-            data.claims.forEach(claim => {{
+            claimsDataDisplay.forEach((claim, idx) => {{
+                const claimantName = claim.claimant_name || ('User #' + claim.claimant_id);
+                const claimantUsername = claim.claimant_username || '';
+                const profileLink = claimantUsername ? '/profile/' + claimantUsername + '/' : '#';
+                const nameDisplay = profileLink !== '#' 
+                    ? '<a href="' + profileLink + '" class="text-decoration-none">' + claimantName + '</a>' 
+                    : claimantName;
+                
                 html += `
-                    <div class="list-group-item">
-                        <div class="d-flex justify-content-between">
-                            <h6>Claimant ID: ${{claim.claimant_id}}</h6>
+                    <div class="list-group-item claim-list-item" data-claim-index="${{idx}}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">${{nameDisplay}}</h6>
                             <span class="badge bg-success">Active</span>
                         </div>
-                        ${{claim.intent ? `<p class="mb-1">${{claim.intent}}</p>` : ''}}
                         <small class="text-muted">Claimed: ${{new Date(claim.created_at).toLocaleDateString()}}</small>
                     </div>
                 `;
             }});
             html += '</div>';
             
-            document.getElementById('role-claims').innerHTML = html;
+            container.innerHTML = html;
+            
+            container.querySelectorAll('.claim-list-item').forEach(el => {{
+                const idx = parseInt(el.getAttribute('data-claim-index'), 10);
+                const claim = claimsDataDisplay[idx];
+                new bootstrap.Popover(el, {{
+                    content: getClaimPopoverContent(claim),
+                    html: true,
+                    trigger: 'hover focus',
+                    placement: 'auto',
+                    container: 'body'
+                }});
+            }});
         }} catch (error) {{
             console.error('Error loading claims:', error);
-            document.getElementById('role-claims').innerHTML = '<div class="alert alert-danger">Error loading claims</div>';
+            container.innerHTML = '<div class="alert alert-danger">Error loading claims</div>';
         }}
     }}
     
@@ -16880,6 +20294,107 @@ def role_detail(role_slug):
         }}
         
         window.location.href = `/roles/${{roleSlug}}/claim/`;
+    }}
+    
+    function editRole() {{
+        const modalHtml = `
+            <div class="modal fade" id="editRoleModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Edit Role</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="edit-role-alert-container"></div>
+                            <form id="editRoleForm">
+                                <div class="mb-3">
+                                    <label for="edit-role-title-guild" class="form-label">Guild Title *</label>
+                                    <input type="text" class="form-control" id="edit-role-title-guild" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="edit-role-title-operational" class="form-label">Operational Title</label>
+                                    <input type="text" class="form-control" id="edit-role-title-operational">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="edit-role-description" class="form-label">About / Description *</label>
+                                    <textarea class="form-control" id="edit-role-description" rows="5" required></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="edit-role-cluster" class="form-label">Cluster</label>
+                                    <select class="form-select" id="edit-role-cluster">
+                                        <option value="">No cluster</option>
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="editRoleSubmitBtn">
+                                <i class="fas fa-save me-2"></i>Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        if (!document.getElementById('editRoleModal')) {{
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }}
+        document.getElementById('edit-role-title-guild').value = role.title_guild || '';
+        document.getElementById('edit-role-title-operational').value = role.title_operational || '';
+        document.getElementById('edit-role-description').value = role.description || '';
+        document.getElementById('edit-role-alert-container').innerHTML = '';
+        const clusterSelect = document.getElementById('edit-role-cluster');
+        clusterSelect.innerHTML = '<option value="">No cluster</option>';
+        fetch(`/api/projects/${{project.id}}/clusters/`).then(r => r.json()).then(d => {{
+            (d.clusters || []).forEach(c => {{
+                const opt = document.createElement('option');
+                opt.value = c.id || '';
+                opt.textContent = (c.name != null && c.name !== '') ? c.name : 'Unnamed';
+                clusterSelect.appendChild(opt);
+            }});
+            clusterSelect.value = role.cluster_id || '';
+        }});
+        const modal = new bootstrap.Modal(document.getElementById('editRoleModal'));
+        modal.show();
+        document.getElementById('editRoleSubmitBtn').onclick = async () => {{
+            const titleGuild = document.getElementById('edit-role-title-guild').value.trim();
+            const titleOperational = document.getElementById('edit-role-title-operational').value.trim();
+            const description = document.getElementById('edit-role-description').value.trim();
+            const clusterId = document.getElementById('edit-role-cluster').value || null;
+            if (!titleGuild || !description) {{
+                document.getElementById('edit-role-alert-container').innerHTML = '<div class="alert alert-danger">Guild title and description are required.</div>';
+                return;
+            }}
+            const btn = document.getElementById('editRoleSubmitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+            try {{
+                const response = await fetch(`/api/roles/${{role.id}}/`, {{
+                    method: 'PATCH',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{ title_guild: titleGuild, title_operational: titleOperational || null, description, cluster_id: clusterId }})
+                }});
+                if (!response.ok) {{
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to update role');
+                }}
+                role.title_guild = titleGuild;
+                role.title_operational = titleOperational || null;
+                role.description = description;
+                role.cluster_id = clusterId;
+                role.cluster_name = clusterId ? clusterSelect.options[clusterSelect.selectedIndex].text : null;
+                modal.hide();
+                displayRoleHeader();
+                displayRoleDescription();
+                displayRoleDetails();
+            }} catch (err) {{
+                document.getElementById('edit-role-alert-container').innerHTML = '<div class="alert alert-danger">' + (err.message || 'Failed to update role') + '</div>';
+            }}
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
+        }};
     }}
     
     // Load role on page load
@@ -16919,16 +20434,21 @@ def claim_role_page(role_slug):
                     </div>
                     
                     <div class="mb-3">
-                        <label for="evidence_links" class="form-label">Evidence Links</label>
+                        <label for="evidence_links" class="form-label">Supporting work</label>
                         <textarea class="form-control" id="evidence_links" rows="3" placeholder="https://example.com/my-work
 https://github.com/username/project"></textarea>
                         <div class="form-text">Optional: Links to relevant work or contributions (one per line)</div>
                     </div>
                     
                     <div class="mb-3">
-                        <label for="term_duration_days" class="form-label">Term Duration (days)</label>
-                        <input type="number" class="form-control" id="term_duration_days" min="1" placeholder="Leave empty for indefinite">
-                        <div class="form-text">Optional: Set a time limit for this claim</div>
+                        <label for="term_duration_months" class="form-label">Term duration (months)</label>
+                        <select class="form-select" id="term_duration_months">
+                            <option value="1">1 month</option>
+                            <option value="3" selected>3 months</option>
+                            <option value="6">6 months</option>
+                            <option value="12">12 months</option>
+                        </select>
+                        <div class="form-text">Time limit for this claim</div>
                     </div>
                     
                     <div id="approval-notice" class="alert alert-warning" style="display: none;">
@@ -17017,10 +20537,14 @@ https://github.com/username/project"></textarea>
         const evidenceText = document.getElementById('evidence_links').value.trim();
         const evidenceLinks = evidenceText ? evidenceText.split('\\n').filter(l => l.trim()) : [];
         
+        const termEl = document.getElementById('term_duration_months');
+        const termVal = (termEl && termEl.value !== undefined && termEl.value !== '') ? termEl.value : '3';
+        const termMonths = parseInt(termVal, 10) || 3;
+        
         const formData = {{
             intent: document.getElementById('intent').value.trim() || null,
             evidence_links: evidenceLinks,
-            term_duration_days: document.getElementById('term_duration_days').value ? parseInt(document.getElementById('term_duration_days').value) : null
+            term_duration_months: termMonths
         }};
         
         try {{
@@ -17171,6 +20695,28 @@ def deployment_status():
     }
 
     return jsonify(status)
+
+# Draft pages: any file in drafts/ is served at /test/<filename>
+_DRAFTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'drafts')
+
+def _safe_draft_path(filename):
+    """Resolve filename under _DRAFTS_DIR; return None if path escapes drafts."""
+    if not filename or ".." in filename or filename.startswith("/"):
+        return None
+    path = os.path.normpath(os.path.join(_DRAFTS_DIR, filename))
+    if not path.startswith(_DRAFTS_DIR):
+        return None
+    return path
+
+@app.route('/test/', methods=['GET'])
+@app.route('/test/<path:filename>', methods=['GET'])
+def draft_page(filename=None):
+    """Serve drafts/<filename> as text/html. /test/ serves digitalartifacts.htm."""
+    name = filename or "digitalartifacts.htm"
+    path = _safe_draft_path(name)
+    if not path or not os.path.isfile(path):
+        return jsonify({'error': 'Draft page not found'}), 404
+    return send_file(path, mimetype='text/html; charset=utf-8')
 
 @app.route('/_deploy/health', methods=['GET'])
 def health_check():

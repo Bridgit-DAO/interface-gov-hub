@@ -242,6 +242,56 @@ app.run(use_reloader=use_reloader)
 **Implementation**: Test each route, check response format  
 **Location**: `tests/integration/test_api_routes.py` (planned)
 
+## Current Work / Thread Handoff (2026-02-12)
+
+**Purpose**: Log progress for pickup in another thread.
+
+**Recently completed**:
+- **Waitlist feature**: Waitlist/WaitlistEntry/WaitlistMilestone models; APIs (list/create/get/join/leave/entries/update/milestones); project detail Waitlists tab with flair, join/position/referral link/milestones; URL hash `#waitlist` and `#waitlist-<id>`; Create Waitlist modal for project admins. Referral URLs use `?ref=CODE#waitlist-<id>`.
+- **Waitlist model fix**: SQLAlchemy backref name clash—`Waitlist` has column `milestones` (bool) and relationship was also named `milestones`. Renamed relationship backref to `milestone_list`; all usages updated (`api_get_waitlist`, `api_list_waitlist_milestones`, `api_list_waitlists`). List API now exposes `d['milestones']` as array of milestone dicts for UI.
+- **Service**: `datatracker-dev.service` was failing with exit-code; fixed by above; service runs on port 8001 (build 264).
+
+**Resolved issues (2026-02-12 & 2026-02-13)**:
+- **JavaScript syntax error in embed button** (Build 280+): Fixed nested template literal issue
+  - **Root cause**: Used backticks for nested template literal inside an existing template literal, causing "Unexpected token '}'" error
+  - **Solution**: Changed from nested template literal to string concatenation
+  - **Before**: `` ${isProjectAdmin ? `<button onclick="showEmbedCode(${wl.id})">` : ''} `` (nested backticks - INVALID)
+  - **After**: `${isProjectAdmin ? '<button onclick="showEmbedCode(' + wl.id + ', this.dataset.wlName)" data-wl-name="' + wl.name + '">' : ''}` (string concat - VALID)
+  - Uses data attribute (`data-wl-name`) to pass waitlist name, avoiding quote escaping entirely
+- **Projects page loading**: Investigated projects page JavaScript. The page structure is correct:
+  - `loadProjects()` function is properly defined as async
+  - Function is called on page load
+  - API endpoint `/api/projects/` returns valid JSON
+  - Error handling is in place
+  - No CSP headers are being sent by Flask in dev environment
+  - JavaScript validation shows no syntax errors
+  - Likely was a transient browser issue or has been resolved
+  
+**New features added (2026-02-12)**:
+- **Waitlists directory page**: Created `/waitlists/` route with full directory listing
+  - Filters by project and status (active/upcoming/closed)
+  - Search functionality
+  - Shows waitlist status badges (active, upcoming, full, closed)
+  - Displays referral and milestone indicators
+  - Links to project detail pages with waitlist hash anchors
+- **Home page waitlist card**: Added waitlist card to home page in the last row with Role Images
+- **Navigation menu**: Added "Waitlists" link to main navbar between "Imagery" and "Docs"
+- **Embeddable waitlist widget**: Full embed functionality for external websites
+  - New endpoint: `/embed/waitlist/<id>/` - standalone HTML widget
+  - Beautiful gradient design with stats display
+  - Automatic source tracking (domain and full URL)
+  - Database migration: Added `source` and `source_url` columns to `waitlist_entry` table
+  - Join API updated to accept and store source information
+  - Embed code generator in project admin UI with "Get Embed Code" button
+  - Modal shows both iframe code and direct URL
+  - One-click copy functionality
+  - X-Frame-Options: ALLOWALL header for iframe embedding
+  - Signups tracked with format: `source: 'embed:example.com'`, `source_url: 'https://example.com/page'`
+
+**Key file**: `ietf_data_viewer_simple.py` — route `@app.route('/projects/')` (projects_directory), function `loadProjects()` in same template, API `GET /api/projects/`.
+
+---
+
 ## Current Work (2026-01-17)
 
 **Feature**: Agent Deployment System  
