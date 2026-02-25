@@ -1,0 +1,633 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DVN Viewer</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 20px; line-height: 1.5; }
+    .box { border: 1px solid #ddd; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0; }
+    .k { min-width: 160px; color: #444; }
+    .v { word-break: break-word; }
+    pre { padding: 10px; border: 1px solid #eee; border-radius: 8px; overflow: auto; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    a { word-break: break-word; }
+  </style>
+</head>
+<body>
+  <div id="content" class="box">Loading…</div>
+
+  <!-- Embedded markdown: Civic Digital Artifacts (escaped for HTML) -->
+  <template id="embeddedContent"><pre># Civic Digital Artifacts 
+
+## Purpose
+
+Explore how durable digital artifacts can undergird society by anchoring reality, preserving cultural memory, strengthening provenance, and supporting accountable coordination over time. Markets may emerge as a secondary layer, but they are not the primary objective.
+
+In this document, the term knowledge or cultural artifacts refers to durable digital artifacts intended to preserve, interpret, and transmit meaning across time. Archives are the foundational institutional expression of such artifacts.
+
+This note builds on DVN 3, which focused specifically on digital provenance and the importance of traceable lineage for long-term verifiability. The artifact models described here are intended to interoperate with existing archival standards, persistent identifier systems, and web protocols rather than replace them.
+
+## 1) Foundations: Archives, Provenance, and Structured Cross References
+
+Archives are the essential first application. They preserve the past and safeguard cultural memory. The same durable artifact properties that make archives trustworthy also enable provenance clarity and structured cross referencing. Archives, provenance, and structured references reinforce one another. Anchors preserve records. Provenance preserves lineage. Cross references preserve interpretive relationships.
+
+### A. Reality Anchors
+
+Artifacts whose function is to say: this existed in this form at this time.
+
+* Fixity Record: canonical content hash, timestamp, and storage pointers
+* Snapshot or Capture: content capture with contextual metadata
+* Witness Attestation: signed statement that X was observed at time Y
+* Context Capsule: snapshot plus the minimal context required for future interpretation
+
+Reality anchors are atomic preservation units. They provide fixity and reference stability. Archives are curated collections of such anchors. Without anchors, archives lack technical grounding. With anchors, archives gain verifiable persistence.
+
+### B. Provenance and Lineage
+
+Artifacts that encode where something came from, who touched it, what changed, and when.
+
+* Authorship Claim, signed
+* Derivation Trail: derived from, transformed from, translated from
+* Version Ledger: immutable versions with explicit supersession
+* Attribution Map: contributors, roles, and weights
+
+Provenance is foundational to veracity. Before relationships between artifacts can be trusted, their origin and lineage must be transparent. DVN 3 established that durable digital provenance is not optional for knowledge integrity. It is the backbone of authenticity, custody tracking, and intellectual accountability.
+
+Archives preserve records. Provenance preserves trust in those records. Together they create durable cultural memory.
+
+### C. Structured Cross References
+
+Archives have long relied on citation, footnotes, cross references, marginalia, and scholarly commentary to situate records within broader interpretive frameworks. Structured cross references extend this archival tradition into digital form.
+
+Rather than introducing a new interpretive regime, structured cross references formalize what archives already support: explicit, documented relationships between preserved records.
+
+Examples include:
+
+* Support Reference: indicates corroboration
+* Contradiction Reference: indicates documented disagreement
+* Refinement Reference: clarifies or narrows scope
+* Dependency Reference: indicates reliance on another record
+* Translation or Equivalence Reference: maps across vocabularies or contexts
+* Disambiguation Reference: distinguishes similar terms or claims
+
+These structured cross references are optional. They do not alter preserved records. They sit alongside them, much like scholarly apparatus. Their purpose is to make relationships between preserved artifacts transparent, traceable, and durable.
+
+Provenance and cross references work together. Provenance establishes authenticity. Cross references establish meaning. Archives provide the institutional container within which both can endure.
+
+### D. Claims and Evidence
+
+Artifacts that structure public reasoning and interpretive debate.
+
+* Claim Note: atomic claim with scope, definitions, and confidence
+* Evidence Bundle: citations, datasets, methods, linked records
+* Counterclaim or Refutation
+* Consensus or Disagreement Marker
+
+Claims and evidence become more durable when anchored, provenance aware, and cross referenced. Without anchors and provenance, claims are fragile. Without cross references, they remain isolated.
+
+### E. Wayfinding and Addressing
+
+Artifacts that make knowledge space navigable.
+
+* Waymarker: human-legible reference
+* Canonical Pointer: preferred anchor for citation
+* Index or Table of Contents
+* Trail or Route: curated path through a topic
+
+### F. Identity and Standing
+
+Artifacts that bind actors to actions without requiring a single identity regime.
+
+* Credential or Role Assertion
+* Delegation or Authority Grant
+* Reputation Event: earned, challenged, revoked
+* Organization Attestation
+
+Identity bindings may rely on existing institutional, federated, or decentralized identity frameworks. No single identity system is assumed.
+
+### G. Commitments and Governance
+
+Artifacts that enable groups to coordinate and remain accountable over time.
+
+* Charter or Covenant
+* Decision Record: deliberation summary and outcome
+* Policy or Rule Note: scope and revision pathway
+* Consent Receipt: who consented to what and when
+
+Emerging experiments such as the Meta-Layer Governance Hub's work on Institutional Governance Artifacts, IGAs, illustrate how governance records themselves can be formalized as durable knowledge artifacts. In this model, charters, working group mandates, proposal drafts, and ratified decisions are treated as first-class artifacts with explicit provenance, versioning, and cross references. This example demonstrates how commitments and governance can be made transparent, traceable, and historically durable without reducing them to market instruments.
+
+The Governance Hub model is intentionally open to projects that engage with durable digital artifacts, including those aligned with meta-layer research and practical implementations. A project such as Digital Vellum could adopt or interoperate with such governance artifacts for DVNs if useful, without altering its institutional independence.
+
+### H. Value, Incentives, and Market Emergence
+
+Durable knowledge artifacts may accrue value not because they are artificially scarce, but because they become central within information systems. When artifacts preserve the full stack of edits, contestations, counterclaims, endorsements, and lineage, they become strong candidates for high source weighting in search, AI training, and retrieval augmented systems. Systems that rank sources based on transparency, provenance completeness, revision history, and contestability may privilege such artifacts because they expose their epistemic structure rather than conceal it.
+
+#### Informational Centrality and Epistemic Weighting
+
+As artifacts are repeatedly cited, relied upon in governance, embedded in educational materials, or incorporated into AI grounding layers, they may rise toward the top of perceived authority within information ecosystems. Their weight emerges from informational gravity rather than token mechanics. If AI systems increasingly optimize for transparency, traceability, auditability, and contestability, artifact design may influence model epistemics and downstream decision making. This influence is contingent on adoption, standards alignment, and institutional uptake rather than automatic technological determinism.
+
+#### Historical Thought Experiment
+
+If a durable civic memory system had existed during pivotal historical periods such as the early formation of religious movements, the beginning of colonization, or the emergence of a global pandemic, and if contemporaneous claims, counterclaims, primary observations, dissenting accounts, and evidentiary disputes had been preserved with cryptographic fixity and transparent provenance from the outset, our historical record would likely look radically different.
+
+Competing narratives would not depend primarily on later institutional consolidation, selective survival of documents, or retrospective interpretation. Future generations would inherit a layered, inspectable memory of what was asserted, by whom, under what conditions, and how those assertions were contested in real time. Similar incentive effects are observable in modern transparency regimes, including public records laws and recorded proceedings, where durable documentation shapes behavior.
+
+More provocatively, the availability of such durable civic memory might not only change how we interpret the past, but how decisions were made in the present. If actors knew their claims, justifications, evidence bundles, and contradictions would persist with full lineage and visible contestation, strategic ambiguity and opportunistic revisionism would be harder to sustain. Public reasoning might become more disciplined. Policy trajectories might shift. Social movements might evolve differently. Durable civic memory does not merely record history. It has the potential to influence incentives and the cognitive environment in which history unfolds. Durable civic memory does not eliminate disagreement. It preserves disagreement with traceable structure.
+
+#### Gradients of Authority and Perceived Value
+
+As adoption grows, knowledge artifacts will likely exhibit gradients of perceived authority and trust. Differences in citation density, institutional endorsement, provenance richness, contestation transparency, and integration into AI and search systems may translate into differential perceived and market value. These gradients may generate economic differentiation because artifacts occupy distinct positions within epistemic networks. No single ranking authority is assumed; weighting dynamics may emerge from plural, competing systems across search, AI, and institutional contexts.
+
+#### Incentive and Market Instruments, Optional Mechanisms
+
+Artifacts may be accompanied by optional instruments that support sustainability of preservation and curation.
+
+* License Note: permissions and terms
+* Bounty or Reward Note
+* Stake or Bond Note tied to integrity or preservation
+* Market Listing Pointer, optional and external
+
+Such mechanisms do not define the purpose of knowledge artifacts. They may emerge as supporting structures once epistemic centrality and informational influence create differentiated value across the artifact ecosystem.
+
+## 2) Desirable Properties of Digital Artifacts
+
+These properties make artifacts capable of anchoring reality and supporting archival and civic functions.
+
+### A. Persistence
+
+* Permanence: designed to outlast platforms and authors
+* Durability: resistant to deletion or decay
+* Redundancy: multiple independent copies
+* Portability: exportable and migratable
+
+### B. Integrity
+
+* Tamper evidence: changes are detectable
+* Immutability or transparent versioning: no silent edits
+* Cryptographic integrity: hashes and signatures
+
+### C. Addressability
+
+* Unique identifier: stable reference
+* Content addressability: recommended
+* Citation-grade resolution: reliable retrieval of the referenced artifact
+
+### D. Provenance
+
+* Authorship binding
+* Timestamping
+* Lineage tracking
+* Attribution clarity
+
+### E. Semantic Legibility
+
+* Machine-readable structure
+* Human-readable explanation
+* Extensible metadata
+
+### F. Relational Capability
+
+* Structured cross reference support
+* Context expandability
+* Graph compatibility
+
+### G. Governance Readiness
+
+* Contestability without erasure
+* Supersession transparency
+* Endorsement capability
+
+### H. Optional Economic Expressiveness
+
+* Licensability
+* Transferability
+* Stakeability
+
+## 3) Civic Artifact Stack
+
+A practical model of how these properties compose.
+
+**Layer 0 – Fixity**
+Hashes, timestamps, content addressing
+
+**Layer 1 – Persistence**
+Redundant storage, survivable formats, portability
+
+**Layer 2 – Authorship and Identity**
+Signatures, attestations, roles
+
+**Layer 3 – Provenance and Lineage**
+Derivation chains, version history, attribution
+
+**Layer 4 – Semantics**
+Typed claims and structured metadata
+
+**Layer 5 – Structured Relationships**
+Cross references, trails, equivalence mappings
+
+**Layer 6 – Governance**
+Endorsement, contestation, dispute processes, revision pathways
+
+**Layer 7 – Incentives, Optional**
+Licenses, bounties, staking, marketplaces
+
+Incentives may help scale preservation and curation, but archival integrity and civic anchoring remain primary.
+
+## 4) How Provenance Can Work, Technical Model
+
+Provenance artifacts make archival records verifiable and interpretable over time. The goal is to preserve traceable lineage so future readers can evaluate authenticity, custody, and transformation.
+
+Minimal provenance fields:
+
+* provenance_id
+* subject_ref
+* assertion_type: authorship, custody, derivation, translation, versioning, attribution
+* actor
+* timestamp
+* evidence_refs, optional
+* scope, optional
+* signature, recommended
+
+Common provenance assertions:
+
+* Authorship
+* Custody
+* Derivation
+* Versioning
+* Attribution
+
+Provenance lifecycle:
+
+1. Asserted
+2. Corroborated
+3. Contested
+4. Superseded
+
+Provenance should preserve uncertainty when certainty is not possible.
+
+## 5) How Structured Cross References Can Work, Technical Model
+
+A structured cross reference is a digital expression of a citation or documented linkage between two artifacts.
+
+Minimal fields:
+
+* reference_id
+* from_ref
+* to_ref
+* relation_type
+* justification
+* author or signer
+* timestamp
+* scope, optional
+* status
+
+Lifecycle:
+
+1. Proposed
+2. Challenged or supported
+3. Endorsed
+4. Superseded
+
+Structured cross references do not modify preserved records. They preserve interpretive history alongside archival materials and allow plural perspectives to coexist.
+
+## 6) Comparison: NFT Models and Knowledge or Cultural Artifacts
+
+This comparison focuses on durability, provenance, and civic utility.
+
+### A. Common NFT Storage Patterns, ERC 721 and ERC 1155 Era
+
+1. **Offchain NFTs**
+   Token onchain, metadata via https or ipfs, media stored offchain. Risk of broken metadata if hosting disappears.
+
+2. **Semi Onchain**
+   Partial metadata onchain, remaining data offchain.
+
+3. **Hashed Onchain**
+   Onchain hash references offchain content. Ensures integrity but not availability.
+
+4. **Hybrid Onchain**
+   Separate onchain collection preserves earlier offchain work.
+
+### B. Fully Onchain and Inchain
+
+5. **Fully Onchain**
+   Metadata and media stored in smart contract storage. Durable but costlier.
+
+6. **Inchain**
+   Visuals and media generated by fully onchain code at render time. Strong reproducibility and fixity.
+
+### C. ERC 4804, web3 URI Standard
+
+Introduces web3 URI allowing metadata retrieval directly from smart contracts via eth_call.
+
+Benefits:
+
+* Enables retroactive durability improvements
+* Avoids reliance on gateways
+* Allows resolver-based metadata
+
+Limitations:
+
+* No browser today supports web3 links out of the box
+* Requires marketplace or application-level support
+* Addresses metadata durability but not structured provenance or cross reference capability
+
+### D. Knowledge or Cultural Artifacts
+
+Primary purpose: durable civic anchoring.
+
+Core characteristics:
+
+* Fixity and tamper evidence
+* Explicit provenance structures
+* Structured cross references
+* Version transparency
+* Governance compatibility
+* Optional economic expressiveness
+
+Knowledge or cultural artifacts prioritize citation-grade referenceability, traceable lineage, durable meaning infrastructure, and their potential role as stable inputs to search, AI training, and retrieval augmented systems.
+
+## 7) Philosophical Framing
+
+Digital artifacts can function as civic anchors:
+
+This existed.
+This was claimed.
+This was observed.
+This is the lineage.
+This relates to that, for documented reasons.
+
+Provenance clarifies authenticity. Structured cross references clarify relationships. Archives provide the institutional continuity that allows both to endure.
+
+Markets and incentives may support sustainability, but the primary aim is to preserve and transmit durable knowledge and cultural memory across time.
+
+## 8) Demonstration: Ordinal Inscription as a Knowledge Artifact
+
+This working note can itself be treated as a knowledge or cultural artifact when inscribed on a durable ledger. An ordinal inscription provides a concrete example of fixity, provenance anchoring, and long-term addressability.
+
+### Inscription Metadata
+
+* Inscription ID: [Insert inscription ID]
+* Transaction ID: [Insert transaction hash]
+* Block height: [Insert block number]
+* Timestamp: [Insert block timestamp]
+
+### Explorer References
+
+* Ordinal Explorer Link: [Insert explorer URL]
+* Raw Inscription Content: [Insert content link]
+* Transaction Explorer Link: [Insert transaction explorer URL]
+
+### Artifact Properties Demonstrated
+
+* Fixity through inscription permanence
+* Public timestamp via block inclusion
+* Content addressability through transaction and inscription ID
+* Independent verifiability by any node
+
+This inscription can function as archival preservation in a technical sense because it contains the full content and provides durable ledger-level storage. The inscription example is illustrative; other distributed or institutional persistence mechanisms may serve similar roles. It also operates as a provenance artifact by anchoring authorship, timestamp, and content integrity to a publicly verifiable record. Institutional archives contribute stewardship, contextualization, and curatorial continuity. Ledger inscription and archival preservation therefore reinforce one another.
+
+Together, archival stewardship and ledger inscription illustrate how knowledge or cultural artifacts can operate across institutional and distributed infrastructures.
+
+### Auto Populating Inscription Fields from the URL
+
+The demonstration values above can be populated automatically using the inscriptionId from the URL (production) or a test inscription ID (development). The important pieces: **get inscriptionId from path** (`getInscriptionIdFromPath`), **dev vs production** (`isTestPage` + test inscription fallback), **fetch metadata** from `https://ordinals.com/r/inscription/&lt;id&gt;` (plain GET, returns JSON), and **apply** height, timestamp, and transaction ID to the page (`applyMeta`).
+
+* **Production:** URL path is `/inscription/&lt;id&gt;` or `/content/&lt;id&gt;`; inscriptionId is taken from the path.
+* **Development:** On the test page (`/test/` or `/test/digitalartifacts.htm`) with no id in the path, a fixed `TEST_INSCRIPTION_ID` is used so the demo works without a real URL.
+
+Metadata (height, timestamp, txid from `satpoint`) is fetched from ordinals.com: GET `https://ordinals.com/r/inscription/` + inscriptionId (no Accept header).
+
+Implementation:
+
+```html
+&lt;script&gt;
+(function () {
+  var ORDINALS_API_BASE = "https://ordinals.com";
+  var TEST_INSCRIPTION_ID = "a455e1c4ca82bc15c2b0bde0eb647f09d5117e8203054bbb729f48f0d9e9aa72i0";
+
+  function getInscriptionIdFromPath(pathname) {
+    var parts = String(pathname || "").split("/").filter(Boolean);
+    for (var i = 0; i &lt; parts.length - 1; i++) {
+      if (parts[i] === "inscription" || parts[i] === "content") return parts[i + 1];
+    }
+    return null;
+  }
+
+  function isTestPage(pathname) {
+    var p = (pathname || "").replace(/^\/|\/$/g, "") || "";
+    return p === "test" || p === "test/digitalartifacts.htm";
+  }
+
+  function toISO(ts) {
+    if (!ts) return "";
+    var n = Number(ts);
+    if (!isFinite(n)) return "";
+    if (n &gt; 1e12) n = Math.floor(n / 1000);
+    return new Date(n * 1000).toISOString();
+  }
+
+  function fetchInscriptionMeta(inscriptionId) {
+    var url = ORDINALS_API_BASE + "/r/inscription/" + inscriptionId;
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (data) {
+      var txid = (data.satpoint &amp;&amp; data.satpoint.split(":")[0]) || (data.id &amp;&amp; data.id.replace(/i\d+$/, "")) || "";
+      return { txid: txid, block_height: data.height, height: data.height, timestamp: data.timestamp };
+    });
+  }
+
+  function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v || ""; }
+  function setLink(id, href) { var el = document.getElementById(id); if (el) { el.href = href || "#"; el.textContent = href || ""; } }
+
+  function applyMeta(inscriptionId, meta) {
+    var base = ORDINALS_API_BASE.replace(/\/$/, "");
+    setText("inscriptionId", inscriptionId);
+    setText("txid", meta ? meta.txid : "");
+    setText("blockHeight", meta ? String(meta.block_height || meta.height || "") : "");
+    setText("timestamp", meta ? toISO(meta.timestamp) : "");
+    setLink("inscriptionLink", base + "/inscription/" + inscriptionId);
+    setLink("contentLink", base + "/content/" + inscriptionId);
+    setLink("txLink", meta &amp;&amp; meta.txid ? base + "/tx/" + meta.txid : "#");
+  }
+
+  function run() {
+    var pathname = window.location.pathname;
+    var inscriptionId = getInscriptionIdFromPath(pathname);
+    if (!inscriptionId &amp;&amp; isTestPage(pathname)) inscriptionId = TEST_INSCRIPTION_ID;
+    if (!inscriptionId) return;
+    fetchInscriptionMeta(inscriptionId)
+      .then(function (meta) { applyMeta(inscriptionId, meta); })
+      .catch(function () { applyMeta(inscriptionId, null); });
+  }
+  window.addEventListener("DOMContentLoaded", run);
+})();
+&lt;/script&gt;
+```</pre></template>
+
+  <script>
+    // --- Config: ord server API (https://docs.ordinals.com/guides/api.html) ---
+    var ORDINALS_API_BASE = "https://ordinals.com";
+    var TEST_INSCRIPTION_ID = "a455e1c4ca82bc15c2b0bde0eb647f09d5117e8203054bbb729f48f0d9e9aa72i0";
+
+    function $(id) { return document.getElementById(id); }
+
+    function getInscriptionIdFromPath(pathname) {
+      var parts = String(pathname || "").split("/").filter(Boolean);
+      for (var i = 0; i < parts.length - 1; i++) {
+        if (parts[i] === "inscription" || parts[i] === "content") return parts[i + 1];
+      }
+      return null;
+    }
+
+    function isTestPage(pathname) {
+      var p = (pathname || "").replace(/^\/|\/$/g, "") || "";
+      return p === "test" || p === "test/digitalartifacts.htm";
+    }
+
+    function toISO(ts) {
+      if (!ts) return "";
+      if (typeof ts === "string" && ts.indexOf("T") !== -1) return ts;
+      var n = Number(ts);
+      if (!isFinite(n)) return "";
+      if (n > 1e12) n = Math.floor(n / 1000);
+      return new Date(n * 1000).toISOString();
+    }
+
+    function fetchJson(url) {
+      return fetch(url, { cache: "no-store", headers: { "Accept": "application/json" } }).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      });
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, function (c) {
+        return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c];
+      });
+    }
+
+    function renderTinyMarkdown(md) {
+      md = md.replace(/\r\n/g, "\n");
+      md = md.replace(/```([\s\S]*?)```/g, function (_, code) {
+        return "<pre><code>" + escapeHtml(code.trim()) + "</code></pre>";
+      });
+      md = md.replace(/^###### (.*)$/gm, "<h6>$1</h6>");
+      md = md.replace(/^##### (.*)$/gm, "<h5>$1</h5>");
+      md = md.replace(/^#### (.*)$/gm, "<h4>$1</h4>");
+      md = md.replace(/^### (.*)$/gm, "<h3>$1</h3>");
+      md = md.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+      md = md.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+      md = md.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+      md = md.replace(/\*(.+?)\*/g, "<em>$1</em>");
+      md = md.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+      md = md.replace(/(?:^|\n)(- .*(?:\n- .*)*)/g, function (m) {
+        var items = m.trim().split("\n").map(function (line) {
+          return "<li>" + line.replace(/^- /, "") + "</li>";
+        }).join("");
+        return "\n<ul>" + items + "</ul>\n";
+      });
+      var blocks = md.split(/\n{2,}/).map(function (b) { return b.trim(); }).filter(Boolean);
+      return blocks.map(function (b) {
+        if (/^<(h\d|ul|pre)/.test(b)) return b;
+        return "<p>" + b.replace(/\n/g, "<br>") + "</p>";
+      }).join("\n");
+    }
+
+    function getEmbeddedMarkdown() {
+      var t = document.getElementById("embeddedContent");
+      if (!t || !t.content) return "";
+      var pre = t.content.querySelector("pre");
+      return pre ? pre.textContent : "";
+    }
+
+    function fetchInscriptionMeta(inscriptionId) {
+      var url = "https://ordinals.com/r/inscription/" + inscriptionId;
+      console.log("[ordinals] GET", url);
+      return fetch(url)
+        .then(function (r) {
+          console.log("[ordinals] response status", r.status, r.statusText, "Content-Type:", r.headers.get("Content-Type"));
+          if (!r.ok) throw new Error(r.status);
+          return r.text();
+        })
+        .then(function (text) {
+          console.log("[ordinals] response body (first 500 chars):", text ? text.substring(0, 500) : "(empty)");
+          var data;
+          try {
+            data = JSON.parse(text);
+          } catch (e) {
+            console.error("[ordinals] JSON parse failed:", e);
+            throw e;
+          }
+          console.log("[ordinals] parsed JSON:", data);
+          var txid = (data.satpoint && data.satpoint.split(":")[0]) || (data.id && data.id.replace(/i\d+$/, "")) || "";
+          var meta = {
+            txid: txid,
+            block_height: data.height,
+            height: data.height,
+            timestamp: data.timestamp,
+            block_time: data.timestamp,
+            time: data.timestamp
+          };
+          console.log("[ordinals] extracted meta:", meta);
+          return meta;
+        })
+        .catch(function (err) {
+          console.error("[ordinals] fetch or parse error:", err);
+          throw err;
+        });
+    }
+
+    function replacePlaceholdersInContent(inscriptionId, meta) {
+      var contentEl = $("content");
+      if (!contentEl) return;
+      var base = ORDINALS_API_BASE.replace(/\/$/, "");
+      var txid = meta ? (meta.txid || meta.transaction_id || meta.transaction || "") : "";
+      var height = meta ? String(meta.block_height || meta.height || "") : "";
+      var ts = meta ? toISO(meta.timestamp || meta.block_time || meta.time) : "";
+      var inscriptionUrl = base + "/inscription/" + encodeURIComponent(inscriptionId);
+      var contentUrl = base + "/content/" + encodeURIComponent(inscriptionId);
+      var txUrl = txid ? base + "/tx/" + txid : "";
+      var html = contentEl.innerHTML;
+      html = html.replace(/\[Insert inscription ID\]/g, escapeHtml(inscriptionId));
+      html = html.replace(/\[Insert transaction hash\]/g, escapeHtml(txid));
+      html = html.replace(/\[Insert block number\]/g, escapeHtml(height));
+      html = html.replace(/\[Insert block timestamp\]/g, escapeHtml(ts));
+      html = html.replace(/\[Insert explorer URL\]/g, escapeHtml(inscriptionUrl));
+      html = html.replace(/\[Insert content link\]/g, escapeHtml(contentUrl));
+      html = html.replace(/\[Insert transaction explorer URL\]/g, escapeHtml(txUrl));
+      contentEl.innerHTML = html;
+    }
+
+    function main() {
+      var pathname = window.location.pathname;
+      var inscriptionId = getInscriptionIdFromPath(pathname);
+      if (!inscriptionId && isTestPage(pathname)) {
+        inscriptionId = TEST_INSCRIPTION_ID;
+      }
+      var contentEl = $("content");
+
+      if (!inscriptionId) {
+        var md = getEmbeddedMarkdown();
+        if (md) {
+          contentEl.innerHTML = renderTinyMarkdown(md);
+        } else {
+          contentEl.textContent = "No inscriptionId found in URL. Expected /inscription/<id> or /content/<id>. No embedded content.";
+        }
+        return;
+      }
+
+      var md = getEmbeddedMarkdown();
+      contentEl.innerHTML = md ? renderTinyMarkdown(md) : "No embedded content.";
+      fetchInscriptionMeta(inscriptionId)
+        .then(function (meta) { replacePlaceholdersInContent(inscriptionId, meta); })
+        .catch(function () { replacePlaceholdersInContent(inscriptionId, null); });
+    }
+
+    window.addEventListener("DOMContentLoaded", main);
+  </script>
+</body>
+</html>

@@ -232,7 +232,7 @@ def generate_hypothesis_config(document_name=None, document_type='draft'):
     <script async src="{HYPOTHESIS_CONFIG['EMBED_URL']}"></script>
     """
 
-from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, send_from_directory, jsonify
+from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, send_from_directory, jsonify, g
 from flask_sqlalchemy import SQLAlchemy
 import os
 import re
@@ -357,6 +357,46 @@ def init_db():
         except Exception as e:
             print(f"⚠️  Error adding profile columns: {e}")
         
+        # --- public_id migration (MUST run before any User.query calls) ---
+        try:
+            import sqlite3
+            from uuid import uuid4
+            db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            for table_name in ['user', 'project', 'submission', 'badge']:
+                try:
+                    cursor.execute(f"SELECT public_id FROM {table_name} LIMIT 1")
+                    print(f"✅ public_id already exists on {table_name}")
+                except sqlite3.OperationalError:
+                    print(f"🔄 Adding public_id to {table_name}...")
+                    cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN public_id VARCHAR(36)")
+                    conn.commit()
+                    
+                    # Backfill existing rows
+                    cursor.execute(f"SELECT id FROM {table_name} WHERE public_id IS NULL")
+                    rows = cursor.fetchall()
+                    for row in rows:
+                        cursor.execute(
+                            f"UPDATE {table_name} SET public_id = ? WHERE id = ?",
+                            (str(uuid4()), row[0])
+                        )
+                    conn.commit()
+                    print(f"✅ Backfilled {len(rows)} rows in {table_name}")
+                    
+                    # Add unique index
+                    try:
+                        cursor.execute(f"CREATE UNIQUE INDEX idx_{table_name}_public_id ON {table_name}(public_id)")
+                        conn.commit()
+                        print(f"✅ Created unique index on {table_name}.public_id")
+                    except sqlite3.OperationalError:
+                        pass  # Index already exists
+            
+            conn.close()
+        except Exception as e:
+            print(f"⚠️  Error adding public_id columns: {e}")
+        
         # Ensure project_member table exists
         try:
             db.session.execute(db.text("SELECT 1 FROM project_member LIMIT 1"))
@@ -422,6 +462,7 @@ def init_db():
         # Note: DRAFTS list is now populated from approved/published submissions dynamically
         # No need to pre-load from a separate table
         migrate_coordinator_and_member_requests()
+        
         print(f"Database initialized: {User.query.count()} users")
 
 def migrate_coordinator_and_member_requests():
@@ -560,6 +601,13 @@ else:
     PORT = int(os.environ.get('FLASK_PORT', 8000))
     DEBUG = False
 
+# Host → Layer middleware configuration
+RESERVED_SUBDOMAINS = {
+    "dev", "rfc", "www", "api", "static",
+    "assets", "admin", "staging", "beta"
+}
+BASE_DOMAIN = "themetalayer.org"
+
 # DEPLOYMENT SAFETY - Block data modifications during deployment
 deployment_flag_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".deployment_{'dev' if IS_DEVELOPMENT else 'prod'}")
 DEPLOYMENT_MODE = os.path.exists(deployment_flag_file)
@@ -628,10 +676,12 @@ db = SQLAlchemy(app)
 # Database Models
 class Submission(db.Model):
     id = db.Column(db.String(8), primary_key=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     title = db.Column(db.String(255))
     authors = db.Column(db.JSON)  # List of author dicts
     abstract = db.Column(db.Text)
     group = db.Column(db.String(50))
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=True, index=True)
     filename = db.Column(db.String(255))
     file_path = db.Column(db.String(500))
     draft_name = db.Column(db.String(255))
@@ -692,6 +742,7 @@ class WorkingGroupMember(db.Model):
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     username = db.Column(db.String(50), unique=True, index=True)
     password_hash = db.Column(db.String(255))
 
@@ -899,6 +950,7 @@ class Project(db.Model):
     __tablename__ = 'project'
     
     id = db.Column(db.String(50), primary_key=True)  # proj_...
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     name = db.Column(db.String(255), unique=True, nullable=False, index=True)
     slug = db.Column(db.String(255), unique=True, nullable=False, index=True)
     
@@ -941,6 +993,7 @@ class Project(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
+            'public_id': self.public_id,
             'name': self.name,
             'slug': self.slug,
             'initiator_id': self.initiator_id,
@@ -1478,6 +1531,7 @@ class Badge(db.Model):
     __tablename__ = 'badge'
     
     id = db.Column(db.String(50), primary_key=True)  # bdg_...
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
     claim_id = db.Column(db.String(50), db.ForeignKey('claim.id'), nullable=False, index=True)
     role_id = db.Column(db.String(50), db.ForeignKey('role.id'), nullable=False)
@@ -1581,6 +1635,158 @@ class StatusChange(db.Model):
         db.Index('idx_status_change_entity', 'entity_type', 'entity_id'),
         db.Index('idx_status_change_changed_at', 'changed_at'),
     )
+
+# ================================================================
+# VOTING MODELS
+# ================================================================
+
+class Vote(db.Model):
+    """A vote/ballot on a draft submission within a project context."""
+    __tablename__ = 'vote'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
+    
+    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    submission_id = db.Column(db.String(8), db.ForeignKey('submission.id'), nullable=False, index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    
+    start_at = db.Column(db.DateTime, nullable=False)
+    end_at = db.Column(db.DateTime, nullable=False)
+    
+    quorum_count = db.Column(db.Integer, nullable=False)
+    win_threshold = db.Column(db.Float, nullable=False, default=0.5)
+    
+    status = db.Column(db.String(20), nullable=False, default='scheduled', index=True)
+    result = db.Column(db.String(20), nullable=True)
+    result_summary = db.Column(db.Text, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    
+    # Relationships
+    project = db.relationship('Project', backref=db.backref('votes', lazy=True))
+    submission = db.relationship('Submission', backref=db.backref('votes', lazy=True))
+    created_by = db.relationship('User', backref='created_votes')
+
+class VoteEligibilitySnapshot(db.Model):
+    """Snapshot of eligible voters at vote activation time."""
+    __tablename__ = 'vote_eligibility_snapshot'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), nullable=False, index=True)
+    person_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    is_eligible = db.Column(db.Boolean, default=True, nullable=False)
+    reason = db.Column(db.String(255), nullable=True)
+    captured_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        db.UniqueConstraint('vote_id', 'person_id', name='unique_vote_eligibility'),
+    )
+    
+    vote = db.relationship('Vote', backref=db.backref('eligibility_snapshot', lazy=True))
+    person = db.relationship('User', backref=db.backref('vote_eligibility', lazy=True))
+
+class Ballot(db.Model):
+    """A single person's ballot cast in a vote."""
+    __tablename__ = 'ballot'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), nullable=False, index=True)
+    person_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    choice = db.Column(db.String(10), nullable=False)
+    cast_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        db.UniqueConstraint('vote_id', 'person_id', name='unique_ballot'),
+    )
+    
+    vote = db.relationship('Vote', backref=db.backref('ballots', lazy=True))
+    person = db.relationship('User', backref=db.backref('ballots_cast', lazy=True))
+
+# ================================================================
+# VOTING LOGIC
+# ================================================================
+
+def activate_vote(vote):
+    """Activate a scheduled vote: set status, snapshot eligibility."""
+    if vote.status != 'scheduled':
+        return False, f"Cannot activate vote in status '{vote.status}'"
+    
+    # Snapshot eligible voters = active ProjectMembers for vote.project_id
+    members = ProjectMember.query.filter_by(
+        project_id=vote.project_id,
+        status='active'
+    ).all()
+    
+    for member in members:
+        snapshot = VoteEligibilitySnapshot(
+            vote_id=vote.id,
+            person_id=member.user_id,
+            is_eligible=True,
+            reason='active project member at vote activation'
+        )
+        db.session.add(snapshot)
+    
+    vote.status = 'active'
+    db.session.commit()
+    
+    print(f"[VOTE] Activated vote {vote.id} ({vote.title}) — {len(members)} eligible voters")
+    return True, f"Activated with {len(members)} eligible voters"
+
+
+def close_vote(vote):
+    """Close an active vote: tally ballots, determine result."""
+    if vote.status != 'active':
+        return False, f"Cannot close vote in status '{vote.status}'"
+    
+    ballots = Ballot.query.filter_by(vote_id=vote.id).all()
+    
+    yes_count = sum(1 for b in ballots if b.choice == 'yes')
+    no_count = sum(1 for b in ballots if b.choice == 'no')
+    abstain_count = sum(1 for b in ballots if b.choice == 'abstain')
+    votes_cast = yes_count + no_count + abstain_count
+    
+    eligible_count = VoteEligibilitySnapshot.query.filter_by(
+        vote_id=vote.id, is_eligible=True
+    ).count()
+    
+    quorum_met = votes_cast >= vote.quorum_count
+    
+    if yes_count + no_count > 0:
+        yes_ratio = yes_count / (yes_count + no_count)
+    else:
+        yes_ratio = 0.0
+    
+    if not quorum_met:
+        vote.result = 'no_quorum'
+    elif yes_ratio >= vote.win_threshold:
+        vote.result = 'passed'
+    else:
+        vote.result = 'failed'
+    
+    vote.status = 'closed'
+    vote.closed_at = datetime.utcnow()
+    vote.result_summary = json.dumps({
+        'eligible': eligible_count,
+        'votes_cast': votes_cast,
+        'yes': yes_count,
+        'no': no_count,
+        'abstain': abstain_count,
+        'quorum_required': vote.quorum_count,
+        'quorum_met': quorum_met,
+        'yes_ratio': round(yes_ratio, 4),
+        'win_threshold': vote.win_threshold,
+        'result': vote.result
+    })
+    
+    db.session.commit()
+    
+    print(f"[VOTE] Closed vote {vote.id} ({vote.title}) — result: {vote.result}")
+    return True, vote.result
 
 # Users are now stored in database - this dict is kept for backward compatibility during migration
 
@@ -2010,7 +2216,7 @@ def generate_user_menu():
             </a>
             <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="/profile/">Profile</a></li>
-                <li><a class="dropdown-item" href="/my-projects/">My Projects</a></li>
+                <li><a class="dropdown-item" href="/my-projects/">My Layers</a></li>
                 <li><a class="dropdown-item" href="/submit/status/">My Submissions</a></li>
                 {admin_link}
                 <li><hr class="dropdown-divider"></li>
@@ -3110,7 +3316,7 @@ BASE_TEMPLATE = """
                 MLGH
             </a>
             <div class="navbar-nav">
-                <a class="nav-link" href="/projects/">Projects</a>
+                <a class="nav-link" href="/projects/">Layers</a>
                 <a class="nav-link" href="/roles/">Roles</a>
                 <a class="nav-link" href="/workgroups/">Workgroups</a>
                 <a class="nav-link" href="/guilds/">Guilds</a>
@@ -3472,6 +3678,8 @@ SUBMIT_TEMPLATE = """
                                               placeholder="Brief description of the document"></textarea>
                                 </div>
                                 
+                                {{LAYER_SELECTOR}}
+                                
                                 <div class="mb-3">
                                     <label for="group" class="form-label">Workgroup (Optional)</label>
                                     <select class="form-select" id="group" name="group">
@@ -3579,6 +3787,8 @@ SUBMIT_TEMPLATE = """
                                     <textarea class="form-control" id="ordinalAbstract" name="abstract" rows="4" 
                                               placeholder="Brief description of the document"></textarea>
                                 </div>
+                                
+                                {{LAYER_SELECTOR}}
                                 
                                 <div class="mb-3">
                                     <label for="ordinalGroup" class="form-label">Workgroup (Optional)</label>
@@ -3898,6 +4108,42 @@ def deployment_safety_check():
         from flask import jsonify
         return jsonify({'error': 'Data modifications disabled during deployment'}), 403
 
+# ================================================================
+# HOST → LAYER MIDDLEWARE
+# ================================================================
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers including CSP for inline scripts"""
+    if IS_DEVELOPMENT:
+        # Permissive CSP for development (allows inline scripts)
+        response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:; style-src 'self' 'unsafe-inline' https: http:;"
+    return response
+
+@app.before_request
+def resolve_layer_from_host():
+    """Resolve project/layer context from subdomain."""
+    g.layer = None
+    g.layer_slug = None
+
+    host = request.host.split(':')[0].lower()
+
+    if not host.endswith('.' + BASE_DOMAIN):
+        return  # Not a subdomain of our domain
+
+    subdomain = host[: -(len(BASE_DOMAIN) + 1)]  # Strip ".themetalayer.org"
+
+    if not subdomain or '.' in subdomain:
+        return  # Root domain or multi-level subdomain
+
+    if subdomain in RESERVED_SUBDOMAINS:
+        return  # Reserved, no layer context
+
+    project = Project.query.filter_by(slug=subdomain).first()
+    if project:
+        g.layer = project
+        g.layer_slug = subdomain
+
 def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_seconds=30):
     """
     Calculate pages and words from a file.
@@ -3998,6 +4244,34 @@ def submit_draft():
             1  # Replace only one occurrence at a time
         )
 
+    # Layer selector: required for project_id. Use g.layer from subdomain or dropdown.
+    projects = Project.query.filter(Project.approval_status == 'approved').order_by(Project.name).all()
+    if g.layer:
+        layer_selector = f'''
+                                <div class="mb-3">
+                                    <label class="form-label">Layer</label>
+                                    <p class="form-control-plaintext mb-0"><strong>{g.layer.name}</strong> <small class="text-muted">(from URL)</small></p>
+                                    <input type="hidden" name="project_id" value="{g.layer.id}">
+                                </div>'''
+    elif projects:
+        opts = '<option value="">Select a layer...</option>' + ''.join(
+            f'<option value="{p.id}">{p.name}</option>' for p in projects
+        )
+        layer_selector = f'''
+                                <div class="mb-3">
+                                    <label for="project_id" class="form-label">Layer *</label>
+                                    <select class="form-select" id="project_id" name="project_id" required>
+                                        {opts}
+                                    </select>
+                                    <div class="form-text">Drafts are submitted to a specific layer.</div>
+                                </div>'''
+    else:
+        layer_selector = '''
+                                <div class="mb-3">
+                                    <p class="text-warning mb-0">No approved layers available. Submit from a layer subdomain (e.g. overweb.themetalayer.org) or create a layer first.</p>
+                                </div>'''
+    submit_template = submit_template.replace('{{LAYER_SELECTOR}}', layer_selector)
+
     if request.method == 'POST':
         # Get common fields
         title = request.form.get('title', '').strip()
@@ -4005,6 +4279,13 @@ def submit_draft():
         abstract = request.form.get('abstract', '').strip()
         group = request.form.get('group', '').strip()
         source_type = request.form.get('sourceType', 'file').strip()
+        form_project_id = request.form.get('project_id', '').strip()
+        project_id = form_project_id or (g.layer.id if g.layer else None)
+        
+        # Validate project_id when projects exist
+        if not project_id and projects:
+            flash('Please select a layer for this submission.', 'error')
+            return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
         
         # Process authors (comma-separated)
         authors_list = [a.strip() for a in authors.split(',') if a.strip()]
@@ -4072,6 +4353,7 @@ def submit_draft():
                 authors=authors_list,
                 abstract=abstract,
                 group=group,
+                project_id=project_id,
                 submitted_by=current_user_info['name'],
                 sourceType='ordinal',
                 doc_type=doc_type,
@@ -4118,6 +4400,7 @@ def submit_draft():
                 authors=authors_list,
                 abstract=abstract,
                 group=group,
+                project_id=project_id,
                 filename=filename,
                 file_path=file_path,
                 submitted_by=get_current_user()['name'],
@@ -4173,6 +4456,10 @@ def submit_revision(draft_name):
     if not draft:
         flash('Draft not found', 'error')
         return redirect('/doc/all/')
+    
+    # Inherit project_id from parent draft (revisions belong to same layer)
+    parent_sub = Submission.query.filter_by(id=draft_name).first()
+    revision_project_id = parent_sub.project_id if parent_sub else (g.layer.id if g.layer else None)
     
     # Determine display ID (ML-Draft-XXX or internal ID)
     display_id = draft.get('ml_number', draft_name) or draft_name
@@ -4243,6 +4530,7 @@ def submit_revision(draft_name):
                 authors=authors_list,
                 abstract=abstract,
                 group=group,
+                project_id=revision_project_id,
                 submitted_by=get_current_user()['name'],
                 sourceType='ordinal',
                 doc_type='draft',
@@ -4293,6 +4581,7 @@ def submit_revision(draft_name):
                 authors=authors_list,
                 abstract=abstract,
                 group=group,
+                project_id=revision_project_id,
                 filename=filename,
                 file_path=file_path,
                 submitted_by=get_current_user()['name'],
@@ -5977,6 +6266,7 @@ def get_user_profile():
 
     user_data = {
         'id': user.id,
+        'public_id': user.public_id,
         'username': user.username,
         'displayName': user.displayName,
         'displayNameSetAt': user.displayNameSetAt.isoformat() if user.displayNameSetAt else None,
@@ -5992,6 +6282,7 @@ def get_user_profile():
     # Return sanitized user data (exclude sensitive fields)
     safe_user_data = {
         'id': user.id,
+        'public_id': user.public_id,
         'username': user.username,
         'displayName': user.displayName,
         'displayNameSetAt': user.displayNameSetAt.isoformat() if user.displayNameSetAt else None,
@@ -6471,16 +6762,20 @@ def api_create_project():
     description = data.get('description', '').strip()
     
     if not name:
-        return jsonify({'error': 'Project name is required'}), 400
+        return jsonify({'error': 'Layer name is required'}), 400
     
     # Check if project name already exists
     existing = Project.query.filter_by(name=name).first()
     if existing:
-        return jsonify({'error': 'Project name already exists'}), 400
+        return jsonify({'error': 'Layer name already exists'}), 400
     
     # Generate ID and slug
     project_id = generate_project_id()
     slug = create_slug(name)
+    
+    # Validate slug against reserved subdomains
+    if slug in RESERVED_SUBDOMAINS:
+        return jsonify({'error': f'The slug "{slug}" is reserved and cannot be used. Please choose a different project name.'}), 400
     
     # Ensure slug is unique
     counter = 1
@@ -6488,6 +6783,10 @@ def api_create_project():
     while Project.query.filter_by(slug=slug).first():
         slug = f"{original_slug}-{counter}"
         counter += 1
+        # Re-check reserved subdomains for modified slug
+        if slug in RESERVED_SUBDOMAINS:
+            counter += 1
+            slug = f"{original_slug}-{counter}"
     
     # Create project
     project = Project(
@@ -6551,7 +6850,7 @@ def api_update_project(project_id):
     if 'name' in data:
         name = (data['name'] or '').strip()
         if not name:
-            return jsonify({'error': 'Project name cannot be empty'}), 400
+            return jsonify({'error': 'Layer name cannot be empty'}), 400
         if name != project.name:
             if Project.query.filter_by(name=name).first():
                 return jsonify({'error': 'A project with this name already exists'}), 400
@@ -6733,7 +7032,7 @@ def api_remove_project_admin(project_id, user_id):
         return jsonify({'error': 'Only project admins can remove admins'}), 403
     
     if user_id == project.initiator_id:
-        return jsonify({'error': 'Cannot remove the project owner'}), 400
+        return jsonify({'error': 'Cannot remove the layer owner'}), 400
     
     pa = ProjectAdmin.query.filter_by(project_id=project_id, user_id=user_id).first()
     if not pa:
@@ -9216,6 +9515,295 @@ def api_issue_badge(badge_id):
     
     return jsonify({'success': True, 'badge': badge.to_dict()})
 
+# ================================================================
+# VOTING ROUTES
+# ================================================================
+
+@app.route('/api/projects/<project_id>/submissions/', methods=['GET'])
+def api_list_project_submissions(project_id):
+    """List approved drafts (not RFCs) for a project - eligible for voting"""
+    project = Project.query.get_or_404(project_id)
+    
+    # Simple criteria: approved drafts for this project (not RFCs)
+    submissions = Submission.query.filter(
+        Submission.project_id == project_id,
+        Submission.status == 'approved',
+        Submission.doc_type == 'draft'
+    ).order_by(Submission.submitted_at.desc()).all()
+    
+    return jsonify({
+        'submissions': [{
+            'id': s.id,
+            'public_id': s.public_id,
+            'title': s.title,
+            'draft_name': s.draft_name,
+            'ml_number': s.ml_number,
+            'group': s.group,
+            'status': s.status,
+            'submitted_at': s.submitted_at.isoformat() if s.submitted_at else None
+        } for s in submissions]
+    })
+
+@app.route('/api/projects/<project_id>/votes/', methods=['POST'])
+@require_auth
+def api_create_vote(project_id):
+    """Create a new vote for a project"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    project = Project.query.get_or_404(project_id)
+    
+    # Check if user is project admin or site admin
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can create votes'}), 403
+    
+    data = request.get_json()
+    title = data.get('title', '').strip()
+    description = data.get('description', '').strip()
+    submission_id = data.get('submission_id', '').strip()
+    start_at_str = data.get('start_at', '').strip()
+    end_at_str = data.get('end_at', '').strip()
+    quorum_count = data.get('quorum_count')
+    win_threshold = data.get('win_threshold', 0.5)
+    
+    # Validation
+    if not title:
+        return jsonify({'error': 'Vote title is required'}), 400
+    if not submission_id:
+        return jsonify({'error': 'Submission ID is required'}), 400
+    if not start_at_str or not end_at_str:
+        return jsonify({'error': 'Start and end times are required'}), 400
+    if quorum_count is None or quorum_count < 1:
+        return jsonify({'error': 'Quorum count must be at least 1'}), 400
+    if not (0.0 <= win_threshold <= 1.0):
+        return jsonify({'error': 'Win threshold must be between 0.0 and 1.0'}), 400
+    
+    # Check submission exists
+    submission = Submission.query.get(submission_id)
+    if not submission:
+        return jsonify({'error': 'Submission not found'}), 404
+    
+    # Parse dates
+    try:
+        start_at = datetime.fromisoformat(start_at_str.replace('Z', '+00:00'))
+        end_at = datetime.fromisoformat(end_at_str.replace('Z', '+00:00'))
+    except ValueError:
+        return jsonify({'error': 'Invalid date format. Use ISO 8601 format.'}), 400
+    
+    # Validate dates (strip timezone info to compare naive datetimes)
+    start_at = start_at.replace(tzinfo=None)
+    end_at = end_at.replace(tzinfo=None)
+    now = datetime.utcnow()
+    if start_at <= now:
+        return jsonify({'error': 'Start time must be in the future'}), 400
+    if end_at <= start_at:
+        return jsonify({'error': 'End time must be after start time'}), 400
+    
+    # Create vote
+    vote = Vote(
+        project_id=project_id,
+        submission_id=submission_id,
+        created_by_id=current_user['id'],
+        title=title,
+        description=description or None,
+        start_at=start_at,
+        end_at=end_at,
+        quorum_count=quorum_count,
+        win_threshold=win_threshold,
+        status='scheduled'
+    )
+    
+    db.session.add(vote)
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'vote': {
+            'id': vote.id,
+            'public_id': vote.public_id,
+            'title': vote.title,
+            'description': vote.description,
+            'status': vote.status,
+            'start_at': vote.start_at.isoformat(),
+            'end_at': vote.end_at.isoformat(),
+            'quorum_count': vote.quorum_count,
+            'win_threshold': vote.win_threshold
+        }
+    }), 201
+
+@app.route('/api/projects/<project_id>/votes/', methods=['GET'])
+def api_list_votes(project_id):
+    """List votes for a project"""
+    try:
+        project = Project.query.get_or_404(project_id)
+        
+        status_filter = request.args.get('status')
+        query = Vote.query.filter_by(project_id=project_id)
+        
+        if status_filter:
+            query = query.filter_by(status=status_filter)
+        
+        votes = query.order_by(Vote.created_at.desc()).all()
+        
+        return jsonify({
+            'votes': [{
+                'id': v.id,
+                'public_id': v.public_id,
+                'title': v.title,
+                'description': v.description,
+                'status': v.status,
+                'result': v.result,
+                'start_at': v.start_at.isoformat() if v.start_at else None,
+                'end_at': v.end_at.isoformat() if v.end_at else None,
+                'created_at': v.created_at.isoformat() if v.created_at else None
+            } for v in votes]
+        })
+    except Exception as e:
+        app.logger.error(f"Error in api_list_votes for project {project_id}: {e}")
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+@app.route('/api/votes/<vote_id>/', methods=['GET'])
+def api_get_vote(vote_id):
+    """Get vote details"""
+    # Support both integer ID and public_id UUID
+    if len(vote_id) == 36 and '-' in vote_id:
+        vote = Vote.query.filter_by(public_id=vote_id).first_or_404()
+    else:
+        vote = Vote.query.get_or_404(vote_id)
+    
+    # Count ballots
+    ballot_count = Ballot.query.filter_by(vote_id=vote.id).count()
+    eligible_count = VoteEligibilitySnapshot.query.filter_by(vote_id=vote.id, is_eligible=True).count()
+    
+    # Parse result summary if available
+    result_summary = None
+    if vote.result_summary:
+        try:
+            result_summary = json.loads(vote.result_summary)
+        except:
+            pass
+    
+    return jsonify({
+        'id': vote.id,
+        'public_id': vote.public_id,
+        'project_id': vote.project_id,
+        'submission_id': vote.submission_id,
+        'title': vote.title,
+        'description': vote.description,
+        'status': vote.status,
+        'result': vote.result,
+        'result_summary': result_summary,
+        'start_at': vote.start_at.isoformat() if vote.start_at else None,
+        'end_at': vote.end_at.isoformat() if vote.end_at else None,
+        'quorum_count': vote.quorum_count,
+        'win_threshold': vote.win_threshold,
+        'ballot_count': ballot_count,
+        'eligible_count': eligible_count,
+        'created_at': vote.created_at.isoformat() if vote.created_at else None,
+        'closed_at': vote.closed_at.isoformat() if vote.closed_at else None
+    })
+
+@app.route('/api/votes/<vote_id>/ballot/', methods=['POST'])
+@require_auth
+def api_cast_ballot(vote_id):
+    """Cast or update a ballot"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    # Support both integer ID and public_id UUID
+    if len(vote_id) == 36 and '-' in vote_id:
+        vote = Vote.query.filter_by(public_id=vote_id).first_or_404()
+    else:
+        vote = Vote.query.get_or_404(vote_id)
+    
+    # Check vote is active
+    if vote.status != 'active':
+        return jsonify({'error': 'Vote is not active'}), 400
+    
+    # Check eligibility
+    eligibility = VoteEligibilitySnapshot.query.filter_by(
+        vote_id=vote.id,
+        person_id=current_user['id']
+    ).first()
+    
+    if not eligibility or not eligibility.is_eligible:
+        return jsonify({'error': 'You are not eligible to vote in this election'}), 403
+    
+    data = request.get_json()
+    choice = data.get('choice', '').strip().lower()
+    
+    if choice not in ['yes', 'no', 'abstain']:
+        return jsonify({'error': 'Choice must be yes, no, or abstain'}), 400
+    
+    # Check for existing ballot
+    existing_ballot = Ballot.query.filter_by(
+        vote_id=vote.id,
+        person_id=current_user['id']
+    ).first()
+    
+    if existing_ballot:
+        # Update existing ballot
+        existing_ballot.choice = choice
+        existing_ballot.cast_at = datetime.utcnow()
+    else:
+        # Create new ballot
+        ballot = Ballot(
+            vote_id=vote.id,
+            person_id=current_user['id'],
+            choice=choice
+        )
+        db.session.add(ballot)
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'choice': choice,
+        'cast_at': datetime.utcnow().isoformat()
+    })
+
+@app.route('/api/votes/<vote_id>/cancel/', methods=['POST'])
+@require_auth
+def api_cancel_vote(vote_id):
+    """Cancel a vote"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    # Support both integer ID and public_id UUID
+    if len(vote_id) == 36 and '-' in vote_id:
+        vote = Vote.query.filter_by(public_id=vote_id).first_or_404()
+    else:
+        vote = Vote.query.get_or_404(vote_id)
+    
+    project = Project.query.get_or_404(vote.project_id)
+    
+    # Check if user is project admin or site admin
+    if not is_project_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can cancel votes'}), 403
+    
+    # Check vote can be canceled
+    if vote.status not in ['scheduled', 'active']:
+        return jsonify({'error': 'Only scheduled or active votes can be canceled'}), 400
+    
+    vote.status = 'canceled'
+    vote.result = 'canceled'
+    vote.closed_at = datetime.utcnow()
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'vote': {
+            'id': vote.id,
+            'public_id': vote.public_id,
+            'status': vote.status,
+            'result': vote.result
+        }
+    })
+
 @app.route('/my-projects/')
 @require_auth
 def my_projects():
@@ -9389,7 +9977,7 @@ def admin_dashboard():
         alerts_html += f"""
         <div class="alert alert-primary alert-dismissible fade show" role="alert">
             <i class="fas fa-project-diagram me-2"></i>
-            <strong>{pending_projects}</strong> project(s) pending approval
+            <strong>{pending_projects}</strong> layer(s) pending approval
             <a href="/admin/projects/" class="alert-link">Review now</a>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -9439,7 +10027,7 @@ def admin_dashboard():
                     <div>
                         <a href="/admin/users/" class="btn btn-outline-primary me-2"><i class="fas fa-users me-1"></i>Users</a>
                         <a href="/admin/submissions/" class="btn btn-outline-success me-2"><i class="fas fa-file-alt me-1"></i>Submissions</a>
-                        <a href="/admin/projects/" class="btn btn-outline-info me-2"><i class="fas fa-project-diagram me-1"></i>Projects</a>
+                        <a href="/admin/projects/" class="btn btn-outline-info me-2"><i class="fas fa-project-diagram me-1"></i>Layers</a>
                         <a href="/admin/workgroups/" class="btn btn-outline-warning me-2"><i class="fas fa-users me-1"></i>Workgroups</a>
                         <a href="/admin/roles/" class="btn btn-outline-secondary me-2"><i class="fas fa-user-tag me-1"></i>Roles</a>
                         <a href="/admin/badges/" class="btn btn-outline-primary"><i class="fas fa-award me-1"></i>Badges</a>
@@ -9460,7 +10048,7 @@ def admin_dashboard():
                         <div class="card h-100">
                             <div class="card-body text-center">
                                 <h4 class="text-info mb-1">{total_projects}</h4>
-                                <p class="mb-0 small">Projects</p>
+                                <p class="mb-0 small">Layers</p>
                                 {f'<small class="text-warning">({pending_projects} pending)</small>' if pending_projects > 0 else ''}
                             </div>
                         </div>
@@ -11172,7 +11760,7 @@ def admin_projects():
     
     content = """
     <div class="container mt-4" id="manage-projects-container" data-server-pending=""" + str(pending_count) + """ data-server-approved=""" + str(approved_count) + """ data-server-rejected=""" + str(rejected_count) + """>
-        <h1 class="mb-4">Manage Projects</h1>
+        <h1 class="mb-4">Manage Layers</h1>
         <div id="project-load-error" class="alert alert-danger d-none" role="alert"></div>
         
         <ul class="nav nav-tabs mb-4" id="projectTabs" role="tablist">
@@ -11311,7 +11899,7 @@ def admin_projects():
             });
             
             if (response.ok) {
-                alert('Project approved successfully');
+                alert('Layer approved successfully');
                 window.location.reload();
             } else {
                 const data = await response.json();
@@ -11336,7 +11924,7 @@ def admin_projects():
             });
             
             if (response.ok) {
-                alert('Project rejected');
+                alert('Layer rejected');
                 window.location.reload();
             } else {
                 const data = await response.json();
@@ -11368,7 +11956,7 @@ def admin_projects():
     </script>
     """
     
-    return render_page("Admin: Manage Projects - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Admin: Manage Layers - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/admin/workgroups/')
 @require_role('admin')
@@ -11456,7 +12044,7 @@ def admin_workgroups():
                             <h5><a href="/workgroups/${wg.slug}/" target="_blank">${wg.name}</a></h5>
                             <p class="mb-2">${wg.description || 'No description'}</p>
                             <small class="text-muted">
-                                Project: <a href="/projects/${wg.project_slug}/" target="_blank">${wg.project_name}</a> | 
+                                Layer: <a href="/projects/${wg.project_slug}/" target="_blank">${wg.project_name}</a> | 
                                 Created: ${new Date(wg.created_at).toLocaleDateString()} | 
                                 Status: ${wg.status}
                             </small>
@@ -11663,7 +12251,7 @@ def admin_chair_nominations():
                         </div>
                         
                         <div class="mb-3">
-                            <strong>Project:</strong> 
+                            <strong>Layer:</strong> 
                             <a href="/projects/${nom.project_slug}/" target="_blank">${nom.project_name}</a>
                         </div>
                         
@@ -11823,7 +12411,7 @@ def admin_roles():
                             ${role.title_operational ? `<h6 class="text-muted">${role.title_operational}</h6>` : ''}
                             <p class="mb-2">${role.description.substring(0, 200)}...</p>
                             <small class="text-muted">
-                                Project: <a href="/projects/${role.project_slug}/" target="_blank">${role.project_name}</a> | 
+                                Layer: <a href="/projects/${role.project_slug}/" target="_blank">${role.project_name}</a> | 
                                 Created: ${new Date(role.created_at).toLocaleDateString()} | 
                                 Public: ${role.public_visible ? 'Yes' : 'No'}
                             </small>
@@ -11977,7 +12565,7 @@ def admin_badges():
                                 ${badge.inscription_id ? `<strong>Inscription:</strong> ${badge.inscription_id}<br>` : ''}
                             </p>
                             <small class="text-muted">
-                                Project: <a href="/projects/${badge.project_slug}/" target="_blank">${badge.project_name}</a> | 
+                                Layer: <a href="/projects/${badge.project_slug}/" target="_blank">${badge.project_name}</a> | 
                                 Created: ${new Date(badge.created_at).toLocaleDateString()}
                             </small>
                         </div>
@@ -12207,11 +12795,11 @@ def home():
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header">
-                                <h5><i class="fas fa-project-diagram me-2"></i>Projects</h5>
+                                <h5><i class="fas fa-project-diagram me-2"></i>Layers</h5>
                             </div>
                             <div class="card-body">
-                                <p>Browse and discover MLTF projects and their workgroups.</p>
-                                <a href="/projects/" class="btn btn-primary">View Projects</a>
+                                <p>Browse and discover MLTF layers and their workgroups.</p>
+                                <a href="/projects/" class="btn btn-primary">View Layers</a>
                             </div>
                         </div>
                     </div>
@@ -12318,6 +12906,211 @@ def home():
         </div>
     </div>
     """, build_number=BUILD_NUMBER, hypothesis_config="")
+
+# ================================================================
+# UUID-BASED CANONICAL ROUTES
+# ================================================================
+
+@app.route('/p/<public_id>')
+def person_by_public_id(public_id):
+    """Resolve person by public_id UUID"""
+    user = User.query.filter_by(public_id=public_id).first_or_404()
+    return redirect(url_for('user_profile', username=user.username or user.handle))
+
+@app.route('/layer/<public_id>')
+def layer_by_public_id(public_id):
+    """Resolve project/layer by public_id UUID"""
+    project = Project.query.filter_by(public_id=public_id).first_or_404()
+    return redirect(url_for('project_detail', project_slug=project.slug))
+
+@app.route('/draft/<public_id>')
+def draft_by_public_id(public_id):
+    """Resolve draft/submission by public_id UUID"""
+    submission = Submission.query.filter_by(public_id=public_id).first_or_404()
+    return redirect(url_for('draft_detail', draft_name=submission.draft_name))
+
+@app.route('/vote/<public_id>')
+def vote_by_public_id_redirect(public_id):
+    """Resolve vote by public_id UUID - redirect to detail page"""
+    vote = Vote.query.filter_by(public_id=public_id).first_or_404()
+    # Redirect to the full vote detail page
+    return redirect(url_for('vote_detail', vote_public_id=vote.public_id))
+
+@app.route('/votes/<vote_public_id>/')
+def vote_detail(vote_public_id):
+    """Vote detail page"""
+    vote = Vote.query.filter_by(public_id=vote_public_id).first_or_404()
+    project = Project.query.get_or_404(vote.project_id)
+    submission = Submission.query.get_or_404(vote.submission_id)
+    
+    current_user = get_current_user()
+    current_theme = current_user.get('theme', 'dark') if current_user else 'dark'
+    user_menu = generate_user_menu()
+    
+    # Check if current user is eligible
+    is_eligible = False
+    has_voted = False
+    user_ballot = None
+    
+    if current_user:
+        eligibility = VoteEligibilitySnapshot.query.filter_by(
+            vote_id=vote.id,
+            person_id=current_user['id']
+        ).first()
+        is_eligible = eligibility and eligibility.is_eligible
+        
+        user_ballot = Ballot.query.filter_by(
+            vote_id=vote.id,
+            person_id=current_user['id']
+        ).first()
+        has_voted = user_ballot is not None
+    
+    # Get ballot counts
+    ballot_count = Ballot.query.filter_by(vote_id=vote.id).count()
+    eligible_count = VoteEligibilitySnapshot.query.filter_by(vote_id=vote.id, is_eligible=True).count()
+    
+    # Parse result summary
+    result_summary = None
+    if vote.result_summary:
+        try:
+            result_summary = json.loads(vote.result_summary)
+        except:
+            pass
+    
+    # Status badge colors
+    status_colors = {
+        'scheduled': 'secondary',
+        'active': 'primary',
+        'closed': 'success',
+        'canceled': 'danger'
+    }
+    status_color = status_colors.get(vote.status, 'secondary')
+    
+    # Result badge colors
+    result_colors = {
+        'passed': 'success',
+        'failed': 'danger',
+        'no_quorum': 'warning',
+        'canceled': 'secondary'
+    }
+    result_color = result_colors.get(vote.result, 'secondary') if vote.result else 'secondary'
+    
+    # Build result HTML if available
+    result_html = ''
+    if vote.result:
+        result_text = vote.result.upper() if vote.result else 'PENDING'
+        result_html = f'<p><strong>Result:</strong> <span class="badge bg-{result_color}">{result_text}</span></p>'
+    
+    # Build ballot form if eligible and active
+    ballot_form_html = ''
+    if vote.status == 'active' and is_eligible:
+        voted_msg = ''
+        if has_voted:
+            voted_msg = f'<p class="text-success">✓ You have already voted: <strong>{user_ballot.choice.upper()}</strong></p>'
+        ballot_form_html = f'''<div class="card mb-3">
+            <div class="card-header"><h5>Cast Your Ballot</h5></div>
+            <div class="card-body">
+                <p>You are eligible to vote in this election.</p>
+                {voted_msg}
+                <div class="btn-group" role="group">
+                    <button class="btn btn-success" onclick="castBallot('yes')">Vote YES</button>
+                    <button class="btn btn-danger" onclick="castBallot('no')">Vote NO</button>
+                    <button class="btn btn-secondary" onclick="castBallot('abstain')">Abstain</button>
+                </div>
+                <div id="ballot-status" class="mt-2"></div>
+            </div>
+        </div>'''
+    
+    # Build results HTML
+    results_html = ''
+    if vote.status == 'closed' or result_summary:
+        if result_summary:
+            quorum_text = 'Yes' if result_summary['quorum_met'] else 'No'
+            results_content = f'''<p><strong>Yes:</strong> {result_summary['yes']}</p>
+                <p><strong>No:</strong> {result_summary['no']}</p>
+                <p><strong>Abstain:</strong> {result_summary['abstain']}</p>
+                <p><strong>Total Votes Cast:</strong> {result_summary['votes_cast']} / {result_summary['eligible']} eligible</p>
+                <p><strong>Quorum Met:</strong> {quorum_text}</p>
+                <p><strong>Yes Ratio:</strong> {int(result_summary['yes_ratio'] * 100)}%</p>'''
+        else:
+            results_content = f'<p>Votes cast: {ballot_count} / {eligible_count} eligible</p>'
+        results_html = f'''<div class="card mb-3">
+            <div class="card-header"><h5>Results</h5></div>
+            <div class="card-body">{results_content}</div>
+        </div>'''
+    
+    # Build user status HTML
+    user_status_html = ''
+    if current_user:
+        status_text = '✓ Eligible' if is_eligible else '✗ Not Eligible'
+        user_status_html = f'<p><strong>Your Status:</strong> {status_text}</p>'
+    
+    content = f'''
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8">
+                <h1>{vote.title}</h1>
+                <p class="lead">{vote.description or ''}</p>
+                
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5>Vote Details</h5>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Status:</strong> <span class="badge bg-{status_color}">{vote.status.upper()}</span></p>
+                        {result_html}
+                        <p><strong>Layer:</strong> <a href="/projects/{project.slug}/">{project.name}</a></p>
+                        <p><strong>Draft:</strong> <a href="/doc/draft/{submission.draft_name}/">{submission.title}</a></p>
+                        <p><strong>Start:</strong> {vote.start_at.strftime('%Y-%m-%d %H:%M UTC')}</p>
+                        <p><strong>End:</strong> {vote.end_at.strftime('%Y-%m-%d %H:%M UTC')}</p>
+                        <p><strong>Quorum Required:</strong> {vote.quorum_count} votes</p>
+                        <p><strong>Win Threshold:</strong> {int(vote.win_threshold * 100)}%</p>
+                    </div>
+                </div>
+                
+                {ballot_form_html}
+                {results_html}
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Participation</h5>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Eligible Voters:</strong> {eligible_count}</p>
+                        <p><strong>Ballots Cast:</strong> {ballot_count}</p>
+                        {user_status_html}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    function castBallot(choice) {{
+        fetch('/api/votes/{vote.public_id}/ballot/', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{choice: choice}})
+        }})
+        .then(res => res.json())
+        .then(data => {{
+            if (data.success) {{
+                document.getElementById('ballot-status').innerHTML = '<div class="alert alert-success">Ballot cast successfully: ' + choice.toUpperCase() + '</div>';
+                setTimeout(() => location.reload(), 1500);
+            }} else {{
+                document.getElementById('ballot-status').innerHTML = '<div class="alert alert-danger">Error: ' + data.error + '</div>';
+            }}
+        }})
+        .catch(err => {{
+            document.getElementById('ballot-status').innerHTML = '<div class="alert alert-danger">Error casting ballot</div>';
+        }});
+    }}
+    </script>
+    '''
+    
+    return BASE_TEMPLATE.format(title=f"Vote: {vote.title}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/active/')
 def active_documents():
@@ -12913,6 +13706,15 @@ Meta-Layer Initiative
                     </div>
                 </div>
                 
+                <div class="card mt-3" id="votes-card" style="display: none;">
+                    <div class="card-header">
+                        <h5>Votes</h5>
+                    </div>
+                    <div class="card-body" id="votes-container">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+                
                 {f'''<div class="card mt-3">
                     <div class="card-header">
                         <h5>Quick Comment</h5>
@@ -12938,6 +13740,49 @@ Meta-Layer Initiative
                 </div>
             </div>
         </div>
+        
+        <script>
+        const submissionId = '{draft["name"] if submission else draft_name}';
+        
+        async function loadDraftVotes() {{
+            try {{
+                // Find votes that reference this submission
+                const allProjects = await fetch('/api/projects/').then(r => r.json());
+                let votes = [];
+                
+                for (const proj of allProjects.projects || []) {{
+                    const res = await fetch(`/api/projects/${{proj.id}}/votes/`);
+                    const data = await res.json();
+                    const matchingVotes = (data.votes || []).filter(v => v.submission_id === submissionId);
+                    votes.push(...matchingVotes);
+                }}
+                
+                if (votes.length === 0) {{
+                    return; // Keep card hidden
+                }}
+                
+                document.getElementById('votes-card').style.display = 'block';
+                const container = document.getElementById('votes-container');
+                
+                let html = '';
+                for (const v of votes) {{
+                    const statusBadge = v.status === 'active' ? '<span class="badge bg-success">Active</span>' : v.status === 'closed' ? '<span class="badge bg-secondary">Closed</span>' : '<span class="badge bg-info">Scheduled</span>';
+                    const resultBadge = v.result ? '<span class="badge bg-' + (v.result === 'passed' ? 'success' : v.result === 'failed' ? 'danger' : 'warning') + ' ms-1">' + v.result + '</span>' : '';
+                    html += '<div class="mb-3">';
+                    html += '<h6><a href="/votes/' + v.public_id + '/">' + v.title + '</a> ' + statusBadge + resultBadge + '</h6>';
+                    html += '<p class="small mb-1">' + (v.description || '') + '</p>';
+                    html += '<p class="small text-muted mb-0">Ends: ' + new Date(v.end_at).toLocaleString() + '</p>';
+                    html += '</div>';
+                }}
+                
+                container.innerHTML = html;
+            }} catch (e) {{
+                console.error('Error loading votes:', e);
+            }}
+        }}
+        
+        loadDraftVotes();
+        </script>
         """
     
     # Add document_content to the template
@@ -14936,11 +15781,11 @@ def projects_directory():
     <div class="container mt-4">
         <div class="row mb-4">
             <div class="col-md-8">
-                <h1>Projects Directory</h1>
-                <p class="lead">Browse and discover MLTF projects</p>
+                <h1>Layers Directory</h1>
+                <p class="lead">Browse and discover MLTF layers</p>
             </div>
             <div class="col-md-4 text-end">
-                {'<a href="/projects/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Project</a>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
+                {'<a href="/projects/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Layer</a>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
             </div>
         </div>
         
@@ -14969,7 +15814,7 @@ def projects_directory():
             </div>
             <div class="col-md-4">
                 <label for="search-input" class="form-label">Search:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search projects..." onkeyup="filterProjects()">
+                <input type="text" id="search-input" class="form-control" placeholder="Search layers..." onkeyup="filterProjects()">
             </div>
         </div>
         
@@ -15087,7 +15932,7 @@ def projects_directory():
     </script>
     """
     
-    return render_page("Projects Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Layers Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/workgroups/')
 def workgroups_directory():
@@ -15104,16 +15949,16 @@ def workgroups_directory():
                 <p class="lead">Browse workgroups across all projects</p>
             </div>
             <div class="col-md-4 text-end">
-                <a href="/projects/" class="btn btn-secondary mb-2 w-100"><i class="fas fa-arrow-left me-2"></i>Back to Projects</a>
+                <a href="/projects/" class="btn btn-secondary mb-2 w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layers</a>
                 {'<button class="btn btn-primary w-100" onclick="showCreateWorkgroupModal()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>' if current_user else ''}
             </div>
         </div>
         
         <div class="row mb-4">
             <div class="col-md-4">
-                <label for="project-filter" class="form-label">Project:</label>
+                <label for="project-filter" class="form-label">Layer:</label>
                 <select id="project-filter" class="form-select" onchange="loadWorkgroups()">
-                    <option value="">All Projects</option>
+                    <option value="">All Layers</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -15281,7 +16126,7 @@ def workgroups_directory():
                             
                             <form id="createWorkgroupForm">
                                 <div class="mb-3">
-                                    <label for="wg-project" class="form-label">Project *</label>
+                                    <label for="wg-project" class="form-label">Layer *</label>
                                     <select class="form-select" id="wg-project" required>
                                         <option value="">Select a project...</option>
                                     </select>
@@ -15302,7 +16147,7 @@ def workgroups_directory():
                                 
                                 <div class="alert alert-info">
                                     <i class="fas fa-info-circle me-2"></i>
-                                    <strong>Note:</strong> New workgroups require approval from the project admin before becoming active.
+                                    <strong>Note:</strong> New workgroups require approval from the layer admin before becoming active.
                                 </div>
                             </form>
                         </div>
@@ -15375,7 +16220,7 @@ def workgroups_directory():
                 if (response.ok) {{
                     modal.hide();
                     loadWorkgroups();
-                    alert('Workgroup created successfully! It will be visible once approved by the project admin.');
+                    alert('Workgroup created successfully! It will be visible once approved by the layer admin.');
                 }} else {{
                     throw new Error(data.error || 'Failed to create workgroup');
                 }}
@@ -15416,9 +16261,9 @@ def waitlists_directory():
         
         <div class="row mb-4">
             <div class="col-md-4">
-                <label for="project-filter" class="form-label">Project:</label>
+                <label for="project-filter" class="form-label">Layer:</label>
                 <select id="project-filter" class="form-select" onchange="loadWaitlists()">
-                    <option value="">All Projects</option>
+                    <option value="">All Layers</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -15581,7 +16426,7 @@ def waitlists_directory():
                             </div>
                             <p class="card-text text-muted small mb-2">
                                 <i class="fas fa-project-diagram me-1"></i>
-                                <a href="/projects/${{project ? project.slug : wl.project_id}}/">${{project ? project.name : 'Unknown Project'}}</a>
+                                <a href="/projects/${{project ? project.slug : wl.project_id}}/">${{project ? project.name : 'Unknown Layer'}}</a>
                             </p>
                             <p class="card-text">${{wl.description || 'No description'}}</p>
                             <div class="mt-3">
@@ -15781,6 +16626,9 @@ def _render_project_detail(project_slug, waitlist_id=None):
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="claims-tab" data-bs-toggle="tab" data-bs-target="#claims" type="button">Claims</button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="votes-tab" data-bs-toggle="tab" data-bs-target="#votes" type="button">Votes</button>
+            </li>
             {admin_tab_html}
             <li id="waitlist-tabs-marker" class="nav-item d-none"></li>
         </ul>
@@ -15801,6 +16649,9 @@ def _render_project_detail(project_slug, waitlist_id=None):
             <div class="tab-pane fade" id="claims">
                 <div id="claims-content"></div>
             </div>
+            <div class="tab-pane fade" id="votes">
+                <div id="votes-content"></div>
+            </div>
             {admin_tab_pane_html}
             <div id="waitlist-panes-marker" class="d-none"></div>
         </div>
@@ -15810,7 +16661,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Join Project</h5>
+                    <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Join Layer</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
@@ -15854,7 +16705,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Add project admin</h5>
+                    <h5 class="modal-title">Add layer admin</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -15904,11 +16755,66 @@ def _render_project_detail(project_slug, waitlist_id=None):
         </div>
     </div>
     
+    <div class="modal fade" id="createVoteModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-vote-yea me-2"></i>Create Vote</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="create-vote-alert" class="alert d-none" role="alert"></div>
+                    <form id="createVoteForm">
+                        <div class="mb-3">
+                            <label for="vote-title" class="form-label">Title *</label>
+                            <input type="text" class="form-control" id="vote-title" required placeholder="e.g. Approve ML-DRAFT-001">
+                        </div>
+                        <div class="mb-3">
+                            <label for="vote-description" class="form-label">Description</label>
+                            <textarea class="form-control" id="vote-description" rows="2" placeholder="What is being decided"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="vote-submission-id" class="form-label">Draft to vote on *</label>
+                            <select class="form-select" id="vote-submission-id" required>
+                                <option value="">Loading drafts...</option>
+                            </select>
+                            <div class="form-text">Select an approved draft from this layer's workgroups</div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="vote-start" class="form-label">Start (<span id="timezone-start">your local time</span>) *</label>
+                                <input type="datetime-local" class="form-control" id="vote-start" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="vote-end" class="form-label">End (<span id="timezone-end">your local time</span>) *</label>
+                                <input type="datetime-local" class="form-control" id="vote-end" required>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="vote-quorum" class="form-label">Quorum (min votes) *</label>
+                                <input type="number" class="form-control" id="vote-quorum" required min="1" value="1">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="vote-threshold" class="form-label">Win threshold (0–1) *</label>
+                                <input type="number" class="form-control" id="vote-threshold" required min="0" max="1" step="0.01" value="0.5" placeholder="0.5 = majority">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="create-vote-submit-btn" onclick="submitCreateVote()"><i class="fas fa-check me-2"></i>Create Vote</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <div class="modal fade" id="editProjectModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Edit Project</h5>
+                    <h5 class="modal-title">Edit Layer</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
@@ -15916,7 +16822,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                     <form id="editProjectForm">
                         <div class="card bg-secondary bg-opacity-10 mb-4">
                             <div class="card-body py-3">
-                                <h6 class="card-title mb-2"><i class="fas fa-user-shield me-2"></i>Project Admins</h6>
+                                <h6 class="card-title mb-2"><i class="fas fa-user-shield me-2"></i>Layer Admins</h6>
                                 <p class="text-muted small mb-2">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p>
                                 <div id="edit-modal-admins-list" class="list-group mb-3"></div>
                                 <div class="mb-0">
@@ -15931,7 +16837,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                         </div>
                         <hr>
                         <div class="mb-3">
-                            <label for="edit-project-name" class="form-label">Project Name *</label>
+                            <label for="edit-project-name" class="form-label">Layer Name *</label>
                             <input type="text" class="form-control" id="edit-project-name" required maxlength="255">
                         </div>
                         <div class="mb-3">
@@ -15953,7 +16859,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                                     <i class="fas fa-upload"></i> Upload
                                 </button>
                             </div>
-                            <div class="form-text">Project logo or banner image. Max 600×600px, 5MB. Upload or paste URL above.</div>
+                            <div class="form-text">Layer logo or banner image. Max 600×600px, 5MB. Upload or paste URL above.</div>
                             <div id="edit-project-image-upload-status" class="mt-1"></div>
                         </div>
                         <div class="mb-3">
@@ -16009,7 +16915,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             project = data.projects.find(p => p.slug === projectSlug);
             
             if (!project) {{
-                document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Project not found</div>';
+                document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Layer not found</div>';
                 return;
             }}
             const detailResp = await fetch('/api/projects/' + project.id + '/');
@@ -16089,13 +16995,14 @@ def _render_project_detail(project_slug, waitlist_id=None):
             if (isJoined) {{
                 actionsHtml += '<div class="mb-3"><span class="badge bg-success">Joined</span></div>';
             }} else {{
-                actionsHtml += '<div class="mb-3"><button class="btn btn-primary btn-sm w-100" onclick="showJoinProjectModal()"><i class="fas fa-plus me-2"></i>Join Project</button></div>';
+                actionsHtml += '<div class="mb-3"><button class="btn btn-primary btn-sm w-100" onclick="showJoinProjectModal()"><i class="fas fa-plus me-2"></i>Join Layer</button></div>';
             }}
         }}
         if (isProjectAdmin) {{
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
+            actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showCreateVoteModal()"><i class="fas fa-vote-yea me-2"></i>Create Vote</button></div>';
         }}
-        actionsHtml += '<div class="mb-2"><a href="/projects/" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>Back</a></div>';
+        actionsHtml += '<div class="mb-2"><a href="/projects/" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layers</a></div>';
         if (isProjectAdmin) {{
             actionsHtml += '<button class="btn btn-secondary btn-sm w-100" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>';
         }}
@@ -16122,7 +17029,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             <div class="row">
                 <div class="col-md-6">
                     <div class="card mb-4">
-                        <div class="card-header"><h5>Project Information</h5></div>
+                        <div class="card-header"><h5>Layer Information</h5></div>
                         <div class="card-body">
                             <p><strong>Status:</strong> ${{project.status}}</p>
                             <p><strong>Approval:</strong> ${{project.approval_status}}</p>
@@ -16161,11 +17068,171 @@ def _render_project_detail(project_slug, waitlist_id=None):
         }}
     }}
     
+    async function loadVotes() {{
+        const container = document.getElementById('votes-content');
+        if (!container || !project) {{
+            console.log('loadVotes: container or project missing', {{container: !!container, project: !!project}});
+            return;
+        }}
+        container.innerHTML = '<div class="py-4 text-center"><div class="spinner-border text-primary"></div></div>';
+        try {{
+            console.log('loadVotes: fetching from /api/projects/' + project.id + '/votes/');
+            const res = await fetch(`/api/projects/${{project.id}}/votes/`);
+            console.log('loadVotes: response status', res.status, res.ok);
+            
+            const data = await res.json();
+            console.log('loadVotes: received data', data);
+            
+            if (!res.ok) {{
+                console.error('loadVotes: API error', res.status, data.error || 'Unknown error');
+                container.innerHTML = '<div class="alert alert-danger">Error loading votes: ' + (data.error || 'HTTP ' + res.status) + '</div>';
+                return;
+            }}
+            const votes = data.votes || [];
+            if (votes.length === 0) {{
+                container.innerHTML = '<div class="alert alert-info">No votes yet. Layer admins can create a vote using the Create Vote button above.</div>';
+                return;
+            }}
+            let html = '<div class="list-group">';
+            votes.forEach(v => {{
+                const statusBadge = v.status === 'active' ? '<span class="badge bg-success">Active</span>' : v.status === 'closed' ? '<span class="badge bg-secondary">Closed</span>' : v.status === 'scheduled' ? '<span class="badge bg-info">Scheduled</span>' : '<span class="badge bg-warning">' + (v.status || '') + '</span>';
+                const resultBadge = v.result ? '<span class="badge bg-' + (v.result === 'passed' ? 'success' : v.result === 'failed' ? 'danger' : v.result === 'no_quorum' ? 'warning' : 'secondary') + ' ms-1">' + v.result + '</span>' : '';
+                html += '<a href="/votes/' + v.public_id + '/" class="list-group-item list-group-item-action">';
+                html += '<div class="d-flex w-100 justify-content-between"><h6 class="mb-1">' + escapeHtmlBasic(v.title) + '</h6>' + statusBadge + resultBadge + '</div>';
+                html += '<p class="mb-1 small text-muted">' + escapeHtmlBasic(v.description || '') + '</p>';
+                html += '<small>Start: ' + new Date(v.start_at).toLocaleString() + ' &middot; End: ' + new Date(v.end_at).toLocaleString() + '</small>';
+                html += '</a>';
+            }});
+            html += '</div>';
+            container.innerHTML = html;
+        }} catch (error) {{
+            console.error('Error loading votes:', error);
+            container.innerHTML = '<div class="alert alert-danger">Error loading votes: ' + error.message + '</div>';
+        }}
+    }}
+    
+    async function showCreateVoteModal() {{
+        document.getElementById('create-vote-alert').classList.add('d-none');
+        document.getElementById('createVoteForm').reset();
+        
+        // Set timezone labels (handle both modal variants)
+        const tzAbbr = new Date().toLocaleTimeString('en-us', {{timeZoneName:'short'}}).split(' ').pop();
+        const startLabel = document.getElementById('timezone-start') || document.getElementById('timezone-start-at');
+        const endLabel = document.getElementById('timezone-end') || document.getElementById('timezone-end-at');
+        if (startLabel) startLabel.textContent = tzAbbr || 'your local time';
+        if (endLabel) endLabel.textContent = tzAbbr || 'your local time';
+        
+        // Set default times: next hour + 7 days
+        const now = new Date();
+        const nextHour = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0, 0);
+        const sevenDaysLater = new Date(nextHour.getTime() + 7 * 24 * 60 * 60 * 1000);
+        
+        const formatDatetimeLocal = (d) => {{
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${{d.getFullYear()}}-${{pad(d.getMonth()+1)}}-${{pad(d.getDate())}}T${{pad(d.getHours())}}:${{pad(d.getMinutes())}}`;
+        }};
+        
+        // Set default times (handle both modal variants)
+        const startInput = document.getElementById('vote-start') || document.getElementById('vote-start-at');
+        const endInput = document.getElementById('vote-end') || document.getElementById('vote-end-at');
+        if (startInput) startInput.value = formatDatetimeLocal(nextHour);
+        if (endInput) endInput.value = formatDatetimeLocal(sevenDaysLater);
+        document.getElementById('vote-quorum').value = '1';
+        document.getElementById('vote-threshold').value = '0.5';
+        
+        // Load submissions for this project
+        const submissionSelect = document.getElementById('vote-submission-id');
+        submissionSelect.innerHTML = '<option value="">Loading...</option>';
+        try {{
+            const res = await fetch(`/api/projects/${{project.id}}/submissions/`);
+            const data = await res.json();
+            const submissions = data.submissions || [];
+            if (submissions.length === 0) {{
+                submissionSelect.innerHTML = '<option value="">No approved drafts available</option>';
+            }} else {{
+                submissionSelect.innerHTML = '<option value="">Select a draft...</option>';
+                submissions.forEach(s => {{
+                    const label = s.ml_number ? `${{s.ml_number}} - ${{s.title}}` : `${{s.title}} (${{s.id}})`;
+                    submissionSelect.innerHTML += `<option value="${{s.id}}">${{label}}</option>`;
+                }});
+            }}
+        }} catch (e) {{
+            submissionSelect.innerHTML = '<option value="">Error loading drafts</option>';
+        }}
+        
+        const modal = new bootstrap.Modal(document.getElementById('createVoteModal'));
+        modal.show();
+    }}
+    
+    async function submitCreateVote() {{
+        const title = document.getElementById('vote-title').value.trim();
+        const description = document.getElementById('vote-description').value.trim();
+        const submission_id = document.getElementById('vote-submission-id').value.trim();
+        const startVal = document.getElementById('vote-start').value;
+        const endVal = document.getElementById('vote-end').value;
+        const quorum = parseInt(document.getElementById('vote-quorum').value, 10);
+        const threshold = parseFloat(document.getElementById('vote-threshold').value);
+        
+        const alertEl = document.getElementById('create-vote-alert');
+        alertEl.classList.add('d-none');
+        if (!title || !submission_id || !startVal || !endVal) {{
+            alertEl.textContent = 'Title, Submission ID, Start, and End are required';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        const startAt = new Date(startVal).toISOString();
+        const endAt = new Date(endVal).toISOString();
+        
+        const btn = document.getElementById('create-vote-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+        
+        try {{
+            const res = await fetch(`/api/projects/${{project.id}}/votes/`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    title: title,
+                    description: description,
+                    submission_id: submission_id,
+                    start_at: startAt,
+                    end_at: endAt,
+                    quorum_count: quorum,
+                    win_threshold: threshold
+                }})
+            }});
+            // Read body once as text, then parse as JSON
+            const rawText = await res.text();
+            let data = {{}};
+            try {{ data = JSON.parse(rawText); }} catch {{}}
+            
+            if (res.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('createVoteModal')).hide();
+                document.getElementById('votes-tab').click();
+                loadVotes();
+            }} else {{
+                const msg = data.error || rawText.slice(0, 300) || 'HTTP ' + res.status;
+                alertEl.textContent = msg;
+                alertEl.className = 'alert alert-danger';
+                alertEl.classList.remove('d-none');
+            }}
+        }} catch (e) {{
+            console.error('Create vote fetch error:', e);
+            alertEl.textContent = 'Network error: ' + e.message;
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+        }}
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-check me-2"></i>Create Vote';
+    }}
+    
     // Tab event listeners
     document.getElementById('workgroups-tab').addEventListener('shown.bs.tab', loadWorkgroups);
     document.getElementById('clusters-tab').addEventListener('shown.bs.tab', loadClusters);
     document.getElementById('roles-tab').addEventListener('shown.bs.tab', loadRoles);
     document.getElementById('claims-tab').addEventListener('shown.bs.tab', loadClaims);
+    document.getElementById('votes-tab').addEventListener('shown.bs.tab', loadVotes);
     {admin_tab_listener}
     
     function buildWaitlistTabs(waitlists) {{
@@ -16251,7 +17318,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             
             const wImg = (w.image_url) ? '<div class="mb-3"><img src="' + w.image_url + '" alt="' + wName + '" class="img-fluid rounded" style="max-height: 180px;"></div>' : '';
             const html = '<div class="card mb-4"><div class="card-body">' +
-                '<nav aria-label="breadcrumb"><ol class="breadcrumb mb-2"><li class="breadcrumb-item"><a href="/projects/">Projects</a></li><li class="breadcrumb-item"><a href="/projects/' + projectSlug + '/">' + escapeHtmlBasic(project.name) + '</a></li><li class="breadcrumb-item active">' + wName + ' Waitlist</li></ol></nav>' +
+                '<nav aria-label="breadcrumb"><ol class="breadcrumb mb-2"><li class="breadcrumb-item"><a href="/projects/">Layers</a></li><li class="breadcrumb-item"><a href="/projects/' + projectSlug + '/">' + escapeHtmlBasic(project.name) + '</a></li><li class="breadcrumb-item active">' + wName + ' Waitlist</li></ol></nav>' +
                 wImg +
                 '<h5 class="card-title">' + wName + '</h5>' +
                 '<p class="text-muted">' + wDesc + '</p>' +
@@ -16316,14 +17383,14 @@ def _render_project_detail(project_slug, waitlist_id=None):
         try {{
             const response = await fetch(`/api/projects/${{project.id}}/admins/`);
             if (response.status === 403) {{
-                container.innerHTML = '<div class="alert alert-warning">You do not have permission to view project admins.</div>';
+                container.innerHTML = '<div class="alert alert-warning">You do not have permission to view layer admins.</div>';
                 return;
             }}
             const data = await response.json();
             
             let html = `
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h4>Project admins</h4>
+                    <h4>Layer admins</h4>
                     <button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button>
                 </div>
                 <p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p>
@@ -16494,7 +17561,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     
     async function removeAdmin(userId, btn) {{
         const displayName = (btn && btn.closest('.list-group-item')) ? btn.closest('.list-group-item').querySelector('a').textContent : 'this user';
-        if (!confirm('Remove "' + displayName + '" as project admin?')) return;
+        if (!confirm('Remove "' + displayName + '" as layer admin?')) return;
         try {{
             const response = await fetch(`/api/projects/${{project.id}}/admins/${{userId}}/`, {{ method: 'DELETE' }});
             const data = await response.json();
@@ -16752,14 +17819,14 @@ def _render_project_detail(project_slug, waitlist_id=None):
                                 <div class="col-md-8">
                                     <nav aria-label="breadcrumb">
                                         <ol class="breadcrumb">
-                                            <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">Project</a></li>
+                                            <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">Layer</a></li>
                                             <li class="breadcrumb-item active">${{wl.name}} Waitlist</li>
                                         </ol>
                                     </nav>
                                     <h3 class="mb-3">${{wl.name}}</h3>
                                     <p class="lead">${{wl.description || 'No description'}}</p>
                                     <p class="text-muted mb-2"><strong>Started:</strong> ${{new Date(wl.start_date).toLocaleDateString()}}</p>
-                                    <p class="text-muted mb-2"><strong>Visibility:</strong> ${{wl.public ? 'Public' : 'Private (project members or link)'}}</p>
+                                    <p class="text-muted mb-2"><strong>Visibility:</strong> ${{wl.public ? 'Public' : 'Private (layer members or link)'}}</p>
                                     ${{wl.referral_url && myEntry ? '<p class="mb-2"><strong>Your referral link:</strong> <code class="user-select-all">' + wl.referral_url + '</code> <button class="btn btn-sm btn-outline-primary" onclick="copyText(\\''+wl.referral_url+'\\')"><i class="fas fa-copy"></i></button></p>' : ''}}
                                     ${{!myEntry && wl.referrals ? '<p class="text-muted mb-2"><em>Join to get your referral link</em></p>' : ''}}
                                     
@@ -17109,7 +18176,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         try {{
             const response = await fetch('/api/projects/' + project.id + '/admins/', {{ credentials: 'include' }});
             if (response.status === 403) {{
-                container.innerHTML = '<div class="list-group-item text-warning small">You need project admin access to view or manage admins.</div>';
+                container.innerHTML = '<div class="list-group-item text-warning small">You need layer admin access to view or manage admins.</div>';
                 return;
             }}
             if (!response.ok) {{
@@ -17185,7 +18252,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     }}
     
     async function removeAdminFromEditModal(userId) {{
-        if (!confirm('Remove this user as project admin?')) return;
+        if (!confirm('Remove this user as layer admin?')) return;
         try {{
             const response = await fetch('/api/projects/' + project.id + '/admins/' + userId + '/', {{
                 method: 'DELETE',
@@ -17215,7 +18282,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         const saveBtn = document.getElementById('edit-project-save-btn');
         
         if (!name) {{
-            alertEl.textContent = 'Project name is required.';
+            alertEl.textContent = 'Layer name is required.';
             alertEl.className = 'alert alert-danger';
             alertEl.classList.remove('d-none');
             return;
@@ -17280,7 +18347,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                                     <label for="project-wg-description" class="form-label">Description *</label>
                                     <textarea class="form-control" id="project-wg-description" rows="3" required></textarea>
                                 </div>
-                                <p class="text-muted small">New workgroups require approval from the project admin before becoming active.</p>
+                                <p class="text-muted small">New workgroups require approval from the layer admin before becoming active.</p>
                             </form>
                         </div>
                         <div class="modal-footer">
@@ -17321,7 +18388,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 if (response.ok) {{
                     modal.hide();
                     loadWorkgroups();
-                    alert('Workgroup created! It will be visible once approved by the project admin.');
+                    alert('Workgroup created! It will be visible once approved by the layer admin.');
                 }} else {{
                     throw new Error(data.error || 'Failed to create workgroup');
                 }}
@@ -17760,7 +18827,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     </script>
     """
     
-    return render_page(f"Project: {project_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page(f"Layer: {project_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/projects/<project_slug>/')
 def project_detail(project_slug):
@@ -17784,27 +18851,27 @@ def create_project_page():
     <div class="container mt-4">
         <div class="row">
             <div class="col-md-8 offset-md-2">
-                <h1 class="mb-4">Create New Project</h1>
+                <h1 class="mb-4">Create New Layer</h1>
                 
                 <div id="alert-container"></div>
                 
                 <form id="createProjectForm">
                     <div class="mb-3">
-                        <label for="name" class="form-label">Project Name *</label>
+                        <label for="name" class="form-label">Layer Name *</label>
                         <input type="text" class="form-control" id="name" required>
-                        <div class="form-text">A clear, descriptive name for your project</div>
+                        <div class="form-text">A clear, descriptive name for your layer</div>
                     </div>
                     
                     <div class="mb-3">
                         <label for="mission" class="form-label">Mission</label>
                         <textarea class="form-control" id="mission" rows="3" style="white-space: pre-wrap;"></textarea>
-                        <div class="form-text">Optional: The project's core purpose and values (line breaks preserved)</div>
+                        <div class="form-text">Optional: The layer's core purpose and values (line breaks preserved)</div>
                     </div>
                     
                     <div class="mb-3">
                         <label for="description" class="form-label">Description *</label>
                         <textarea class="form-control" id="description" rows="4" required style="white-space: pre-wrap;"></textarea>
-                        <div class="form-text">Explain what this project is about and its goals (line breaks preserved)</div>
+                        <div class="form-text">Explain what this layer is about and its goals (line breaks preserved)</div>
                     </div>
                     
                     <div class="mb-3">
@@ -17819,13 +18886,13 @@ def create_project_page():
                     
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
-                        <strong>Note:</strong> New projects start with "proposed" status and require admin approval before becoming active.
-                        You will be the project owner; you can add more admins after creation via <strong>Edit</strong> on the project page.
+                        <strong>Note:</strong> New layers start with "proposed" status and require admin approval before becoming active.
+                        You will be the layer owner; you can add more admins after creation via <strong>Edit</strong> on the layer page.
                     </div>
                     
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-primary" id="submitBtn">
-                            <i class="fas fa-plus me-2"></i>Create Project
+                            <i class="fas fa-plus me-2"></i>Create Layer
                         </button>
                         <a href="/projects/" class="btn btn-secondary">Cancel</a>
                     </div>
@@ -17880,13 +18947,13 @@ def create_project_page():
                 </div>
             `;
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Project';
+            submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Layer';
         }
     });
     </script>
     """
     
-    return render_page("Create Project - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Create Layer - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/guilds/<guild_slug>/')
 def guild_detail(guild_slug):
@@ -18440,7 +19507,7 @@ def workgroup_detail(workgroup_slug):
                         </div>
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
-                            Your nomination will be reviewed by project administrators and workgroup coordinators.
+                            Your nomination will be reviewed by layer administrators and workgroup coordinators.
                         </div>
                     </form>
                 </div>
@@ -18506,14 +19573,14 @@ def workgroup_detail(workgroup_slug):
         
         // Use project data if available, otherwise use workgroup's project_name
         const projectSlug = project ? project.slug : '';
-        const projectName = project ? project.name : (workgroup.project_name || 'Project');
+        const projectName = project ? project.name : (workgroup.project_name || 'Layer');
         
         document.getElementById('workgroup-header').innerHTML = `
             <div class="row">
                 <div class="col-md-8">
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb">
-                            <li class="breadcrumb-item"><a href="/projects/">Projects</a></li>
+                            <li class="breadcrumb-item"><a href="/projects/">Layers</a></li>
                             ${{projectSlug ? `<li class="breadcrumb-item"><a href="/projects/${{projectSlug}}/">${{projectName}}</a></li>` : `<li class="breadcrumb-item">${{projectName}}</li>`}}
                             <li class="breadcrumb-item active">${{workgroup.name}}</li>
                         </ol>
@@ -18528,7 +19595,7 @@ def workgroup_detail(workgroup_slug):
                     ${{workgroup.image_url ? `<div class="card mb-3"><div class="card-body p-2 text-center"><img src="${{workgroup.image_url}}" alt="${{workgroup.name}}" class="img-fluid rounded" style="max-height: 200px;"></div></div>` : ''}}
                     <div class="text-end">
                         ${{workgroup.can_edit ? '<button type="button" class="btn btn-outline-secondary me-2" onclick="editWorkgroup()"><i class="fas fa-edit me-2"></i>Edit Workgroup</button>' : ''}}
-                        ${{projectSlug ? `<a href="/projects/${{projectSlug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Project</a>` : '<a href="/workgroups/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Workgroups</a>'}}
+                        ${{projectSlug ? `<a href="/projects/${{projectSlug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Layer</a>` : '<a href="/workgroups/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Workgroups</a>'}}
                     </div>
                 </div>
             </div>
@@ -18562,7 +19629,7 @@ def workgroup_detail(workgroup_slug):
         const projectName = project ? project.name : (workgroup.project_name || 'Unknown Project');
         
         document.getElementById('workgroup-details').innerHTML = `
-            <p><strong>Project:</strong> ${{projectSlug ? `<a href="/projects/${{projectSlug}}/">${{projectName}}</a>` : projectName}}</p>
+            <p><strong>Layer:</strong> ${{projectSlug ? `<a href="/projects/${{projectSlug}}/">${{projectName}}</a>` : projectName}}</p>
             <p><strong>Status:</strong> ${{workgroup.status}}</p>
             <p><strong>Approval:</strong> ${{workgroup.approval_status}}</p>
             <p><strong>Created:</strong> ${{new Date(workgroup.created_at).toLocaleDateString()}}</p>
@@ -19156,7 +20223,7 @@ def user_profile(username):
                 </div>
                 <div class="stat-card">
                     <span class="stat-value">{len(project_memberships)}</span>
-                    <span class="stat-label">Projects</span>
+                    <span class="stat-label">Layers</span>
                 </div>
                 <div class="stat-card">
                     <span class="stat-value">{workgroups_count}</span>
@@ -19269,7 +20336,7 @@ def user_profile(username):
                     <div class="tab-pane fade" id="my-projects-tab">
                         <div class="card">
                             <div class="card-body">
-                                <h5 class="card-title">Project Memberships</h5>
+                                <h5 class="card-title">Layer Memberships</h5>
                                 <div class="list-group list-group-flush">
                                     {''.join([f'''<a href="/projects/{pm.project.slug}/" class="list-group-item list-group-item-action">
                                         <div class="d-flex justify-content-between align-items-center">
@@ -19731,9 +20798,9 @@ def roles_directory():
         
         <div class="row mb-4">
             <div class="col-md-4">
-                <label for="project-filter" class="form-label">Project:</label>
+                <label for="project-filter" class="form-label">Layer:</label>
                 <select id="project-filter" class="form-select" onchange="loadRoles()">
-                    <option value="">All Projects</option>
+                    <option value="">All Layers</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -19901,9 +20968,9 @@ def role_images_directory():
         
         <div class="row mb-4">
             <div class="col-md-6">
-                <label for="project-filter" class="form-label">Project:</label>
+                <label for="project-filter" class="form-label">Layer:</label>
                 <select id="project-filter" class="form-select" onchange="loadRoleImages()">
-                    <option value="">All Projects</option>
+                    <option value="">All Layers</option>
                 </select>
             </div>
             <div class="col-md-6">
@@ -20140,7 +21207,7 @@ def role_detail(role_slug):
                 <div class="col-md-8">
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb">
-                            <li class="breadcrumb-item"><a href="/projects/">Projects</a></li>
+                            <li class="breadcrumb-item"><a href="/projects/">Layers</a></li>
                             <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">${{project.name}}</a></li>
                             <li class="breadcrumb-item active">${{role.title_guild}}</li>
                         </ol>
@@ -20174,7 +21241,7 @@ def role_detail(role_slug):
         
         document.getElementById('role-details').innerHTML = `
             ${{imageHtml}}
-            <p><strong>Project:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
+            <p><strong>Layer:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
             ${{clusterLine}}
             <p><strong>Status:</strong> ${{role.status}}</p>
             <p><strong>Visibility:</strong> ${{role.public_visible ? 'Public' : 'Private'}}</p>
@@ -20453,7 +21520,7 @@ https://github.com/username/project"></textarea>
                     
                     <div id="approval-notice" class="alert alert-warning" style="display: none;">
                         <i class="fas fa-exclamation-triangle me-2"></i>
-                        <strong>Note:</strong> This role requires approval. Your claim will be pending until reviewed by a project admin.
+                        <strong>Note:</strong> This role requires approval. Your claim will be pending until reviewed by a layer admin.
                     </div>
                     
                     <div class="d-flex gap-2">
@@ -20521,7 +21588,7 @@ https://github.com/username/project"></textarea>
                 <h5>${{role.title_guild}}</h5>
                 ${{role.title_operational ? `<h6 class="text-muted">${{role.title_operational}}</h6>` : ''}}
                 <p class="mt-3">${{role.description}}</p>
-                <p class="mb-0"><strong>Project:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
+                <p class="mb-0"><strong>Layer:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
             </div>
         `;
     }}
@@ -20778,6 +21845,92 @@ def deployment_test():
     </body>
     </html>
     """
+
+# ================================================================
+# CLI COMMANDS
+# ================================================================
+
+import click
+
+@app.cli.command('manage-votes')
+@click.argument('action')
+def manage_votes_cli(action):
+    """Manage vote lifecycle. Usage: flask manage-votes tick"""
+    if action == 'tick':
+        now = datetime.utcnow()
+        
+        # Activate scheduled votes whose start_at has passed
+        scheduled = Vote.query.filter(
+            Vote.status == 'scheduled',
+            Vote.start_at <= now
+        ).all()
+        
+        activated_count = 0
+        for vote in scheduled:
+            success, msg = activate_vote(vote)
+            if success:
+                activated_count += 1
+            print(f"  Activate vote {vote.id}: {msg}")
+        
+        # Close active votes whose end_at has passed
+        active = Vote.query.filter(
+            Vote.status == 'active',
+            Vote.end_at <= now
+        ).all()
+        
+        closed_count = 0
+        for vote in active:
+            success, msg = close_vote(vote)
+            if success:
+                closed_count += 1
+            print(f"  Close vote {vote.id}: {msg}")
+        
+        print(f"✅ Tick complete: {activated_count} activated, {closed_count} closed")
+    else:
+        print(f"Unknown action: {action}. Use 'tick'.")
+
+# ================================================================
+# CLI COMMANDS
+# ================================================================
+
+import click
+
+@app.cli.command('manage-votes')
+@click.argument('action')
+def manage_votes_cli(action):
+    """Manage vote lifecycle. Usage: flask manage-votes tick"""
+    if action == 'tick':
+        now = datetime.utcnow()
+        
+        # Activate scheduled votes whose start_at has passed
+        scheduled = Vote.query.filter(
+            Vote.status == 'scheduled',
+            Vote.start_at <= now
+        ).all()
+        
+        activated_count = 0
+        for vote in scheduled:
+            success, msg = activate_vote(vote)
+            if success:
+                activated_count += 1
+            print(f"  Activate vote {vote.id}: {msg}")
+        
+        # Close active votes whose end_at has passed
+        active = Vote.query.filter(
+            Vote.status == 'active',
+            Vote.end_at <= now
+        ).all()
+        
+        closed_count = 0
+        for vote in active:
+            success, msg = close_vote(vote)
+            if success:
+                closed_count += 1
+            print(f"  Close vote {vote.id}: {msg}")
+        
+        print(f"Tick complete: {activated_count} activated, {closed_count} closed")
+    else:
+        print(f"Unknown action: {action}. Use 'tick'.")
 
 if __name__ == '__main__':
     # Initialize deployment safety checks
