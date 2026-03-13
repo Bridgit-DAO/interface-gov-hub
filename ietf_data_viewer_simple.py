@@ -2396,12 +2396,16 @@ class Vote(db.Model):
     status = db.Column(db.String(20), nullable=False, default='scheduled', index=True)
     result = db.Column(db.String(20), nullable=True)
     result_summary = db.Column(db.Text, nullable=True)
+    vote_type = db.Column(db.String(20), default='approval', nullable=False, index=True)  # approval | election
+    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=True, index=True)
+    seats = db.Column(db.Integer, default=1, nullable=False)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     closed_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
     layer = db.relationship('Layer', backref=db.backref('votes', lazy=True))
+    role = db.relationship('Role', backref=db.backref('election_votes', lazy='dynamic'), foreign_keys=[role_id])
     submission = db.relationship('Submission', backref=db.backref('votes', lazy=True))
     artifact = db.relationship('Artifact', backref=db.backref('votes', lazy='dynamic'), foreign_keys=[artifact_id])
     created_by = db.relationship('User', backref='created_votes')
@@ -2424,6 +2428,26 @@ class VoteEligibilitySnapshot(db.Model):
     vote = db.relationship('Vote', backref=db.backref('eligibility_snapshot', lazy=True))
     person = db.relationship('User', backref=db.backref('vote_eligibility', lazy=True))
 
+class VoteCandidate(db.Model):
+    """Candidate in an election-style vote (GOV-HUB-3 Phase 2.4)."""
+    __tablename__ = 'vote_candidate'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    display_name = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(20), default='approved', nullable=False)  # approved, withdrawn
+    display_order = db.Column(db.Integer, default=0, nullable=False)  # randomized ballot order
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    vote = db.relationship('Vote', backref=db.backref('candidates', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('vote_candidacies', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('vote_id', 'user_id', name='unique_vote_candidate'),
+    )
+
+
 class Ballot(db.Model):
     """A single person's ballot cast in a vote."""
     __tablename__ = 'ballot'
@@ -2431,7 +2455,7 @@ class Ballot(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), nullable=False, index=True)
     person_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
-    choice = db.Column(db.String(10), nullable=False)
+    choice = db.Column(db.String(50), nullable=False)  # 'yes'|'no'|'abstain' or candidate_id for elections
     cast_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     __table_args__ = (
@@ -2481,49 +2505,68 @@ def close_vote(vote):
         return False, f"Cannot close vote in status '{vote.status}'"
     
     ballots = Ballot.query.filter_by(vote_id=vote.id).all()
-    
-    yes_count = sum(1 for b in ballots if b.choice == 'yes')
-    no_count = sum(1 for b in ballots if b.choice == 'no')
-    abstain_count = sum(1 for b in ballots if b.choice == 'abstain')
-    votes_cast = yes_count + no_count + abstain_count
-    
     eligible_count = VoteEligibilitySnapshot.query.filter_by(
         vote_id=vote.id, is_eligible=True
     ).count()
     
-    quorum_met = votes_cast >= vote.quorum_count
-    
-    if yes_count + no_count > 0:
-        yes_ratio = yes_count / (yes_count + no_count)
+    vote_type = getattr(vote, 'vote_type', None) or 'approval'
+    if vote_type == 'election':
+        # Election: choice = candidate_id (str); top N by seats win
+        from collections import Counter
+        candidate_votes = Counter(b.choice for b in ballots if b.choice and b.choice not in ('yes', 'no', 'abstain'))
+        votes_cast = len(ballots)
+        quorum_met = votes_cast >= vote.quorum_count
+        seats = getattr(vote, 'seats', 1) or 1
+        winners = [cid for cid, _ in candidate_votes.most_common(int(seats))]
+        vote.result = 'elected' if winners else 'no_quorum' if not quorum_met else 'no_winners'
+        vote.status = 'closed'
+        vote.closed_at = datetime.utcnow()
+        emit_event('vote_closed', actor_type='system', subject_type='vote', subject_id=vote.id,
+                   layer_id=vote.layer_id, payload={'result': vote.result, 'votes_cast': votes_cast, 'winners': winners})
+        vote.result_summary = json.dumps({
+            'eligible': eligible_count,
+            'votes_cast': votes_cast,
+            'candidate_totals': dict(candidate_votes),
+            'winners': winners,
+            'seats': seats,
+            'quorum_required': vote.quorum_count,
+            'quorum_met': quorum_met,
+            'result': vote.result
+        })
     else:
-        yes_ratio = 0.0
-    
-    if not quorum_met:
-        vote.result = 'no_quorum'
-    elif yes_ratio >= vote.win_threshold:
-        vote.result = 'passed'
-    else:
-        vote.result = 'failed'
-    
-    vote.status = 'closed'
-    vote.closed_at = datetime.utcnow()
-    emit_event('vote_closed', actor_type='system', subject_type='vote', subject_id=vote.id,
-               layer_id=vote.layer_id, payload={'result': vote.result, 'votes_cast': votes_cast})
-    vote.result_summary = json.dumps({
-        'eligible': eligible_count,
-        'votes_cast': votes_cast,
-        'yes': yes_count,
-        'no': no_count,
-        'abstain': abstain_count,
-        'quorum_required': vote.quorum_count,
-        'quorum_met': quorum_met,
-        'yes_ratio': round(yes_ratio, 4),
-        'win_threshold': vote.win_threshold,
-        'result': vote.result
-    })
+        yes_count = sum(1 for b in ballots if b.choice == 'yes')
+        no_count = sum(1 for b in ballots if b.choice == 'no')
+        abstain_count = sum(1 for b in ballots if b.choice == 'abstain')
+        votes_cast = yes_count + no_count + abstain_count
+        quorum_met = votes_cast >= vote.quorum_count
+        if yes_count + no_count > 0:
+            yes_ratio = yes_count / (yes_count + no_count)
+        else:
+            yes_ratio = 0.0
+        if not quorum_met:
+            vote.result = 'no_quorum'
+        elif yes_ratio >= vote.win_threshold:
+            vote.result = 'passed'
+        else:
+            vote.result = 'failed'
+        vote.status = 'closed'
+        vote.closed_at = datetime.utcnow()
+        emit_event('vote_closed', actor_type='system', subject_type='vote', subject_id=vote.id,
+                   layer_id=vote.layer_id, payload={'result': vote.result, 'votes_cast': votes_cast})
+        vote.result_summary = json.dumps({
+            'eligible': eligible_count,
+            'votes_cast': votes_cast,
+            'yes': yes_count,
+            'no': no_count,
+            'abstain': abstain_count,
+            'quorum_required': vote.quorum_count,
+            'quorum_met': quorum_met,
+            'yes_ratio': round(yes_ratio, 4),
+            'win_threshold': vote.win_threshold,
+            'result': vote.result
+        })
     
     db.session.commit()
-    
     print(f"[VOTE] Closed vote {vote.id} ({vote.title}) — result: {vote.result}")
     return True, vote.result
 
@@ -9490,6 +9533,96 @@ def api_quest_submit(quest_id):
         'quest_submission': {'id': qs.id, 'status': qs.status, 'artifact_id': artifact_id},
     }), 201
 
+
+# ================================================================
+# MONUMENT APIs (GOV-HUB-3 Phase 2.5)
+# ================================================================
+
+@app.route('/api/layers/<layer_id>/monuments/', methods=['GET', 'POST'])
+def api_layer_monuments(layer_id):
+    """List or create monuments for a layer (GOV-HUB-3 Phase 2.5)."""
+    Layer.query.get_or_404(layer_id)
+    if request.method == 'GET':
+        status_filter = request.args.get('status') or 'active'
+        monuments = Monument.query.filter_by(layer_id=layer_id).filter(
+            Monument.status == status_filter
+        ).order_by(Monument.created_at.desc()).all()
+        return jsonify({
+            'monuments': [{
+                'id': m.id, 'public_id': m.public_id, 'title': m.title, 'description': m.description,
+                'monument_type': m.monument_type, 'steward_user_id': m.steward_user_id,
+                'uri': m.uri, 'provenance': m.provenance, 'status': m.status,
+                'created_at': m.created_at.isoformat() if m.created_at else None,
+            } for m in monuments]
+        }), 200
+    # POST: create monument (requires auth)
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    data = request.get_json() or {}
+    monument = Monument(
+        layer_id=layer_id,
+        title=data.get('title') or 'Untitled Monument',
+        description=data.get('description'),
+        monument_type=data.get('monument_type', 'reference'),
+        steward_user_id=current_user.get('id'),
+        uri=data.get('uri'),
+        provenance=data.get('provenance'),
+        status='active',
+    )
+    db.session.add(monument)
+    db.session.flush()
+    emit_event('monument_created', actor_type='user', actor_id=current_user.get('id'),
+               subject_type='monument', subject_id=str(monument.id), layer_id=layer_id,
+               payload={'title': monument.title})
+    db.session.commit()
+    return jsonify({
+        'monument': {'id': monument.id, 'public_id': monument.public_id, 'title': monument.title},
+    }), 201
+
+
+@app.route('/api/monuments/<int:monument_id>/', methods=['GET'])
+def api_monument_detail(monument_id):
+    """Get a single monument."""
+    m = Monument.query.get_or_404(monument_id)
+    return jsonify({
+        'id': m.id, 'public_id': m.public_id, 'title': m.title, 'description': m.description,
+        'monument_type': m.monument_type, 'steward_user_id': m.steward_user_id,
+        'uri': m.uri, 'provenance': m.provenance, 'status': m.status, 'layer_id': m.layer_id,
+        'created_at': m.created_at.isoformat() if m.created_at else None,
+    }), 200
+
+
+@app.route('/api/monuments/<int:monument_id>/link-artifact/', methods=['POST'])
+def api_monument_link_artifact(monument_id):
+    """Link a monument to an artifact via ArtifactRelation (GOV-HUB-3 Phase 2.5)."""
+    monument = Monument.query.get_or_404(monument_id)
+    if monument.status != 'active':
+        return jsonify({'error': 'Monument is not active'}), 400
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    data = request.get_json() or {}
+    artifact_id = data.get('artifact_id')
+    if not artifact_id:
+        return jsonify({'error': 'artifact_id required'}), 400
+    Artifact.query.get_or_404(artifact_id)
+    relation_type = data.get('relation_type', 'references')  # monument references artifact
+    rel = ArtifactRelation(
+        from_object_type='monument',
+        from_object_id=str(monument.public_id),
+        to_object_type='artifact',
+        to_object_id=artifact_id,
+        relation_type=relation_type,
+        created_by_user_id=current_user.get('id'),
+    )
+    db.session.add(rel)
+    db.session.commit()
+    return jsonify({
+        'relation': {'id': rel.id, 'relation_type': relation_type, 'artifact_id': artifact_id},
+    }), 201
+
+
 @app.route('/api/artifacts/<artifact_id>/relations/', methods=['GET'])
 def api_artifact_relations(artifact_id):
     """List typed relations for an artifact (incoming and outgoing)."""
@@ -12808,7 +12941,7 @@ def api_create_vote(layer_id):
     if end_at <= start_at:
         return jsonify({'error': 'End time must be after start time'}), 400
     
-    # Create vote (GOV-HUB-3: set artifact_id from submission when available)
+    # Create vote (GOV-HUB-3: set artifact_id from submission when available; Phase 2.4: election fields)
     vote = Vote(
         layer_id=layer_id,
         submission_id=submission_id,
@@ -12820,7 +12953,10 @@ def api_create_vote(layer_id):
         end_at=end_at,
         quorum_count=quorum_count,
         win_threshold=win_threshold,
-        status='scheduled'
+        status='scheduled',
+        vote_type=data.get('vote_type') or 'approval',
+        role_id=data.get('role_id'),
+        seats=max(1, int(data.get('seats', 1))),
     )
     
     db.session.add(vote)
@@ -12893,6 +13029,16 @@ def api_get_vote(vote_id):
         except:
             pass
     
+    # Candidates for election-type votes (GOV-HUB-3 Phase 2.4)
+    candidates = []
+    if getattr(vote, 'vote_type', 'approval') == 'election':
+        for c in vote.candidates.filter(VoteCandidate.status == 'approved').order_by(VoteCandidate.display_order, VoteCandidate.id):
+            u = User.query.get(c.user_id)
+            candidates.append({
+                'id': c.id, 'user_id': c.user_id,
+                'display_name': c.display_name or (u.displayName or u.username if u else str(c.user_id)),
+            })
+
     return jsonify({
         'id': vote.id,
         'public_id': vote.public_id,
@@ -12903,6 +13049,10 @@ def api_get_vote(vote_id):
         'status': vote.status,
         'result': vote.result,
         'result_summary': result_summary,
+        'vote_type': getattr(vote, 'vote_type', 'approval'),
+        'role_id': getattr(vote, 'role_id', None),
+        'seats': getattr(vote, 'seats', 1),
+        'candidates': candidates,
         'start_at': vote.start_at.isoformat() if vote.start_at else None,
         'end_at': vote.end_at.isoformat() if vote.end_at else None,
         'quorum_count': vote.quorum_count,
