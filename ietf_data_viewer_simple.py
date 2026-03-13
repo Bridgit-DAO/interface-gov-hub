@@ -234,6 +234,7 @@ def generate_hypothesis_config(document_name=None, document_type='draft'):
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, send_from_directory, jsonify, g, make_response
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import event
 import os
 import re
 from dotenv import load_dotenv
@@ -968,6 +969,10 @@ class Submission(db.Model):
     rfc_number = db.Column(db.Integer, nullable=True)  # RFC number when status='published'
     # Immortalize wizard: link to inscription order when status='inscription_pending'
     inscription_order_id = db.Column(db.String(36), nullable=True, index=True)
+    # Artifact-first (GOV-HUB-3): link to central artifact
+    artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)
+
+    artifact = db.relationship('Artifact', backref=db.backref('submissions', lazy='dynamic'), foreign_keys=[artifact_id])
 
 
 class SiteConfig(db.Model):
@@ -2196,6 +2201,83 @@ class EventLog(db.Model):
     )
 
 
+# ================================================================
+# ARTIFACT + ARTIFACT RELATION (GOV-HUB-3 — Artifact-First Architecture)
+# ================================================================
+
+class Artifact(db.Model):
+    """Central knowledge object. Submission is linked via artifact_id (subtype semantics)."""
+    __tablename__ = 'artifact'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True, index=True)
+    creator_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    artifact_type = db.Column(db.String(50), nullable=False, index=True)  # submission, reflection, etc.
+    title = db.Column(db.String(255), nullable=True)
+    summary = db.Column(db.Text, nullable=True)
+    uri = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(20), default='draft', nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    layer = db.relationship('Layer', backref=db.backref('artifacts', lazy='dynamic'))
+    creator = db.relationship('User', backref=db.backref('created_artifacts', lazy='dynamic'))
+
+
+class ArtifactRelation(db.Model):
+    """Typed relationships between artifacts. Backbone of the artifact graph."""
+    __tablename__ = 'artifact_relation'
+
+    id = db.Column(db.Integer, primary_key=True)
+    from_object_type = db.Column(db.String(50), nullable=False, index=True)
+    from_object_id = db.Column(db.String(100), nullable=False, index=True)
+    to_object_type = db.Column(db.String(50), nullable=False, index=True)
+    to_object_id = db.Column(db.String(100), nullable=False, index=True)
+    relation_type = db.Column(db.String(50), nullable=False, index=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    created_by = db.relationship('User', backref=db.backref('artifact_relations_created', lazy='dynamic'))
+
+    __table_args__ = (
+        db.Index('idx_artifact_relation_from', 'from_object_type', 'from_object_id'),
+        db.Index('idx_artifact_relation_to', 'to_object_type', 'to_object_id'),
+    )
+
+
+def _ensure_artifact_for_submission(submission):
+    """Create Artifact for a new Submission (GOV-HUB-3). Idempotent if artifact_id already set."""
+    if submission.artifact_id:
+        return
+    art = Artifact(
+        layer_id=submission.layer_id,
+        creator_user_id=None,
+        artifact_type='submission',
+        title=submission.title or f"Draft {submission.id}",
+        summary=submission.abstract,
+        uri=None,
+        status=submission.status or 'submitted',
+        created_at=submission.submitted_at,
+    )
+    db.session.add(art)
+    db.session.flush()
+    submission.artifact_id = art.id
+    emit_event('artifact_created', subject_type='artifact', subject_id=art.id,
+               layer_id=art.layer_id, payload={'submission_id': submission.id, 'artifact_type': 'submission'})
+
+
+@event.listens_for(Submission, 'before_insert')
+def _on_submission_before_insert(mapper, connection, target):
+    """Auto-create Artifact for new Submissions (GOV-HUB-3). Runs before INSERT so artifact_id is set."""
+    if target.artifact_id:
+        return
+    try:
+        _ensure_artifact_for_submission(target)
+    except Exception as e:
+        if app:
+            app.logger.warning(f"[Artifact] Failed to create artifact for submission {target.id}: {e}")
+
+
 def emit_event(event_type, actor_type='user', actor_id=None, subject_type=None, subject_id=None,
                layer_id=None, payload=None):
     """Append an event to the EventLog. Call before db.session.commit()."""
@@ -2228,6 +2310,7 @@ class Vote(db.Model):
     
     layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     submission_id = db.Column(db.String(8), db.ForeignKey('submission.id'), nullable=False, index=True)
+    artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     
     title = db.Column(db.String(255), nullable=False)
@@ -2249,6 +2332,7 @@ class Vote(db.Model):
     # Relationships
     layer = db.relationship('Layer', backref=db.backref('votes', lazy=True))
     submission = db.relationship('Submission', backref=db.backref('votes', lazy=True))
+    artifact = db.relationship('Artifact', backref=db.backref('votes', lazy='dynamic'), foreign_keys=[artifact_id])
     created_by = db.relationship('User', backref='created_votes')
 
 class VoteEligibilitySnapshot(db.Model):
@@ -6390,6 +6474,12 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <div class="col-sm-3"><strong>Draft ID:</strong></div>
                         <div class="col-sm-9"><code>{{ submission_id }}</code></div>
                     </div>
+                    {% if artifact_id and artifact_layer_slug %}
+                    <div class="row mb-3">
+                        <div class="col-sm-3"><strong>Artifact:</strong></div>
+                        <div class="col-sm-9"><a href="/layers/{{ artifact_layer_slug }}/artifacts/{{ artifact_id }}/" class="btn btn-outline-secondary btn-sm">View Artifact</a></div>
+                    </div>
+                    {% endif %}
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>Submitted:</strong></div>
                         <div class="col-sm-9">{{ submission_submitted_at }}</div>
@@ -6966,7 +7056,10 @@ def submission_detail(submission_id):
         'is_revision': getattr(submission, 'is_revision', False),
         'parent_draft_name': getattr(submission, 'parent_draft_name', ''),
         'revision_number': getattr(submission, 'revision_number', ''),
-        'what_changed': getattr(submission, 'what_changed', '')
+        'what_changed': getattr(submission, 'what_changed', ''),
+        # Artifact (GOV-HUB-3)
+        'artifact_id': getattr(submission, 'artifact_id', None),
+        'artifact_layer_slug': Layer.query.get(submission.layer_id).slug if submission.layer_id and getattr(submission, 'artifact_id', None) else None,
     }
     
     # Render the submission status template using Flask's Jinja2 engine
@@ -9074,6 +9167,78 @@ def api_layer_activity(layer_id):
         'count': len(events)
     }), 200
 
+ARTIFACT_RELATION_TYPES = frozenset(['builds_on', 'references', 'supports', 'opposes', 'amends', 'implements', 'awarded_for'])
+
+@app.route('/api/layers/<layer_id>/artifact-relations/', methods=['POST'])
+@require_auth
+def api_create_artifact_relation(layer_id):
+    """Create a typed link between artifacts (GOV-HUB-3)."""
+    current_user_data = get_current_user()
+    if not current_user_data:
+        return jsonify({'error': 'Authentication required'}), 401
+    data = request.get_json() or {}
+    from_type = data.get('from_object_type')
+    from_id = data.get('from_object_id')
+    to_type = data.get('to_object_type')
+    to_id = data.get('to_object_id')
+    relation_type = data.get('relation_type')
+    if not all([from_type, from_id, to_type, to_id, relation_type]):
+        return jsonify({'error': 'from_object_type, from_object_id, to_object_type, to_object_id, relation_type required'}), 400
+    if relation_type not in ARTIFACT_RELATION_TYPES:
+        return jsonify({'error': f'relation_type must be one of: {sorted(ARTIFACT_RELATION_TYPES)}'}), 400
+    Layer.query.get_or_404(layer_id)
+    rel = ArtifactRelation(
+        from_object_type=from_type,
+        from_object_id=str(from_id),
+        to_object_type=to_type,
+        to_object_id=str(to_id),
+        relation_type=relation_type,
+        created_by_user_id=current_user_data['id'],
+    )
+    db.session.add(rel)
+    db.session.flush()
+    emit_event('artifact_linked', actor_type='user', actor_id=current_user_data['id'],
+               subject_type='artifact_relation', subject_id=rel.id, layer_id=layer_id,
+               payload={'from': f'{from_type}:{from_id}', 'to': f'{to_type}:{to_id}', 'relation_type': relation_type})
+    db.session.commit()
+    return jsonify({
+        'id': rel.id,
+        'from_object_type': rel.from_object_type,
+        'from_object_id': rel.from_object_id,
+        'to_object_type': rel.to_object_type,
+        'to_object_id': rel.to_object_id,
+        'relation_type': rel.relation_type,
+        'created_at': rel.created_at.isoformat() if rel.created_at else None,
+    }), 201
+
+@app.route('/api/artifacts/<artifact_id>/relations/', methods=['GET'])
+def api_artifact_relations(artifact_id):
+    """List typed relations for an artifact (incoming and outgoing)."""
+    Artifact.query.get_or_404(artifact_id)
+    outgoing = ArtifactRelation.query.filter(
+        ArtifactRelation.from_object_type == 'artifact',
+        ArtifactRelation.from_object_id == artifact_id,
+    ).order_by(ArtifactRelation.created_at.desc()).all()
+    incoming = ArtifactRelation.query.filter(
+        ArtifactRelation.to_object_type == 'artifact',
+        ArtifactRelation.to_object_id == artifact_id,
+    ).order_by(ArtifactRelation.created_at.desc()).all()
+    def _row(r, direction):
+        return {
+            'id': r.id,
+            'direction': direction,
+            'from_object_type': r.from_object_type,
+            'from_object_id': r.from_object_id,
+            'to_object_type': r.to_object_type,
+            'to_object_id': r.to_object_id,
+            'relation_type': r.relation_type,
+            'created_at': r.created_at.isoformat() if r.created_at else None,
+        }
+    return jsonify({
+        'outgoing': [_row(r, 'outgoing') for r in outgoing],
+        'incoming': [_row(r, 'incoming') for r in incoming],
+    }), 200
+
 @app.route('/api/layers/<layer_id>/members/', methods=['GET'])
 def api_list_project_members(layer_id):
     """List project members"""
@@ -9771,9 +9936,11 @@ def waitlist_confirm(token):
     
     signup.verified_at = datetime.utcnow()
     signup.verification_token = None  # One-time use
-    db.session.commit()
-    
     waitlist = Waitlist.query.get_or_404(signup.waitlist_id)
+    emit_event('waitlist_joined', actor_type='email', actor_id=None,
+               subject_type='waitlist', subject_id=str(signup.waitlist_id), layer_id=waitlist.layer_id,
+               payload={'waitlist_name': waitlist.name, 'position': signup.position})
+    db.session.commit()
     project = Layer.query.get_or_404(waitlist.layer_id)
     
     return f"""<!DOCTYPE html>
@@ -9834,6 +10001,9 @@ def api_join_waitlist(waitlist_id):
         
         entry = WaitlistEntry(waitlist_id=waitlist_id, user_id=current_user['id'], message=message, position=count + 1, referred_by_id=referred_by_id, referral_code=referral_code, source=source, source_url=source_url)
         db.session.add(entry)
+        emit_event('waitlist_joined', actor_type='user', actor_id=current_user['id'],
+                   subject_type='waitlist', subject_id=str(waitlist_id), layer_id=waitlist.layer_id,
+                   payload={'waitlist_name': waitlist.name, 'position': count + 1})
         db.session.commit()
     
     entry = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id'], left_at=None).first()
@@ -9851,6 +10021,9 @@ def api_leave_waitlist(waitlist_id):
     if not entry:
         return jsonify({'error': 'Not on waitlist'}), 404
     entry.left_at = datetime.utcnow()
+    emit_event('waitlist_left', actor_type='user', actor_id=current_user['id'],
+               subject_type='waitlist', subject_id=str(waitlist_id), layer_id=waitlist.layer_id,
+               payload={'waitlist_name': waitlist.name})
     db.session.commit()
     return jsonify({'message': 'Left waitlist'}), 200
 
@@ -12356,10 +12529,11 @@ def api_create_vote(layer_id):
     if end_at <= start_at:
         return jsonify({'error': 'End time must be after start time'}), 400
     
-    # Create vote
+    # Create vote (GOV-HUB-3: set artifact_id from submission when available)
     vote = Vote(
         layer_id=layer_id,
         submission_id=submission_id,
+        artifact_id=submission.artifact_id,
         created_by_id=current_user['id'],
         title=title,
         description=description or None,
@@ -20922,6 +21096,10 @@ def _render_project_detail(project_slug, waitlist_id=None):
             case 'vote_closed': text = 'Vote closed' + (p.result ? ' (' + p.result + ')' : ''); tabId = 'votes'; break;
             case 'ballot_cast': text = who + ' cast a ballot'; break;
             case 'layer_config_changed': text = who + ' updated layer settings'; break;
+            case 'waitlist_joined': text = (ev.actor_type === 'email' ? 'Someone' : who) + ' joined waitlist' + (p.waitlist_name ? ': ' + p.waitlist_name : ''); break;
+            case 'waitlist_left': text = who + ' left waitlist' + (p.waitlist_name ? ': ' + p.waitlist_name : ''); break;
+            case 'artifact_created': text = (p.artifact_type === 'submission' ? 'A draft was submitted' : 'New artifact created') + (p.submission_id ? '' : ''); break;
+            case 'artifact_linked': text = who + ' linked artifacts' + (p.relation_type ? ' (' + p.relation_type + ')' : ''); break;
             default: text = ev.event_type.replace(/_/g, ' ');
         }}
         return {{ text, tabId, timeAgo: timeAgo(ev.created_at) }};
@@ -22879,6 +23057,101 @@ def layer_detail(layer_slug):
 def layer_detail_waitlist(layer_slug, waitlist_id):
     """Layer detail with specific waitlist tab (for referral links)"""
     return _render_project_detail(layer_slug, waitlist_id=waitlist_id)
+
+@app.route('/layers/<layer_slug>/artifacts/<artifact_id>/')
+def artifact_detail(layer_slug, artifact_id):
+    """Artifact detail page (GOV-HUB-3 Phase 1.4): provenance, relations, link to submission."""
+    import html as html_mod
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+    layer = Layer.query.filter_by(slug=layer_slug).first()
+    if not layer:
+        layer = Layer.query.get(layer_slug)
+    if not layer:
+        return "Layer not found", 404
+    artifact = Artifact.query.get(artifact_id)
+    if not artifact:
+        return "Artifact not found", 404
+    if artifact.layer_id != layer.id:
+        return "Artifact not in this layer", 404
+    outgoing = ArtifactRelation.query.filter(
+        ArtifactRelation.from_object_type == 'artifact',
+        ArtifactRelation.from_object_id == artifact_id,
+    ).order_by(ArtifactRelation.created_at.desc()).all()
+    incoming = ArtifactRelation.query.filter(
+        ArtifactRelation.to_object_type == 'artifact',
+        ArtifactRelation.to_object_id == artifact_id,
+    ).order_by(ArtifactRelation.created_at.desc()).all()
+    submission = Submission.query.filter_by(artifact_id=artifact_id).first()
+    creator_name = None
+    if artifact.creator_user_id:
+        u = User.query.get(artifact.creator_user_id)
+        creator_name = (u.displayName or u.username or u.oauthName) if u else None
+    title_esc = html_mod.escape(artifact.title or 'Untitled')
+    summary_esc = html_mod.escape(artifact.summary or '') if artifact.summary else ''
+    layer_name_esc = html_mod.escape(layer.name or layer_slug)
+    rel_types = {'builds_on': 'Builds on', 'references': 'References', 'supports': 'Supports', 'opposes': 'Opposes', 'amends': 'Amends', 'implements': 'Implements', 'awarded_for': 'Awarded for'}
+    def rel_row(r, direction):
+        lbl = rel_types.get(r.relation_type, r.relation_type)
+        if direction == 'outgoing' and r.to_object_type == 'artifact':
+            return f'<li class="list-group-item d-flex justify-content-between"><span>{lbl}</span><a href="/layers/{layer_slug}/artifacts/{r.to_object_id}/" class="text-primary">{r.to_object_id[:8]}...</a></li>'
+        if direction == 'incoming' and r.from_object_type == 'artifact':
+            return f'<li class="list-group-item d-flex justify-content-between"><span>{lbl}</span><a href="/layers/{layer_slug}/artifacts/{r.from_object_id}/" class="text-primary">{r.from_object_id[:8]}...</a></li>'
+        target = f"{r.to_object_type}:{r.to_object_id}" if direction == 'outgoing' else f"{r.from_object_type}:{r.from_object_id}"
+        return f'<li class="list-group-item"><span>{lbl}</span> <code>{target[:40]}</code></li>'
+    outgoing_html = ''.join(rel_row(r, 'outgoing') for r in outgoing) if outgoing else '<li class="list-group-item text-muted">No outgoing relations</li>'
+    incoming_html = ''.join(rel_row(r, 'incoming') for r in incoming) if incoming else '<li class="list-group-item text-muted">No incoming relations</li>'
+    submission_link = f'<a href="/submit/status/{submission.id}/" class="btn btn-outline-primary btn-sm">View Submission</a>' if submission else ''
+    summary_block = f'<p class="lead">{summary_esc}</p>' if summary_esc else ''
+    creator_block = f'<li>Creator: {html_mod.escape(creator_name)}</li>' if creator_name else ''
+    status_badge = 'success' if artifact.status == 'approved' else 'warning' if artifact.status == 'submitted' else 'secondary'
+    created_str = artifact.created_at.strftime('%Y-%m-%d %H:%M') if artifact.created_at else '—'
+    content = f'''
+<div class="container mt-4">
+    <nav aria-label="breadcrumb"><ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/layers/">Layers</a></li>
+        <li class="breadcrumb-item"><a href="/layers/{layer_slug}/">{layer_name_esc}</a></li>
+        <li class="breadcrumb-item active">Artifact</li>
+    </ol></nav>
+    <div class="row">
+        <div class="col-lg-8">
+            <h1>{title_esc}</h1>
+            <p class="text-muted"><span class="badge bg-secondary">{artifact.artifact_type}</span> <span class="badge bg-{status_badge}">{artifact.status}</span></p>
+            {summary_block}
+            <div class="mb-4">
+                <h5>Provenance</h5>
+                <ul class="list-unstyled">
+                    <li>Created: {created_str}</li>
+                    {creator_block}
+                </ul>
+            </div>
+            <div class="mb-4">
+                <h5>Relations</h5>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Outgoing</h6>
+                        <ul class="list-group list-group-flush">{outgoing_html}</ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Incoming</h6>
+                        <ul class="list-group list-group-flush">{incoming_html}</ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title">Links</h6>
+                    {submission_link}
+                    <a href="/api/artifacts/{artifact_id}/relations/" class="btn btn-outline-secondary btn-sm mt-2">API: Relations</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+'''
+    return render_page(f"{title_esc} - Artifact", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/layers/create/')
 @require_auth
