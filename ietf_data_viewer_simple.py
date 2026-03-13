@@ -9211,6 +9211,122 @@ def api_create_artifact_relation(layer_id):
         'created_at': rel.created_at.isoformat() if rel.created_at else None,
     }), 201
 
+@app.route('/api/artifacts/<artifact_id>/support/', methods=['POST'])
+@require_auth
+def api_add_support_artifact(artifact_id):
+    """Create a support artifact and link to proposal (GOV-HUB-3 structured opposition)."""
+    current_user_data = get_current_user()
+    if not current_user_data:
+        return jsonify({'error': 'Authentication required'}), 401
+    proposal = Artifact.query.get_or_404(artifact_id)
+    if not proposal.layer_id:
+        return jsonify({'error': 'Artifact has no layer'}), 400
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip() or f"Support for {proposal.title or 'proposal'}"
+    summary = (data.get('summary') or '').strip() or None
+    support = Artifact(
+        layer_id=proposal.layer_id,
+        creator_user_id=current_user_data['id'],
+        artifact_type='support',
+        title=title,
+        summary=summary,
+        status='published',
+    )
+    db.session.add(support)
+    db.session.flush()
+    rel = ArtifactRelation(
+        from_object_type='artifact',
+        from_object_id=support.id,
+        to_object_type='artifact',
+        to_object_id=artifact_id,
+        relation_type='supports',
+        created_by_user_id=current_user_data['id'],
+    )
+    db.session.add(rel)
+    emit_event('artifact_created', actor_type='user', actor_id=current_user_data['id'],
+               subject_type='artifact', subject_id=support.id, layer_id=proposal.layer_id,
+               payload={'artifact_type': 'support', 'proposal_id': artifact_id})
+    emit_event('artifact_linked', actor_type='user', actor_id=current_user_data['id'],
+               subject_type='artifact_relation', subject_id=rel.id, layer_id=proposal.layer_id,
+               payload={'from': f'artifact:{support.id}', 'to': f'artifact:{artifact_id}', 'relation_type': 'supports'})
+    db.session.commit()
+    return jsonify({
+        'artifact': {'id': support.id, 'title': support.title, 'summary': support.summary},
+        'relation': {'id': rel.id, 'relation_type': 'supports'},
+    }), 201
+
+@app.route('/api/artifacts/<artifact_id>/opposition/', methods=['POST'])
+@require_auth
+def api_add_opposition_artifact(artifact_id):
+    """Create an opposition artifact and link to proposal (GOV-HUB-3 structured opposition)."""
+    current_user_data = get_current_user()
+    if not current_user_data:
+        return jsonify({'error': 'Authentication required'}), 401
+    proposal = Artifact.query.get_or_404(artifact_id)
+    if not proposal.layer_id:
+        return jsonify({'error': 'Artifact has no layer'}), 400
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip() or f"Opposition to {proposal.title or 'proposal'}"
+    summary = (data.get('summary') or '').strip() or None
+    opposition = Artifact(
+        layer_id=proposal.layer_id,
+        creator_user_id=current_user_data['id'],
+        artifact_type='opposition',
+        title=title,
+        summary=summary,
+        status='published',
+    )
+    db.session.add(opposition)
+    db.session.flush()
+    rel = ArtifactRelation(
+        from_object_type='artifact',
+        from_object_id=opposition.id,
+        to_object_type='artifact',
+        to_object_id=artifact_id,
+        relation_type='opposes',
+        created_by_user_id=current_user_data['id'],
+    )
+    db.session.add(rel)
+    emit_event('artifact_created', actor_type='user', actor_id=current_user_data['id'],
+               subject_type='artifact', subject_id=opposition.id, layer_id=proposal.layer_id,
+               payload={'artifact_type': 'opposition', 'proposal_id': artifact_id})
+    emit_event('artifact_linked', actor_type='user', actor_id=current_user_data['id'],
+               subject_type='artifact_relation', subject_id=rel.id, layer_id=proposal.layer_id,
+               payload={'from': f'artifact:{opposition.id}', 'to': f'artifact:{artifact_id}', 'relation_type': 'opposes'})
+    db.session.commit()
+    return jsonify({
+        'artifact': {'id': opposition.id, 'title': opposition.title, 'summary': opposition.summary},
+        'relation': {'id': rel.id, 'relation_type': 'opposes'},
+    }), 201
+
+@app.route('/api/layers/<layer_id>/opportunities/', methods=['GET'])
+def api_layer_opportunities(layer_id):
+    """Drafts missing support or opposition (GOV-HUB-3 Phase 2.2 opportunity surfaces)."""
+    Layer.query.get_or_404(layer_id)
+    artifacts = Artifact.query.filter_by(layer_id=layer_id, artifact_type='submission').all()
+    missing_support = []
+    missing_opposition = []
+    for a in artifacts:
+        incoming = ArtifactRelation.query.filter(
+            ArtifactRelation.to_object_type == 'artifact',
+            ArtifactRelation.to_object_id == a.id,
+        ).all()
+        has_support = any(r.relation_type == 'supports' for r in incoming)
+        has_opposition = any(r.relation_type == 'opposes' for r in incoming)
+        sub = Submission.query.filter_by(artifact_id=a.id).first()
+        draft_id = sub.id if sub else a.id
+        layer = Layer.query.get(layer_id)
+        layer_slug = layer.slug if layer else layer_id
+        item = {'id': a.id, 'title': a.title or 'Untitled', 'draft_id': draft_id, 'layer_slug': layer_slug}
+        if not has_support:
+            missing_support.append(item)
+        if not has_opposition:
+            missing_opposition.append(item)
+    return jsonify({
+        'missing_support': missing_support,
+        'missing_opposition': missing_opposition,
+    }), 200
+
 @app.route('/api/artifacts/<artifact_id>/relations/', methods=['GET'])
 def api_artifact_relations(artifact_id):
     """List typed relations for an artifact (incoming and outgoing)."""
@@ -16560,6 +16676,84 @@ Meta-Layer Initiative
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
+    # Support & Opposition (GOV-HUB-3) - when draft has linked artifact
+    import html as html_mod
+    # Resolve submission for artifact link (draft may come from DRAFTS or Submission)
+    _sub = submission
+    if not _sub and draft:
+        _sub = Submission.query.filter_by(id=draft.get('name')).first() or \
+               Submission.query.filter_by(ml_number=draft.get('name')).first() or \
+               Submission.query.filter_by(ml_number=draft.get('ml_number')).first() or \
+               Submission.query.filter_by(id=draft_name).first() or \
+               Submission.query.filter_by(ml_number=draft_name).first()
+    artifact_id = getattr(_sub, 'artifact_id', None) if _sub else None
+    layer_slug = None
+    supports = []
+    opposes = []
+    support_oppose_card_html = ''
+    if artifact_id:
+        artifact = Artifact.query.get(artifact_id)
+        if artifact and artifact.layer_id:
+            layer = Layer.query.get(artifact.layer_id)
+            layer_slug = layer.slug if layer else None
+            incoming = ArtifactRelation.query.filter(
+                ArtifactRelation.to_object_type == 'artifact',
+                ArtifactRelation.to_object_id == artifact_id,
+            ).all()
+            supports = [r for r in incoming if r.relation_type == 'supports']
+            opposes = [r for r in incoming if r.relation_type == 'opposes']
+            def _so_row(r):
+                a = Artifact.query.get(r.from_object_id)
+                t = (a.title or a.id[:8]) if a else r.from_object_id[:8]
+                return f'<li class="list-group-item list-group-item-action"><a href="/layers/{layer_slug}/artifacts/{r.from_object_id}/" class="text-decoration-none">{html_mod.escape(str(t)[:50])}</a></li>'
+            supports_li = ''.join(_so_row(r) for r in supports) if supports else '<li class="list-group-item text-muted small">No support yet</li>'
+            opposes_li = ''.join(_so_row(r) for r in opposes) if opposes else '<li class="list-group-item text-muted small">No opposition yet</li>'
+            if current_user:
+                add_btns = f'''
+                    <div class="d-flex gap-2 mt-2">
+                        <button type="button" class="btn btn-outline-success btn-sm flex-grow-1" data-bs-toggle="modal" data-bs-target="#addSupportModal"><i class="fas fa-thumbs-up me-1"></i>Add support</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm flex-grow-1" data-bs-toggle="modal" data-bs-target="#addOppositionModal"><i class="fas fa-thumbs-down me-1"></i>Add opposition</button>
+                    </div>
+                    <div class="modal fade" id="addSupportModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+                        <div class="modal-header"><h5 class="modal-title">Add support</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                        <div class="modal-body">
+                            <div class="mb-2"><label class="form-label">Title</label><input type="text" class="form-control" id="support-title" placeholder="Support for this proposal"></div>
+                            <div class="mb-2"><label class="form-label">Summary (optional)</label><textarea class="form-control" id="support-summary" rows="2"></textarea></div>
+                            <div id="support-alert" class="alert d-none"></div>
+                        </div>
+                        <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-success" id="support-submit-btn">Add support</button></div>
+                    </div></div></div>
+                    <div class="modal fade" id="addOppositionModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+                        <div class="modal-header"><h5 class="modal-title">Add opposition</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                        <div class="modal-body">
+                            <div class="mb-2"><label class="form-label">Title</label><input type="text" class="form-control" id="opposition-title" placeholder="Opposition to this proposal"></div>
+                            <div class="mb-2"><label class="form-label">Summary (optional)</label><textarea class="form-control" id="opposition-summary" rows="2"></textarea></div>
+                            <div id="opposition-alert" class="alert d-none"></div>
+                        </div>
+                        <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-danger" id="opposition-submit-btn">Add opposition</button></div>
+                    </div></div></div>
+                    <script>
+                    (function(){{const aid='{artifact_id}';
+                    document.getElementById('support-submit-btn').addEventListener('click',async function(){{const btn=this;btn.disabled=true;const alert=document.getElementById('support-alert');alert.classList.add('d-none');try{{const r=await fetch('/api/artifacts/'+aid+'/support/',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{title:document.getElementById('support-title').value,summary:document.getElementById('support-summary').value}}),credentials:'same-origin'}});const d=await r.json();if(r.ok)location.reload();else{{alert.textContent=d.error||'Failed';alert.className='alert alert-danger';alert.classList.remove('d-none');}}}}catch(e){{alert.textContent=e.message;alert.className='alert alert-danger';alert.classList.remove('d-none');}}btn.disabled=false;}});
+                    document.getElementById('opposition-submit-btn').addEventListener('click',async function(){{const btn=this;btn.disabled=true;const alert=document.getElementById('opposition-alert');alert.classList.add('d-none');try{{const r=await fetch('/api/artifacts/'+aid+'/opposition/',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{title:document.getElementById('opposition-title').value,summary:document.getElementById('opposition-summary').value}}),credentials:'same-origin'}});const d=await r.json();if(r.ok)location.reload();else{{alert.textContent=d.error||'Failed';alert.className='alert alert-danger';alert.classList.remove('d-none');}}}}catch(e){{alert.textContent=e.message;alert.className='alert alert-danger';alert.classList.remove('d-none');}}btn.disabled=false;}});
+                    }})();
+                    </script>
+'''
+            else:
+                add_btns = '<p class="small text-muted mt-2 mb-0"><a href="/login/">Sign in</a> to add support or opposition.</p>'
+            support_oppose_card_html = f'''
+                <div class="card mt-3">
+                    <div class="card-header"><h5>Support &amp; Opposition</h5></div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            <div class="col-6"><h6 class="text-success small">Support ({len(supports)})</h6><ul class="list-group list-group-flush small">{supports_li}</ul></div>
+                            <div class="col-6"><h6 class="text-danger small">Opposition ({len(opposes)})</h6><ul class="list-group list-group-flush small">{opposes_li}</ul></div>
+                        </div>
+                        {add_btns}
+                        <a href="/layers/{layer_slug}/artifacts/{artifact_id}/" class="btn btn-outline-secondary btn-sm mt-2 w-100">View full artifact</a>
+                    </div>
+                </div>
+'''
     # Show ML number only if approved, otherwise show submission ID
     if draft.get('status') == 'approved' and draft.get('ml_number'):
         display_id = draft.get('ml_number')
@@ -16638,6 +16832,7 @@ Meta-Layer Initiative
             </div>
             
             <div class="col-md-4">
+                {support_oppose_card_html}
                 <div class="card">
                     <div class="card-header">
                         <h5>Actions</h5>
@@ -21059,6 +21254,16 @@ def _render_project_detail(project_slug, waitlist_id=None):
             <div class="row">
                 <div class="col-12">
                     <div class="card mb-4">
+                        <div class="card-header"><h5 class="mb-0"><i class="fas fa-bullseye me-2"></i>Opportunities</h5></div>
+                        <div class="card-body">
+                            <div id="opportunities-container"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <div class="card mb-4">
                         <div class="card-header"><h5 class="mb-0"><i class="fas fa-stream me-2"></i>Recent Activity</h5></div>
                         <div class="card-body">
                             <div id="activity-feed-container"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>
@@ -21069,7 +21274,49 @@ def _render_project_detail(project_slug, waitlist_id=None):
         `;
         
         loadRolesCounts();
+        loadOpportunities();
         loadActivityFeed();
+    }}
+    
+    async function loadOpportunities() {{
+        const container = document.getElementById('opportunities-container');
+        if (!container || !project) return;
+        try {{
+            const res = await fetch(`/api/layers/${{project.id}}/opportunities/`);
+            const data = await res.json();
+            if (!res.ok) {{
+                container.innerHTML = '<p class="text-muted small">Unable to load opportunities.</p>';
+                return;
+            }}
+            const ms = data.missing_support || [];
+            const mo = data.missing_opposition || [];
+            if (ms.length === 0 && mo.length === 0) {{
+                container.innerHTML = '<p class="text-muted small mb-0">All drafts have support and opposition. Great participation!</p>';
+                return;
+            }}
+            let html = '<div class="row">';
+            if (ms.length > 0) {{
+                html += '<div class="col-md-6"><h6 class="text-success"><i class="fas fa-thumbs-up me-1"></i>Drafts needing support</h6><ul class="list-unstyled small">';
+                ms.slice(0, 5).forEach(a => {{
+                    html += '<li class="mb-1"><a href="/doc/draft/' + (a.draft_id || a.id) + '/" class="text-decoration-none">' + escapeHtmlBasic(a.title || 'Untitled') + '</a></li>';
+                }});
+                if (ms.length > 5) html += '<li class="text-muted">+' + (ms.length - 5) + ' more</li>';
+                html += '</ul></div>';
+            }}
+            if (mo.length > 0) {{
+                html += '<div class="col-md-6"><h6 class="text-danger"><i class="fas fa-thumbs-down me-1"></i>Drafts needing opposition</h6><ul class="list-unstyled small">';
+                mo.slice(0, 5).forEach(a => {{
+                    html += '<li class="mb-1"><a href="/doc/draft/' + (a.draft_id || a.id) + '/" class="text-decoration-none">' + escapeHtmlBasic(a.title || 'Untitled') + '</a></li>';
+                }});
+                if (mo.length > 5) html += '<li class="text-muted">+' + (mo.length - 5) + ' more</li>';
+                html += '</ul></div>';
+            }}
+            html += '</div>';
+            container.innerHTML = html;
+        }} catch (err) {{
+            console.error('loadOpportunities:', err);
+            container.innerHTML = '<p class="text-muted small">Unable to load opportunities.</p>';
+        }}
     }}
     
     function formatActivityEvent(ev) {{
@@ -21098,7 +21345,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             case 'layer_config_changed': text = who + ' updated layer settings'; break;
             case 'waitlist_joined': text = (ev.actor_type === 'email' ? 'Someone' : who) + ' joined waitlist' + (p.waitlist_name ? ': ' + p.waitlist_name : ''); break;
             case 'waitlist_left': text = who + ' left waitlist' + (p.waitlist_name ? ': ' + p.waitlist_name : ''); break;
-            case 'artifact_created': text = (p.artifact_type === 'submission' ? 'A draft was submitted' : 'New artifact created') + (p.submission_id ? '' : ''); break;
+            case 'artifact_created': text = p.artifact_type === 'submission' ? 'A draft was submitted' : p.artifact_type === 'support' ? who + ' added support' : p.artifact_type === 'opposition' ? who + ' added opposition' : 'New artifact created'; break;
             case 'artifact_linked': text = who + ' linked artifacts' + (p.relation_type ? ' (' + p.relation_type + ')' : ''); break;
             default: text = ev.event_type.replace(/_/g, ' ');
         }}
@@ -23082,7 +23329,18 @@ def artifact_detail(layer_slug, artifact_id):
         ArtifactRelation.to_object_type == 'artifact',
         ArtifactRelation.to_object_id == artifact_id,
     ).order_by(ArtifactRelation.created_at.desc()).all()
+    supports = [r for r in incoming if r.relation_type == 'supports']
+    opposes = [r for r in incoming if r.relation_type == 'opposes']
+    other_incoming = [r for r in incoming if r.relation_type not in ('supports', 'opposes')]
     submission = Submission.query.filter_by(artifact_id=artifact_id).first()
+    current_user = get_current_user()
+    def _support_oppose_row(r):
+        a = Artifact.query.get(r.from_object_id)
+        t = (a.title or a.id[:8]) if a else r.from_object_id[:8]
+        t_esc = html_mod.escape(str(t)[:60])
+        return f'<li class="list-group-item"><a href="/layers/{layer_slug}/artifacts/{r.from_object_id}/" class="text-primary">{t_esc}</a></li>'
+    supports_html = ''.join(_support_oppose_row(r) for r in supports) if supports else '<li class="list-group-item text-muted">No support yet</li>'
+    opposes_html = ''.join(_support_oppose_row(r) for r in opposes) if opposes else '<li class="list-group-item text-muted">No opposition yet</li>'
     creator_name = None
     if artifact.creator_user_id:
         u = User.query.get(artifact.creator_user_id)
@@ -23100,12 +23358,73 @@ def artifact_detail(layer_slug, artifact_id):
         target = f"{r.to_object_type}:{r.to_object_id}" if direction == 'outgoing' else f"{r.from_object_type}:{r.from_object_id}"
         return f'<li class="list-group-item"><span>{lbl}</span> <code>{target[:40]}</code></li>'
     outgoing_html = ''.join(rel_row(r, 'outgoing') for r in outgoing) if outgoing else '<li class="list-group-item text-muted">No outgoing relations</li>'
-    incoming_html = ''.join(rel_row(r, 'incoming') for r in incoming) if incoming else '<li class="list-group-item text-muted">No incoming relations</li>'
+    other_incoming_html = ''.join(rel_row(r, 'incoming') for r in other_incoming) if other_incoming else '<li class="list-group-item text-muted">None</li>'
     submission_link = f'<a href="/submit/status/{submission.id}/" class="btn btn-outline-primary btn-sm">View Submission</a>' if submission else ''
     summary_block = f'<p class="lead">{summary_esc}</p>' if summary_esc else ''
     creator_block = f'<li>Creator: {html_mod.escape(creator_name)}</li>' if creator_name else ''
     status_badge = 'success' if artifact.status == 'approved' else 'warning' if artifact.status == 'submitted' else 'secondary'
     created_str = artifact.created_at.strftime('%Y-%m-%d %H:%M') if artifact.created_at else '—'
+    if current_user:
+        add_support_oppose_forms = f'''
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <h6 class="card-title">Add support or opposition</h6>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button type="button" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#addSupportModal"><i class="fas fa-thumbs-up me-1"></i>Add support</button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#addOppositionModal"><i class="fas fa-thumbs-down me-1"></i>Add opposition</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal fade" id="addSupportModal" tabindex="-1">
+                    <div class="modal-dialog"><div class="modal-content">
+                        <div class="modal-header"><h5 class="modal-title">Add support</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                        <div class="modal-body">
+                            <div class="mb-2"><label class="form-label">Title</label><input type="text" class="form-control" id="support-title" placeholder="Support for this proposal"></div>
+                            <div class="mb-2"><label class="form-label">Summary (optional)</label><textarea class="form-control" id="support-summary" rows="2"></textarea></div>
+                            <div id="support-alert" class="alert d-none"></div>
+                        </div>
+                        <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-success" id="support-submit-btn">Add support</button></div>
+                    </div></div>
+                </div>
+                <div class="modal fade" id="addOppositionModal" tabindex="-1">
+                    <div class="modal-dialog"><div class="modal-content">
+                        <div class="modal-header"><h5 class="modal-title">Add opposition</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                        <div class="modal-body">
+                            <div class="mb-2"><label class="form-label">Title</label><input type="text" class="form-control" id="opposition-title" placeholder="Opposition to this proposal"></div>
+                            <div class="mb-2"><label class="form-label">Summary (optional)</label><textarea class="form-control" id="opposition-summary" rows="2"></textarea></div>
+                            <div id="opposition-alert" class="alert d-none"></div>
+                        </div>
+                        <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-danger" id="opposition-submit-btn">Add opposition</button></div>
+                    </div></div>
+                </div>
+                <script>
+                (function() {{
+                    const aid = '{artifact_id}';
+                    document.getElementById('support-submit-btn').addEventListener('click', async function() {{
+                        const btn = this; btn.disabled = true;
+                        const alert = document.getElementById('support-alert'); alert.classList.add('d-none');
+                        try {{
+                            const r = await fetch('/api/artifacts/' + aid + '/support/', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{ title: document.getElementById('support-title').value, summary: document.getElementById('support-summary').value }}), credentials: 'same-origin' }});
+                            const d = await r.json();
+                            if (r.ok) {{ location.reload(); }} else {{ alert.textContent = d.error || 'Failed'; alert.className = 'alert alert-danger'; alert.classList.remove('d-none'); }}
+                        }} catch (e) {{ alert.textContent = e.message; alert.className = 'alert alert-danger'; alert.classList.remove('d-none'); }}
+                        btn.disabled = false;
+                    }});
+                    document.getElementById('opposition-submit-btn').addEventListener('click', async function() {{
+                        const btn = this; btn.disabled = true;
+                        const alert = document.getElementById('opposition-alert'); alert.classList.add('d-none');
+                        try {{
+                            const r = await fetch('/api/artifacts/' + aid + '/opposition/', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{ title: document.getElementById('opposition-title').value, summary: document.getElementById('opposition-summary').value }}), credentials: 'same-origin' }});
+                            const d = await r.json();
+                            if (r.ok) {{ location.reload(); }} else {{ alert.textContent = d.error || 'Failed'; alert.className = 'alert alert-danger'; alert.classList.remove('d-none'); }}
+                        }} catch (e) {{ alert.textContent = e.message; alert.className = 'alert alert-danger'; alert.classList.remove('d-none'); }}
+                        btn.disabled = false;
+                    }});
+                }})();
+                </script>
+'''
+    else:
+        add_support_oppose_forms = '<p class="text-muted small mt-2"><a href="/login/">Sign in</a> to add support or opposition.</p>'
     content = f'''
 <div class="container mt-4">
     <nav aria-label="breadcrumb"><ol class="breadcrumb">
@@ -23126,7 +23445,22 @@ def artifact_detail(layer_slug, artifact_id):
                 </ul>
             </div>
             <div class="mb-4">
-                <h5>Relations</h5>
+                <h5>Support &amp; Opposition</h5>
+                <p class="text-muted small">Structured support and opposition artifacts (GOV-HUB-3)</p>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-success">Support ({len(supports)})</h6>
+                        <ul class="list-group list-group-flush">{supports_html}</ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-danger">Opposition ({len(opposes)})</h6>
+                        <ul class="list-group list-group-flush">{opposes_html}</ul>
+                    </div>
+                </div>
+                {add_support_oppose_forms}
+            </div>
+            <div class="mb-4">
+                <h5>Other Relations</h5>
                 <div class="row">
                     <div class="col-md-6">
                         <h6>Outgoing</h6>
@@ -23134,7 +23468,7 @@ def artifact_detail(layer_slug, artifact_id):
                     </div>
                     <div class="col-md-6">
                         <h6>Incoming</h6>
-                        <ul class="list-group list-group-flush">{incoming_html}</ul>
+                        <ul class="list-group list-group-flush">{other_incoming_html}</ul>
                     </div>
                 </div>
             </div>
