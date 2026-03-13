@@ -232,7 +232,7 @@ def generate_hypothesis_config(document_name=None, document_type='draft'):
     <script async src="{HYPOTHESIS_CONFIG['EMBED_URL']}"></script>
     """
 
-from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, send_from_directory, jsonify, g
+from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, send_from_directory, jsonify, g, make_response
 from flask_sqlalchemy import SQLAlchemy
 import os
 import re
@@ -259,6 +259,7 @@ HYPOTHESIS_CONFIG = {
 }
 import json
 import uuid
+from uuid import uuid4
 import requests
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
@@ -314,7 +315,8 @@ def init_db():
 
         # Run database migrations for ordinals support
         migrate_ordinals_support()
-        
+        migrate_inscription_order_and_config()
+
         # Check if we need to migrate for Hypothesis accounts
         try:
             # Test if HypothesisAccount table exists
@@ -365,7 +367,7 @@ def init_db():
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            for table_name in ['user', 'project', 'submission', 'badge']:
+            for table_name in ['user', 'layer', 'submission', 'badge', 'vote', 'claim', 'role', 'working_group', 'role_image', 'cluster', 'badge_cycle', 'one_time_badge', 'guild']:
                 try:
                     cursor.execute(f"SELECT public_id FROM {table_name} LIMIT 1")
                     print(f"✅ public_id already exists on {table_name}")
@@ -397,13 +399,13 @@ def init_db():
         except Exception as e:
             print(f"⚠️  Error adding public_id columns: {e}")
         
-        # Ensure project_member table exists
+        # Ensure layer_member table exists
         try:
-            db.session.execute(db.text("SELECT 1 FROM project_member LIMIT 1"))
-            print("✅ project_member table exists")
+            db.session.execute(db.text("SELECT 1 FROM layer_member LIMIT 1"))
+            print("✅ layer_member table exists")
         except Exception:
             db.create_all()
-            print("✅ project_member table created")
+            print("✅ layer_member table created")
         
         # Ensure waitlist tables exist
         try:
@@ -413,19 +415,35 @@ def init_db():
             db.create_all()
             print("✅ waitlist tables created")
         
+        # Ensure waitlist_email_signup table exists (email-only embed signups)
+        try:
+            db.session.execute(db.text("SELECT 1 FROM waitlist_email_signup LIMIT 1"))
+            print("✅ waitlist_email_signup table exists")
+        except Exception:
+            db.create_all()
+            print("✅ waitlist_email_signup table created")
+        
+        # Ensure email_unsubscribe table exists
+        try:
+            db.session.execute(db.text("SELECT 1 FROM email_unsubscribe LIMIT 1"))
+            print("✅ email_unsubscribe table exists")
+        except Exception:
+            db.create_all()
+            print("✅ email_unsubscribe table created")
+        
         # Add image_url columns to project, workgroup, guild, waitlist
         try:
             import sqlite3
             conn = sqlite3.connect(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', ''))
             cursor = conn.cursor()
             
-            # Check and add image_url to project
-            cursor.execute("PRAGMA table_info(project)")
-            project_columns = [c[1] for c in cursor.fetchall()]
-            if 'image_url' not in project_columns:
-                cursor.execute("ALTER TABLE project ADD COLUMN image_url VARCHAR(500)")
+            # Check and add image_url to layer
+            cursor.execute("PRAGMA table_info(layer)")
+            layer_columns = [c[1] for c in cursor.fetchall()]
+            if 'image_url' not in layer_columns:
+                cursor.execute("ALTER TABLE layer ADD COLUMN image_url VARCHAR(500)")
                 conn.commit()
-                print("✅ Added image_url column to project table")
+                print("✅ Added image_url column to layer table")
             
             # Check and add image_url to waitlist
             cursor.execute("PRAGMA table_info(waitlist)")
@@ -454,6 +472,152 @@ def init_db():
             conn.close()
         except Exception as e:
             print(f"⚠️  Error adding image_url columns: {e}")
+
+        # Add badge system columns + new tables
+        try:
+            import sqlite3
+            conn = sqlite3.connect(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', ''))
+            cursor = conn.cursor()
+
+            # Ensure badge_skin table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS badge_skin (
+                    id VARCHAR(50) PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    slug VARCHAR(100) UNIQUE NOT NULL,
+                    description TEXT,
+                    layout_spec TEXT,
+                    preview_image_url VARCHAR(500),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+            # Ensure badge_cycle table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS badge_cycle (
+                    id VARCHAR(50) PRIMARY KEY,
+                    entity_type VARCHAR(20) NOT NULL,
+                    entity_id VARCHAR(100) NOT NULL,
+                    layer_id VARCHAR(50) NOT NULL,
+                    first_submission_at TIMESTAMP,
+                    submission_ends_at TIMESTAMP,
+                    voting_starts_at TIMESTAMP,
+                    voting_ends_at TIMESTAMP,
+                    status VARCHAR(20) DEFAULT 'submission',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+            # Ensure one_time_badge table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS one_time_badge (
+                    id VARCHAR(50) PRIMARY KEY,
+                    layer_id VARCHAR(50) NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    earliest_start DATE NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 1,
+                    submission_days INTEGER NOT NULL DEFAULT 14,
+                    delay_days INTEGER DEFAULT 2,
+                    voting_days INTEGER NOT NULL DEFAULT 7,
+                    voting_regular BOOLEAN DEFAULT 1,
+                    voting_time_weighted BOOLEAN DEFAULT 0,
+                    voting_quadratic BOOLEAN DEFAULT 0,
+                    badge_skin_id VARCHAR(50),
+                    status VARCHAR(20) DEFAULT 'draft',
+                    first_submission_at TIMESTAMP,
+                    submission_ends_at TIMESTAMP,
+                    voting_starts_at TIMESTAMP,
+                    voting_ends_at TIMESTAMP,
+                    created_by_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+            # Add badge columns to role table
+            cursor.execute("PRAGMA table_info(role)")
+            role_cols = [c[1] for c in cursor.fetchall()]
+            role_badge_cols = {
+                'badge_submission_days': 'INTEGER DEFAULT 14',
+                'badge_voting_days': 'INTEGER DEFAULT 7',
+                'badge_delay_days': 'INTEGER DEFAULT 2',
+                'badge_earliest_start': 'DATE',
+                'badge_cycle_spacing_days': 'INTEGER DEFAULT 365',
+                'badge_end_date': 'DATE',
+                'badge_end_at_next_closing': 'BOOLEAN DEFAULT 0',
+                'badge_voting_regular': 'BOOLEAN DEFAULT 1',
+                'badge_voting_time_weighted': 'BOOLEAN DEFAULT 0',
+                'badge_voting_quadratic': 'BOOLEAN DEFAULT 0',
+                'badge_skin_id': 'VARCHAR(50)',
+            }
+            for col, col_type in role_badge_cols.items():
+                if col not in role_cols:
+                    cursor.execute(f"ALTER TABLE role ADD COLUMN {col} {col_type}")
+                    conn.commit()
+                    print(f"✅ Added role.{col}")
+
+            # Add badge columns to working_group table
+            cursor.execute("PRAGMA table_info(working_group)")
+            wg_cols = [c[1] for c in cursor.fetchall()]
+            wg_badge_cols = {
+                'badge_enabled': 'BOOLEAN DEFAULT 0',
+                'badge_submission_days': 'INTEGER',
+                'badge_voting_days': 'INTEGER',
+                'badge_delay_days': 'INTEGER',
+                'badge_earliest_start': 'DATE',
+                'badge_cycle_spacing_days': 'INTEGER DEFAULT 365',
+                'badge_end_date': 'DATE',
+                'badge_end_at_next_closing': 'BOOLEAN DEFAULT 0',
+                'badge_voting_regular': 'BOOLEAN DEFAULT 1',
+                'badge_voting_time_weighted': 'BOOLEAN DEFAULT 0',
+                'badge_voting_quadratic': 'BOOLEAN DEFAULT 0',
+                'badge_skin_id': 'VARCHAR(50)',
+            }
+            for col, col_type in wg_badge_cols.items():
+                if col not in wg_cols:
+                    cursor.execute(f"ALTER TABLE working_group ADD COLUMN {col} {col_type}")
+                    conn.commit()
+                    print(f"✅ Added working_group.{col}")
+
+            # Add polymorphic + cycle columns to role_image
+            cursor.execute("PRAGMA table_info(role_image)")
+            ri_cols = [c[1] for c in cursor.fetchall()]
+            ri_new_cols = {
+                'entity_type': "VARCHAR(20) DEFAULT 'role'",
+                'entity_id': 'VARCHAR(100)',
+                'cycle_id': 'VARCHAR(50)',
+            }
+            for col, col_type in ri_new_cols.items():
+                if col not in ri_cols:
+                    cursor.execute(f"ALTER TABLE role_image ADD COLUMN {col} {col_type}")
+                    conn.commit()
+                    print(f"✅ Added role_image.{col}")
+
+            # Seed default badge skins if none exist
+            cursor.execute("SELECT COUNT(*) FROM badge_skin")
+            skin_count = cursor.fetchone()[0]
+            if skin_count == 0:
+                default_skins = [
+                    ('skin_compact', 'Compact', 'compact', 'Image top, title and claimant below', '{"regions":[{"id":"image","placement":"top","size":"full"},{"id":"title","placement":"center","font_size":"medium"},{"id":"claimant","placement":"footer","font_size":"small"}]}'),
+                    ('skin_banner', 'Banner', 'banner', 'Wide image, title overlaid at bottom', '{"regions":[{"id":"image","placement":"background","size":"full"},{"id":"title","placement":"overlay_bottom","font_size":"large"},{"id":"claimant","placement":"overlay_bottom_small","font_size":"small"}]}'),
+                    ('skin_minimal', 'Minimal', 'minimal', 'Clean circular image with name below', '{"regions":[{"id":"image","placement":"center","size":"circle"},{"id":"title","placement":"below_image","font_size":"medium"},{"id":"claimant","placement":"footer","font_size":"small"}]}'),
+                    ('skin_card', 'Card', 'card', 'Full card with image, title, description row', '{"regions":[{"id":"image","placement":"left","size":"square_sm"},{"id":"title","placement":"right_top","font_size":"large"},{"id":"claimant","placement":"right_bottom","font_size":"small"}]}'),
+                ]
+                for sid, name, slug, desc, spec in default_skins:
+                    cursor.execute(
+                        "INSERT INTO badge_skin (id, name, slug, description, layout_spec) VALUES (?,?,?,?,?)",
+                        (sid, name, slug, desc, spec)
+                    )
+                conn.commit()
+                print(f"✅ Seeded {len(default_skins)} default badge skins")
+
+            conn.close()
+        except Exception as e:
+            print(f"⚠️  Error adding badge system columns: {e}")
 
         # Migrate hardcoded users to database if not already done
         if User.query.count() == 0:
@@ -496,6 +660,92 @@ def migrate_coordinator_and_member_requests():
         conn.close()
     except Exception as e:
         print(f"Migration coordinator/member_requests: {e}")
+
+def migrate_inscription_order_and_config():
+    """Create inscription_order, site_config tables; add inscription_order_id to submission, offer_tier_pricing to project."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Create inscription_order table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS inscription_order (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id INTEGER,
+                layer_id VARCHAR(50),
+                status VARCHAR(30) DEFAULT 'pending_payment',
+                content_text TEXT,
+                content_filename VARCHAR(255),
+                page_count INTEGER DEFAULT 1,
+                image_count INTEGER DEFAULT 0,
+                phone_number VARCHAR(30),
+                country_code VARCHAR(5),
+                phone_verified BOOLEAN DEFAULT 0,
+                tier INTEGER DEFAULT 1,
+                base_price_usd NUMERIC(10,2),
+                discount_pct INTEGER DEFAULT 0,
+                final_price_usd NUMERIC(10,2),
+                stripe_payment_intent_id VARCHAR(100),
+                stripe_client_secret VARCHAR(200),
+                btc_taproot_address VARCHAR(255),
+                unisat_order_id VARCHAR(255),
+                inscription_id VARCHAR(255),
+                acknowledged_timing BOOLEAN DEFAULT 0,
+                notify_when_ready BOOLEAN DEFAULT 0,
+                title VARCHAR(255),
+                authors TEXT,
+                abstract TEXT,
+                workgroup VARCHAR(50),
+                created_at DATETIME,
+                paid_at DATETIME,
+                completed_at DATETIME
+            )
+        """)
+        conn.commit()
+
+        # Create site_config table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS site_config (
+                key VARCHAR(100) PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        conn.commit()
+
+        # Seed default pricing
+        defaults = [
+            ('inscribe_price_per_page', '10.00'),
+            ('inscribe_price_per_image', '5.00'),
+            ('inscribe_tier2_discount', '30'),
+            ('inscribe_tier3_discount', '50'),
+        ]
+        for k, v in defaults:
+            cursor.execute("INSERT OR IGNORE INTO site_config (key, value) VALUES (?, ?)", (k, v))
+        conn.commit()
+
+        # Add inscription_order_id to submission
+        cursor.execute("PRAGMA table_info(submission)")
+        sub_cols = [c[1] for c in cursor.fetchall()]
+        if 'inscription_order_id' not in sub_cols:
+            cursor.execute("ALTER TABLE submission ADD COLUMN inscription_order_id VARCHAR(36)")
+            conn.commit()
+            print("✅ Added inscription_order_id to submission")
+
+        # Add offer_tier_pricing to layer
+        cursor.execute("PRAGMA table_info(layer)")
+        layer_cols = [c[1] for c in cursor.fetchall()]
+        if 'offer_tier_pricing' not in layer_cols:
+            cursor.execute("ALTER TABLE layer ADD COLUMN offer_tier_pricing BOOLEAN DEFAULT 0")
+            conn.commit()
+            print("✅ Added offer_tier_pricing to layer")
+
+        conn.close()
+        print("✅ Inscription order and site config migration complete")
+    except Exception as e:
+        print(f"⚠️  Error in inscription migration: {e}")
+
 
 def migrate_ordinals_support():
     """Add ordinals support columns to existing submission table"""
@@ -601,10 +851,10 @@ else:
     PORT = int(os.environ.get('FLASK_PORT', 8000))
     DEBUG = False
 
-# Host → Layer middleware configuration
+# Host → Layer middleware configuration (GOV-HUB-3)
 RESERVED_SUBDOMAINS = {
-    "dev", "rfc", "www", "api", "static",
-    "assets", "admin", "staging", "beta"
+    "www", "dev", "api", "docs", "rfc", "app", "admin", "status",
+    "static", "assets", "staging", "beta"
 }
 BASE_DOMAIN = "themetalayer.org"
 
@@ -660,6 +910,13 @@ os.makedirs(INSTANCE_DIR, exist_ok=True)
 app = Flask(__name__, instance_path=INSTANCE_DIR, instance_relative_config=True)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-in-production')  # For flash messages
 
+# Trust X-Forwarded-Proto when behind nginx (so embed URLs use HTTPS when served over HTTPS)
+try:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
+except ImportError:
+    pass
+
 # Database setup
 DB_PATH = os.path.join(INSTANCE_DIR, DB_NAME)
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
@@ -681,7 +938,7 @@ class Submission(db.Model):
     authors = db.Column(db.JSON)  # List of author dicts
     abstract = db.Column(db.Text)
     group = db.Column(db.String(50))
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=True, index=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True, index=True)
     filename = db.Column(db.String(255))
     file_path = db.Column(db.String(500))
     draft_name = db.Column(db.String(255))
@@ -709,6 +966,51 @@ class Submission(db.Model):
     is_revision = db.Column(db.Boolean, default=False)  # Flag to indicate this is a revision
     # RFC publication field
     rfc_number = db.Column(db.Integer, nullable=True)  # RFC number when status='published'
+    # Immortalize wizard: link to inscription order when status='inscription_pending'
+    inscription_order_id = db.Column(db.String(36), nullable=True, index=True)
+
+
+class SiteConfig(db.Model):
+    """Key-value store for admin-editable config (e.g. inscription pricing)."""
+    __tablename__ = 'site_config'
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.Text)
+
+
+class InscriptionOrder(db.Model):
+    """Stripe payment for inscription via wizard flow."""
+    __tablename__ = 'inscription_order'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True, index=True)
+    status = db.Column(db.String(30), default='pending_payment')
+    # pending_payment | paid | inscribing | completed | failed
+    content_text = db.Column(db.Text, nullable=True)
+    content_filename = db.Column(db.String(255), nullable=True)
+    page_count = db.Column(db.Integer, default=1)
+    image_count = db.Column(db.Integer, default=0)
+    phone_number = db.Column(db.String(30), nullable=True)
+    country_code = db.Column(db.String(5), nullable=True)
+    phone_verified = db.Column(db.Boolean, default=False)
+    tier = db.Column(db.Integer, default=1)
+    base_price_usd = db.Column(db.Numeric(10, 2))
+    discount_pct = db.Column(db.Integer, default=0)
+    final_price_usd = db.Column(db.Numeric(10, 2))
+    stripe_payment_intent_id = db.Column(db.String(100), nullable=True)
+    stripe_client_secret = db.Column(db.String(200), nullable=True)
+    btc_taproot_address = db.Column(db.String(255), nullable=True)
+    unisat_order_id = db.Column(db.String(255), nullable=True)
+    inscription_id = db.Column(db.String(255), nullable=True)
+    acknowledged_timing = db.Column(db.Boolean, default=False)
+    notify_when_ready = db.Column(db.Boolean, default=False)
+    # Metadata for Submission creation
+    title = db.Column(db.String(255), nullable=True)
+    authors = db.Column(db.JSON, nullable=True)
+    abstract = db.Column(db.Text, nullable=True)
+    workgroup = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    paid_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
 
 
 class Comment(db.Model):
@@ -849,9 +1151,17 @@ class RoleImage(db.Model):
     __tablename__ = 'role_image'
     
     id = db.Column(db.String(50), primary_key=True)  # rimg_...
-    project_id = db.Column(db.String(50), nullable=True, index=True)  # For future project scoping
-    role_slug = db.Column(db.String(100), nullable=False, index=True)  # Role identifier
-    
+    public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(50), nullable=True, index=True)
+    role_slug = db.Column(db.String(100), nullable=False, index=True)  # kept for backward compat
+
+    # Polymorphic entity reference
+    entity_type = db.Column(db.String(20), default='role', index=True)  # 'role' | 'workgroup' | 'one_time_badge'
+    entity_id = db.Column(db.String(100), nullable=True, index=True)    # role_slug, wg id, or otb id
+
+    # Cycle association
+    cycle_id = db.Column(db.String(50), nullable=True, index=True)  # FK to badge_cycle.id
+
     # Source
     source_type = db.Column(db.String(20), nullable=False)  # 'upload', 'url', 'ordinal'
     image_url = db.Column(db.String(500), nullable=True)  # For upload or URL source
@@ -891,11 +1201,13 @@ class RoleImage(db.Model):
     )
     
     def to_dict(self):
-        """Convert to dictionary for API responses"""
         return {
             'id': self.id,
-            'project_id': self.project_id,
+            'layer_id': self.layer_id,
             'role_slug': self.role_slug,
+            'entity_type': self.entity_type,
+            'entity_id': self.entity_id,
+            'cycle_id': self.cycle_id,
             'source_type': self.source_type,
             'image_url': self.image_url,
             'file_path': self.file_path,
@@ -942,12 +1254,136 @@ class RoleImageVote(db.Model):
     )
 
 # ============================================================================
-# Projects, Workgroups, and Guilds Models
+# Badge System Models (BadgeSkin, BadgeCycle, OneTimeBadge)
 # ============================================================================
 
-class Project(db.Model):
-    """Primary organizing entity for submissions, documents, and workgroups"""
-    __tablename__ = 'project'
+class BadgeSkin(db.Model):
+    """Layout template for rendering a badge"""
+    __tablename__ = 'badge_skin'
+
+    id = db.Column(db.String(50), primary_key=True)  # skin_...
+    name = db.Column(db.String(100), nullable=False)
+    slug = db.Column(db.String(100), unique=True, nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    layout_spec = db.Column(db.JSON, nullable=True)  # regions, placement, font sizes, etc.
+    preview_image_url = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'slug': self.slug,
+            'description': self.description,
+            'layout_spec': self.layout_spec,
+            'preview_image_url': self.preview_image_url,
+        }
+
+
+class BadgeCycle(db.Model):
+    """Tracks one submission+voting cycle for a role or workgroup badge"""
+    __tablename__ = 'badge_cycle'
+
+    id = db.Column(db.String(50), primary_key=True)  # bcyc_...
+    entity_type = db.Column(db.String(20), nullable=False, index=True)  # 'role' | 'workgroup'
+    entity_id = db.Column(db.String(100), nullable=False, index=True)   # role_slug or workgroup id
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+
+    first_submission_at = db.Column(db.DateTime, nullable=True)
+    submission_ends_at = db.Column(db.DateTime, nullable=True)
+    voting_starts_at = db.Column(db.DateTime, nullable=True)
+    voting_ends_at = db.Column(db.DateTime, nullable=True)
+
+    # submission | delay | voting | completed
+    status = db.Column(db.String(20), default='submission', index=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'entity_type': self.entity_type,
+            'entity_id': self.entity_id,
+            'layer_id': self.layer_id,
+            'first_submission_at': self.first_submission_at.isoformat() if self.first_submission_at else None,
+            'submission_ends_at': self.submission_ends_at.isoformat() if self.submission_ends_at else None,
+            'voting_starts_at': self.voting_starts_at.isoformat() if self.voting_starts_at else None,
+            'voting_ends_at': self.voting_ends_at.isoformat() if self.voting_ends_at else None,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class OneTimeBadge(db.Model):
+    """A badge for a specific one-time task"""
+    __tablename__ = 'one_time_badge'
+
+    id = db.Column(db.String(50), primary_key=True)  # otb_...
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+
+    # Timing
+    earliest_start = db.Column(db.Date, nullable=False)
+    quantity = db.Column(db.Integer, default=1, nullable=False)  # # of badges to award
+    submission_days = db.Column(db.Integer, default=14, nullable=False)
+    delay_days = db.Column(db.Integer, default=2)
+    voting_days = db.Column(db.Integer, default=7, nullable=False)
+
+    # Voting
+    voting_regular = db.Column(db.Boolean, default=True)
+    voting_time_weighted = db.Column(db.Boolean, default=False)
+    voting_quadratic = db.Column(db.Boolean, default=False)
+
+    # Skin
+    badge_skin_id = db.Column(db.String(50), db.ForeignKey('badge_skin.id'), nullable=True)
+
+    # Lifecycle: draft | upcoming | submission | delay | voting | completed
+    status = db.Column(db.String(20), default='draft', index=True)
+    first_submission_at = db.Column(db.DateTime, nullable=True)
+    submission_ends_at = db.Column(db.DateTime, nullable=True)
+    voting_starts_at = db.Column(db.DateTime, nullable=True)
+    voting_ends_at = db.Column(db.DateTime, nullable=True)
+
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+    layer = db.relationship('Layer', backref=db.backref('one_time_badges', lazy=True))
+    badge_skin = db.relationship('BadgeSkin', foreign_keys=[badge_skin_id])
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'layer_id': self.layer_id,
+            'title': self.title,
+            'description': self.description,
+            'earliest_start': self.earliest_start.isoformat() if self.earliest_start else None,
+            'quantity': self.quantity,
+            'submission_days': self.submission_days,
+            'delay_days': self.delay_days,
+            'voting_days': self.voting_days,
+            'voting_regular': self.voting_regular,
+            'voting_time_weighted': self.voting_time_weighted,
+            'voting_quadratic': self.voting_quadratic,
+            'badge_skin_id': self.badge_skin_id,
+            'status': self.status,
+            'first_submission_at': self.first_submission_at.isoformat() if self.first_submission_at else None,
+            'submission_ends_at': self.submission_ends_at.isoformat() if self.submission_ends_at else None,
+            'voting_starts_at': self.voting_starts_at.isoformat() if self.voting_starts_at else None,
+            'voting_ends_at': self.voting_ends_at.isoformat() if self.voting_ends_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
+# Layers, Workgroups, and Guilds Models
+# ============================================================================
+
+class Layer(db.Model):
+    """Primary organizing entity for submissions, documents, and workgroups (formerly Project)"""
+    __tablename__ = 'layer'
     
     id = db.Column(db.String(50), primary_key=True)  # proj_...
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
@@ -979,16 +1415,19 @@ class Project(db.Model):
     last_activity = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Succession
-    superseded_by_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=True)
+    superseded_by_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True)
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     
+    # Immortalize wizard: opt-in for tier pricing
+    offer_tier_pricing = db.Column(db.Boolean, default=False)
+    
     # Relationships
-    initiator = db.relationship('User', foreign_keys=[initiator_id], backref='initiated_projects')
-    approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_projects')
-    superseded_by = db.relationship('Project', remote_side=[id], backref='supersedes')
+    initiator = db.relationship('User', foreign_keys=[initiator_id], backref='initiated_layers')
+    approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_layers')
+    superseded_by = db.relationship('Layer', remote_side=[id], backref='supersedes')
     
     def to_dict(self):
         return {
@@ -1010,12 +1449,12 @@ class Project(db.Model):
         }
 
 
-class ProjectMember(db.Model):
-    """Track project membership and referrals"""
-    __tablename__ = 'project_member'
+class LayerMember(db.Model):
+    """Track layer membership and referrals (formerly ProjectMember)"""
+    __tablename__ = 'layer_member'
     
     id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     
     # Referral tracking
@@ -1033,20 +1472,20 @@ class ProjectMember(db.Model):
     left_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
-    project = db.relationship('Project', backref='project_members', foreign_keys=[project_id])
-    user = db.relationship('User', backref='project_memberships', foreign_keys=[user_id])
+    layer = db.relationship('Layer', backref='layer_members', foreign_keys=[layer_id])
+    user = db.relationship('User', backref='layer_memberships', foreign_keys=[user_id])
     referred_by = db.relationship('User', backref='referrals_made', foreign_keys=[referred_by_id])
     
-    # Unique constraint: one membership per user per project
+    # Unique constraint: one membership per user per layer
     __table_args__ = (
-        db.UniqueConstraint('project_id', 'user_id', name='unique_project_member'),
-        db.Index('idx_project_member_status', 'status'),
+        db.UniqueConstraint('layer_id', 'user_id', name='unique_layer_member'),
+        db.Index('idx_layer_member_status', 'status'),
     )
     
     def to_dict(self):
         return {
             'id': self.id,
-            'project_id': self.project_id,
+            'layer_id': self.layer_id,
             'user_id': self.user_id,
             'referred_by_id': self.referred_by_id,
             'role': self.role,
@@ -1056,21 +1495,21 @@ class ProjectMember(db.Model):
         }
 
 
-class ProjectAdmin(db.Model):
-    """Assigned project admins (in addition to initiator/owner). Owner cannot be removed."""
-    __tablename__ = 'project_admin'
+class LayerAdmin(db.Model):
+    """Assigned layer admins (in addition to initiator/owner). Owner cannot be removed. (formerly ProjectAdmin)"""
+    __tablename__ = 'layer_admin'
     
     id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     added_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     __table_args__ = (
-        db.UniqueConstraint('project_id', 'user_id', name='uq_project_admin_project_user'),
+        db.UniqueConstraint('layer_id', 'user_id', name='uq_layer_admin_layer_user'),
     )
     
-    project = db.relationship('Project', backref=db.backref('project_admins', lazy='dynamic'))
-    user = db.relationship('User', backref=db.backref('project_admin_of', lazy='dynamic'))
+    layer = db.relationship('Layer', backref=db.backref('layer_admins', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('layer_admin_of', lazy='dynamic'))
 
 
 class Waitlist(db.Model):
@@ -1078,7 +1517,7 @@ class Waitlist(db.Model):
     __tablename__ = 'waitlist'
     
     id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     
@@ -1099,13 +1538,15 @@ class Waitlist(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    project = db.relationship('Project', backref=db.backref('waitlists', lazy='dynamic'))
+    layer = db.relationship('Layer', backref=db.backref('waitlists', lazy='dynamic'))
     
     def to_dict(self):
-        count = WaitlistEntry.query.filter_by(waitlist_id=self.id, left_at=None).count()
+        user_count = WaitlistEntry.query.filter_by(waitlist_id=self.id, left_at=None).count()
+        email_count = WaitlistEmailSignup.query.filter_by(waitlist_id=self.id, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).count()
+        count = user_count + email_count
         return {
             'id': self.id,
-            'project_id': self.project_id,
+            'layer_id': self.layer_id,
             'name': self.name,
             'description': self.description,
             'public': self.public,
@@ -1149,6 +1590,38 @@ class WaitlistEntry(db.Model):
     __table_args__ = (db.UniqueConstraint('waitlist_id', 'user_id', name='uq_waitlist_entry_user'),)
 
 
+class EmailUnsubscribe(db.Model):
+    """Users/emails who opted out of project emails."""
+    __tablename__ = 'email_unsubscribe'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    email = db.Column(db.String(255), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (db.Index('idx_email_unsub_layer_user', 'layer_id', 'user_id'), db.Index('idx_email_unsub_layer_email', 'layer_id', 'email'),)
+
+
+class WaitlistEmailSignup(db.Model):
+    """Email-only waitlist signup (embed). Separate from WaitlistEntry (user-based)."""
+    __tablename__ = 'waitlist_email_signup'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    waitlist_id = db.Column(db.Integer, db.ForeignKey('waitlist.id'), nullable=False, index=True)
+    email = db.Column(db.String(255), nullable=False)
+    message = db.Column(db.Text, nullable=True)
+    verification_token = db.Column(db.String(64), nullable=True, index=True)
+    verified_at = db.Column(db.DateTime, nullable=True)
+    position = db.Column(db.Integer, nullable=False)
+    source = db.Column(db.String(255), nullable=True)
+    source_url = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    left_at = db.Column(db.DateTime, nullable=True)
+    
+    waitlist = db.relationship('Waitlist', backref=db.backref('email_signups', lazy='dynamic'))
+
+
 class WaitlistMilestone(db.Model):
     """Milestone: activates at threshold (number on waitlist). Order by threshold."""
     __tablename__ = 'waitlist_milestone'
@@ -1165,29 +1638,30 @@ class WaitlistMilestone(db.Model):
     waitlist = db.relationship('Waitlist', backref=db.backref('milestone_list', lazy='dynamic', order_by='WaitlistMilestone.threshold'))
 
 
-def is_project_admin(project, user):
-    """True if user is project owner (initiator), an assigned project admin, or site admin."""
+def is_layer_admin(layer, user):
+    """True if user is layer owner (initiator), an assigned layer admin, or site admin. Formerly is_project_admin."""
     if not user:
         return False
     if user.get('role') == 'admin':
         return True
-    if not project:
+    if not layer:
         return False
-    initiator_id = project.initiator_id if hasattr(project, 'initiator_id') else project.get('initiator_id')
+    initiator_id = layer.initiator_id if hasattr(layer, 'initiator_id') else layer.get('initiator_id')
     if initiator_id == user['id']:
         return True
-    if hasattr(project, 'id'):
-        pid = project.id
+    if hasattr(layer, 'id'):
+        lid = layer.id
     else:
-        pid = project.get('id')
-    return ProjectAdmin.query.filter_by(project_id=pid, user_id=user['id']).first() is not None
+        lid = layer.get('id')
+    return LayerAdmin.query.filter_by(layer_id=lid, user_id=user['id']).first() is not None
 
 
 class Workgroup(db.Model):
-    """Task-focused group within a project"""
+    """Task-focused group within a layer"""
     __tablename__ = 'working_group'
     
     id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
     acronym = db.Column(db.String(50), unique=True, index=True)  # Legacy field
     name = db.Column(db.String(255), nullable=False)
     slug = db.Column(db.String(255), index=True)
@@ -1195,12 +1669,26 @@ class Workgroup(db.Model):
     type = db.Column(db.String(50), nullable=True)  # Legacy field
     state = db.Column(db.String(20), nullable=True)  # Legacy field
     
-    # Project relationship (required)
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    # Layer relationship (required)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     
     # Image
     image_url = db.Column(db.String(500), nullable=True)
-    
+
+    # Badge settings
+    badge_enabled = db.Column(db.Boolean, default=False)
+    badge_submission_days = db.Column(db.Integer, nullable=True)
+    badge_voting_days = db.Column(db.Integer, nullable=True)
+    badge_delay_days = db.Column(db.Integer, nullable=True)
+    badge_earliest_start = db.Column(db.Date, nullable=True)
+    badge_cycle_spacing_days = db.Column(db.Integer, default=365)
+    badge_end_date = db.Column(db.Date, nullable=True)
+    badge_end_at_next_closing = db.Column(db.Boolean, default=False)
+    badge_voting_regular = db.Column(db.Boolean, default=True)
+    badge_voting_time_weighted = db.Column(db.Boolean, default=False)
+    badge_voting_quadratic = db.Column(db.Boolean, default=False)
+    badge_skin_id = db.Column(db.String(50), db.ForeignKey('badge_skin.id'), nullable=True)
+
     # Coordinator (formerly "chair")
     coordinator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     
@@ -1219,28 +1707,41 @@ class Workgroup(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     
     # Relationships
-    project = db.relationship('Project', backref=db.backref('workgroups', lazy=True))
+    layer = db.relationship('Layer', backref=db.backref('workgroups', lazy=True))
     coordinator = db.relationship('User', foreign_keys=[coordinator_id], backref='coordinated_workgroups')
     approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_workgroups')
     
     def to_dict(self):
         return {
             'id': self.id,
-            'acronym': self.acronym,  # Legacy field
+            'public_id': self.public_id,
+            'acronym': self.acronym,
             'name': self.name,
-            'slug': self.slug or self.acronym,  # Use acronym as fallback for legacy groups
-            'project_id': self.project_id,
-            'project_name': self.project.name if self.project else None,
+            'slug': self.slug or self.acronym,
+            'layer_id': self.layer_id,
+            'layer_name': self.layer.name if self.layer else None,
             'coordinator_id': self.coordinator_id,
             'coordinator_name': self.coordinator.displayName or self.coordinator.username if self.coordinator else None,
             'status': self.status,
             'approval_status': self.approval_status,
             'description': self.description,
             'image_url': self.image_url,
-            'type': self.type,  # Legacy field
-            'state': self.state,  # Legacy field
+            'type': self.type,
+            'state': self.state,
+            'badge_enabled': self.badge_enabled,
+            'badge_submission_days': self.badge_submission_days,
+            'badge_voting_days': self.badge_voting_days,
+            'badge_delay_days': self.badge_delay_days,
+            'badge_earliest_start': self.badge_earliest_start.isoformat() if self.badge_earliest_start else None,
+            'badge_cycle_spacing_days': self.badge_cycle_spacing_days,
+            'badge_end_date': self.badge_end_date.isoformat() if self.badge_end_date else None,
+            'badge_end_at_next_closing': self.badge_end_at_next_closing,
+            'badge_voting_regular': self.badge_voting_regular,
+            'badge_voting_time_weighted': self.badge_voting_time_weighted,
+            'badge_voting_quadratic': self.badge_voting_quadratic,
+            'badge_skin_id': self.badge_skin_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 class Guild(db.Model):
@@ -1351,7 +1852,8 @@ class Cluster(db.Model):
     __tablename__ = 'cluster'
     
     id = db.Column(db.String(50), primary_key=True)  # clu_...
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     cluster_slug = db.Column(db.String(100), nullable=False)
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -1367,19 +1869,20 @@ class Cluster(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     
     # Relationships
-    project = db.relationship('Project', backref=db.backref('clusters', lazy=True))
+    layer = db.relationship('Layer', backref=db.backref('clusters', lazy=True))
     created_by = db.relationship('User', backref='created_clusters')
     
     __table_args__ = (
-        db.UniqueConstraint('project_id', 'cluster_slug', name='unique_cluster_slug_per_project'),
-        db.Index('idx_cluster_project_status', 'project_id', 'status'),
-        db.Index('idx_cluster_project_order', 'project_id', 'order'),
+        db.UniqueConstraint('layer_id', 'cluster_slug', name='unique_cluster_slug_per_layer'),
+        db.Index('idx_cluster_layer_status', 'layer_id', 'status'),
+        db.Index('idx_cluster_layer_order', 'layer_id', 'order'),
     )
     
     def to_dict(self):
         return {
             'id': self.id,
-            'project_id': self.project_id,
+            'public_id': self.public_id,
+            'layer_id': self.layer_id,
             'cluster_slug': self.cluster_slug,
             'name': self.name,
             'description': self.description,
@@ -1394,7 +1897,8 @@ class Role(db.Model):
     __tablename__ = 'role'
     
     id = db.Column(db.String(50), primary_key=True)  # rol_...
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     role_slug = db.Column(db.String(100), nullable=False)
     
     # Titles
@@ -1420,7 +1924,24 @@ class Role(db.Model):
     claim_requires_approval = db.Column(db.Boolean, default=False)
     badge_enabled = db.Column(db.Boolean, default=True)
     badge_requires_approval = db.Column(db.Boolean, default=True)
-    
+
+    # Badge cycle settings
+    badge_submission_days = db.Column(db.Integer, default=14)
+    badge_voting_days = db.Column(db.Integer, default=7)
+    badge_delay_days = db.Column(db.Integer, default=2)
+    badge_earliest_start = db.Column(db.Date, nullable=True)
+    badge_cycle_spacing_days = db.Column(db.Integer, default=365)
+    badge_end_date = db.Column(db.Date, nullable=True)
+    badge_end_at_next_closing = db.Column(db.Boolean, default=False)
+
+    # Voting type flags
+    badge_voting_regular = db.Column(db.Boolean, default=True)
+    badge_voting_time_weighted = db.Column(db.Boolean, default=False)
+    badge_voting_quadratic = db.Column(db.Boolean, default=False)
+
+    # Badge skin (layout template)
+    badge_skin_id = db.Column(db.String(50), db.ForeignKey('badge_skin.id'), nullable=True)
+
     # Audit
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
@@ -1429,24 +1950,25 @@ class Role(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     
     # Relationships
-    project = db.relationship('Project', backref=db.backref('roles', lazy=True))
+    layer = db.relationship('Layer', backref=db.backref('roles', lazy=True))
     cluster = db.relationship('Cluster', backref=db.backref('roles', lazy=True))
     created_by = db.relationship('User', foreign_keys=[created_by_id], backref='created_roles')
     approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_roles')
     
     __table_args__ = (
-        db.UniqueConstraint('project_id', 'role_slug', name='unique_role_slug_per_project'),
-        db.Index('idx_role_project_status', 'project_id', 'status'),
-        db.Index('idx_role_project_visible', 'project_id', 'public_visible'),
+        db.UniqueConstraint('layer_id', 'role_slug', name='unique_role_slug_per_layer'),
+        db.Index('idx_role_layer_status', 'layer_id', 'status'),
+        db.Index('idx_role_layer_visible', 'layer_id', 'public_visible'),
         db.Index('idx_role_status_visible', 'status', 'public_visible'),
     )
     
     def to_dict(self):
         return {
             'id': self.id,
-            'project_id': self.project_id,
+            'public_id': self.public_id,
+            'layer_id': self.layer_id,
             'role_slug': self.role_slug,
-            'slug': self.role_slug,  # Alias for consistency
+            'slug': self.role_slug,
             'title_guild': self.title_guild,
             'title_operational': self.title_operational,
             'description': self.description,
@@ -1458,7 +1980,18 @@ class Role(db.Model):
             'claim_requires_approval': self.claim_requires_approval,
             'badge_enabled': self.badge_enabled,
             'badge_requires_approval': self.badge_requires_approval,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'badge_submission_days': self.badge_submission_days,
+            'badge_voting_days': self.badge_voting_days,
+            'badge_delay_days': self.badge_delay_days,
+            'badge_earliest_start': self.badge_earliest_start.isoformat() if self.badge_earliest_start else None,
+            'badge_cycle_spacing_days': self.badge_cycle_spacing_days,
+            'badge_end_date': self.badge_end_date.isoformat() if self.badge_end_date else None,
+            'badge_end_at_next_closing': self.badge_end_at_next_closing,
+            'badge_voting_regular': self.badge_voting_regular,
+            'badge_voting_time_weighted': self.badge_voting_time_weighted,
+            'badge_voting_quadratic': self.badge_voting_quadratic,
+            'badge_skin_id': self.badge_skin_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 class Claim(db.Model):
@@ -1466,7 +1999,8 @@ class Claim(db.Model):
     __tablename__ = 'claim'
     
     id = db.Column(db.String(50), primary_key=True)  # clm_...
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     role_id = db.Column(db.String(50), db.ForeignKey('role.id'), nullable=False, index=True)
     claimant_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     
@@ -1495,13 +2029,13 @@ class Claim(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     
     # Relationships
-    project = db.relationship('Project', backref=db.backref('claims', lazy=True))
+    layer = db.relationship('Layer', backref=db.backref('claims', lazy=True))
     role = db.relationship('Role', backref=db.backref('claims', lazy=True))
     claimant = db.relationship('User', foreign_keys=[claimant_id], backref='role_claims')
     approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='approved_claims')
     
     __table_args__ = (
-        db.Index('idx_claim_project_status', 'project_id', 'status'),
+        db.Index('idx_claim_layer_status', 'layer_id', 'status'),
         db.Index('idx_claim_role_status', 'role_id', 'status'),
         db.Index('idx_claim_claimant_status', 'claimant_id', 'status'),
         db.Index('idx_claim_created', 'created_at'),
@@ -1510,7 +2044,8 @@ class Claim(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
-            'project_id': self.project_id,
+            'public_id': self.public_id,
+            'layer_id': self.layer_id,
             'role_id': self.role_id,
             'claimant_id': self.claimant_id,
             'intent': self.intent,
@@ -1532,7 +2067,7 @@ class Badge(db.Model):
     
     id = db.Column(db.String(50), primary_key=True)  # bdg_...
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     claim_id = db.Column(db.String(50), db.ForeignKey('claim.id'), nullable=False, index=True)
     role_id = db.Column(db.String(50), db.ForeignKey('role.id'), nullable=False)
     claimant_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -1571,7 +2106,7 @@ class Badge(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     
     # Relationships
-    project = db.relationship('Project', backref=db.backref('badges', lazy=True))
+    layer = db.relationship('Layer', backref=db.backref('badges', lazy=True))
     claim = db.relationship('Claim', backref=db.backref('badges', lazy=True))
     role = db.relationship('Role', backref=db.backref('badges', lazy=True))
     claimant = db.relationship('User', foreign_keys=[claimant_id], backref='badges_received')
@@ -1579,7 +2114,7 @@ class Badge(db.Model):
     approved_by = db.relationship('User', foreign_keys=[approved_by_id], backref='badges_approved')
     
     __table_args__ = (
-        db.Index('idx_badge_project_status', 'project_id', 'status'),
+        db.Index('idx_badge_layer_status', 'layer_id', 'status'),
         db.Index('idx_badge_claim_status', 'claim_id', 'status'),
         db.Index('idx_badge_status', 'status'),
         db.Index('idx_badge_created', 'created_at'),
@@ -1588,7 +2123,7 @@ class Badge(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
-            'project_id': self.project_id,
+            'layer_id': self.layer_id,
             'claim_id': self.claim_id,
             'role_id': self.role_id,
             'claimant_id': self.claimant_id,
@@ -1637,6 +2172,50 @@ class StatusChange(db.Model):
     )
 
 # ================================================================
+# EVENT LOG (GOV-HUB-3 Rule 3 — Event-Driven Governance History)
+# ================================================================
+
+class EventLog(db.Model):
+    """Append-only governance event log. Powers activity feeds, notifications, audit trails."""
+    __tablename__ = 'event_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_type = db.Column(db.String(50), nullable=False, index=True)
+    actor_type = db.Column(db.String(30), nullable=True)   # user, system
+    actor_id = db.Column(db.String(50), nullable=True, index=True)
+    subject_type = db.Column(db.String(30), nullable=True)  # layer_member, vote, claim, badge, etc.
+    subject_id = db.Column(db.String(50), nullable=True, index=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True, index=True)
+    payload_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    layer = db.relationship('Layer', backref=db.backref('event_logs', lazy='dynamic'))
+
+    __table_args__ = (
+        db.Index('idx_event_log_layer_created', 'layer_id', 'created_at'),
+    )
+
+
+def emit_event(event_type, actor_type='user', actor_id=None, subject_type=None, subject_id=None,
+               layer_id=None, payload=None):
+    """Append an event to the EventLog. Call before db.session.commit()."""
+    try:
+        payload_json = json.dumps(payload) if payload is not None else None
+        evt = EventLog(
+            event_type=event_type,
+            actor_type=actor_type,
+            actor_id=str(actor_id) if actor_id is not None else None,
+            subject_type=subject_type,
+            subject_id=str(subject_id) if subject_id is not None else None,
+            layer_id=layer_id,
+            payload_json=payload_json
+        )
+        db.session.add(evt)
+    except Exception as e:
+        if app:
+            app.logger.warning(f"[EventLog] Failed to emit {event_type}: {e}")
+
+# ================================================================
 # VOTING MODELS
 # ================================================================
 
@@ -1647,7 +2226,7 @@ class Vote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     
-    project_id = db.Column(db.String(50), db.ForeignKey('project.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
     submission_id = db.Column(db.String(8), db.ForeignKey('submission.id'), nullable=False, index=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     
@@ -1668,7 +2247,7 @@ class Vote(db.Model):
     closed_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
-    project = db.relationship('Project', backref=db.backref('votes', lazy=True))
+    layer = db.relationship('Layer', backref=db.backref('votes', lazy=True))
     submission = db.relationship('Submission', backref=db.backref('votes', lazy=True))
     created_by = db.relationship('User', backref='created_votes')
 
@@ -1716,9 +2295,9 @@ def activate_vote(vote):
     if vote.status != 'scheduled':
         return False, f"Cannot activate vote in status '{vote.status}'"
     
-    # Snapshot eligible voters = active ProjectMembers for vote.project_id
-    members = ProjectMember.query.filter_by(
-        project_id=vote.project_id,
+    # Snapshot eligible voters = active LayerMembers for vote.layer_id
+    members = LayerMember.query.filter_by(
+        layer_id=vote.layer_id,
         status='active'
     ).all()
     
@@ -1732,6 +2311,9 @@ def activate_vote(vote):
         db.session.add(snapshot)
     
     vote.status = 'active'
+    emit_event('vote_started', actor_type='user', actor_id=vote.created_by_id,
+               subject_type='vote', subject_id=vote.id, layer_id=vote.layer_id,
+               payload={'title': vote.title, 'eligible_count': len(members)})
     db.session.commit()
     
     print(f"[VOTE] Activated vote {vote.id} ({vote.title}) — {len(members)} eligible voters")
@@ -1770,6 +2352,8 @@ def close_vote(vote):
     
     vote.status = 'closed'
     vote.closed_at = datetime.utcnow()
+    emit_event('vote_closed', actor_type='system', subject_type='vote', subject_id=vote.id,
+               layer_id=vote.layer_id, payload={'result': vote.result, 'votes_cast': votes_cast})
     vote.result_summary = json.dumps({
         'eligible': eligible_count,
         'votes_cast': votes_cast,
@@ -1920,12 +2504,12 @@ def update_image_vote_counts(image_id):
     db.session.commit()
     return True
 
-def generate_project_id():
-    """Generate unique project ID with proj_ prefix"""
+def generate_layer_id():
+    """Generate unique layer ID with layer_ prefix"""
     import random
     import string
     suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
-    return f"proj_{suffix}"
+    return f"layer_{suffix}"
 
 def generate_workgroup_id():
     """Generate unique workgroup ID with wg_ prefix"""
@@ -1987,6 +2571,12 @@ def generate_invitation_token():
     """Generate secure token for guild invitations"""
     import secrets
     return secrets.token_urlsafe(32)
+
+def _is_uuid_like(s):
+    """True if s looks like a UUID (36 chars, hex + hyphens)"""
+    if not s or not isinstance(s, str):
+        return False
+    return len(s) == 36 and s.count('-') == 4 and all(c in '0123456789abcdefABCDEF-' for c in s)
 
 def create_slug(text):
     """Create URL-safe slug from text"""
@@ -2093,19 +2683,29 @@ def get_current_user():
             }
     return None
 
-def render_page(title, content, theme=None, user_menu=None):
+FONT_AWESOME_LINK = '<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">'
+
+def _format_base_template(**kwargs):
+    """Format BASE_TEMPLATE with defaults for font_awesome_link."""
+    kwargs.setdefault('font_awesome_link', FONT_AWESOME_LINK)
+    kwargs.setdefault('hypothesis_config', '')
+    kwargs.setdefault('build_number', BUILD_NUMBER)
+    return BASE_TEMPLATE.format(**kwargs)
+
+def render_page(title, content, theme=None, user_menu=None, font_awesome=True):
     """Helper to render a page with BASE_TEMPLATE including build number"""
     if theme is None:
         theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     if user_menu is None:
         user_menu = generate_user_menu()
-    return BASE_TEMPLATE.format(
+    font_awesome_link = '' if not font_awesome else FONT_AWESOME_LINK
+    return _format_base_template(
         title=title,
         theme=theme,
         user_menu=user_menu,
         content=content,
         build_number=BUILD_NUMBER,
-        hypothesis_config=""
+        font_awesome_link=font_awesome_link
     )
 
 def process_ordinal_markdown(markdown_text):
@@ -2216,7 +2816,7 @@ def generate_user_menu():
             </a>
             <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="/profile/">Profile</a></li>
-                <li><a class="dropdown-item" href="/my-projects/">My Layers</a></li>
+                <li><a class="dropdown-item" href="/my-layers/">My Layers</a></li>
                 <li><a class="dropdown-item" href="/submit/status/">My Submissions</a></li>
                 {admin_link}
                 <li><hr class="dropdown-divider"></li>
@@ -2659,7 +3259,7 @@ BASE_TEMPLATE = """
     <link rel="icon" type="image/png" href="/static/images/overweb_logo.png">
     <link rel="shortcut icon" type="image/png" href="/static/images/overweb_logo.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    {font_awesome_link}
     
     {hypothesis_config}
     
@@ -2809,6 +3409,19 @@ BASE_TEMPLATE = """
             color: var(--accent-color) !important;
             border-bottom: 3px solid var(--accent-color);
             background-color: transparent;
+        }}
+
+        [data-theme="dark"] .inscribe-content-tabs .nav-link.active {{
+            color: #ffffff !important;
+            background-color: transparent !important;
+            border-bottom-color: #ffffff;
+        }}
+
+        .layer-card-text {{
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 10;
+            overflow: hidden;
         }}
 
         /* Theme toggle button */
@@ -3316,15 +3929,16 @@ BASE_TEMPLATE = """
                 MLGH
             </a>
             <div class="navbar-nav">
-                <a class="nav-link" href="/projects/">Layers</a>
+                <a class="nav-link" href="/layers/">Layers</a>
                 <a class="nav-link" href="/roles/">Roles</a>
                 <a class="nav-link" href="/workgroups/">Workgroups</a>
                 <a class="nav-link" href="/guilds/">Guilds</a>
                 <a class="nav-link" href="/person/">People</a>
                 <a class="nav-link" href="/waitlists/">Waitlists</a>
-                <a class="nav-link" href="/role-images/">Imagery</a>
+                <a class="nav-link" href="/badges/">Badges</a>
                 <a class="nav-link" href="/doc/all/">Docs</a>
                 <a class="nav-link" href="/submit/">Submit</a>
+                <a class="nav-link" href="/immortalize/">Immortalize</a>
             </div>
             <div class="navbar-nav ms-auto">
                 {user_menu}
@@ -3438,6 +4052,15 @@ BASE_TEMPLATE = """
                         loginMethodsOrder: ['google', 'twitter', 'email_passwordless', 'wallet'],
                         defaultLanguage: 'en',
                     }},
+                    loginConfig: {{
+                        google: {{
+                            verifier: 'web3auth-google-sapphire-devnet',
+                            typeOfLogin: 'google',
+                            clientId: 'BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk',
+                            extraLoginOptions: {{ prompt: 'login select_account', access_type: 'offline' }},
+                            queryParameters: {{ prompt: 'login select_account', access_type: 'offline' }}
+                        }}
+                    }},
                 }};
 
                 web3auth = new Web3AuthConstructor(web3AuthConfig);
@@ -3515,12 +4138,16 @@ BASE_TEMPLATE = """
                 const response = await fetch('/api/auth/web3auth', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
+                    credentials: 'include',
                     body: JSON.stringify(payload)
                 }});
 
                 const result = await response.json();
                 if (response.ok) {{
-                    window.location.href = '/';
+                    const params = new URLSearchParams(window.location.search);
+                    const redirectTo = params.get('redirect');
+                    const allowed = redirectTo && (redirectTo.startsWith('/') || redirectTo.startsWith(window.location.origin + '/'));
+                    window.location.href = allowed ? redirectTo : '/';
                 }} else {{
                     console.error('Backend error:', result);
                     alert('Login failed: ' + (result.error || 'Unknown error'));
@@ -3618,7 +4245,7 @@ BASE_TEMPLATE = """
 """
 
 SUBMIT_TEMPLATE = """
-<div class="container mt-4">
+<div class="container mt-4" data-stripe-key="{{STRIPE_PK}}">
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="/">Home</a></li>
@@ -3650,6 +4277,12 @@ SUBMIT_TEMPLATE = """
                             <button class="nav-link" id="ordinal-tab" data-bs-toggle="tab" 
                                     data-bs-target="#ordinal" type="button" role="tab">
                                 <i class="bi bi-coin"></i> From Ordinal
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="immortalize-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#immortalize" type="button" role="tab">
+                                <i class="bi bi-pencil-square"></i> Immortalize
                             </button>
                         </li>
                     </ul>
@@ -3817,6 +4450,219 @@ SUBMIT_TEMPLATE = """
                                 </div>
                             </form>
                         </div>
+                        
+                        <!-- Immortalize Tab -->
+                        <div class="tab-pane fade" id="immortalize" role="tabpanel">
+                            <!-- Choice screen (shown by default when tier pricing offered) -->
+                            <div id="immortalizeChoice" data-offer-tier="{{OFFER_TIER_PRICING}}">
+                                <p class="text-muted mb-3">How would you like to immortalize your content on Bitcoin?</p>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <div class="card h-100 border-primary immortalize-option-card" id="chooseWizard" role="button" style="cursor:pointer;">
+                                            <div class="card-body text-center p-4">
+                                                <i class="bi bi-magic fs-1 mb-3 text-primary"></i>
+                                                <h5 class="card-title">Immortalize with Us</h5>
+                                                <p class="card-text text-muted">We handle everything. Pay with a credit or debit card. No Bitcoin wallet needed.</p>
+                                                <ul class="list-unstyled text-start small mt-3">
+                                                    <li><i class="bi bi-check text-success me-2"></i>Simple wizard</li>
+                                                    <li><i class="bi bi-check text-success me-2"></i>Fiat payment (card)</li>
+                                                    <li><i class="bi bi-check text-success me-2"></i>Country discounts available</li>
+                                                </ul>
+                                                <div class="mt-3"><span class="badge bg-primary fs-6">From $10</span></div>
+                                            </div>
+                                            <div class="card-footer text-center"><button class="btn btn-primary w-100">Get Started</button></div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card h-100 immortalize-option-card" id="chooseSelfService" role="button" style="cursor:pointer;">
+                                            <div class="card-body text-center p-4">
+                                                <i class="bi bi-currency-bitcoin fs-1 mb-3 text-warning"></i>
+                                                <h5 class="card-title">Self-Service</h5>
+                                                <p class="card-text text-muted">Use your own Bitcoin wallet. Pay network fees directly. Full control.</p>
+                                                <ul class="list-unstyled text-start small mt-3">
+                                                    <li><i class="bi bi-check text-success me-2"></i>Pay only network fees</li>
+                                                    <li><i class="bi bi-check text-success me-2"></i>Your Bitcoin wallet</li>
+                                                </ul>
+                                            </div>
+                                            <div class="card-footer text-center"><button class="btn btn-outline-secondary w-100">Continue</button></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-check mt-3">
+                                    <input class="form-check-input" type="checkbox" id="immortalizeRemember">
+                                    <label class="form-check-label text-muted small" for="immortalizeRemember">Remember my choice and skip this screen next time</label>
+                                </div>
+                            </div>
+                            <!-- Wizard sub-flow -->
+                            <div id="immortalizeWizard" style="display:none;">
+                                <button class="btn btn-link btn-sm ps-0 mb-3" id="wizardBackToChoice">← Back to options</button>
+                                <div id="wizardStep1" class="wizard-step">
+                                    <h6>Step 1: Content</h6>
+                                    <div class="mb-3">
+                                        <ul class="nav nav-pills mb-2" id="wizardContentTabs" role="tablist">
+                                            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#wizardFile" type="button">Upload File</button></li>
+                                            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#wizardPaste" type="button">Paste Text</button></li>
+                                        </ul>
+                                        <div class="tab-content">
+                                            <div class="tab-pane fade show active" id="wizardFile">
+                                                <input type="file" class="form-control" id="wizardFileInput" accept=".txt,.md,.html,.json,.xml,.pdf,.doc,.docx,image/*">
+                                            </div>
+                                            <div class="tab-pane fade" id="wizardPaste">
+                                                <textarea class="form-control font-monospace" id="wizardPasteInput" rows="8" placeholder="Paste text or markdown..."></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Title</label>
+                                        <input type="text" class="form-control" id="wizardTitle" placeholder="Document title">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Authors (comma-separated)</label>
+                                        <input type="text" class="form-control" id="wizardAuthors" placeholder="Author 1, Author 2">
+                                    </div>
+                                    <button type="button" class="btn btn-primary" id="wizardStep1Next">Continue</button>
+                                </div>
+                                <div id="wizardStep2" class="wizard-step" style="display:none;">
+                                    <h6>Step 2: Phone (for country tier)</h6>
+                                    <div class="mb-3">
+                                        <label class="form-label">Phone (E.164)</label>
+                                        <input type="text" class="form-control" id="wizardPhone" placeholder="+1234567890">
+                                    </div>
+                                    <div id="wizardOtpSection" style="display:none;">
+                                        <label class="form-label">Verification code</label>
+                                        <input type="text" class="form-control mb-2" id="wizardOtp" placeholder="6-digit code" maxlength="6">
+                                        <button type="button" class="btn btn-outline-primary btn-sm" id="wizardVerifyBtn">Verify</button>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-primary" id="wizardSendOtpBtn">Send code</button>
+                                    <div id="wizardPricePreview" class="mt-3" style="display:none;"></div>
+                                    <button type="button" class="btn btn-primary" id="wizardStep2Next" style="display:none;">Continue</button>
+                                </div>
+                                <div id="wizardStep2_5" class="wizard-step" style="display:none;">
+                                    <h6>Step 2.5: Acknowledge</h6>
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="wizardAckTiming" required>
+                                        <label class="form-check-label" for="wizardAckTiming">I acknowledge that times to receive may vary.</label>
+                                    </div>
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="wizardNotifyReady">
+                                        <label class="form-check-label" for="wizardNotifyReady">Notify me when my inscription is ready</label>
+                                    </div>
+                                    <button type="button" class="btn btn-primary" id="wizardStep2_5Next" disabled>Continue to Payment</button>
+                                </div>
+                                <div id="wizardStep3" class="wizard-step" style="display:none;">
+                                    <h6>Step 3: Payment</h6>
+                                    <div id="wizardStripeContainer"></div>
+                                    <button type="button" class="btn btn-primary" id="wizardPayBtn">Pay $<span id="wizardPayAmount">0</span></button>
+                                </div>
+                                <div id="wizardStep4" class="wizard-step" style="display:none;">
+                                    <h6>Order submitted</h6>
+                                    <div class="alert alert-info"><span class="badge bg-warning">Inscription Pending</span></div>
+                                    <div id="wizardConfirmInfo"></div>
+                                    <div id="wizardStatusPoll" class="mt-3"></div>
+                                </div>
+                            </div>
+                            <!-- Self-service sub-flow -->
+                            <div id="immortalizeSelfService" style="display:none;">
+                                <button class="btn btn-link btn-sm ps-0 mb-3" id="selfServiceBackToChoice">← Back to options</button>
+                            <div id="inscribeFlow">
+                                <!-- Step 1: Content + Preview -->
+                                <div id="inscribeStep1">
+                                    <div class="mb-3">
+                                        <label class="form-label">Content *</label>
+                                        <ul class="nav nav-pills mb-2 inscribe-content-tabs" id="inscribeContentTabs" role="tablist">
+                                            <li class="nav-item" role="presentation">
+                                                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#inscribeFile" type="button">Upload File</button>
+                                            </li>
+                                            <li class="nav-item" role="presentation">
+                                                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#inscribePaste" type="button">Paste Text</button>
+                                            </li>
+                                        </ul>
+                                        <div class="tab-content">
+                                            <div class="tab-pane fade show active" id="inscribeFile">
+                                                <input type="file" class="form-control" id="inscribeFileInput" accept=".txt,.md,.html,.json,.xml,.pdf,.doc,.docx,image/*">
+                                                <div id="inscribeFileThumbnail" class="mt-2" style="display: none;">
+                                                    <img id="inscribeFileThumbnailImg" src="" alt="Preview" class="img-thumbnail" style="max-width: 200px; max-height: 150px; object-fit: contain;">
+                                                </div>
+                                                <div class="form-text">Max 390KB. Text, markdown, HTML, images supported.</div>
+                                            </div>
+                                            <div class="tab-pane fade" id="inscribePaste">
+                                                <textarea class="form-control font-monospace" id="inscribePasteInput" rows="8" placeholder="Paste text or markdown..."></textarea>
+                                            </div>
+                                        </div>
+                                        <div id="inscribeSizeIndicator" class="form-text mt-1" style="display: none;"></div>
+                                    </div>
+                                    <div id="inscribePreviewArea" class="mb-3">
+                                        <div class="card" id="inscribePreviewCard" style="display: none;">
+                                            <div class="card-header"><h6 class="mb-0">Preview</h6></div>
+                                            <div class="card-body" id="inscribePreviewContent"></div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="inscribeCheckDuplicate">
+                                            <label class="form-check-label" for="inscribeCheckDuplicate">Check for duplicate (text vs image use different APIs; API access pending)</label>
+                                        </div>
+                                        <div id="inscribeDuplicateResult" class="alert mt-2" style="display: none;"></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="inscribeReceiveAddress" class="form-label">Bitcoin Receive Address *</label>
+                                        <input type="text" class="form-control font-monospace" id="inscribeReceiveAddress" placeholder="bc1q...">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="inscribeFeeRateSlider" class="form-label">Fee Rate (sat/vB)</label>
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <span id="inscribeFeeRateLabel" class="fw-bold">—</span>
+                                            <span class="text-muted small">Current network: <span id="inscribeNetworkFee">—</span> sat/vB</span>
+                                        </div>
+                                        <div class="mb-2">
+                                            <input type="range" class="form-range" id="inscribeFeeRateSlider" min="0" max="100" value="67" step="1" title="Log scale: 0.1 to 100 sat/vB" style="width: 100%; accent-color: var(--accent-color, #0d6efd);">
+                                        </div>
+                                        <div id="inscribeFeeCalculator" class="small text-muted mb-2">
+                                            <span id="inscribeFeeSats">—</span> sats · <span id="inscribeFeeBtc">—</span> BTC · <span id="inscribeFeeUsd">—</span> USD
+                                        </div>
+                                        <div id="inscribeLowRateWarning" class="mt-2" style="display: none;">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="inscribeLowRateConfirm">
+                                                <label class="form-check-label text-warning" for="inscribeLowRateConfirm">
+                                                    I understand that setting a rate lower than current rates may result in delays in processing or never being processed.
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-primary" id="inscribeCreateBtn" disabled>
+                                            <i class="bi bi-pencil-square"></i> Create Inscription
+                                        </button>
+                                        <a href="/inscribe/" class="btn btn-outline-secondary">Standalone Inscribe</a>
+                                    </div>
+                                </div>
+                                <!-- Step 2: Payment -->
+                                <div id="inscribeStep2" style="display: none;">
+                                    <div class="card">
+                                        <div class="card-header"><h6 class="mb-0">Pay to Inscribe</h6></div>
+                                        <div class="card-body">
+                                            <p>Send <strong id="inscribePayAmount">0</strong> sats to:</p>
+                                            <code id="inscribePayAddress" class="d-block mb-2 p-2 bg-light rounded"></code>
+                                            <div id="inscribePayQr" class="mb-3"></div>
+                                            <div id="inscribePayStatus" class="alert alert-info">Waiting for payment...</div>
+                                            <button type="button" class="btn btn-secondary" id="inscribeBackBtn">Back</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Step 3: Success -->
+                                <div id="inscribeStep3" style="display: none;">
+                                    <div class="alert alert-success">
+                                        <h6><i class="bi bi-check-circle"></i> Inscription Created</h6>
+                                        <p class="mb-1">Inscription ID: <code id="inscribeResultId"></code></p>
+                                        <a id="inscribeResultLink" href="#" target="_blank" class="btn btn-sm btn-outline-primary">View on ordinals.com</a>
+                                        <hr>
+                                        <button type="button" class="btn btn-primary" id="inscribeSubmitDraftBtn">Submit as Draft</button>
+                                        <a href="/immortalize/" class="btn btn-outline-secondary">Inscribe Another</a>
+                                    </div>
+                                </div>
+                            </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -3863,6 +4709,7 @@ SUBMIT_TEMPLATE = """
     </div>
 </div>
 
+<script src="https://js.stripe.com/v3/"></script>
 <script>
 // Ordinal preview functionality
 document.addEventListener('DOMContentLoaded', function() {
@@ -4091,8 +4938,505 @@ document.addEventListener('DOMContentLoaded', function() {
         return div.innerHTML;
     }
 });
+
+// Immortalize choice + Wizard logic
+document.addEventListener('DOMContentLoaded', function() {
+    const choiceDiv = document.getElementById('immortalizeChoice');
+    const wizardDiv = document.getElementById('immortalizeWizard');
+    const selfServiceDiv = document.getElementById('immortalizeSelfService');
+    if (!choiceDiv) return;
+
+    function showChoice() {
+        if (choiceDiv) choiceDiv.style.display = '';
+        if (wizardDiv) wizardDiv.style.display = 'none';
+        if (selfServiceDiv) selfServiceDiv.style.display = 'none';
+    }
+    function showWizard() {
+        if (choiceDiv) choiceDiv.style.display = 'none';
+        if (wizardDiv) wizardDiv.style.display = '';
+        if (selfServiceDiv) selfServiceDiv.style.display = 'none';
+    }
+    function showSelfService() {
+        if (choiceDiv) choiceDiv.style.display = 'none';
+        if (wizardDiv) wizardDiv.style.display = 'none';
+        if (selfServiceDiv) selfServiceDiv.style.display = '';
+    }
+
+    document.getElementById('chooseWizard')?.addEventListener('click', function() {
+        if (document.getElementById('immortalizeRemember')?.checked) localStorage.setItem('immortalizeDefault', 'wizard');
+        showWizard();
+        wizardShowStep(1);
+    });
+    document.getElementById('chooseSelfService')?.addEventListener('click', function() {
+        if (document.getElementById('immortalizeRemember')?.checked) localStorage.setItem('immortalizeDefault', 'self-service');
+        showSelfService();
+    });
+    document.getElementById('wizardBackToChoice')?.addEventListener('click', showChoice);
+    document.getElementById('selfServiceBackToChoice')?.addEventListener('click', showChoice);
+
+    document.getElementById('immortalize-tab')?.addEventListener('shown.bs.tab', function() {
+        const offerTier = choiceDiv?.getAttribute('data-offer-tier') === 'true';
+        if (!offerTier) { showSelfService(); return; }
+        const def = localStorage.getItem('immortalizeDefault');
+        if (def === 'wizard') { showWizard(); wizardShowStep(1); }
+        else if (def === 'self-service') showSelfService();
+    });
+    const tabParam = new URLSearchParams(window.location.search).get('tab');
+    if (tabParam === 'immortalize') document.getElementById('immortalize-tab')?.click();
+
+    // Wizard step visibility
+    function wizardShowStep(n) {
+        [1,2,3,4].forEach(i => {
+            const el = document.getElementById('wizardStep' + (i === 3 && n === 3 ? '2_5' : i === 4 ? '4' : i));
+            if (el) el.style.display = (i === 3 && n === 3) ? 'none' : (i === 2 && n === 2.5) ? 'none' : (i === 2.5 && n === 2.5) ? '' : (i === n && i !== 2.5) ? '' : (i === 4 && n === 4) ? '' : 'none';
+        });
+        const s25 = document.getElementById('wizardStep2_5');
+        const s3 = document.getElementById('wizardStep3');
+        const s4 = document.getElementById('wizardStep4');
+        if (n === 2.5) { if (s25) s25.style.display = ''; if (s3) s3.style.display = 'none'; if (s4) s4.style.display = 'none'; }
+        else if (n === 3) { if (s25) s25.style.display = 'none'; if (s3) s3.style.display = ''; if (s4) s4.style.display = 'none'; }
+        else if (n === 4) { if (s25) s25.style.display = 'none'; if (s3) s3.style.display = 'none'; if (s4) s4.style.display = ''; }
+    }
+    function wizardShowStepNum(n) {
+        for (let i = 1; i <= 4; i++) {
+            const id = (i === 3) ? 'wizardStep2_5' : (i === 4) ? 'wizardStep3' : (i === 5) ? 'wizardStep4' : 'wizardStep' + i;
+            const el = document.getElementById(id);
+            if (el) el.style.display = (n === 2.5 && id === 'wizardStep2_5') || (n === 3 && id === 'wizardStep3') || (n === 4 && id === 'wizardStep4') || (n === i && id === 'wizardStep' + i) ? '' : 'none';
+        }
+        if (n === 2.5) { document.getElementById('wizardStep1')?.style.setProperty('display','none'); document.getElementById('wizardStep2')?.style.setProperty('display','none'); document.getElementById('wizardStep2_5')?.style.setProperty('display',''); document.getElementById('wizardStep3')?.style.setProperty('display','none'); document.getElementById('wizardStep4')?.style.setProperty('display','none'); }
+        else if (n === 3) { document.getElementById('wizardStep2_5')?.style.setProperty('display','none'); document.getElementById('wizardStep3')?.style.setProperty('display',''); }
+        else if (n === 4) { document.getElementById('wizardStep3')?.style.setProperty('display','none'); document.getElementById('wizardStep4')?.style.setProperty('display',''); }
+    }
+
+    // Simpler step show
+    function showWizardStep(step) {
+        ['wizardStep1','wizardStep2','wizardStep2_5','wizardStep3','wizardStep4'].forEach((id,i) => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = (i + 1 === step || (step === 3 && id === 'wizardStep2_5') || (step === 4 && id === 'wizardStep3') || (step === 5 && id === 'wizardStep4')) ? '' : 'none';
+        });
+        const idx = step;
+        document.getElementById('wizardStep1').style.display = idx === 1 ? '' : 'none';
+        document.getElementById('wizardStep2').style.display = idx === 2 ? '' : 'none';
+        document.getElementById('wizardStep2_5').style.display = idx === 3 ? '' : 'none';
+        document.getElementById('wizardStep3').style.display = idx === 4 ? '' : 'none';
+        document.getElementById('wizardStep4').style.display = idx === 5 ? '' : 'none';
+    }
+
+    let wizardData = {};
+    document.getElementById('wizardStep1Next')?.addEventListener('click', async function() {
+        const fileInput = document.getElementById('wizardFileInput');
+        const pasteInput = document.getElementById('wizardPasteInput');
+        let content = '', filename = 'content.txt', pageCount = 1, imageCount = 0;
+        if (fileInput?.files?.length) {
+            const f = fileInput.files[0];
+            filename = f.name;
+            content = await new Promise(r => { const rd = new FileReader(); rd.onload = () => r(rd.result); rd.readAsDataURL(f); });
+            if (f.type.startsWith('image/')) { imageCount = 1; pageCount = 0; } else { pageCount = 1; imageCount = 0; }
+        } else if (pasteInput?.value?.trim()) {
+            content = pasteInput.value.trim();
+            pageCount = Math.max(1, Math.ceil(content.length / 2000));
+            imageCount = 0;
+        }
+        if (!content) { alert('Please add content'); return; }
+        wizardData = { content_text: typeof content === 'string' && content.startsWith('data:') ? null : content, content_file_b64: typeof content === 'string' && content.startsWith('data:') ? content : null, content_filename: filename, page_count: pageCount, image_count: imageCount, title: document.getElementById('wizardTitle')?.value || 'Untitled', authors: (document.getElementById('wizardAuthors')?.value || '').split(',').map(a=>a.trim()).filter(Boolean) };
+        showWizardStep(2);
+    });
+    document.getElementById('wizardSendOtpBtn')?.addEventListener('click', async function() {
+        const phone = document.getElementById('wizardPhone')?.value?.trim();
+        if (!phone) { alert('Enter phone'); return; }
+        const r = await fetch('/api/inscribe/send-otp/', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({phone}) });
+        const d = await r.json();
+        if (!d.success) { alert(d.error || 'Failed'); return; }
+        document.getElementById('wizardOtpSection').style.display = '';
+        document.getElementById('wizardSendOtpBtn').style.display = 'none';
+    });
+    document.getElementById('wizardVerifyBtn')?.addEventListener('click', async function() {
+        const phone = document.getElementById('wizardPhone')?.value?.trim();
+        const code = document.getElementById('wizardOtp')?.value?.trim();
+        if (!phone || !code) { alert('Phone and code required'); return; }
+        const r = await fetch('/api/inscribe/verify-otp/', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ phone, code, page_count: wizardData.page_count || 1, image_count: wizardData.image_count || 0 }) });
+        const d = await r.json();
+        if (!d.success) { alert(d.error || 'Failed'); return; }
+        wizardData.phone = phone; wizardData.tier = d.tier; wizardData.final_price_usd = d.final_price_usd; wizardData.base_price_usd = d.base_price_usd; wizardData.discount_pct = d.discount_pct;
+        document.getElementById('wizardPricePreview').innerHTML = '<div class="alert alert-success">Tier ' + d.tier + ' · $' + d.final_price_usd + '</div>';
+        document.getElementById('wizardPricePreview').style.display = '';
+        document.getElementById('wizardStep2Next').style.display = '';
+    });
+    document.getElementById('wizardStep2Next')?.addEventListener('click', function() { showWizardStep(3); });
+    document.getElementById('wizardAckTiming')?.addEventListener('change', function() {
+        document.getElementById('wizardStep2_5Next').disabled = !this.checked;
+    });
+    document.getElementById('wizardStep2_5Next')?.addEventListener('click', async function() {
+        wizardData.acknowledged_timing = true;
+        wizardData.notify_when_ready = document.getElementById('wizardNotifyReady')?.checked || false;
+        document.getElementById('wizardStep2_5Next').disabled = true;
+        const payload = { ...wizardData, group: '' };
+        if (wizardData.content_text) payload.content_text = wizardData.content_text;
+        else if (wizardData.content_file_b64) payload.content_file_b64 = wizardData.content_file_b64;
+        const r = await fetch('/api/inscribe/create-payment/', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        const d = await r.json();
+        document.getElementById('wizardStep2_5Next').disabled = false;
+        if (!d.success) { alert(d.error || 'Failed'); return; }
+        wizardData.order_id = d.order_id;
+        wizardData.client_secret = d.client_secret;
+        document.getElementById('wizardPayAmount').textContent = wizardData.final_price_usd || '0';
+        showWizardStep(4);
+        initWizardStripe();
+    });
+    function initWizardStripe() {
+        if (window._wizardStripeInit) return;
+        const payBtn = document.getElementById('wizardPayBtn');
+        const container = document.getElementById('wizardStripeContainer');
+        if (!payBtn || !container || !wizardData.client_secret) return;
+        const pk = document.querySelector('[data-stripe-key]')?.getAttribute('data-stripe-key') || '';
+        if (!pk) { container.innerHTML = '<p class="text-warning">Stripe not configured. Set STRIPE_PUBLISHABLE_KEY.</p>'; return; }
+        if (typeof Stripe === 'undefined') { container.innerHTML = '<p class="text-warning">Stripe.js not loaded.</p>'; return; }
+        const stripe = Stripe(pk);
+        const elements = stripe.elements({ clientSecret: wizardData.client_secret });
+        const paymentElement = elements.create('payment');
+        paymentElement.mount(container);
+        payBtn.addEventListener('click', async function() {
+            payBtn.disabled = true;
+            const { error } = await stripe.confirmPayment({
+                elements,
+                clientSecret: wizardData.client_secret,
+                confirmParams: { return_url: window.location.origin + '/immortalize/success/' + wizardData.order_id + '/' }
+            });
+            payBtn.disabled = false;
+            if (error) alert(error.message || 'Payment failed');
+        });
+        window._wizardStripeInit = true;
+    }
+    function pollWizardStatus(orderId) {
+        const poll = async () => {
+            const r = await fetch('/api/inscribe/' + orderId + '/status/');
+            const d = await r.json();
+            document.getElementById('wizardStatusPoll').innerHTML = '<p>Status: <span class="badge bg-secondary">' + (d.status || 'pending') + '</span></p>';
+            if (d.status === 'completed' && d.submission_id) {
+                document.getElementById('wizardStatusPoll').innerHTML = '<p><a href="/submit/status/' + d.submission_id + '/">View submission</a></p>';
+                return;
+            }
+            setTimeout(poll, 5000);
+        };
+        poll();
+    }
+});
+
+// Inscribe tab logic (works on submit page Inscribe tab and standalone /inscribe/ page)
+document.addEventListener('DOMContentLoaded', function() {
+    const inscribeFlow = document.getElementById('inscribeFlow');
+    if (!inscribeFlow) return;
+    
+    const fileInput = document.getElementById('inscribeFileInput');
+    const pasteInput = document.getElementById('inscribePasteInput');
+    const previewCard = document.getElementById('inscribePreviewCard');
+    const previewContent = document.getElementById('inscribePreviewContent');
+    const checkDuplicate = document.getElementById('inscribeCheckDuplicate');
+    const duplicateResult = document.getElementById('inscribeDuplicateResult');
+    const receiveAddress = document.getElementById('inscribeReceiveAddress');
+    const feeRateSlider = document.getElementById('inscribeFeeRateSlider');
+    const feeRateLabel = document.getElementById('inscribeFeeRateLabel');
+    const networkFeeEl = document.getElementById('inscribeNetworkFee');
+    const lowRateWarning = document.getElementById('inscribeLowRateWarning');
+    const lowRateConfirm = document.getElementById('inscribeLowRateConfirm');
+    const feeSatsEl = document.getElementById('inscribeFeeSats');
+    const feeBtcEl = document.getElementById('inscribeFeeBtc');
+    const feeUsdEl = document.getElementById('inscribeFeeUsd');
+    const createBtn = document.getElementById('inscribeCreateBtn');
+    const step1 = document.getElementById('inscribeStep1');
+    const step2 = document.getElementById('inscribeStep2');
+    const step3 = document.getElementById('inscribeStep3');
+    const payAmount = document.getElementById('inscribePayAmount');
+    const payAddress = document.getElementById('inscribePayAddress');
+    const payStatus = document.getElementById('inscribePayStatus');
+    const backBtn = document.getElementById('inscribeBackBtn');
+    const resultId = document.getElementById('inscribeResultId');
+    const resultLink = document.getElementById('inscribeResultLink');
+    const submitDraftBtn = document.getElementById('inscribeSubmitDraftBtn');
+    
+    let inscribeContent = null;
+    let inscribeContentType = 'text/plain';
+    let inscribeFilename = 'content.txt';
+    let networkFeeRate = 10;
+    
+    function getFeeRateFromSlider() {
+        const s = parseInt(feeRateSlider.value) || 67;
+        return Math.pow(10, (s / 100) * 3 - 1);
+    }
+    function formatFeeRate(v) {
+        return v < 1 ? v.toFixed(2) : (v < 10 ? v.toFixed(1) : Math.round(v).toString());
+    }
+    let btcPriceUsd = 0;
+    function updateFeeRateUI() {
+        const rate = getFeeRateFromSlider();
+        if (feeRateLabel) feeRateLabel.textContent = formatFeeRate(rate) + ' sat/vB';
+        if (networkFeeEl) networkFeeEl.textContent = formatFeeRate(networkFeeRate);
+        const isLow = rate < networkFeeRate;
+        if (lowRateWarning) lowRateWarning.style.display = isLow ? 'block' : 'none';
+        if (lowRateConfirm) lowRateConfirm.checked = false;
+        // Fee calculator: ~1000 vB typical inscription + 546 output + ~2000 commit ≈ rate*1000 + 2500
+        const estSats = Math.round(rate * 1000 + 2500);
+        if (feeSatsEl) feeSatsEl.textContent = estSats.toLocaleString();
+        if (feeBtcEl) feeBtcEl.textContent = (estSats / 1e8).toFixed(8);
+        if (feeUsdEl && btcPriceUsd > 0) feeUsdEl.textContent = '$' + (estSats / 1e8 * btcPriceUsd).toFixed(2);
+        else if (feeUsdEl) feeUsdEl.textContent = '—';
+        updateCreateBtnState();
+    }
+    function updateCreateBtnState() {
+        const rate = getFeeRateFromSlider();
+        const needsConfirm = rate < networkFeeRate && lowRateConfirm && !lowRateConfirm.checked;
+        const canProceed = inscribeContent && receiveAddress.value.trim() && (!needsConfirm || (lowRateConfirm && lowRateConfirm.checked));
+        createBtn.disabled = !canProceed;
+    }
+    
+    function rateToSliderValue(rate) {
+        const s = 100 * (Math.log10(Math.max(0.1, rate)) + 1) / 3;
+        return Math.round(Math.max(0, Math.min(100, s)));
+    }
+    updateFeeRateUI();
+    fetch('/api/inscription/network-fee').then(r => r.json()).then(d => {
+        networkFeeRate = d.success ? (d.economyFee || d.hourFee || 10) : 10;
+        if (networkFeeEl) networkFeeEl.textContent = formatFeeRate(networkFeeRate);
+        if (feeRateSlider) feeRateSlider.value = rateToSliderValue(networkFeeRate);
+        updateFeeRateUI();
+    }).catch(() => { updateFeeRateUI(); });
+    fetch('/api/inscription/btc-price').then(r => r.json()).then(d => {
+        if (d.success && d.usd) btcPriceUsd = d.usd;
+        updateFeeRateUI();
+    }).catch(() => {});
+    
+    if (feeRateSlider) feeRateSlider.addEventListener('input', updateFeeRateUI);
+    if (lowRateConfirm) lowRateConfirm.addEventListener('change', updateCreateBtnState);
+    
+    function runPreview() {
+        const content = getInscribeContent();
+        if (!content) {
+            if (previewCard) previewCard.style.display = 'none';
+            return;
+        }
+        if (previewCard) previewCard.style.display = 'block';
+        previewContent.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading...';
+        
+        (async function() {
+            try {
+                if (content.text !== undefined) {
+                    const size = new Blob([content.text]).size;
+                    if (size > 390 * 1024) {
+                        previewContent.innerHTML = '<div class="alert alert-danger">Content too large: ' + (size/1024).toFixed(1) + ' KB (max 390KB)</div>';
+                        return;
+                    }
+                    const looksLikeMd = /^#{1,6}\\s+|\\[.+\\]\\(.+\\)|!\\[.*\\]\\(.+\\)|```|\\*\\*.+?\\*\\*/.test(content.text);
+                    if (looksLikeMd) {
+                        const res = await fetch('/api/ordinal/convert-markdown', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ markdown: content.text })
+                        });
+                        const data = await res.json();
+                        previewContent.innerHTML = data.success ? '<div class="border p-3" style="max-height: 400px; overflow-y: auto;">' + data.html + '</div>' : '<pre>' + escapeHtml(content.text) + '</pre>';
+                    } else {
+                        previewContent.innerHTML = '<pre class="border p-3" style="max-height: 400px; overflow-y: auto;">' + escapeHtml(content.text) + '</pre>';
+                    }
+                    inscribeContent = content;
+                    inscribeContentType = 'text/plain';
+                    inscribeFilename = 'content.txt';
+                    updateCreateBtnState();
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = async function() {
+                        const base64 = reader.result.split(',')[1];
+                        const size = (base64.length * 3) / 4;
+                        if (size > 390 * 1024) {
+                            previewContent.innerHTML = '<div class="alert alert-danger">File too large (max 390KB)</div>';
+                            return;
+                        }
+                        inscribeContent = { dataUrl: reader.result, filename: content.filename, type: content.type };
+                        inscribeContentType = content.type;
+                        inscribeFilename = content.filename;
+                        if (content.type.startsWith('image/')) {
+                            previewContent.innerHTML = '<img src="' + reader.result + '" class="img-fluid" style="max-height: 400px;">';
+                        } else if (content.type.includes('text') || content.type.includes('json') || content.type.includes('html')) {
+                            const text = atob(base64);
+                            const res = await fetch('/api/ordinal/convert-markdown', {
+                                method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({ markdown: text })
+                            });
+                            const data = await res.json();
+                            previewContent.innerHTML = data.success ? '<div class="border p-3" style="max-height: 400px; overflow-y: auto;">' + data.html + '</div>' : '<pre>' + escapeHtml(text) + '</pre>';
+                        } else {
+                            previewContent.innerHTML = '<div class="alert alert-info">Binary file: ' + content.filename + '</div>';
+                        }
+                        updateCreateBtnState();
+                    };
+                    reader.readAsDataURL(content.file);
+                    return;
+                }
+            } catch (e) {
+                previewContent.innerHTML = '<div class="alert alert-danger">Error: ' + e.message + '</div>';
+            }
+        })();
+    }
+    
+    let pasteDebounce;
+    fileInput.addEventListener('change', function() {
+        const thumb = document.getElementById('inscribeFileThumbnail');
+        const thumbImg = document.getElementById('inscribeFileThumbnailImg');
+        if (!thumb || !thumbImg) return;
+        const file = fileInput.files[0];
+        if (!file) {
+            thumb.style.display = 'none';
+            thumbImg.src = '';
+            runPreview();
+            return;
+        }
+        if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = function() {
+                thumbImg.src = reader.result;
+                thumb.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        } else {
+            thumb.style.display = 'none';
+            thumbImg.src = '';
+        }
+        runPreview();
+    });
+    pasteInput.addEventListener('input', function() {
+        clearTimeout(pasteDebounce);
+        pasteDebounce = setTimeout(runPreview, 300);
+    });
+    pasteInput.addEventListener('paste', function() {
+        setTimeout(runPreview, 100);
+    });
+    const contentTabs = document.getElementById('inscribeContentTabs');
+    if (contentTabs) contentTabs.addEventListener('shown.bs.tab', runPreview);
+    
+    function getInscribeContent() {
+        const pasteTab = document.querySelector('[data-bs-target="#inscribePaste"]');
+        if (pasteTab && pasteTab.classList.contains('active') && pasteInput.value.trim()) {
+            return { text: pasteInput.value, type: 'text/plain', filename: 'content.txt' };
+        }
+        const file = fileInput.files[0];
+        if (!file) return null;
+        return { file, type: file.type || 'application/octet-stream', filename: file.name };
+    }
+    
+    receiveAddress.addEventListener('input', updateCreateBtnState);
+    
+    checkDuplicate.addEventListener('change', async function() {
+        if (!checkDuplicate.checked || !inscribeContent) return;
+        duplicateResult.style.display = 'block';
+        duplicateResult.className = 'alert alert-secondary mt-2';
+        duplicateResult.textContent = 'Duplicate search: API access pending. Proceeding without check.';
+    });
+    
+    createBtn.addEventListener('click', async function() {
+        if (!inscribeContent || !receiveAddress.value.trim()) return;
+        if (checkDuplicate.checked) {
+            try {
+                const isImage = inscribeContentType.startsWith('image/');
+                const endpoint = isImage ? '/api/inscription/search-duplicate/image' : '/api/inscription/search-duplicate/text';
+                const body = isImage && inscribeContent.dataUrl
+                    ? { contentHash: 'placeholder-when-api-ready' }
+                    : { text: inscribeContent.text || '' };
+                const res = await fetch(endpoint, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.placeholder) {
+                    duplicateResult.className = 'alert alert-info mt-2';
+                    duplicateResult.textContent = data.message || 'Duplicate search: API access pending.';
+                } else if (data.found && data.inscriptionId) {
+                    duplicateResult.className = 'alert alert-warning mt-2';
+                    duplicateResult.innerHTML = 'Similar content may exist: <a href="https://ordinals.com/inscription/' + data.inscriptionId + '" target="_blank">View</a>. Proceed anyway?';
+                }
+            } catch (e) {
+                duplicateResult.className = 'alert alert-secondary mt-2';
+                duplicateResult.textContent = 'Duplicate check skipped (API pending).';
+            }
+        }
+        
+        createBtn.disabled = true;
+        createBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
+        try {
+            const payload = {
+                receiveAddress: receiveAddress.value.trim(),
+                feeRate: getFeeRateFromSlider()
+            };
+            if (inscribeContent.dataUrl) {
+                payload.files = [{ filename: inscribeFilename, dataURL: inscribeContent.dataUrl }];
+            } else {
+                const b64 = btoa(unescape(encodeURIComponent(inscribeContent.text)));
+                payload.files = [{ filename: inscribeFilename, dataURL: 'data:text/plain;base64,' + b64 }];
+            }
+            const res = await fetch('/api/inscription/create', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            createBtn.disabled = false;
+            createBtn.innerHTML = '<i class="bi bi-pencil-square"></i> Create Inscription';
+            
+            if (!data.success) {
+                alert(data.error || 'Failed to create inscription order');
+                return;
+            }
+            step1.style.display = 'none';
+            step2.style.display = 'block';
+            payAmount.textContent = data.amount || 0;
+            payAddress.textContent = data.pay_address || '';
+            window._inscribeOrderId = data.order_id;
+            if (data.qr_code) {
+                document.getElementById('inscribePayQr').innerHTML = '<img src="' + data.qr_code + '" alt="QR" style="max-width: 200px;">';
+            }
+            const pollStatus = async () => {
+                const s = await fetch('/api/inscription/status/' + data.order_id);
+                const st = await s.json();
+                payStatus.textContent = st.status === 'completed' ? 'Confirmed!' : (st.status || 'Waiting...');
+                if (st.status === 'completed' && st.inscription_id) {
+                    step2.style.display = 'none';
+                    step3.style.display = 'block';
+                    resultId.textContent = st.inscription_id;
+                    resultLink.href = 'https://ordinals.com/inscription/' + st.inscription_id;
+                    window._inscribeResultId = st.inscription_id;
+                    return;
+                }
+                if (st.status !== 'failed') setTimeout(pollStatus, 5000);
+            };
+            setTimeout(pollStatus, 3000);
+        } catch (e) {
+            createBtn.disabled = false;
+            createBtn.innerHTML = '<i class="bi bi-pencil-square"></i> Create Inscription';
+            alert('Error: ' + e.message);
+        }
+    });
+    
+    backBtn.addEventListener('click', function() {
+        step2.style.display = 'none';
+        step1.style.display = 'block';
+    });
+    
+    if (submitDraftBtn) {
+        submitDraftBtn.addEventListener('click', function() {
+            const id = window._inscribeResultId;
+            if (id) {
+                document.getElementById('ordinal-tab').click();
+                document.getElementById('ordinalId').value = id;
+                document.getElementById('previewBtn').click();
+            }
+        });
+    }
+});
 </script>
 """
+
+@app.before_request
+def set_script_name_from_proxy():
+    """When served under /dev/ (layer subdomain path), set SCRIPT_NAME so url_for generates correct links."""
+    prefix = request.headers.get('X-Forwarded-Prefix', '').rstrip('/')
+    if prefix:
+        request.environ['SCRIPT_NAME'] = prefix
 
 @app.before_request
 def deployment_safety_check():
@@ -4112,37 +5456,90 @@ def deployment_safety_check():
 # HOST → LAYER MIDDLEWARE
 # ================================================================
 
+# CSP for embed widget: Web3Auth modal, Font Awesome (cdnjs), CDNs
+# Web3Auth modal needs script-src (unpkg), frame-src (auth iframe), connect-src (api/session)
+EMBED_CSP = (
+    "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http: blob:; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'unsafe-hashes' https: http: blob:; "
+    "style-src 'self' 'unsafe-inline' https: http: blob:; "
+    "frame-src 'self' https: http: blob: https://*.web3auth.io https://*.walletconnect.org https://*.walletconnect.com; "
+    "connect-src 'self' https: http: wss: blob:; "
+    "img-src 'self' data: https: http: blob:; "
+    "font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com;"
+)
+
 @app.after_request
 def add_security_headers(response):
     """Add security headers including CSP for inline scripts"""
-    if IS_DEVELOPMENT:
-        # Permissive CSP for development (allows inline scripts)
-        response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:; style-src 'self' 'unsafe-inline' https: http:;"
+    # Embed routes always need permissive CSP for Web3Auth modal (CDN scripts, iframes)
+    if request.path.startswith('/embed/'):
+        response.headers['Content-Security-Policy'] = EMBED_CSP
+    else:
+        # All other routes: permissive CSP so inline scripts and CDNs work
+        csp = (
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http:; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http: blob:; "
+            "style-src 'self' 'unsafe-inline' https: http:; "
+            "frame-src 'self' https: http: blob:; "
+            "connect-src 'self' https: http: wss:; "
+            "img-src 'self' data: https: http: blob:; "
+            "font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com https:;"
+        )
+        response.headers['Content-Security-Policy'] = csp
     return response
+
+def _is_uuid_like(s):
+    """Check if string looks like a UUID (8-4-4-4-12 hex)."""
+    if not s or len(s) != 36:
+        return False
+    parts = s.split('-')
+    return (len(parts) == 5 and
+            all(len(p) in (8, 4, 4, 4, 12) for p in parts) and
+            all(c in '0123456789abcdefABCDEF-' for c in s))
 
 @app.before_request
 def resolve_layer_from_host():
-    """Resolve project/layer context from subdomain."""
+    """Resolve layer context from subdomain or path (GOV-HUB-3: layername.themetalayer.org or themetalayer.org/layer/layername)."""
     g.layer = None
     g.layer_slug = None
 
+    # 1. Try subdomain: layername.themetalayer.org
     host = request.host.split(':')[0].lower()
+    if host.endswith('.' + BASE_DOMAIN):
+        subdomain = host[: -(len(BASE_DOMAIN) + 1)]
+        if subdomain and '.' not in subdomain and subdomain not in RESERVED_SUBDOMAINS:
+            project = Layer.query.filter_by(slug=subdomain).first()
+            if project:
+                g.layer = project
+                g.layer_slug = subdomain
+                return
 
-    if not host.endswith('.' + BASE_DOMAIN):
-        return  # Not a subdomain of our domain
+    # 2. Path fallback: themetalayer.org/layers/<slug>/ or themetalayer.org/layer/<slug>
+    path = (request.path or '').rstrip('/')
+    if path.startswith('/'):
+        path = path[1:]
+    parts = path.split('/') if path else []
 
-    subdomain = host[: -(len(BASE_DOMAIN) + 1)]  # Strip ".themetalayer.org"
+    if len(parts) >= 1 and parts[0] == 'layers' and len(parts) >= 2:
+        slug = parts[1]
+        if slug and slug not in ('create',):
+            project = Layer.query.filter_by(slug=slug).first()
+            if project:
+                g.layer = project
+                g.layer_slug = slug
+                return
 
-    if not subdomain or '.' in subdomain:
-        return  # Root domain or multi-level subdomain
-
-    if subdomain in RESERVED_SUBDOMAINS:
-        return  # Reserved, no layer context
-
-    project = Project.query.filter_by(slug=subdomain).first()
-    if project:
-        g.layer = project
-        g.layer_slug = subdomain
+    if len(parts) >= 2 and parts[0] == 'layer':
+        segment = parts[1]
+        if segment:
+            if _is_uuid_like(segment):
+                project = Layer.query.filter_by(public_id=segment).first()
+            else:
+                project = Layer.query.filter_by(slug=segment).first()
+            if project:
+                g.layer = project
+                g.layer_slug = project.slug
+                return
 
 def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_seconds=30):
     """
@@ -4245,22 +5642,22 @@ def submit_draft():
         )
 
     # Layer selector: required for project_id. Use g.layer from subdomain or dropdown.
-    projects = Project.query.filter(Project.approval_status == 'approved').order_by(Project.name).all()
+    layers = Layer.query.filter(Layer.approval_status == 'approved').order_by(Layer.name).all()
     if g.layer:
         layer_selector = f'''
                                 <div class="mb-3">
                                     <label class="form-label">Layer</label>
                                     <p class="form-control-plaintext mb-0"><strong>{g.layer.name}</strong> <small class="text-muted">(from URL)</small></p>
-                                    <input type="hidden" name="project_id" value="{g.layer.id}">
+                                    <input type="hidden" name="layer_id" value="{g.layer.id}">
                                 </div>'''
-    elif projects:
+    elif layers:
         opts = '<option value="">Select a layer...</option>' + ''.join(
-            f'<option value="{p.id}">{p.name}</option>' for p in projects
+            f'<option value="{p.id}">{p.name}</option>' for p in layers
         )
         layer_selector = f'''
                                 <div class="mb-3">
-                                    <label for="project_id" class="form-label">Layer *</label>
-                                    <select class="form-select" id="project_id" name="project_id" required>
+                                    <label for="layer_id" class="form-label">Layer *</label>
+                                    <select class="form-select" id="layer_id" name="layer_id" required>
                                         {opts}
                                     </select>
                                     <div class="form-text">Drafts are submitted to a specific layer.</div>
@@ -4271,6 +5668,10 @@ def submit_draft():
                                     <p class="text-warning mb-0">No approved layers available. Submit from a layer subdomain (e.g. overweb.themetalayer.org) or create a layer first.</p>
                                 </div>'''
     submit_template = submit_template.replace('{{LAYER_SELECTOR}}', layer_selector)
+    stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
+    submit_template = submit_template.replace('{{STRIPE_PK}}', stripe_pk)
+    offer_tier = g.layer and getattr(g.layer, 'offer_tier_pricing', False) if g.get('layer') else False
+    submit_template = submit_template.replace('{{OFFER_TIER_PRICING}}', 'true' if offer_tier else 'false')
 
     if request.method == 'POST':
         # Get common fields
@@ -4279,13 +5680,13 @@ def submit_draft():
         abstract = request.form.get('abstract', '').strip()
         group = request.form.get('group', '').strip()
         source_type = request.form.get('sourceType', 'file').strip()
-        form_project_id = request.form.get('project_id', '').strip()
-        project_id = form_project_id or (g.layer.id if g.layer else None)
+        form_layer_id = request.form.get('layer_id', '').strip()
+        layer_id = form_layer_id or (g.layer.id if g.layer else None)
         
-        # Validate project_id when projects exist
-        if not project_id and projects:
+        # Validate layer_id when layers exist
+        if not layer_id and layers:
             flash('Please select a layer for this submission.', 'error')
-            return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+            return _format_base_template(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
         
         # Process authors (comma-separated)
         authors_list = [a.strip() for a in authors.split(',') if a.strip()]
@@ -4308,11 +5709,11 @@ def submit_draft():
             # Validation
             if not title or not authors or not ordinal_id:
                 flash('Title, authors, and inscription ID are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return _format_base_template(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
             
             if not ordinal_content_url:
                 flash('Please preview the ordinal before submitting', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return _format_base_template(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
             
             # Fetch ordinal content and calculate pages/words
             try:
@@ -4353,7 +5754,7 @@ def submit_draft():
                 authors=authors_list,
                 abstract=abstract,
                 group=group,
-                project_id=project_id,
+                layer_id=layer_id,
                 submitted_by=current_user_info['name'],
                 sourceType='ordinal',
                 doc_type=doc_type,
@@ -4374,7 +5775,7 @@ def submit_draft():
             # Validation
             if not title or not authors or not file:
                 flash('Title, authors, and file are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return _format_base_template(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
             
             # Security: Check file size (max 50MB)
             file.seek(0, os.SEEK_END)
@@ -4383,7 +5784,7 @@ def submit_draft():
             max_size = 50 * 1024 * 1024  # 50MB
             if file_size > max_size:
                 flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return _format_base_template(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
             
             # Save file
             filename = f"{submission_id}-{file.filename}"
@@ -4400,7 +5801,7 @@ def submit_draft():
                 authors=authors_list,
                 abstract=abstract,
                 group=group,
-                project_id=project_id,
+                layer_id=layer_id,
                 filename=filename,
                 file_path=file_path,
                 submitted_by=get_current_user()['name'],
@@ -4423,7 +5824,69 @@ def submit_draft():
         flash('Draft submitted successfully!', 'success')
         return redirect(f'/submit/status/{submission_id}/')
 
-    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+
+@app.route('/immortalize/')
+@app.route('/inscribe/')
+@require_auth
+def immortalize_redirect():
+    """Redirect to submit page Immortalize tab."""
+    return redirect('/submit/?tab=immortalize')
+
+@app.route('/immortalize/success/<order_id>/')
+@require_auth
+def immortalize_success(order_id):
+    """Confirmation page after Stripe payment - shows tentative info and Inscription Pending status."""
+    order = InscriptionOrder.query.get(order_id)
+    if not order:
+        return "Order not found", 404
+    submission = Submission.query.filter_by(inscription_order_id=order_id).first()
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+    title = order.title or 'Untitled'
+    authors_str = ', '.join(order.authors) if order.authors else ''
+    content = f'''
+<div class="container mt-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">Home</a></li>
+            <li class="breadcrumb-item"><a href="/submit/">Submit</a></li>
+            <li class="breadcrumb-item active">Order Confirmed</li>
+        </ol>
+    </nav>
+    <h2>Order Submitted</h2>
+    <div class="alert alert-info"><span class="badge bg-warning">Inscription Pending</span> Times to receive may vary.</div>
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5>{title}</h5>
+            <p class="mb-1"><strong>Authors:</strong> {authors_str}</p>
+            <p class="mb-1"><strong>Order ID:</strong> <code>{order_id}</code></p>
+            <p class="mb-0"><strong>Status:</strong> <span id="orderStatus">{order.status}</span></p>
+        </div>
+    </div>
+    <div id="statusPoll"></div>
+    <a href="/submit/" class="btn btn-primary">Back to Submit</a>
+</div>
+<script>
+(function() {{
+    function poll() {{
+        fetch('/api/inscribe/{order_id}/status/')
+            .then(r => r.json())
+            .then(d => {{
+                document.getElementById('orderStatus').textContent = d.status || 'pending';
+                const el = document.getElementById('statusPoll');
+                if (d.status === 'completed' && d.submission_id) {{
+                    el.innerHTML = '<p><a href="/submit/status/' + d.submission_id + '/" class="btn btn-success">View Submission</a></p>';
+                    return;
+                }}
+                setTimeout(poll, 5000);
+            }});
+    }}
+    poll();
+}})();
+</script>
+'''
+    return _format_base_template(title="Order Confirmed - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
 @require_auth
@@ -4459,7 +5922,7 @@ def submit_revision(draft_name):
     
     # Inherit project_id from parent draft (revisions belong to same layer)
     parent_sub = Submission.query.filter_by(id=draft_name).first()
-    revision_project_id = parent_sub.project_id if parent_sub else (g.layer.id if g.layer else None)
+    revision_layer_id = parent_sub.layer_id if parent_sub else (g.layer.id if g.layer else None)
     
     # Determine display ID (ML-Draft-XXX or internal ID)
     display_id = draft.get('ml_number', draft_name) or draft_name
@@ -4530,7 +5993,7 @@ def submit_revision(draft_name):
                 authors=authors_list,
                 abstract=abstract,
                 group=group,
-                project_id=revision_project_id,
+                layer_id=revision_layer_id,
                 submitted_by=get_current_user()['name'],
                 sourceType='ordinal',
                 doc_type='draft',
@@ -4581,7 +6044,7 @@ def submit_revision(draft_name):
                 authors=authors_list,
                 abstract=abstract,
                 group=group,
-                project_id=revision_project_id,
+                layer_id=revision_layer_id,
                 filename=filename,
                 file_path=file_path,
                 submitted_by=get_current_user()['name'],
@@ -4848,7 +6311,7 @@ def submit_revision(draft_name):
     </script>
     """
     
-    return BASE_TEMPLATE.format(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER, hypothesis_config="")
 
 SUBMISSION_STATUS_TEMPLATE = """
 <div class="container mt-4">
@@ -5162,7 +6625,8 @@ def submission_status():
             'submitted': 'badge bg-warning text-dark',
             'approved': 'badge bg-success',
             'rejected': 'badge bg-danger',
-            'published': 'badge bg-info'
+            'published': 'badge bg-info',
+            'inscription_pending': 'badge bg-warning'
         }.get(submission.status, 'badge bg-secondary')
         
         # Get source type
@@ -5247,7 +6711,7 @@ def submission_status():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/submit/status/<submission_id>/')
 @require_auth
@@ -5510,7 +6974,7 @@ def submission_detail(submission_id):
     rendered_content = render_template_string(SUBMISSION_STATUS_TEMPLATE, **template_vars)
     
     # Now use the rendered content in BASE_TEMPLATE (which uses Python .format())
-    return BASE_TEMPLATE.format(title=f"Submission {submission.id} - MLGH", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Submission {submission.id} - MLGH", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 LOGIN_TEMPLATE = """
 <div class="container mt-4">
@@ -5523,7 +6987,7 @@ LOGIN_TEMPLATE = """
                 <div class="card-body">
                     <div id="flash-messages"></div>
 
-                    <!-- Single Web3Auth Sign In Button -->
+                    <!-- Single Web3Auth Sign In Button - uses loginWithWeb3Auth from BASE_TEMPLATE -->
                     <div class="mb-4 text-center">
                         <p class="text-muted mb-3">Connect your account to continue</p>
                         <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" onclick="loginWithWeb3Auth()">
@@ -5540,213 +7004,6 @@ LOGIN_TEMPLATE = """
         </div>
     </div>
 </div>
-
-<script>
-// Web3Auth Integration
-let web3auth = null;
-
-// Function to load script dynamically
-function loadScript(src) {
-    return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = () => resolve();
-        script.onerror = (e) => reject(e);
-        document.head.appendChild(script);
-    });
-}
-
-// Initialize Web3Auth after ensuring scripts are loaded
-async function initWeb3Auth() {
-    try {
-        // Load Web3 first
-        await loadScript('https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js');
-
-        // Load Web3Auth Modal
-        await loadScript('https://unpkg.com/@web3auth/modal@10.13.1/dist/modal.umd.min.js');
-
-        // Wait for Web3Auth to be available
-        await new Promise(resolve => {
-            const checkWeb3Auth = () => {
-                if (window.Modal && window.Modal.Web3Auth) {
-                    resolve();
-                } else {
-                    setTimeout(checkWeb3Auth, 100);
-                }
-            };
-            checkWeb3Auth();
-        });
-
-        const Web3AuthConstructor = window.Modal.Web3Auth;
-
-        const web3AuthConfig = {
-            clientId: "BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk",
-            web3AuthNetwork: 'sapphire_devnet',
-            chainConfig: {
-                chainNamespace: 'eip155',
-                chainId: '0x1',
-                rpcTarget: 'https://rpc.ankr.com/eth',
-                displayName: 'Ethereum Mainnet',
-                blockExplorerUrl: 'https://etherscan.io',
-                ticker: 'ETH',
-                tickerName: 'Ethereum',
-            },
-            // Disable modal for direct provider login
-            modal: false,
-            uiConfig: {
-                theme: 'dark',
-                loginMethodsOrder: ['google', 'twitter', 'email_passwordless', 'wallet'],
-                defaultLanguage: 'en',
-            },
-            // Force account selection for Google OAuth
-            loginConfig: {
-                google: {
-                    verifier: 'web3auth-google-sapphire-devnet',
-                    typeOfLogin: 'google',
-                    clientId: 'BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk',
-                    // Force account selection and re-authentication
-                    extraLoginOptions: {
-                        prompt: 'login select_account',
-                        access_type: 'offline'
-                    },
-                    // Also try query parameters
-                    queryParameters: {
-                        prompt: 'login select_account',
-                        access_type: 'offline'
-                    }
-                }
-            },
-        };
-
-        web3auth = new Web3AuthConstructor(web3AuthConfig);
-        await web3auth.init();
-
-        console.log('Web3Auth initialized successfully');
-
-    } catch (error) {
-        console.error('Web3Auth initialization failed:', error);
-    }
-}
-
-async function loginWithWeb3Auth(buttonType) {
-    if (!web3auth) {
-        alert("Web3Auth not initialized. Please refresh the page.");
-        return;
-    }
-
-    try {
-        // Update button to show loading
-        const btn = document.getElementById(buttonType + '-login-btn');
-        if (btn) {
-            btn.innerHTML = 'Connecting...';
-        }
-
-        // Connect to Web3Auth with specific login provider
-        let loginProvider = null;
-        if (buttonType === 'google') loginProvider = 'google';
-        else if (buttonType === 'twitter') loginProvider = 'twitter';
-        else if (buttonType === 'email') loginProvider = 'email_passwordless';
-        else if (buttonType === 'wallet') loginProvider = 'wallet';
-
-        // Connect directly to provider with forced auth
-        console.log("Connecting directly to:", loginProvider);
-        const web3authProvider = await web3auth.connect({
-            loginProvider,
-            extraLoginOptions: {
-                prompt: 'login select_account',
-                access_type: 'offline'
-            }
-        });
-
-        if (web3authProvider) {
-            // Get user info
-            const userInfo = await web3auth.getUserInfo();
-
-            // Get wallet address for wallet logins
-            let walletAddress = null;
-            try {
-                const web3 = new Web3(web3authProvider);
-                const accounts = await web3.eth.getAccounts();
-                walletAddress = accounts[0];
-            } catch (walletError) {
-                console.log("No wallet address available:", walletError.message);
-            }
-
-            // Determine login type
-            let loginType = 'unknown';
-            if (userInfo.groupedAuthConnectionId) {
-                if (userInfo.groupedAuthConnectionId.includes('google')) {
-                    loginType = 'google';
-                } else if (userInfo.groupedAuthConnectionId.includes('twitter')) {
-                    loginType = 'twitter';
-                } else if (userInfo.groupedAuthConnectionId.includes('email')) {
-                    loginType = 'email';
-                } else if (userInfo.groupedAuthConnectionId.includes('wallet')) {
-                    loginType = 'wallet';
-                }
-            } else if (walletAddress) {
-                loginType = 'wallet';
-            }
-
-            // Send user data to backend
-            const requestData = {
-                verifierId: userInfo.verifierId || userInfo.groupedAuthConnectionId || `user_${Date.now()}`,
-                typeOfLogin: loginType,
-                email: userInfo.email,
-                name: userInfo.name,
-                profileImage: userInfo.profileImage,
-                oauthName: userInfo.name,
-                evmAddress: walletAddress
-            };
-
-            const response = await fetch('/api/auth/web3auth', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData)
-            });
-
-            if (response.ok) {
-                // Update button to show final success
-                if (btn) {
-                    btn.innerHTML = 'Success! Redirecting...';
-                }
-                // Redirect after a short delay
-                setTimeout(() => {
-                    window.location.href = '/';
-                }, 1000);
-            } else {
-                const error = await response.json().catch(() => ({}));
-                alert('Login failed: ' + (error.error || 'Unknown error'));
-
-                // Reset button
-                if (btn) {
-                    if (buttonType === 'google') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Continue with Google';
-                    else if (buttonType === 'twitter') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>Continue with X (Twitter)';
-                    else if (buttonType === 'email') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>Continue with Email';
-                    else if (buttonType === 'wallet') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M21 7.28V5c0-1.1-.9-2-2-2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-2.28c.59-.35 1-.98 1-1.72V9c0-.74-.41-1.37-1-1.72zM20 9v6h-7V9h7zM5 7h14v10H5V7z"/><circle cx="16" cy="12" r="1.5"/></svg>Connect Wallet';
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Web3Auth login error:', error);
-        alert('Login failed: ' + error.message);
-
-        // Reset button
-        const btn = document.getElementById(buttonType + '-login-btn');
-        if (btn) {
-            if (buttonType === 'google') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Continue with Google';
-            else if (buttonType === 'twitter') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>Continue with X (Twitter)';
-            else if (buttonType === 'email') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>Continue with Email';
-            else if (buttonType === 'wallet') btn.innerHTML = '<svg width="18" height="18" class="me-2" viewBox="0 0 24 24" fill="currentColor"><path d="M21 7.28V5c0-1.1-.9-2-2-2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-2.28c.59-.35 1-.98 1-1.72V9c0-.74-.41-1.37-1-1.72zM20 9v6h-7V9h7zM5 7h14v10H5V7z"/><circle cx="16" cy="12" r="1.5"/></svg>Connect Wallet';
-        }
-    }
-}
-
-// Initialize Web3Auth when page loads
-document.addEventListener('DOMContentLoaded', () => {
-    initWeb3Auth();
-});
-</script>
 """
 
 REGISTER_TEMPLATE = """
@@ -5881,8 +7138,17 @@ PROFILE_TEMPLATE = """
 # Authentication routes
 @app.route('/login/', methods=['GET'])
 def login():
-    """Redirect to home and trigger Web3Auth modal"""
-    return redirect(url_for('home') + '?show_login=1')
+    """Show dedicated login page with Web3Auth sign-in. Use ?redirect=URL to return after login."""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+    return _format_base_template(
+        title="Sign In - MLGH",
+        theme=current_theme,
+        user_menu=user_menu,
+        content=LOGIN_TEMPLATE,
+        build_number=BUILD_NUMBER,
+        hypothesis_config=""
+    )
 
 @app.route('/logout/')
 def logout():
@@ -5932,7 +7198,7 @@ def register():
         <a class="nav-link" href="/login/">Sign In</a>
     </div>
     """
-    return render_template_string(BASE_TEMPLATE.format(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER, hypothesis_config=""))
+    return render_template_string(_format_base_template(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER, hypothesis_config=""))
 
 # Ordinals API routes
 @app.route('/api/ordinal/preview', methods=['POST'])
@@ -6116,14 +7382,408 @@ def convert_markdown():
         traceback.print_exc()
         return jsonify({'success': False, 'error': 'Conversion failed'}), 500
 
+# Immortalize Wizard API routes (Stripe + tier pricing)
+def _get_site_config(key, default):
+    """Get SiteConfig value or default."""
+    row = SiteConfig.query.filter_by(key=key).first()
+    return row.value if row else default
+
+@app.route('/api/inscribe/calculate/', methods=['POST'])
+def inscribe_calculate():
+    """Calculate price given page_count, image_count, optional tier."""
+    try:
+        data = request.get_json() or {}
+        page_count = int(data.get('page_count', 1))
+        image_count = int(data.get('image_count', 0))
+        tier = int(data.get('tier', 1))
+        price_per_page = float(_get_site_config('inscribe_price_per_page', '10.00'))
+        price_per_image = float(_get_site_config('inscribe_price_per_image', '5.00'))
+        tier2 = int(_get_site_config('inscribe_tier2_discount', '30'))
+        tier3 = int(_get_site_config('inscribe_tier3_discount', '50'))
+        from tier_pricing import get_inscribe_price
+        result = get_inscribe_price(page_count, image_count, tier, price_per_page, price_per_image, tier2, tier3)
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        app.logger.exception('inscribe calculate error')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/inscribe/send-otp/', methods=['POST'])
+def inscribe_send_otp():
+    """Send OTP via Twilio Verify."""
+    try:
+        import os
+        data = request.get_json() or {}
+        phone = (data.get('phone') or '').strip()
+        if not phone:
+            return jsonify({'success': False, 'error': 'Phone number required'}), 400
+        sid = os.environ.get('TWILIO_ACCOUNT_SID', '').strip()
+        token = os.environ.get('TWILIO_AUTH_TOKEN', '').strip()
+        verify_sid = os.environ.get('TWILIO_VERIFY_SID', '').strip()
+        if not all([sid, token, verify_sid]):
+            return jsonify({'success': False, 'error': 'SMS verification not configured'}), 503
+        from twilio.rest import Client
+        client = Client(sid, token)
+        client.verify.v2.services(verify_sid).verifications.create(to=phone, channel='sms')
+        return jsonify({'success': True})
+    except Exception as e:
+        app.logger.exception('send-otp error')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/inscribe/verify-otp/', methods=['POST'])
+def inscribe_verify_otp():
+    """Verify OTP; return tier and final price."""
+    try:
+        import os
+        data = request.get_json() or {}
+        phone = (data.get('phone') or '').strip()
+        code = (data.get('code') or '').strip()
+        page_count = int(data.get('page_count', 1))
+        image_count = int(data.get('image_count', 0))
+        if not phone or not code:
+            return jsonify({'success': False, 'error': 'Phone and code required'}), 400
+        sid = os.environ.get('TWILIO_ACCOUNT_SID', '').strip()
+        token = os.environ.get('TWILIO_AUTH_TOKEN', '').strip()
+        verify_sid = os.environ.get('TWILIO_VERIFY_SID', '').strip()
+        if not all([sid, token, verify_sid]):
+            return jsonify({'success': False, 'error': 'SMS verification not configured'}), 503
+        from twilio.rest import Client
+        from tier_pricing import get_tier_for_phone, get_inscribe_price
+        client = Client(sid, token)
+        check = client.verify.v2.services(verify_sid).verification_checks.create(to=phone, code=code)
+        if check.status != 'approved':
+            return jsonify({'success': False, 'error': 'Invalid or expired code'}), 400
+        tier = get_tier_for_phone(phone)
+        price_per_page = float(_get_site_config('inscribe_price_per_page', '10.00'))
+        price_per_image = float(_get_site_config('inscribe_price_per_image', '5.00'))
+        tier2 = int(_get_site_config('inscribe_tier2_discount', '30'))
+        tier3 = int(_get_site_config('inscribe_tier3_discount', '50'))
+        result = get_inscribe_price(page_count, image_count, tier, price_per_page, price_per_image, tier2, tier3)
+        return jsonify({'success': True, 'tier': tier, 'phone': phone, **result})
+    except Exception as e:
+        app.logger.exception('verify-otp error')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/inscribe/create-payment/', methods=['POST'])
+def inscribe_create_payment():
+    """Create InscriptionOrder + Stripe PaymentIntent; return client_secret."""
+    try:
+        import os
+        import stripe
+        data = request.get_json() or {}
+        content_text = data.get('content_text')
+        content_filename = data.get('content_filename', 'content.txt')
+        page_count = int(data.get('page_count', 1))
+        image_count = int(data.get('image_count', 0))
+        phone = (data.get('phone') or '').strip()
+        tier = int(data.get('tier', 1))
+        final_price_usd = float(data.get('final_price_usd', 0))
+        acknowledged_timing = data.get('acknowledged_timing') is True
+        notify_when_ready = data.get('notify_when_ready') is True
+        title = data.get('title', '')
+        authors = data.get('authors') or []
+        abstract = data.get('abstract', '')
+        workgroup = data.get('group', '')
+        project_id = data.get('layer_id') or data.get('project_id')
+
+        if not acknowledged_timing:
+            return jsonify({'success': False, 'error': 'You must acknowledge that times to receive may vary'}), 400
+        if not content_text and not data.get('content_file_b64'):
+            return jsonify({'success': False, 'error': 'Content required'}), 400
+        if data.get('content_file_b64') and not content_text:
+            content_text = f"[File: {content_filename}]"
+        if final_price_usd <= 0:
+            return jsonify({'success': False, 'error': 'Invalid price'}), 400
+
+        sk = os.environ.get('STRIPE_SECRET_KEY', '').strip()
+        if not sk:
+            return jsonify({'success': False, 'error': 'Stripe not configured'}), 503
+
+        stripe.api_key = sk
+        amount_cents = int(round(final_price_usd * 100))
+
+        order = InscriptionOrder(
+            content_text=content_text or '',
+            content_filename=content_filename,
+            page_count=page_count,
+            image_count=image_count,
+            phone_number=phone,
+            tier=tier,
+            base_price_usd=float(data.get('base_price_usd', final_price_usd)),
+            discount_pct=int(data.get('discount_pct', 0)),
+            final_price_usd=final_price_usd,
+            acknowledged_timing=True,
+            notify_when_ready=notify_when_ready,
+            title=title or 'Untitled',
+            authors=authors if isinstance(authors, list) else [authors] if authors else [],
+            abstract=abstract or '',
+            workgroup=workgroup,
+            layer_id=layer_id,
+        )
+        db.session.add(order)
+        db.session.commit()
+
+        pi = stripe.PaymentIntent.create(
+            amount=amount_cents,
+            currency='usd',
+            metadata={'order_id': order.id},
+        )
+        order.stripe_payment_intent_id = pi.id
+        order.stripe_client_secret = pi.client_secret
+        db.session.commit()
+
+        return jsonify({'success': True, 'order_id': order.id, 'client_secret': pi.client_secret})
+    except Exception as e:
+        app.logger.exception('create-payment error')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/inscribe/stripe-webhook/', methods=['POST'])
+def inscribe_stripe_webhook():
+    """Handle Stripe payment_intent.succeeded; mark paid, create Submission, create Unisat order."""
+    try:
+        import os
+        import stripe
+        payload = request.get_data()
+        sig = request.headers.get('Stripe-Signature', '')
+        secret = os.environ.get('STRIPE_WEBHOOK_SECRET', '').strip()
+        if not secret:
+            return jsonify({'error': 'Webhook not configured'}), 503
+        try:
+            event = stripe.Webhook.construct_event(payload, sig, secret)
+        except Exception as e:
+            return jsonify({'error': str(e)}), 400
+        if event['type'] != 'payment_intent.succeeded':
+            return jsonify({'received': True})
+        order_id = event['data']['object'].get('metadata', {}).get('order_id')
+        if not order_id:
+            return jsonify({'received': True})
+        order = InscriptionOrder.query.get(order_id)
+        if not order or order.status != 'pending_payment':
+            return jsonify({'received': True})
+        order.status = 'paid'
+        order.paid_at = datetime.utcnow()
+        db.session.commit()
+
+        # Create Submission with status inscription_pending
+        import random
+        import string
+        submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        submission = Submission(
+            id=submission_id,
+            title=order.title or 'Untitled',
+            authors=order.authors or [],
+            abstract=order.abstract or '',
+            group=order.workgroup or '',
+            layer_id=order.layer_id,
+            status='inscription_pending',
+            sourceType='ordinal',
+            ordinalId=None,
+            inscription_order_id=order.id,
+            submitted_by='Anonymous User',
+        )
+        db.session.add(submission)
+        db.session.commit()
+
+        # TODO: Create Unisat order (admin retry for now)
+        return jsonify({'received': True})
+    except Exception as e:
+        app.logger.exception('stripe webhook error')
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/inscribe/<order_id>/status/', methods=['GET'])
+def inscribe_order_status(order_id):
+    """Return order status + inscription_id when complete."""
+    order = InscriptionOrder.query.get(order_id)
+    if not order:
+        return jsonify({'success': False, 'error': 'Order not found'}), 404
+    submission = Submission.query.filter_by(inscription_order_id=order_id).first()
+    return jsonify({
+        'success': True,
+        'status': order.status,
+        'inscription_id': order.inscription_id,
+        'submission_id': submission.id if submission else None,
+        'title': order.title,
+        'authors': order.authors,
+    })
+
+# Inscription (Unisat) API routes - Phase 1
+@app.route('/api/inscription/create', methods=['POST'])
+def inscription_create():
+    """Create Unisat inscription order. Placeholder until API key configured."""
+    try:
+        data = request.get_json() or {}
+        receive_address = (data.get('receiveAddress') or '').strip()
+        files = data.get('files') or []
+        fee_rate = float(data.get('feeRate', 10))
+        
+        if not receive_address:
+            return jsonify({'success': False, 'error': 'Receive address is required'}), 400
+        if not files:
+            return jsonify({'success': False, 'error': 'At least one file is required'}), 400
+        
+        # Check for Unisat API key (env: UNISAT_API_KEY)
+        import os
+        api_key = os.environ.get('UNISAT_API_KEY', '').strip()
+        if not api_key:
+            return jsonify({
+                'success': False,
+                'error': 'Inscription service not configured. Set UNISAT_API_KEY to enable.',
+                'placeholder': True
+            }), 503
+        
+        # Call Unisat API
+        base_url = 'https://open-api-testnet.unisat.io' if os.environ.get('UNISAT_TESTNET') else 'https://open-api.unisat.io'
+        url = f'{base_url}/v2/inscribe/order/create'
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+        payload = {
+            'receiveAddress': receive_address,
+            'feeRate': fee_rate,
+            'outputValue': 546,
+            'files': [{'filename': f.get('filename', 'content.txt'), 'dataURL': f.get('dataURL')} for f in files]
+        }
+        
+        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+        result = resp.json()
+        
+        if result.get('code') != 1:
+            return jsonify({
+                'success': False,
+                'error': result.get('msg', 'Unisat API error')
+            }), 400
+        
+        d = result.get('data', {})
+        order_id = d.get('orderId', '')
+        pay_address = d.get('payAddress', '')
+        amount = d.get('amount', 0)
+        
+        # TODO: persist order_id for status polling
+        return jsonify({
+            'success': True,
+            'order_id': order_id,
+            'pay_address': pay_address,
+            'amount': amount,
+            'qr_code': None  # TODO: generate QR
+        })
+    except requests.RequestException as e:
+        return jsonify({'success': False, 'error': f'Unisat API request failed: {str(e)}'}), 502
+    except Exception as e:
+        app.logger.exception('inscription create error')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/inscription/status/<order_id>', methods=['GET'])
+def inscription_status(order_id):
+    """Poll Unisat inscription order status."""
+    try:
+        import os
+        api_key = os.environ.get('UNISAT_API_KEY', '').strip()
+        if not api_key:
+            return jsonify({'success': False, 'error': 'Not configured', 'status': 'pending'}), 503
+        
+        base_url = 'https://open-api-testnet.unisat.io' if os.environ.get('UNISAT_TESTNET') else 'https://open-api.unisat.io'
+        url = f'{base_url}/v2/inscribe/order/{order_id}'
+        headers = {'Authorization': f'Bearer {api_key}'}
+        
+        resp = requests.get(url, headers=headers, timeout=10)
+        result = resp.json()
+        
+        if result.get('code') != 1:
+            return jsonify({'status': 'pending', 'error': result.get('msg')})
+        
+        d = result.get('data', {})
+        status = d.get('status', 'pending')
+        files = d.get('files', [])
+        inscription_id = files[0].get('inscriptionId', '') if files else ''
+        
+        if status == 'completed' and inscription_id:
+            return jsonify({'success': True, 'status': 'completed', 'inscription_id': inscription_id})
+        return jsonify({'status': status, 'inscription_id': inscription_id or None})
+    except Exception as e:
+        return jsonify({'status': 'pending', 'error': str(e)})
+
+# Network fee rate (mempool.space)
+@app.route('/api/inscription/btc-price', methods=['GET'])
+def inscription_btc_price():
+    """Fetch current BTC price in USD for fee calculator."""
+    try:
+        resp = requests.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd', timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        price = data.get('bitcoin', {}).get('usd', 0)
+        return jsonify({'success': True, 'usd': price})
+    except Exception as e:
+        app.logger.warning(f'BTC price fetch failed: {e}')
+        return jsonify({'success': False, 'usd': 97000})
+
+@app.route('/api/inscription/network-fee', methods=['GET'])
+def inscription_network_fee():
+    """Fetch current Bitcoin network fee rates from mempool.space."""
+    try:
+        import os
+        base = 'https://mempool.space/testnet/api' if os.environ.get('UNISAT_TESTNET') else 'https://mempool.space/api'
+        url = f'{base}/v1/fees/recommended'
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        return jsonify({
+            'success': True,
+            'fastestFee': data.get('fastestFee', 0),
+            'halfHourFee': data.get('halfHourFee', 0),
+            'hourFee': data.get('hourFee', 0),
+            'economyFee': data.get('economyFee', 0),
+            'minimumFee': data.get('minimumFee', 0)
+        })
+    except Exception as e:
+        app.logger.warning(f'Network fee fetch failed: {e}')
+        return jsonify({
+            'success': False,
+            'economyFee': 5,
+            'hourFee': 10,
+            'halfHourFee': 15,
+            'fastestFee': 25,
+            'minimumFee': 1
+        })
+
+# Duplicate search placeholders - different endpoints for text vs image (hash)
+@app.route('/api/inscription/search-duplicate/text', methods=['POST'])
+def inscription_search_duplicate_text():
+    """Search for duplicate text content. Placeholder until API access."""
+    try:
+        data = request.get_json() or {}
+        text = data.get('text', '')
+        # When API ready: call text search endpoint (e.g. OrdinalsBot search by content)
+        return jsonify({
+            'placeholder': True,
+            'message': 'Duplicate search (text): API access pending. Proceeding without check.',
+            'found': False
+        })
+    except Exception as e:
+        return jsonify({'placeholder': True, 'message': 'Search unavailable', 'found': False})
+
+@app.route('/api/inscription/search-duplicate/image', methods=['POST'])
+def inscription_search_duplicate_image():
+    """Search for duplicate image by content hash. Placeholder until API access."""
+    try:
+        data = request.get_json() or {}
+        content_hash = data.get('contentHash', '')
+        # When API ready: SHA256 the image, call hash search endpoint
+        return jsonify({
+            'placeholder': True,
+            'message': 'Duplicate search (image/hash): API access pending. Proceeding without check.',
+            'found': False
+        })
+    except Exception as e:
+        return jsonify({'placeholder': True, 'message': 'Search unavailable', 'found': False})
+
 # Web3Auth API routes
 @app.route('/api/auth/web3auth', methods=['POST'])
 def web3auth_login():
     """Web3Auth login endpoint"""
-    # Rate limiting: 10 requests per 5 minutes per IP
+    # Rate limiting: 50 per 10 min per IP (dedup in embed prevents multi-POST per auth)
     client_ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
-    if not check_rate_limit(f"web3auth_{client_ip}", max_requests=10, window_seconds=300):
-        return jsonify({'error': 'Rate limit exceeded. Try again later.'}), 429
+    if not check_rate_limit(f"web3auth_{client_ip}", max_requests=50, window_seconds=600):
+        return jsonify({'error': 'Too many sign-in attempts. Please wait a few minutes and try again.'}), 429
 
     try:
         data = request.get_json()
@@ -6344,6 +8004,276 @@ def api_logout():
     return jsonify({'success': True})
 
 # ============================================================================
+# Badge Skins API
+# ============================================================================
+
+@app.route('/api/badge-skins/', methods=['GET'])
+def api_list_badge_skins():
+    """List all available badge skins"""
+    skins = BadgeSkin.query.order_by(BadgeSkin.name).all()
+    return jsonify({'skins': [s.to_dict() for s in skins]})
+
+
+# ============================================================================
+# BadgeCycle API
+# ============================================================================
+
+@app.route('/api/roles/<role_slug>/badge-cycle/', methods=['GET'])
+def api_get_role_badge_cycle(role_slug):
+    """Return the active or most-recent BadgeCycle for a role, plus computed upcoming dates."""
+    from datetime import date, timedelta
+    role = Role.query.filter_by(role_slug=role_slug).first_or_404()
+
+    # Most-recent cycle (active or last completed)
+    cycle = (BadgeCycle.query
+             .filter_by(entity_type='role', entity_id=role_slug)
+             .order_by(BadgeCycle.created_at.desc())
+             .first())
+
+    # Compute upcoming / projected dates from role settings
+    today = date.today()
+    earliest = role.badge_earliest_start
+    sub_days = role.badge_submission_days or 14
+    delay_days = role.badge_delay_days or 2
+    vote_days = role.badge_voting_days or 7
+
+    upcoming = None
+    if role.badge_enabled:
+        # Projected start is the later of today and earliest_start
+        proj_start = earliest if (earliest and earliest > today) else today
+        days_until = (earliest - today).days if (earliest and earliest > today) else 0
+
+        proj_sub_end = proj_start + timedelta(days=sub_days)
+        proj_vote_start = proj_sub_end + timedelta(days=delay_days)
+        proj_vote_end = proj_vote_start + timedelta(days=vote_days)
+
+        upcoming = {
+            'badge_earliest_start': earliest.isoformat() if earliest else None,
+            'days_until_start': days_until,
+            'badge_submission_days': sub_days,
+            'badge_delay_days': delay_days,
+            'badge_voting_days': vote_days,
+            'estimated_first_submission': proj_start.isoformat(),
+            'estimated_submission_end': proj_sub_end.isoformat(),
+            'estimated_voting_start': proj_vote_start.isoformat(),
+            'estimated_voting_end': proj_vote_end.isoformat(),
+            'badge_cycle_spacing_days': role.badge_cycle_spacing_days or 365,
+            'badge_end_date': role.badge_end_date.isoformat() if role.badge_end_date else None,
+            'badge_end_at_next_closing': role.badge_end_at_next_closing,
+            'voting_regular': role.badge_voting_regular,
+            'voting_time_weighted': role.badge_voting_time_weighted,
+            'voting_quadratic': role.badge_voting_quadratic,
+        }
+
+    current_user = get_current_user()
+    project = Layer.query.get(role.layer_id)
+    can_manage = bool(project and current_user and is_layer_admin(project, current_user))
+
+    return jsonify({
+        'badge_enabled': role.badge_enabled,
+        'role_id': role.id,
+        'cycle': cycle.to_dict() if cycle else None,
+        'upcoming': upcoming,
+        'can_manage': can_manage,
+    })
+
+
+@app.route('/api/roles/<role_slug>/badge-cycle/start/', methods=['POST'])
+@require_auth
+def api_start_role_badge_cycle(role_slug):
+    """Create a new BadgeCycle for a role (project admin only)."""
+    from datetime import date, timedelta
+    import uuid as _uuid
+
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    role = Role.query.filter_by(role_slug=role_slug).first_or_404()
+    project = Layer.query.get_or_404(role.layer_id)
+
+    if not is_layer_admin(project, current_user):
+        return jsonify({'error': 'Layer admin access required'}), 403
+
+    if not role.badge_enabled:
+        return jsonify({'error': 'Badges are not enabled for this role'}), 400
+
+    # Block if an active cycle already exists
+    active = (BadgeCycle.query
+              .filter_by(entity_type='role', entity_id=role_slug)
+              .filter(BadgeCycle.status.in_(['submission', 'delay', 'voting']))
+              .first())
+    if active:
+        return jsonify({'error': 'An active cycle already exists', 'cycle': active.to_dict()}), 409
+
+    today = date.today()
+    earliest = role.badge_earliest_start
+    if earliest and earliest > today:
+        return jsonify({'error': f'Badge cycle cannot start before {earliest.isoformat()}'}), 400
+
+    sub_days = role.badge_submission_days or 14
+    delay_days = role.badge_delay_days or 2
+    vote_days = role.badge_voting_days or 7
+
+    now_dt = datetime.utcnow()
+    sub_end = now_dt + timedelta(days=sub_days)
+    vote_start = sub_end + timedelta(days=delay_days)
+    vote_end = vote_start + timedelta(days=vote_days)
+
+    cycle_id = 'bcyc_' + _uuid.uuid4().hex[:12]
+    cycle = BadgeCycle(
+        id=cycle_id,
+        entity_type='role',
+        entity_id=role_slug,
+        layer_id=role.layer_id,
+        first_submission_at=now_dt,
+        submission_ends_at=sub_end,
+        voting_starts_at=vote_start,
+        voting_ends_at=vote_end,
+        status='submission',
+    )
+    db.session.add(cycle)
+    db.session.commit()
+
+    return jsonify({'success': True, 'cycle': cycle.to_dict()}), 201
+
+
+# ============================================================================
+# One-Time Badge API
+# ============================================================================
+
+@app.route('/api/one-time-badges/', methods=['GET'])
+def api_list_one_time_badges():
+    """List one-time badges, optionally filtered by project"""
+    layer_id = request.args.get('layer_id') or request.args.get('project_id')
+    q = OneTimeBadge.query
+    if layer_id:
+        q = q.filter_by(layer_id=layer_id)
+    badges = q.order_by(OneTimeBadge.earliest_start.asc()).all()
+    return jsonify({'badges': [b.to_dict() for b in badges]})
+
+
+@app.route('/api/one-time-badges/', methods=['POST'])
+@require_auth
+def api_create_one_time_badge():
+    """Create a new one-time badge (project admin only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    data = request.get_json() or {}
+    layer_id_val = (data.get('layer_id') or data.get('project_id') or '').strip()
+    if not layer_id_val:
+        return jsonify({'error': 'layer_id required'}), 400
+
+    project = Layer.query.get(layer_id_val)
+    if not project:
+        return jsonify({'error': 'Layer not found'}), 404
+    if not is_layer_admin(project, current_user):
+        return jsonify({'error': 'Layer admin required'}), 403
+
+    title = (data.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': 'title required'}), 400
+
+    from datetime import date
+    earliest_raw = data.get('earliest_start')
+    try:
+        earliest = date.fromisoformat(earliest_raw) if earliest_raw else date.today()
+    except ValueError:
+        return jsonify({'error': 'Invalid earliest_start date'}), 400
+
+    otb_id = 'otb_' + str(uuid4()).replace('-', '')[:20]
+    otb = OneTimeBadge(
+        id=otb_id,
+        layer_id=layer_id_val,
+        title=title,
+        description=data.get('description', ''),
+        earliest_start=earliest,
+        quantity=int(data.get('quantity', 1)),
+        submission_days=int(data.get('submission_days', 14)),
+        delay_days=int(data.get('delay_days', 2)),
+        voting_days=int(data.get('voting_days', 7)),
+        voting_regular=True,
+        voting_time_weighted=bool(data.get('voting_time_weighted', False)),
+        voting_quadratic=bool(data.get('voting_quadratic', False)),
+        badge_skin_id=data.get('badge_skin_id') or None,
+        status='draft',
+        created_by_id=current_user['id'],
+    )
+    db.session.add(otb)
+    db.session.commit()
+    return jsonify({'success': True, 'badge': otb.to_dict()}), 201
+
+
+@app.route('/api/one-time-badges/<badge_id>/', methods=['GET'])
+def api_get_one_time_badge(badge_id):
+    otb = OneTimeBadge.query.get_or_404(badge_id)
+    return jsonify({'badge': otb.to_dict()})
+
+
+@app.route('/api/one-time-badges/<badge_id>/', methods=['PATCH'])
+@require_auth
+def api_update_one_time_badge(badge_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    otb = OneTimeBadge.query.get_or_404(badge_id)
+    project = Layer.query.get(otb.layer_id)
+    if not is_layer_admin(project, current_user):
+        return jsonify({'error': 'Layer admin required'}), 403
+
+    data = request.get_json() or {}
+    str_fields = ['title', 'description', 'status']
+    for f in str_fields:
+        if f in data:
+            setattr(otb, f, data[f])
+
+    int_fields = ['quantity', 'submission_days', 'delay_days', 'voting_days']
+    for f in int_fields:
+        if f in data and data[f] is not None:
+            setattr(otb, f, int(data[f]))
+
+    bool_fields = ['voting_time_weighted', 'voting_quadratic']
+    for f in bool_fields:
+        if f in data:
+            setattr(otb, f, bool(data[f]))
+
+    if 'earliest_start' in data:
+        from datetime import date
+        val = data['earliest_start']
+        if val:
+            try:
+                otb.earliest_start = date.fromisoformat(val)
+            except ValueError:
+                return jsonify({'error': 'Invalid earliest_start'}), 400
+
+    if 'badge_skin_id' in data:
+        otb.badge_skin_id = data['badge_skin_id'] or None
+
+    db.session.commit()
+    return jsonify({'success': True, 'badge': otb.to_dict()})
+
+
+@app.route('/api/one-time-badges/<badge_id>/', methods=['DELETE'])
+@require_auth
+def api_delete_one_time_badge(badge_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    otb = OneTimeBadge.query.get_or_404(badge_id)
+    project = Layer.query.get(otb.layer_id)
+    if not is_layer_admin(project, current_user):
+        return jsonify({'error': 'Layer admin required'}), 403
+
+    db.session.delete(otb)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# ============================================================================
 # Role Images API Endpoints
 # ============================================================================
 
@@ -6352,7 +8282,7 @@ def api_role_images_roles_with_stats():
     """List roles with image count and vote count for role-images gallery page"""
     from sqlalchemy import func
     
-    project_id = request.args.get('project_id')
+    layer_id = request.args.get('layer_id') or request.args.get('project_id')
     
     # Subquery: image_count and total_votes (upvotes+downvotes) per role_slug
     stats_subq = db.session.query(
@@ -6367,10 +8297,10 @@ def api_role_images_roles_with_stats():
         stats_subq.c.vote_count
     ).outerjoin(stats_subq, Role.role_slug == stats_subq.c.role_slug)
     
-    if project_id:
-        query = query.filter(Role.project_id == project_id)
+    if layer_id:
+        query = query.filter(Role.layer_id == layer_id)
     
-    query = query.order_by(Role.project_id, Role.order, Role.title_guild)
+    query = query.order_by(Role.layer_id, Role.order, Role.title_guild)
     rows = query.all()
     
     # Build list with role dict + image_count, vote_count
@@ -6380,8 +8310,8 @@ def api_role_images_roles_with_stats():
         d = role.to_dict()
         d['image_count'] = image_count or 0
         d['vote_count'] = int(vote_count or 0)
-        d['project_name'] = role.project.name if role.project else None
-        d['project_slug'] = role.project.slug if role.project else None
+        d['layer_name'] = role.layer.name if role.layer else None
+        d['layer_slug'] = role.layer.slug if role.layer else None
         result.append(d)
     
     return jsonify({'roles': result, 'count': len(result)})
@@ -6724,7 +8654,7 @@ def serve_entity_image(filename):
 # Projects API Endpoints
 # ============================================================================
 
-@app.route('/api/projects/', methods=['GET'])
+@app.route('/api/layers/', methods=['GET'])
 def api_list_projects():
     """List all projects with filtering"""
     # Get query parameters
@@ -6732,7 +8662,7 @@ def api_list_projects():
     approval_status = request.args.get('approval_status')  # pending, approved, rejected
     
     # Build query
-    query = Project.query
+    query = Layer.query
     
     if status:
         query = query.filter_by(status=status)
@@ -6740,14 +8670,14 @@ def api_list_projects():
         query = query.filter_by(approval_status=approval_status)
     
     # Order by last activity (most recent first)
-    query = query.order_by(Project.last_activity.desc())
+    query = query.order_by(Layer.last_activity.desc())
     
-    projects = query.all()
-    resp = jsonify({'projects': [p.to_dict() for p in projects], 'count': len(projects)})
+    layers = query.all()
+    resp = jsonify({'layers': [p.to_dict() for p in layers], 'count': len(layers)})
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
     return resp
 
-@app.route('/api/projects/', methods=['POST'])
+@app.route('/api/layers/', methods=['POST'])
 @require_auth
 def api_create_project():
     """Create a new project"""
@@ -6765,12 +8695,12 @@ def api_create_project():
         return jsonify({'error': 'Layer name is required'}), 400
     
     # Check if project name already exists
-    existing = Project.query.filter_by(name=name).first()
+    existing = Layer.query.filter_by(name=name).first()
     if existing:
         return jsonify({'error': 'Layer name already exists'}), 400
     
     # Generate ID and slug
-    project_id = generate_project_id()
+    project_id = generate_layer_id()
     slug = create_slug(name)
     
     # Validate slug against reserved subdomains
@@ -6780,7 +8710,7 @@ def api_create_project():
     # Ensure slug is unique
     counter = 1
     original_slug = slug
-    while Project.query.filter_by(slug=slug).first():
+    while Layer.query.filter_by(slug=slug).first():
         slug = f"{original_slug}-{counter}"
         counter += 1
         # Re-check reserved subdomains for modified slug
@@ -6788,8 +8718,8 @@ def api_create_project():
             counter += 1
             slug = f"{original_slug}-{counter}"
     
-    # Create project
-    project = Project(
+    # Create layer
+    layer = Layer(
         id=project_id,
         name=name,
         slug=slug,
@@ -6800,18 +8730,51 @@ def api_create_project():
         approval_status='pending'
     )
     
-    db.session.add(project)
+    db.session.add(layer)
     db.session.commit()
     
-    return jsonify({'success': True, 'project': project.to_dict()}), 201
+    return jsonify({'success': True, 'layer': layer.to_dict()}), 201
 
-@app.route('/api/projects/<project_id>/', methods=['GET'])
-def api_get_project(project_id):
-    """Get project details"""
-    project = Project.query.get_or_404(project_id)
+@app.route('/api/layers/by-slug/<slug>/', methods=['GET'])
+def api_get_project_by_slug(slug):
+    """Get project details by slug (for layer detail page)"""
+    app.logger.info(f"[LAYER] api_get_project_by_slug called: slug={slug!r}")
+    project = Layer.query.filter_by(slug=slug).first()
+    if not project:
+        app.logger.warning(f"[LAYER] api_get_project_by_slug: no project found for slug={slug!r}")
+        from flask import abort
+        abort(404)
+    app.logger.info(f"[LAYER] api_get_project_by_slug: found project id={project.id} name={project.name}")
+    workgroups_count = Workgroup.query.filter_by(layer_id=project.id).count()
+    project_dict = project.to_dict()
+    project_dict['workgroups_count'] = workgroups_count
+    current_user = get_current_user()
+    if current_user:
+        member = LayerMember.query.filter_by(
+            layer_id=project.id, user_id=current_user['id'], status='active'
+        ).first()
+        project_dict['is_member'] = member is not None
+        project_dict['member_role'] = member.role if member else None
+    else:
+        project_dict['is_member'] = False
+        project_dict['member_role'] = None
+    return jsonify(project_dict)
+
+@app.route('/api/layers/<layer_id>/', methods=['GET'])
+def api_get_layer(layer_id):
+    """Get project details by id or slug"""
+    app.logger.info(f"[LAYER] api_get_layer called: layer_id={layer_id!r}")
+    project = Layer.query.get(layer_id)
+    if not project:
+        project = Layer.query.filter_by(slug=layer_id).first()
+    if not project:
+        app.logger.warning(f"[LAYER] api_get_layer: no layer for id/slug={layer_id!r}")
+        from flask import abort
+        abort(404)
+    app.logger.info(f"[LAYER] api_get_project: found id={project.id} slug={project.slug}")
     
     # Include workgroups count
-    workgroups_count = Workgroup.query.filter_by(project_id=project_id).count()
+    workgroups_count = Workgroup.query.filter_by(layer_id=project.id).count()
     
     project_dict = project.to_dict()
     project_dict['workgroups_count'] = workgroups_count
@@ -6819,8 +8782,8 @@ def api_get_project(project_id):
     # Include membership for current user if authenticated
     current_user = get_current_user()
     if current_user:
-        member = ProjectMember.query.filter_by(
-            project_id=project_id, user_id=current_user['id'], status='active'
+        member = LayerMember.query.filter_by(
+            layer_id=project.id, user_id=current_user['id'], status='active'
         ).first()
         project_dict['is_member'] = member is not None
         project_dict['member_role'] = member.role if member else None
@@ -6830,18 +8793,18 @@ def api_get_project(project_id):
     
     return jsonify(project_dict)
 
-@app.route('/api/projects/<project_id>/', methods=['PATCH'])
+@app.route('/api/layers/<layer_id>/', methods=['PATCH'])
 @require_auth
-def api_update_project(project_id):
+def api_update_project(layer_id):
     """Update project details"""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Check permissions (initiator, assigned admin, or site admin)
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Permission denied'}), 403
     
     data = request.get_json()
@@ -6852,13 +8815,13 @@ def api_update_project(project_id):
         if not name:
             return jsonify({'error': 'Layer name cannot be empty'}), 400
         if name != project.name:
-            if Project.query.filter_by(name=name).first():
+            if Layer.query.filter_by(name=name).first():
                 return jsonify({'error': 'A project with this name already exists'}), 400
             project.name = name
             slug = create_slug(name)
             original_slug = slug
             counter = 1
-            while Project.query.filter(Project.slug == slug, Project.id != project_id).first():
+            while Layer.query.filter(Layer.slug == slug, Layer.id != layer_id).first():
                 slug = f'{original_slug}-{counter}'
                 counter += 1
             project.slug = slug
@@ -6877,7 +8840,7 @@ def api_update_project(project_id):
             status_change = StatusChange(
                 id=generate_status_change_id(),
                 entity_type='project',
-                entity_id=project_id,
+                entity_id=layer_id,
                 field_name='status',
                 from_value=old_status,
                 to_value=project.status,
@@ -6890,19 +8853,23 @@ def api_update_project(project_id):
         project.status_reason = data['status_reason']
     
     project.updated_at = datetime.utcnow()
+    if data:
+        emit_event('layer_config_changed', actor_type='user', actor_id=current_user['id'],
+                   subject_type='layer', subject_id=layer_id, layer_id=layer_id,
+                   payload={'updated_fields': list(data.keys())})
     db.session.commit()
     
     return jsonify({'success': True, 'project': project.to_dict()})
 
-@app.route('/api/projects/<project_id>/approve/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/approve/', methods=['POST'])
 @require_auth
-def api_approve_project(project_id):
+def api_approve_project(layer_id):
     """Approve or reject a project (admin only)"""
     current_user = get_current_user()
     if not current_user or current_user.get('role') != 'admin':
         return jsonify({'error': 'Admin access required'}), 403
     
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     data = request.get_json()
     action = data.get('action')  # 'approve' or 'reject'
@@ -6919,7 +8886,7 @@ def api_approve_project(project_id):
     status_change = StatusChange(
         id=generate_status_change_id(),
         entity_type='project',
-        entity_id=project_id,
+        entity_id=layer_id,
         field_name='approval_status',
         from_value=old_status,
         to_value=project.approval_status,
@@ -6935,12 +8902,12 @@ def api_approve_project(project_id):
 # Project Admins API
 # ============================================================================
 
-@app.route('/api/projects/<project_id>/admins/', methods=['GET'])
-def api_list_project_admins(project_id):
+@app.route('/api/layers/<layer_id>/admins/', methods=['GET'])
+def api_list_project_admins(layer_id):
     """List project admins (owner + assigned). Only project admins can see this."""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     current_user = get_current_user()
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can view the admin list'}), 403
     
     owner = project.initiator
@@ -6952,7 +8919,7 @@ def api_list_project_admins(project_id):
         'added_at': project.created_at.isoformat() if project.created_at else None
     }
     
-    assigned = ProjectAdmin.query.filter_by(project_id=project_id).all()
+    assigned = LayerAdmin.query.filter_by(layer_id=layer_id).all()
     assigned_list = []
     for pa in assigned:
         u = pa.user
@@ -6971,15 +8938,15 @@ def api_list_project_admins(project_id):
     })
 
 
-@app.route('/api/projects/<project_id>/admins/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/admins/', methods=['POST'])
 @require_auth
-def api_add_project_admin(project_id):
+def api_add_project_admin(layer_id):
     """Add a project admin. Only existing project admins can add."""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can add admins'}), 403
     
     data = request.get_json()
@@ -6999,11 +8966,11 @@ def api_add_project_admin(project_id):
     if user_id == project.initiator_id:
         return jsonify({'error': 'Owner is already an admin'}), 400
     
-    existing = ProjectAdmin.query.filter_by(project_id=project_id, user_id=user_id).first()
+    existing = LayerAdmin.query.filter_by(layer_id=layer_id, user_id=user_id).first()
     if existing:
         return jsonify({'error': 'User is already a project admin'}), 400
     
-    pa = ProjectAdmin(project_id=project_id, user_id=user_id)
+    pa = LayerAdmin(layer_id=layer_id, user_id=user_id)
     db.session.add(pa)
     db.session.commit()
     
@@ -7020,21 +8987,21 @@ def api_add_project_admin(project_id):
     })
 
 
-@app.route('/api/projects/<project_id>/admins/<int:user_id>/', methods=['DELETE'])
+@app.route('/api/layers/<layer_id>/admins/<int:user_id>/', methods=['DELETE'])
 @require_auth
-def api_remove_project_admin(project_id, user_id):
+def api_remove_layer_admin(layer_id, user_id):
     """Remove a project admin. Owner cannot be removed."""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can remove admins'}), 403
     
     if user_id == project.initiator_id:
         return jsonify({'error': 'Cannot remove the layer owner'}), 400
     
-    pa = ProjectAdmin.query.filter_by(project_id=project_id, user_id=user_id).first()
+    pa = LayerAdmin.query.filter_by(layer_id=layer_id, user_id=user_id).first()
     if not pa:
         return jsonify({'error': 'User is not an assigned admin'}), 404
     
@@ -7063,12 +9030,56 @@ def api_search_users():
         'count': len(users)
     })
 
-@app.route('/api/projects/<project_id>/members/', methods=['GET'])
-def api_list_project_members(project_id):
+@app.route('/api/layers/<layer_id>/activity', methods=['GET'])
+@app.route('/api/layers/<layer_id>/activity/', methods=['GET'])
+def api_layer_activity(layer_id):
+    """Layer-scoped activity feed from EventLog (GOV-HUB-3 Tier 1). Accepts id or slug."""
+    project = Layer.query.get(layer_id)
+    if not project:
+        project = Layer.query.filter_by(slug=layer_id).first()
+    if not project:
+        from flask import abort
+        abort(404)
+    resolved_id = project.id
+    limit = min(int(request.args.get('limit', 50)), 100)
+    offset = int(request.args.get('offset', 0))
+    event_types = request.args.getlist('event_type')
+    query = EventLog.query.filter_by(layer_id=resolved_id)
+    if event_types:
+        query = query.filter(EventLog.event_type.in_(event_types))
+    events = query.order_by(EventLog.created_at.desc()).offset(offset).limit(limit).all()
+    actor_ids = {e.actor_id for e in events if e.actor_type == 'user' and e.actor_id}
+    users = {}
+    ids_int = [int(x) for x in actor_ids if x and str(x).isdigit()]
+    if ids_int:
+        for u in User.query.filter(User.id.in_(ids_int)).all():
+            users[str(u.id)] = u.displayName or u.username or f'User {u.id}'
+    event_list = []
+    for e in events:
+        ev = {
+            'id': e.id,
+            'event_type': e.event_type,
+            'actor_type': e.actor_type,
+            'actor_id': e.actor_id,
+            'actor_display_name': users.get(str(e.actor_id)) if e.actor_id else None,
+            'subject_type': e.subject_type,
+            'subject_id': e.subject_id,
+            'layer_id': e.layer_id,
+            'payload': json.loads(e.payload_json) if e.payload_json else None,
+            'created_at': e.created_at.isoformat() if e.created_at else None,
+        }
+        event_list.append(ev)
+    return jsonify({
+        'events': event_list,
+        'count': len(events)
+    }), 200
+
+@app.route('/api/layers/<layer_id>/members/', methods=['GET'])
+def api_list_project_members(layer_id):
     """List project members"""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
-    members = ProjectMember.query.filter_by(project_id=project_id, status='active').all()
+    members = LayerMember.query.filter_by(layer_id=layer_id, status='active').all()
     
     return jsonify({
         'members': [{
@@ -7082,19 +9093,19 @@ def api_list_project_members(project_id):
         } for m in members]
     }), 200
 
-@app.route('/api/projects/<project_id>/join/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/join/', methods=['POST'])
 @require_auth
-def api_join_project(project_id):
+def api_join_project(layer_id):
     """Join a project (with optional referral tracking)"""
     current_user_data = get_current_user()
     if not current_user_data:
         return jsonify({'error': 'Authentication required'}), 401
     
     user = User.query.get(current_user_data['id'])
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Check if already a member
-    existing = ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first()
+    existing = LayerMember.query.filter_by(layer_id=layer_id, user_id=user.id).first()
     if existing and existing.status == 'active':
         return jsonify({'error': 'Already a member of this project'}), 400
     
@@ -7118,8 +9129,8 @@ def api_join_project(project_id):
             existing.referral_code = referral_code
         member = existing
     else:
-        member = ProjectMember(
-            project_id=project_id,
+        member = LayerMember(
+            layer_id=layer_id,
             user_id=user.id,
             referred_by_id=referred_by_id,
             referral_code=referral_code,
@@ -7127,13 +9138,16 @@ def api_join_project(project_id):
         )
         db.session.add(member)
     
+    emit_event('member_joined', actor_type='user', actor_id=user.id,
+               subject_type='layer_member', subject_id=member.id,
+               layer_id=layer_id, payload={'user_id': user.id, 'role': member.role})
     db.session.commit()
     
     return jsonify({
         'message': 'Successfully joined project',
         'member': {
             'id': member.id,
-            'project_id': member.project_id,
+            'layer_id': member.layer_id,
             'user_id': member.user_id,
             'role': member.role,
             'joined_at': member.joined_at.isoformat() if member.joined_at else None,
@@ -7141,23 +9155,26 @@ def api_join_project(project_id):
         }
     }), 201
 
-@app.route('/api/projects/<project_id>/leave/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/leave/', methods=['POST'])
 @require_auth
-def api_leave_project(project_id):
+def api_leave_project(layer_id):
     """Leave a project"""
     current_user_data = get_current_user()
     if not current_user_data:
         return jsonify({'error': 'Authentication required'}), 401
     
     user = User.query.get(current_user_data['id'])
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
-    member = ProjectMember.query.filter_by(project_id=project_id, user_id=user.id, status='active').first()
+    member = LayerMember.query.filter_by(layer_id=layer_id, user_id=user.id, status='active').first()
     if not member:
         return jsonify({'error': 'Not a member of this project'}), 404
     
     member.status = 'left'
     member.left_at = datetime.utcnow()
+    emit_event('member_removed', actor_type='user', actor_id=user.id,
+               subject_type='layer_member', subject_id=member.id,
+               layer_id=layer_id, payload={'user_id': user.id})
     db.session.commit()
     
     return jsonify({'message': 'Successfully left project'}), 200
@@ -7174,7 +9191,7 @@ def api_get_referral_code():
     referral_code = get_or_create_referral_code(user)
     
     # Count referrals
-    referral_count = ProjectMember.query.filter_by(referred_by_id=user.id).count()
+    referral_count = LayerMember.query.filter_by(referred_by_id=user.id).count()
     
     return jsonify({
         'referral_code': referral_code,
@@ -7187,21 +9204,21 @@ def api_get_referral_code():
 # Waitlist API Endpoints
 # ============================================================================
 
-@app.route('/api/projects/<project_id>/waitlists/', methods=['GET'])
-def api_list_waitlists(project_id):
+@app.route('/api/layers/<layer_id>/waitlists/', methods=['GET'])
+def api_list_waitlists(layer_id):
     """List waitlists for a project. Only active+visible ones for non-admins."""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     current_user = get_current_user()
-    is_admin = current_user and is_project_admin(project, current_user)
+    is_admin = current_user and is_layer_admin(project, current_user)
     
-    query = Waitlist.query.filter_by(project_id=project_id, archived=False)
+    query = Waitlist.query.filter_by(layer_id=layer_id, archived=False)
     
     if not is_admin:
         query = query.filter_by(active=True)
         if not current_user:
             query = query.filter_by(public=True)
         else:
-            is_member = ProjectMember.query.filter_by(project_id=project_id, user_id=current_user['id'], status='active').first() is not None
+            is_member = LayerMember.query.filter_by(layer_id=layer_id, user_id=current_user['id'], status='active').first() is not None
             if not is_member:
                 query = query.filter_by(public=True)
     
@@ -7221,7 +9238,7 @@ def api_list_waitlists(project_id):
             if w.referrals:
                 user = User.query.get(current_user['id'])
                 ref_code = get_or_create_referral_code(user)
-                d['referral_url'] = f"{request.host_url}projects/{project.slug}/waitlist/{w.id}/?ref={ref_code}"
+                d['referral_url'] = f"{request.host_url}layers/{project.slug}/waitlist/{w.id}/?ref={ref_code}"
         else:
             d['my_entry'] = None
             d['referral_url'] = None
@@ -7229,15 +9246,15 @@ def api_list_waitlists(project_id):
     
     return jsonify({'waitlists': result, 'count': len(result)})
 
-@app.route('/api/projects/<project_id>/waitlists/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/waitlists/', methods=['POST'])
 @require_auth
-def api_create_waitlist(project_id):
+def api_create_waitlist(layer_id):
     """Create waitlist - project admin only"""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
-    project = Project.query.get_or_404(project_id)
-    if not is_project_admin(project, current_user):
+    project = Layer.query.get_or_404(layer_id)
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can create waitlists'}), 403
     
     data = request.get_json() or {}
@@ -7263,7 +9280,7 @@ def api_create_waitlist(project_id):
             pass
     
     waitlist = Waitlist(
-        project_id=project_id,
+        layer_id=layer_id,
         name=name,
         description=data.get('description', ''),
         image_url=data.get('image_url'),
@@ -7285,9 +9302,9 @@ def api_create_waitlist(project_id):
 def api_get_waitlist(waitlist_id):
     """Get single waitlist with milestones and user's entry"""
     waitlist = Waitlist.query.get_or_404(waitlist_id)
-    project = Project.query.get_or_404(waitlist.project_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
     current_user = get_current_user()
-    is_admin = current_user and is_project_admin(project, current_user)
+    is_admin = current_user and is_layer_admin(project, current_user)
     
     if not waitlist.active and not is_admin:
         return jsonify({'error': 'Waitlist not found'}), 404
@@ -7301,7 +9318,7 @@ def api_get_waitlist(waitlist_id):
         if waitlist.referrals:
             user = User.query.get(current_user['id'])
             ref_code = get_or_create_referral_code(user)
-            d['referral_url'] = f"{request.host_url}projects/{project.slug}/waitlist/{waitlist.id}/?ref={ref_code}"
+            d['referral_url'] = f"{request.host_url}layers/{project.slug}/waitlist/{waitlist.id}/?ref={ref_code}"
     else:
         d['my_entry'] = None
         d['referral_url'] = None
@@ -7316,8 +9333,8 @@ def api_update_waitlist(waitlist_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     waitlist = Waitlist.query.get_or_404(waitlist_id)
-    project = Project.query.get_or_404(waitlist.project_id)
-    if not is_project_admin(project, current_user):
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can edit waitlists'}), 403
     
     data = request.get_json() or {}
@@ -7366,14 +9383,408 @@ def api_list_waitlist_entries(waitlist_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     waitlist = Waitlist.query.get_or_404(waitlist_id)
-    project = Project.query.get_or_404(waitlist.project_id)
-    if not is_project_admin(project, current_user):
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can view the entry list'}), 403
     
-    entries = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).order_by(WaitlistEntry.position).all()
+    user_entries = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).order_by(WaitlistEntry.position).all()
+    email_entries = WaitlistEmailSignup.query.filter_by(waitlist_id=waitlist_id, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).order_by(WaitlistEmailSignup.position).all()
+    entries = []
+    for e in user_entries:
+        entries.append({'id': f"u{e.id}", 'type': 'user', 'user_id': e.user_id, 'username': e.user.username, 'display_name': e.user.displayName or e.user.username, 'email': e.user.email, 'position': e.position, 'joined_at': e.joined_at.isoformat() if e.joined_at else None, 'referred_by': e.referred_by.displayName or e.referred_by.username if e.referred_by else None})
+    for e in email_entries:
+        entries.append({'id': f"e{e.id}", 'type': 'email', 'email': e.email, 'display_name': e.email, 'position': e.position, 'joined_at': e.verified_at.isoformat() if e.verified_at else None, 'message': e.message})
+    entries.sort(key=lambda x: x['position'])
+    return jsonify({'entries': entries}), 200
+
+
+def _make_unsubscribe_token(project_id, user_id_or_email):
+    """Create signed token for unsubscribe link."""
+    import hmac
+    import base64
+    import hashlib
+    secret = app.secret_key.encode('utf-8') if app.secret_key else b'secret'
+    payload = f"{project_id}:{user_id_or_email}"
+    sig = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()[:16]
+    return base64.urlsafe_b64encode(f"{payload}:{sig}".encode()).decode().rstrip('=')
+
+
+def _verify_unsubscribe_token(token):
+    """Verify and decode token. Returns (project_id, user_id_or_email) or None."""
+    import hmac
+    import base64
+    import hashlib
+    try:
+        padded = token + '=' * (4 - len(token) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode()).decode()
+        payload, sig = raw.rsplit(':', 1)
+        project_id, user_id_or_email = payload.split(':', 1)
+        secret = app.secret_key.encode('utf-8') if app.secret_key else b'secret'
+        expected = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()[:16]
+        if hmac.compare_digest(sig, expected):
+            return (project_id, user_id_or_email)
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_project_email_recipients(project_id, groups):
+    """Resolve recipients: set of (email, user_id?) deduped by email, excluding unsubscribed."""
+    project = Layer.query.get_or_404(layer_id)
+    seen = set()
+    result = []
+    
+    def add(email, user_id=None):
+        if not email or '@' not in email:
+            return
+        key = email.lower()
+        if key in seen:
+            return
+        from sqlalchemy import or_
+        q = EmailUnsubscribe.query.filter_by(layer_id=layer_id)
+        if user_id:
+            q = q.filter(or_(EmailUnsubscribe.email == key, EmailUnsubscribe.user_id == user_id))
+        else:
+            q = q.filter(EmailUnsubscribe.email == key)
+        if q.first():
+            return
+        seen.add(key)
+        result.append({'email': email, 'user_id': user_id})
+    
+    if 'members' in groups:
+        for m in LayerMember.query.filter_by(layer_id=layer_id, status='active').filter(LayerMember.left_at.is_(None)).all():
+            if m.user and m.user.email:
+                add(m.user.email, m.user_id)
+    
+    if 'role_holders' in groups:
+        for c in Claim.query.filter_by(layer_id=layer_id, status='active').all():
+            if c.claimant and c.claimant.email:
+                add(c.claimant.email, c.claimant_id)
+    
+    for k in groups:
+        if k.startswith('waitlist_'):
+            wid = k.replace('waitlist_', '')
+            try:
+                wid = int(wid)
+            except ValueError:
+                continue
+            for e in WaitlistEntry.query.filter_by(waitlist_id=wid, left_at=None).all():
+                if e.user and e.user.email:
+                    add(e.user.email, e.user_id)
+            for e in WaitlistEmailSignup.query.filter_by(waitlist_id=wid, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).all():
+                add(e.email, None)
+    
+    if 'workgroup_members' in groups:
+        wgs = Workgroup.query.filter_by(layer_id=layer_id).all()
+        for wg in wgs:
+            for m in WorkingGroupMember.query.filter_by(group_acronym=wg.acronym).all():
+                if m.user_id:
+                    u = User.query.get(m.user_id)
+                    if u and u.email:
+                        add(u.email, u.id)
+                elif m.user_name:
+                    u = User.query.filter(db.or_(User.username == m.user_name, User.name == m.user_name)).first()
+                    if u and u.email:
+                        add(u.email, u.id)
+    
+    return result
+
+
+@app.route('/api/layers/<layer_id>/email-recipients/', methods=['GET'])
+@require_auth
+def api_project_email_recipients(layer_id):
+    """List recipient groups for project admin email. Project admin only."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    project = Layer.query.get_or_404(layer_id)
+    if not is_layer_admin(project, current_user):
+        return jsonify({'error': 'Layer admin required'}), 403
+    
+    members_count = LayerMember.query.filter_by(layer_id=layer_id, status='active').filter(LayerMember.left_at.is_(None)).count()
+    role_holders = db.session.query(Claim.claimant_id).filter_by(layer_id=layer_id, status='active').distinct().count()
+    waitlists = []
+    for w in Waitlist.query.filter_by(layer_id=layer_id).all():
+        uc = WaitlistEntry.query.filter_by(waitlist_id=w.id, left_at=None).count()
+        ec = WaitlistEmailSignup.query.filter_by(waitlist_id=w.id, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).count()
+        waitlists.append({'id': w.id, 'name': w.name, 'count': uc + ec})
+    
+    wg_count = 0
+    for wg in Workgroup.query.filter_by(layer_id=layer_id).all():
+        wg_count += WorkingGroupMember.query.filter_by(group_acronym=wg.acronym).count()
+    
+    from_addr = os.environ.get('RESEND_FROM', 'MLGH <noreply@themetalayer.org>').strip()
+    admin_emails = []
+    if project.initiator and project.initiator.email:
+        name = project.initiator.displayName or project.initiator.username or 'Initiator'
+        admin_emails.append({'value': f"{name} <{project.initiator.email}>", 'label': f"{name} (initiator)"})
+    for pa in LayerAdmin.query.filter_by(layer_id=layer_id).all():
+        if pa.user and pa.user.email and pa.user_id != project.initiator_id:
+            name = pa.user.displayName or pa.user.username or 'Admin'
+            admin_emails.append({'value': f"{name} <{pa.user.email}>", 'label': f"{name} (admin)"})
+    
     return jsonify({
-        'entries': [{'id': e.id, 'user_id': e.user_id, 'username': e.user.username, 'display_name': e.user.displayName or e.user.username, 'position': e.position, 'joined_at': e.joined_at.isoformat() if e.joined_at else None, 'referred_by': e.referred_by.displayName or e.referred_by.username if e.referred_by else None} for e in entries]
+        'groups': {
+            'members': {'label': 'Project members', 'count': members_count},
+            'role_holders': {'label': 'Role holders', 'count': role_holders},
+            'workgroup_members': {'label': 'Workgroup members', 'count': wg_count},
+            **{f'waitlist_{w["id"]}': {'label': f"Waitlist: {w['name']}", 'count': w['count']} for w in waitlists},
+        },
+        'from_options': [{'value': from_addr, 'label': 'Default (noreply)'}] + admin_emails,
     }), 200
+
+
+@app.route('/api/layers/<layer_id>/send-email/', methods=['POST'])
+@require_auth
+def api_project_send_email(layer_id):
+    """Send email to selected recipient groups. Project admin only."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    project = Layer.query.get_or_404(layer_id)
+    if not is_layer_admin(project, current_user):
+        return jsonify({'error': 'Layer admin required'}), 403
+    
+    data = request.get_json() or {}
+    groups = data.get('groups', [])
+    subject = (data.get('subject') or '').strip()
+    body = (data.get('body') or '').strip()
+    from_addr = (data.get('from') or os.environ.get('RESEND_FROM', 'MLGH <noreply@themetalayer.org>')).strip()
+    
+    if not groups:
+        return jsonify({'error': 'Select at least one recipient group'}), 400
+    if not subject:
+        return jsonify({'error': 'Subject is required'}), 400
+    if not body:
+        return jsonify({'error': 'Message body is required'}), 400
+    
+    recipients = _resolve_project_email_recipients(layer_id, groups)
+    if not recipients:
+        return jsonify({'error': 'No recipients found for selected groups'}), 400
+    
+    scheme = 'https' if (request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https') else 'http'
+    base_url = f"{scheme}://{request.host}"
+    
+    api_key = os.environ.get('RESEND_API_KEY', '').strip()
+    if not api_key:
+        return jsonify({'error': 'Email service not configured (RESEND_API_KEY)'}), 500
+    
+    def _send_one(to_email, user_id_or_email):
+        unsub_token = _make_unsubscribe_token(layer_id, str(user_id_or_email) if user_id_or_email else to_email)
+        unsub_url = f"{base_url}/unsubscribe?token={unsub_token}"
+        html_body = body.replace('\n', '<br>')
+        html_body += f'<br><br><hr style="border:none;border-top:1px solid #eee;"><p style="font-size:11px;color:#888;"><a href="{unsub_url}">Unsubscribe</a> from project emails from {project.name}.</p>'
+        try:
+            import resend
+            resend.api_key = api_key
+            resend.Emails.send({
+                "from": from_addr,
+                "to": [to_email],
+                "subject": subject,
+                "html": html_body,
+            })
+            return True
+        except Exception as e:
+            app.logger.error(f"Failed to send to {to_email}: {e}")
+            return False
+    
+    if len(recipients) > 100:
+        return jsonify({'error': f'Too many recipients ({len(recipients)}). Maximum 100 per send. Please select fewer groups.'}), 400
+    
+    sent = 0
+    for r in recipients:
+        uid = r.get('user_id')
+        key = r['email'] if r['email'] else (str(uid) if uid else '')
+        if _send_one(r['email'], uid):
+            sent += 1
+    
+    return jsonify({'sent': sent, 'total': len(recipients)}), 200
+
+
+@app.route('/unsubscribe')
+def unsubscribe_from_project():
+    """Handle unsubscribe link. Token encodes project_id and user_id/email."""
+    token = request.args.get('token', '')
+    if not token:
+        return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+        <h2>Invalid link</h2>
+        <p>This unsubscribe link is invalid.</p>
+        <p><a href="/">Return to MLGH</a></p></body></html>""", 400
+    
+    decoded = _verify_unsubscribe_token(token)
+    if not decoded:
+        return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+        <h2>Invalid link</h2>
+        <p>This unsubscribe link is invalid or expired.</p>
+        <p><a href="/">Return to MLGH</a></p></body></html>""", 400
+    
+    layer_id_val, user_id_or_email = decoded
+    project = Layer.query.get(layer_id_val)
+    if not project:
+        return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+        <h2>Layer not found</h2>
+        <p><a href="/">Return to MLGH</a></p></body></html>""", 404
+    
+    try:
+        uid = int(user_id_or_email)
+        existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, user_id=uid).first()
+        if not existing:
+            db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=uid, email=None))
+            db.session.commit()
+    except ValueError:
+        email = user_id_or_email.lower()
+        existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, email=email).first()
+        if not existing:
+            db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=None, email=email))
+            db.session.commit()
+    
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribed</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+    <h2 style="color:#00ba7c;">You've been unsubscribed</h2>
+    <p>You will no longer receive project emails from <strong>{project.name}</strong>.</p>
+    <p><a href="/">Return to MLGH</a></p></body></html>""", 200
+
+
+def _send_waitlist_verification_email(signup, waitlist, confirm_url):
+    """Send verification email via Resend. Returns True on success."""
+    api_key = os.environ.get('RESEND_API_KEY', '').strip()
+    from_email = os.environ.get('RESEND_FROM', 'MLGH <onboarding@resend.dev>').strip()
+    if not api_key:
+        app.logger.warning("RESEND_API_KEY not set - skipping verification email")
+        return False
+    try:
+        import resend
+        resend.api_key = api_key
+        params = {
+            "from": from_email,
+            "to": [signup.email],
+            "subject": f"Confirm your place on {waitlist.name}",
+            "html": f"""<p>You requested to join the waitlist for <strong>{waitlist.name}</strong>.</p>
+<p>Please click the link below to confirm your place on the list:</p>
+<p><a href="{confirm_url}" style="background:#1d9bf0;color:#fff;padding:8px 16px;text-decoration:none;border-radius:6px;display:inline-block;">Confirm my place</a></p>
+<p>Or copy this link: {confirm_url}</p>
+<p>If you didn't request this, you can ignore this email.</p>
+<p>— MLGH</p>""",
+        }
+        resend.Emails.send(params)
+        return True
+    except Exception as e:
+        app.logger.error(f"Failed to send waitlist verification email: {e}")
+        return False
+
+
+@app.route('/api/waitlists/<int:waitlist_id>/join-email/', methods=['POST'])
+def api_join_waitlist_email(waitlist_id):
+    """Join waitlist via email (no auth). Sends verification link. For embed widget."""
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    message = (data.get('message') or '').strip()
+    source = data.get('source', 'embed')
+    source_url = data.get('source_url', '')
+    
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
+    if '@' not in email or '.' not in email.split('@')[-1]:
+        return jsonify({'error': 'Please enter a valid email address'}), 400
+    
+    now = datetime.utcnow()
+    if now < waitlist.start_date:
+        return jsonify({'error': 'Waitlist has not started yet'}), 400
+    if waitlist.closing_date and now >= waitlist.closing_date:
+        return jsonify({'error': 'Waitlist is closed'}), 400
+    
+    # Count confirmed entries (user-based + verified email)
+    user_count = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).count()
+    email_count = WaitlistEmailSignup.query.filter_by(waitlist_id=waitlist_id, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).count()
+    total = user_count + email_count
+    if waitlist.max_number is not None and total >= waitlist.max_number:
+        return jsonify({'error': 'Waitlist is full'}), 400
+    
+    # Check for existing (pending or verified) email signup
+    existing = WaitlistEmailSignup.query.filter_by(waitlist_id=waitlist_id, email=email, left_at=None).first()
+    if existing:
+        if existing.verified_at:
+            return jsonify({'error': 'This email is already on the waitlist'}), 400
+        # Resend verification if pending
+        pass  # Fall through to regenerate token and resend
+    else:
+        existing = None
+    
+    import secrets
+    token = secrets.token_urlsafe(32)
+    scheme = 'https' if (request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https') else 'http'
+    base = f"{scheme}://{request.host}"
+    confirm_url = f"{base}/waitlist/confirm/{token}"
+    
+    if existing:
+        existing.verification_token = token
+        existing.message = message or existing.message
+        existing.source = source
+        existing.source_url = source_url
+        db.session.commit()
+        signup = existing
+    else:
+        position = total + 1
+        signup = WaitlistEmailSignup(
+            waitlist_id=waitlist_id,
+            email=email,
+            message=message,
+            verification_token=token,
+            position=position,
+            source=source,
+            source_url=source_url,
+        )
+        db.session.add(signup)
+        db.session.commit()
+    
+    email_sent = _send_waitlist_verification_email(signup, waitlist, confirm_url)
+    if not email_sent:
+        if IS_DEVELOPMENT and not os.environ.get('RESEND_API_KEY', '').strip():
+            # Dev: auto-verify when Resend not configured (for testing)
+            signup.verified_at = datetime.utcnow()
+            signup.verification_token = None
+            db.session.commit()
+            return jsonify({
+                'message': 'joined',
+                'info': 'You\'re on the list! (Dev mode: email verification skipped)',
+                'position': signup.position,
+            }), 201
+        return jsonify({'error': 'Failed to send verification email. Please try again.'}), 500
+    
+    return jsonify({
+        'message': 'verification_sent',
+        'info': 'We have sent an email to confirm your place. Please check your inbox and click the link to confirm.',
+    }), 201
+
+
+@app.route('/waitlist/confirm/<token>')
+def waitlist_confirm(token):
+    """Confirm email signup via link. Renders success page."""
+    signup = WaitlistEmailSignup.query.filter_by(verification_token=token, left_at=None).first()
+    if not signup:
+        return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invalid link</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+        <h2>Invalid or expired link</h2>
+        <p>This confirmation link is invalid or has already been used.</p>
+        <p><a href="/">Return to MLGH</a></p></body></html>""", 404
+    
+    signup.verified_at = datetime.utcnow()
+    signup.verification_token = None  # One-time use
+    db.session.commit()
+    
+    waitlist = Waitlist.query.get_or_404(signup.waitlist_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>You're on the list!</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:500px;margin:40px auto;padding:24px;background:#f7f9fa;">
+<h1 style="color:#00ba7c;">You're on the list!</h1>
+<p>Your place on <strong>{waitlist.name}</strong> has been confirmed.</p>
+<p>We'll be in touch. In the meantime, you can <a href="/layers/{project.slug}/">visit the project</a>.</p>
+<p><a href="/" style="color:#1d9bf0;">Return to MLGH</a></p>
+</body></html>""", 200
+
 
 @app.route('/api/waitlists/<int:waitlist_id>/join/', methods=['POST'])
 @require_auth
@@ -7383,7 +9794,7 @@ def api_join_waitlist(waitlist_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     waitlist = Waitlist.query.get_or_404(waitlist_id)
-    project = Project.query.get_or_404(waitlist.project_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
     
     now = datetime.utcnow()
     if now < waitlist.start_date:
@@ -7416,9 +9827,9 @@ def api_join_waitlist(waitlist_id):
             referrer = User.query.filter_by(referral_code=referral_code).first()
             if referrer and referrer.id != current_user['id']:
                 referred_by_id = referrer.id
-                pm = ProjectMember.query.filter_by(project_id=project.id, user_id=current_user['id'], status='active').first()
+                pm = LayerMember.query.filter_by(layer_id=project.id, user_id=current_user['id'], status='active').first()
                 if not pm:
-                    pm = ProjectMember(project_id=project.id, user_id=current_user['id'], referred_by_id=referred_by_id, referral_code=referral_code, role='contributor')
+                    pm = LayerMember(layer_id=project.id, user_id=current_user['id'], referred_by_id=referred_by_id, referral_code=referral_code, role='contributor')
                     db.session.add(pm)
         
         entry = WaitlistEntry(waitlist_id=waitlist_id, user_id=current_user['id'], message=message, position=count + 1, referred_by_id=referred_by_id, referral_code=referral_code, source=source, source_url=source_url)
@@ -7457,8 +9868,8 @@ def api_create_waitlist_milestone(waitlist_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     waitlist = Waitlist.query.get_or_404(waitlist_id)
-    project = Project.query.get_or_404(waitlist.project_id)
-    if not is_project_admin(project, current_user):
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can add milestones'}), 403
     
     data = request.get_json() or {}
@@ -7476,255 +9887,500 @@ def api_create_waitlist_milestone(waitlist_id):
     db.session.commit()
     return jsonify({'milestone': {'id': m.id, 'title': m.title, 'description': m.description, 'threshold': m.threshold, 'action_type': m.action_type}}), 201
 
+@app.route('/api/waitlists/<int:waitlist_id>/milestones/<int:milestone_id>/', methods=['DELETE'])
+@require_auth
+def api_delete_waitlist_milestone(waitlist_id, milestone_id):
+    """Delete milestone - project admin only"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    if not is_layer_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can delete milestones'}), 403
+    m = WaitlistMilestone.query.filter_by(id=milestone_id, waitlist_id=waitlist_id).first_or_404()
+    db.session.delete(m)
+    db.session.commit()
+    return jsonify({'message': 'Milestone deleted'}), 200
+
+def _embed_widget_params():
+    """Parse embed widget query params. Returns dict with defaults."""
+    return {
+        'desc': request.args.get('desc', '1') == '1',
+        'count': request.args.get('count', '1') == '1',
+        'spots': request.args.get('spots', '1') == '1',
+        'msg': request.args.get('msg', 'none'),
+        'msg_placeholder': request.args.get('msg_placeholder', 'Add a message (optional)'),
+        'btn': request.args.get('btn', 'Join Waitlist') or 'Join Waitlist',
+        'fg': request.args.get('fg', '#ffffff'),
+        'bg': request.args.get('bg', '#667eea'),
+    }
+
+# Embed widget JS - email-first, no auth. Uses join-email API.
+EMBED_WIDGET_JS = r"""(function(){
+var c=window.__WL_CFG;if(!c)return;
+var WAITLIST_ID=c.waitlistId,API_BASE=location.origin,BTN_LABEL=c.btnLabel||'Join';
+var SOURCE_URL=location.href,SOURCE_DOMAIN=location.hostname;
+var joinInProgress=false;
+window.joinWaitlist=async function(){
+if(joinInProgress)return;
+var btn=document.getElementById('join-btn'),area=document.getElementById('message-area');
+var emailEl=document.getElementById('wl-email'),msgEl=document.getElementById('wl-msg');
+var email=emailEl?emailEl.value.trim():'';
+var msg=msgEl?msgEl.value.trim():'';
+if(!email){area.innerHTML='<div class="wl-error">Please enter your email.</div>';return;}
+if(email.indexOf('@')===-1||email.indexOf('.')===-1){area.innerHTML='<div class="wl-error">Please enter a valid email address.</div>';return;}
+joinInProgress=true;btn.disabled=true;btn.textContent='Sending...';
+try{
+var joinR=await fetch(API_BASE+'/api/waitlists/'+WAITLIST_ID+'/join-email/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,message:msg,source:'embed:'+SOURCE_DOMAIN,source_url:SOURCE_URL})});
+var data=await joinR.json();
+if(joinR.ok){
+var msg=data.info||(data.message==='joined'?'You\'re on the list!'+(data.position?' #'+data.position:'')+'':'We have sent an email to confirm your place. Please check your inbox and click the link to confirm.');
+area.innerHTML='<div class="wl-success">'+msg+'</div>';
+btn.style.display='none';if(emailEl)emailEl.style.display='none';if(msgEl)msgEl.style.display='none';
+var ec=document.getElementById('entry-count');if(ec&&data.position)ec.textContent=parseInt(ec.textContent,10)+1;
+}
+else{area.innerHTML='<div class="wl-error">'+(data.error||'Failed')+'</div>';btn.disabled=false;btn.textContent=BTN_LABEL;}
+joinInProgress=false;
+}catch(e){area.innerHTML='<div class="wl-error">Error. Please try again.</div>';btn.disabled=false;btn.textContent=BTN_LABEL;joinInProgress=false;}
+};
+})();"""
+
+@app.route('/embed/static/embed-widget.js')
+def embed_widget_js():
+    """Serve embed widget JS - external file avoids inline script parsing issues."""
+    return EMBED_WIDGET_JS, 200, {'Content-Type': 'application/javascript; charset=utf-8'}
+
+# Embed auth: Web3Auth modal inline (no popup/tab - avoids blockers)
+EMBED_AUTH_JS = r"""(function(){
+var web3auth=null, authInProgress=false;
+function loadScript(src){return new Promise(function(r,e){var s=document.createElement('script');s.src=src;s.onload=r;s.onerror=e;document.head.appendChild(s);});}
+window.showEmbedLogin=async function(onSuccess,onFailure){
+if(authInProgress)return;
+authInProgress=true;postSent=false;
+var done=function(){authInProgress=false;};
+var fail=function(){done();if(typeof onFailure==='function')onFailure();};
+try{
+if(!web3auth){
+await loadScript('https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js');
+await loadScript('https://unpkg.com/@web3auth/modal@10.13.1/dist/modal.umd.min.js');
+await new Promise(function(r){var c=function(){if(window.Modal&&window.Modal.Web3Auth)r();else setTimeout(c,100);};c();});
+var C=window.Modal.Web3Auth;
+web3auth=new C({clientId:"BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk",web3AuthNetwork:'sapphire_devnet',redirectUrl:location.href,chainConfig:{chainNamespace:'eip155',chainId:'0x1',rpcTarget:'https://rpc.ankr.com/eth',displayName:'Ethereum',blockExplorerUrl:'https://etherscan.io',ticker:'ETH',tickerName:'Ethereum'},uiConfig:{mode:'dark',theme:{primary:'#1d9bf0'},loginMethodsOrder:['google','twitter','email_passwordless','wallet'],defaultLanguage:'en'}});
+await web3auth.init();
+}
+await doConnect(onSuccess,fail);
+done();
+}catch(e){console.error('Web3Auth failed',e);if(!e.message||e.message.indexOf('user closed')===-1)alert('Sign-in failed: '+(e.message||'Please try again.'));fail();}
+};
+var postSent=false;
+async function doConnect(onSuccess,onFailure){
+var p=await web3auth.connect();
+var u=await web3auth.getUserInfo();
+if(postSent)return;
+postSent=true;
+var evm='';try{if(p){var w3=new Web3(p);var a=await w3.eth.getAccounts();if(a&&a.length)evm=a[0];}}catch(x){}
+var vid=u.verifierId||u.email||evm||'embed_user';
+var t=u.typeOfLogin||'unknown';if(u.groupedAuthConnectionId){if(u.groupedAuthConnectionId.indexOf('google')>=0)t='google';else if(u.groupedAuthConnectionId.indexOf('twitter')>=0)t='twitter';else if(u.groupedAuthConnectionId.indexOf('email')>=0)t='email';else if(u.groupedAuthConnectionId.indexOf('wallet')>=0)t='wallet';}
+var pay={verifierId:vid,typeOfLogin:t,email:u.email||'',name:u.name||(u.email?u.email.split('@')[0]:'')||'',profileImage:u.profileImage||'',evmAddress:evm};
+var res=await fetch(location.origin+'/api/auth/web3auth',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(pay)});
+if(res.ok){if(typeof onSuccess==='function')onSuccess();}else{postSent=false;var j=await res.json().catch(function(){});alert('Login failed: '+(j.error||'Unknown error'));if(typeof onFailure==='function')onFailure();}
+}
+})();"""
+
+@app.route('/embed/static/embed-auth.js')
+def embed_auth_js():
+    """Web3Auth for embed - modal inline, no popup/tab."""
+    return EMBED_AUTH_JS, 200, {'Content-Type': 'application/javascript; charset=utf-8'}
+
 @app.route('/embed/waitlist/<int:waitlist_id>/')
 def embed_waitlist_widget(waitlist_id):
-    """Embeddable waitlist widget - returns HTML/JS that can be embedded in external pages"""
+    """Embeddable waitlist widget - customizable via query params. Compact layout."""
     waitlist = Waitlist.query.get_or_404(waitlist_id)
-    project = Project.query.get_or_404(waitlist.project_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
     
-    # Check if waitlist is public or active
     if not waitlist.public and not waitlist.active:
         return "Waitlist not available", 404
     
-    # Get current entry count
-    entry_count = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).count()
-    
-    # Determine status
+    user_count = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).count()
+    email_count = WaitlistEmailSignup.query.filter_by(waitlist_id=waitlist_id, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).count()
+    entry_count = user_count + email_count
     now = datetime.utcnow()
     is_upcoming = now < waitlist.start_date
     is_closed = waitlist.archived or not waitlist.active or (waitlist.closing_date and now >= waitlist.closing_date)
     is_full = waitlist.max_number and entry_count >= waitlist.max_number
-    
-    # Get the base URL for API calls
     base_url = request.url_root.rstrip('/')
-    
-    widget_html = f"""
-<!DOCTYPE html>
+    opts = _embed_widget_params()
+    import html as html_mod
+    btn_esc = html_mod.escape(opts['btn'])
+    msg_ph_esc = html_mod.escape(opts['msg_placeholder'])
+    fg_esc = html_mod.escape(opts['fg'])
+    bg_esc = html_mod.escape(opts['bg'])
+    footer_link_style = f"color:{bg_esc}"
+    footer_css_rule = ".wl-footer a{" + footer_link_style + "}"
+    show_desc = opts['desc'] and (waitlist.description or '')
+    show_count = opts['count']
+    show_spots = opts['spots'] and waitlist.max_number
+    msg_mode = opts['msg']
+    show_msg = msg_mode in ('allow', 'require')
+    msg_required = msg_mode == 'require'
+    desc_html = f'<p class="wl-desc">{html_mod.escape(waitlist.description or "")}</p>' if show_desc else ''
+    stats_parts = []
+    if show_count:
+        stats_parts.append(f'<div class="wl-stat"><span class="wl-stat-val" id="entry-count">{entry_count}</span><span class="wl-stat-lbl">Members</span></div>')
+    if show_spots:
+        stats_parts.append(f'<div class="wl-stat"><span class="wl-stat-val">{waitlist.max_number - entry_count}</span><span class="wl-stat-lbl">Spots Left</span></div>')
+    stats_html = f'<div class="wl-stats">{"".join(stats_parts)}</div>' if stats_parts else ''
+    status_msg = ''
+    if is_upcoming:
+        status_msg = f'<p class="wl-status">Opens {waitlist.start_date.strftime("%B %d, %Y")}</p>'
+    elif is_closed:
+        status_msg = '<p class="wl-status">This waitlist is closed</p>'
+    elif is_full:
+        status_msg = '<p class="wl-status">Waitlist is full</p>'
+    btn_disabled = ' disabled' if (is_upcoming or is_closed or is_full) else ''
+    email_html = f'<div class="wl-email-wrap"><input type="email" id="wl-email" class="wl-email" placeholder="Your email" required></div>'
+    msg_html = ''
+    if show_msg:
+        req_attr = ' required' if msg_required else ''
+        msg_html = f'<div class="wl-msg-wrap"><textarea id="wl-msg" class="wl-msg" rows="3" placeholder="{msg_ph_esc}"{req_attr}></textarea></div>'
+    # Config for external embed-widget.js - escape </ to avoid HTML parser closing script tag
+    # (API_BASE uses location.origin in JS so requests match page protocol)
+    cfg = {'waitlistId': waitlist_id, 'msgRequired': msg_required, 'btnLabel': btn_esc}
+    cfg_js = json.dumps(cfg).replace('</', '<\\u002F')
+    widget_html = """<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        .waitlist-widget {{
-            max-width: 600px;
-            margin: 0 auto;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }}
-        .waitlist-header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 2rem;
-            border-radius: 12px 12px 0 0;
-        }}
-        .waitlist-body {{
-            background: white;
-            padding: 2rem;
-            border: 1px solid #e1e8ed;
-            border-top: none;
-            border-radius: 0 0 12px 12px;
-        }}
-        .waitlist-stats {{
-            display: flex;
-            justify-content: space-around;
-            margin: 1.5rem 0;
-            padding: 1rem;
-            background: #f7f9fa;
-            border-radius: 8px;
-        }}
-        .stat {{
-            text-align: center;
-        }}
-        .stat-value {{
-            font-size: 2rem;
-            font-weight: bold;
-            color: #667eea;
-        }}
-        .stat-label {{
-            font-size: 0.875rem;
-            color: #657786;
-            margin-top: 0.25rem;
-        }}
-        .join-button {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 1rem 2rem;
-            font-size: 1.125rem;
-            font-weight: 600;
-            border-radius: 8px;
-            cursor: pointer;
-            width: 100%;
-            transition: transform 0.2s;
-        }}
-        .join-button:hover {{
-            transform: translateY(-2px);
-        }}
-        .join-button:disabled {{
-            opacity: 0.6;
-            cursor: not-allowed;
-        }}
-        .success-message {{
-            background: #00ba7c;
-            color: white;
-            padding: 1rem;
-            border-radius: 8px;
-            margin-top: 1rem;
-            text-align: center;
-        }}
-        .error-message {{
-            background: #f4212e;
-            color: white;
-            padding: 1rem;
-            border-radius: 8px;
-            margin-top: 1rem;
-            text-align: center;
-        }}
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+.wl-widget{max-width:380px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:13px}
+.wl-header{padding:6px 10px;border-radius:6px 6px 0 0;color:%s;background:%s}
+.wl-header h3{margin:0;font-size:1rem;font-weight:600}
+.wl-body{padding:6px 10px;background:#fff;border:1px solid #e1e8ed;border-top:none;border-radius:0 0 6px 6px}
+.wl-desc{margin:2px 0 0 0;font-size:0.8rem;opacity:0.95;line-height:1.3}
+.wl-stats{display:flex;gap:12px;margin:4px 0;padding:4px 0;border-bottom:1px solid #eee}
+.wl-stat{text-align:center}
+.wl-stat-val{font-weight:700;font-size:1rem;display:block}
+.wl-stat-lbl{font-size:0.7rem;color:#657786}
+.wl-email-wrap,.wl-msg-wrap{margin:4px 0}
+.wl-email,.wl-msg{width:100%%;padding:4px 6px;font-size:0.85rem;border:1px solid #ddd;border-radius:4px;box-sizing:border-box}
+.wl-msg{resize:vertical}
+.wl-msg::placeholder,.wl-email::placeholder{color:#999}
+.wl-btn{width:100%%;padding:6px 10px;font-size:0.9rem;font-weight:600;border:none;border-radius:4px;cursor:pointer;color:%s;background:%s}
+.wl-btn:hover:not(:disabled){opacity:0.9}
+.wl-btn:disabled{opacity:0.6;cursor:not-allowed}
+.wl-status{margin:0;font-size:0.8rem;color:#657786;text-align:center}
+.wl-success{background:#00ba7c;color:#fff;padding:6px;border-radius:4px;margin-top:4px;font-size:0.85rem;text-align:center}
+.wl-error{background:#f4212e;color:#fff;padding:6px;border-radius:4px;margin-top:4px;font-size:0.85rem;text-align:center}
+.wl-footer{text-align:center;margin-top:4px;font-size:0.7rem;color:#999}
+%s
+</style>
 </head>
 <body>
-    <div class="waitlist-widget">
-        <div class="waitlist-header">
-            <h2 style="margin: 0;">{waitlist.name}</h2>
-            <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">{waitlist.description or ''}</p>
-            <small style="opacity: 0.8;">Part of {project.name}</small>
-        </div>
-        <div class="waitlist-body">
-            <div class="waitlist-stats">
-                <div class="stat">
-                    <div class="stat-value" id="entry-count">{entry_count}</div>
-                    <div class="stat-label">Members</div>
+<div class="wl-widget">
+<div class="wl-header"><h3>%s</h3>%s</div>
+<div class="wl-body">
+%s
+<div id="join-section">%s
+%s
+%s
+<button class="wl-btn" onclick="joinWaitlist()" id="join-btn"%s>%s</button>
+</div>
+<div id="message-area"></div>
+<div class="wl-footer">Powered by <a href="%s" target="_blank">MLGH</a></div>
+</div>
+</div>
+<script>window.__WL_CFG=%s;</script>
+<script src="/embed/static/embed-widget.js"></script>
+</body>
+</html>""" % (
+        fg_esc, bg_esc, fg_esc, bg_esc, footer_css_rule,
+        html_mod.escape(waitlist.name), desc_html, stats_html, status_msg, email_html, msg_html, btn_disabled, btn_esc,
+        base_url, cfg_js
+    )
+    return widget_html, 200, {'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'ALLOWALL'}
+
+
+@app.route('/embed/waitlist/<int:waitlist_id>/build/')
+@require_auth
+def embed_waitlist_builder(waitlist_id):
+    """Embed builder page: configure options and preview. Project admin only."""
+    import html as html_mod
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    current_user = get_current_user()
+    if not current_user or not is_layer_admin(project, current_user):
+        return "Permission denied", 403
+    scheme = 'https' if (request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https') else 'http'
+    proj_name_esc = html_mod.escape(project.name or '')
+    wl_name_esc = html_mod.escape(waitlist.name or '')
+    content = f"""
+<div class="container-fluid py-2 px-3">
+    <nav aria-label="breadcrumb"><ol class="breadcrumb py-0 mb-2 small">
+        <li class="breadcrumb-item"><a href="/layers/">Layers</a></li>
+        <li class="breadcrumb-item"><a href="/layers/{project.slug}/">{proj_name_esc}</a></li>
+        <li class="breadcrumb-item"><a href="/waitlists/{waitlist_id}/">{wl_name_esc}</a></li>
+        <li class="breadcrumb-item active">Customize Embed</li>
+    </ol></nav>
+
+    <div class="row g-3">
+        <!-- Left column: options + embed code -->
+        <div class="col-lg-4 col-md-5">
+
+            <div class="card mb-3">
+                <div class="card-header"><h6 class="mb-0">Display Options</h6></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-12">
+                            <p class="text-muted small mb-2">Choose what to show in the widget:</p>
+                            <div class="d-flex flex-wrap gap-3">
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" id="opt-desc" checked>
+                                    <label class="form-check-label" for="opt-desc">Description</label>
+                                </div>
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" id="opt-count" checked>
+                                    <label class="form-check-label" for="opt-count">Member count</label>
+                                </div>
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" id="opt-spots" checked>
+                                    <label class="form-check-label" for="opt-spots">Spots remaining</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12"><hr class="my-1"></div>
+
+                        <!-- Message field -->
+                        <div class="col-12">
+                            <label class="form-label fw-semibold mb-1">Message field</label>
+                            <select class="form-select form-select-sm mb-2" id="opt-msg">
+                                <option value="none">No message field</option>
+                                <option value="allow">Optional message</option>
+                                <option value="require">Required message</option>
+                            </select>
+                            <div id="msg-placeholder-wrap" style="display:none">
+                                <label class="form-label small mb-1">Textarea prompt / placeholder text</label>
+                                <input type="text" class="form-control form-control-sm" id="opt-msg-placeholder" value="Add a message (optional)" placeholder="e.g. Why do you want to join?">
+                                <div class="form-text">This text appears inside the textarea as a hint to the user.</div>
+                            </div>
+                        </div>
+
+                        <div class="col-12"><hr class="my-1"></div>
+
+                        <!-- Button & colors -->
+                        <div class="col-12">
+                            <label class="form-label fw-semibold mb-1">Button label</label>
+                            <input type="text" class="form-control form-control-sm" id="opt-btn" value="Join Waitlist">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Background color</label>
+                            <div class="d-flex align-items-center gap-2">
+                                <input type="color" class="form-control form-control-color" id="opt-bg" value="#667eea" style="width:40px;height:32px;padding:2px;">
+                                <input type="text" class="form-control form-control-sm font-monospace" id="opt-bg-hex" value="#667eea" maxlength="7" style="width:80px;">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Text / button color</label>
+                            <div class="d-flex align-items-center gap-2">
+                                <input type="color" class="form-control form-control-color" id="opt-fg" value="#ffffff" style="width:40px;height:32px;padding:2px;">
+                                <input type="text" class="form-control form-control-sm font-monospace" id="opt-fg-hex" value="#ffffff" maxlength="7" style="width:80px;">
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                {f'''<div class="stat">
-                    <div class="stat-value">{waitlist.max_number - entry_count}</div>
-                    <div class="stat-label">Spots Left</div>
-                </div>''' if waitlist.max_number else ''}
             </div>
-            
-            <div id="join-section">
-                {f'<p class="text-center text-muted">Opens {waitlist.start_date.strftime("%B %d, %Y")}</p>' if is_upcoming else ''}
-                {f'<p class="text-center text-muted">This waitlist is closed</p>' if is_closed else ''}
-                {f'<p class="text-center text-muted">Waitlist is full</p>' if is_full and not is_closed else ''}
-                
-                {'<button class="join-button" onclick="joinWaitlist()" id="join-btn" disabled>Join Waitlist</button>' if is_upcoming or is_closed or is_full else '<button class="join-button" onclick="joinWaitlist()" id="join-btn">Join Waitlist</button>'}
+
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">Embed Code</h6></div>
+                <div class="card-body">
+                    <textarea class="form-control form-control-sm font-monospace" id="embed-code" rows="3" readonly style="font-size:11px;"></textarea>
+                    <button class="btn btn-sm btn-outline-primary mt-2 w-100" id="copy-btn" onclick="copyCode()">
+                        Copy to Clipboard
+                    </button>
+                </div>
             </div>
-            
-            <div id="message-area"></div>
-            
-            <div style="text-align: center; margin-top: 1.5rem;">
-                <small class="text-muted">
-                    Powered by <a href="{base_url}" target="_blank" style="color: #667eea;">MLGH</a>
-                </small>
+
+        </div>
+
+        <!-- Right column: live preview -->
+        <div class="col-lg-8 col-md-7">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Live Preview</h6>
+                    <span class="badge bg-secondary" id="preview-status">Loading...</span>
+                </div>
+                <div class="card-body d-flex justify-content-center align-items-start pt-3" style="background: repeating-linear-gradient(45deg,#f0f0f0,#f0f0f0 10px,#fafafa 10px,#fafafa 20px);">
+                    <iframe id="embed-preview"
+                        style="width:100%;max-width:420px;height:300px;border:none;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);"
+                        sandbox="allow-scripts allow-same-origin allow-forms">
+                    </iframe>
+                </div>
+                <div class="card-footer text-muted small">
+                    Preview updates automatically as you change options. The widget will look the same when embedded on any website.
+                </div>
             </div>
         </div>
     </div>
-    
-    <script src="https://cdn.jsdelivr.net/npm/web3auth@latest/dist/web3auth.umd.min.js"></script>
-    <script>
-        const WAITLIST_ID = {waitlist_id};
-        const API_BASE = '{base_url}';
-        const SOURCE_URL = window.location.href;
-        const SOURCE_DOMAIN = window.location.hostname;
-        
-        let web3auth = null;
-        let currentUser = null;
-        
-        // Initialize Web3Auth
-        async function initWeb3Auth() {{
-            try {{
-                web3auth = new window.Web3auth.Web3Auth({{
-                    clientId: "YOUR_WEB3AUTH_CLIENT_ID", // This should be configured
-                    chainConfig: {{
-                        chainNamespace: "eip155",
-                        chainId: "0x1",
-                    }},
-                }});
-                await web3auth.initModal();
-            }} catch (error) {{
-                console.error("Web3Auth init error:", error);
-            }}
+</div>
+
+<script>
+// Use server-detected scheme (respects X-Forwarded-Proto) so iframe matches page protocol (avoids mixed content)
+const EMBED_BASE = '{scheme}://' + location.host + '/embed/waitlist/{waitlist_id}/';
+let debounceTimer = null;
+
+function buildParams() {{
+    const desc = document.getElementById('opt-desc').checked ? '1' : '0';
+    const count = document.getElementById('opt-count').checked ? '1' : '0';
+    const spots = document.getElementById('opt-spots').checked ? '1' : '0';
+    const msg = document.getElementById('opt-msg').value;
+    const ph = encodeURIComponent(document.getElementById('opt-msg-placeholder').value || '');
+    const btn = encodeURIComponent(document.getElementById('opt-btn').value || 'Join Waitlist');
+    const fg = encodeURIComponent(document.getElementById('opt-fg').value);
+    const bg = encodeURIComponent(document.getElementById('opt-bg').value);
+    return `desc=${{desc}}&count=${{count}}&spots=${{spots}}&msg=${{msg}}&msg_placeholder=${{ph}}&btn=${{btn}}&fg=${{fg}}&bg=${{bg}}`;
+}}
+
+function buildUrl() {{
+    const q = buildParams();
+    return EMBED_BASE + '?' + q;
+}}
+
+function refreshPreview() {{
+    const url = buildUrl();
+    const iframe = document.getElementById('embed-preview');
+    document.getElementById('preview-status').textContent = 'Updating...';
+    document.getElementById('preview-status').className = 'badge bg-warning text-dark';
+    iframe.src = url;
+    iframe.onload = () => {{
+        document.getElementById('preview-status').textContent = 'Live';
+        document.getElementById('preview-status').className = 'badge bg-success';
+    }};
+    document.getElementById('embed-code').value =
+        '<iframe src="' + url + '" width="100%" height="280" frameborder="0" ' +
+        'style="border:none;border-radius:6px;display:block;"></iframe>';
+}}
+
+function scheduleUpdate(immediate) {{
+    clearTimeout(debounceTimer);
+    if (immediate) {{
+        refreshPreview();
+    }} else {{
+        debounceTimer = setTimeout(refreshPreview, 220);
+    }}
+}}
+
+function updateMsgPlaceholderVisibility() {{
+    const show = document.getElementById('opt-msg').value !== 'none';
+    const wrap = document.getElementById('msg-placeholder-wrap');
+    wrap.style.display = show ? 'block' : 'none';
+    if (show) {{
+        const ph = document.getElementById('opt-msg-placeholder');
+        const val = ph.value || '';
+        if (document.getElementById('opt-msg').value === 'require' && val === 'Add a message (optional)') {{
+            ph.value = 'Tell us why you want to join...';
+        }} else if (document.getElementById('opt-msg').value === 'allow' && val === 'Tell us why you want to join...') {{
+            ph.value = 'Add a message (optional)';
         }}
-        
-        async function joinWaitlist() {{
-            const btn = document.getElementById('join-btn');
-            const messageArea = document.getElementById('message-area');
-            
-            btn.disabled = true;
-            btn.textContent = 'Connecting...';
-            
-            try {{
-                // Check if user is authenticated
-                const response = await fetch(API_BASE + '/api/user/', {{
-                    credentials: 'include'
-                }});
-                
-                if (!response.ok) {{
-                    // Need to authenticate
-                    messageArea.innerHTML = '<div class="error-message">Please sign in first. Redirecting to login...</div>';
-                    setTimeout(() => {{
-                        window.open(API_BASE + '/login/?redirect=' + encodeURIComponent(SOURCE_URL), '_blank');
-                    }}, 1500);
-                    btn.disabled = false;
-                    btn.textContent = 'Join Waitlist';
-                    return;
-                }}
-                
-                currentUser = await response.json();
-                
-                // Join the waitlist
-                const joinResponse = await fetch(API_BASE + '/api/waitlists/' + WAITLIST_ID + '/join/', {{
-                    method: 'POST',
-                    headers: {{
-                        'Content-Type': 'application/json',
-                    }},
-                    credentials: 'include',
-                    body: JSON.stringify({{
-                        source: 'embed:' + SOURCE_DOMAIN,
-                        source_url: SOURCE_URL
-                    }})
-                }});
-                
-                const data = await joinResponse.json();
-                
-                if (joinResponse.ok) {{
-                    messageArea.innerHTML = '<div class="success-message"><i class="fas fa-check-circle"></i> You\'re on the list! Position: ' + data.entry.position + '</div>';
-                    document.getElementById('entry-count').textContent = parseInt(document.getElementById('entry-count').textContent) + 1;
-                    btn.style.display = 'none';
-                }} else {{
-                    messageArea.innerHTML = '<div class="error-message">' + (data.error || 'Failed to join waitlist') + '</div>';
-                    btn.disabled = false;
-                    btn.textContent = 'Join Waitlist';
-                }}
-            }} catch (error) {{
-                console.error('Error:', error);
-                messageArea.innerHTML = '<div class="error-message">An error occurred. Please try again.</div>';
-                btn.disabled = false;
-                btn.textContent = 'Join Waitlist';
-            }}
+    }}
+}}
+
+// Sync hex text inputs with color pickers
+function syncHex(colorId, hexId) {{
+    const colorEl = document.getElementById(colorId);
+    const hexEl = document.getElementById(hexId);
+    colorEl.addEventListener('input', () => {{
+        hexEl.value = colorEl.value;
+        scheduleUpdate(false);
+    }});
+    colorEl.addEventListener('change', () => {{
+        hexEl.value = colorEl.value;
+        scheduleUpdate(true);
+    }});
+    hexEl.addEventListener('input', () => {{
+        const v = hexEl.value.trim();
+        if (/^#[0-9a-fA-F]{{6}}$/.test(v)) {{
+            colorEl.value = v;
+            scheduleUpdate(false);
         }}
-        
-        // Initialize on load
-        // initWeb3Auth(); // Uncomment when Web3Auth is configured
-    </script>
+    }});
+    hexEl.addEventListener('change', () => {{
+        const v = hexEl.value.trim();
+        if (/^#[0-9a-fA-F]{{6}}$/.test(v)) {{
+            colorEl.value = v;
+            scheduleUpdate(true);
+        }}
+    }});
+}}
+
+syncHex('opt-bg', 'opt-bg-hex');
+syncHex('opt-fg', 'opt-fg-hex');
+
+// Checkboxes and select — update immediately on change
+['opt-desc', 'opt-count', 'opt-spots'].forEach(id => {{
+    document.getElementById(id)?.addEventListener('change', () => scheduleUpdate(true));
+}});
+
+document.getElementById('opt-msg')?.addEventListener('change', () => {{
+    updateMsgPlaceholderVisibility();
+    scheduleUpdate(true);
+}});
+
+// Text inputs — debounce so preview doesn't reload on every keystroke
+['opt-btn', 'opt-msg-placeholder'].forEach(id => {{
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => scheduleUpdate(false));
+    el.addEventListener('change', () => scheduleUpdate(true));
+}});
+
+function copyCode() {{
+    const code = document.getElementById('embed-code').value;
+    navigator.clipboard.writeText(code).then(() => {{
+        const btn = document.getElementById('copy-btn');
+        btn.innerHTML = '✓ Copied!';
+        btn.classList.replace('btn-outline-primary', 'btn-success');
+        setTimeout(() => {{
+            btn.innerHTML = 'Copy to Clipboard';
+            btn.classList.replace('btn-success', 'btn-outline-primary');
+        }}, 2000);
+    }});
+}}
+
+// Initial load
+scheduleUpdate(true);
+</script>
+"""
+    # Return standalone HTML (no BASE_TEMPLATE, no Font Awesome) - avoids CSP font-src issues
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Embed: {html_mod.escape(waitlist.name or '')} - MLGH</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>body{{background:#0d1117;color:#c9d1d9;}} .card{{background:#161b22;border-color:#30363d;}} .card-header{{border-color:#30363d;}} .form-control,.form-select{{background:#0d1117;border-color:#30363d;color:#c9d1d9;}} .breadcrumb{{background:transparent;}} .breadcrumb-item a{{color:#58a6ff;}}</style>
+</head>
+<body class="p-3">
+{content}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-</html>
-    """
-    
-    return widget_html, 200, {'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'ALLOWALL'}
+</html>"""
+    return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
 
 # ============================================================================
 # Workgroups API Endpoints
 # ============================================================================
 
-@app.route('/api/projects/<project_id>/workgroups/', methods=['GET'])
-def api_list_workgroups(project_id):
+@app.route('/api/layers/<layer_id>/workgroups/', methods=['GET'])
+def api_list_workgroups(layer_id):
     """List workgroups for a project"""
     status = request.args.get('status')
     approval_status = request.args.get('approval_status')
     
-    query = Workgroup.query.filter_by(project_id=project_id)
+    query = Workgroup.query.filter_by(layer_id=layer_id)
     
     if status:
         query = query.filter_by(status=status)
@@ -7736,16 +10392,16 @@ def api_list_workgroups(project_id):
     
     return jsonify({'workgroups': [wg.to_dict() for wg in workgroups], 'count': len(workgroups)})
 
-@app.route('/api/projects/<project_id>/workgroups/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/workgroups/', methods=['POST'])
 @require_auth
-def api_create_workgroup(project_id):
+def api_create_workgroup(layer_id):
     """Create a new workgroup"""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
     # Verify project exists
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     data = request.get_json()
     name = data.get('name', '').strip()
@@ -7760,7 +10416,7 @@ def api_create_workgroup(project_id):
     # Ensure slug is unique within project
     counter = 1
     original_slug = slug
-    while Workgroup.query.filter_by(project_id=project_id, slug=slug).first():
+    while Workgroup.query.filter_by(layer_id=layer_id, slug=slug).first():
         slug = f"{original_slug}-{counter}"
         counter += 1
     
@@ -7777,7 +10433,7 @@ def api_create_workgroup(project_id):
         acronym=acronym,
         name=name,
         slug=slug,
-        project_id=project_id,
+        layer_id=layer_id,
         coordinator_id=current_user['id'],  # Creator becomes coordinator
         description=description,
         status='active',
@@ -7795,13 +10451,13 @@ def api_get_workgroup(workgroup_id):
     workgroup = Workgroup.query.get_or_404(workgroup_id)
     d = workgroup.to_dict()
     current_user = get_current_user()
-    project = Project.query.get(workgroup.project_id)
+    project = Layer.query.get(workgroup.layer_id)
     # Coordinator, project admin, or site admin can edit
     d['can_edit'] = bool(
         current_user
         and (
             workgroup.coordinator_id == current_user['id']
-            or (project and is_project_admin(project, current_user))
+            or (project and is_layer_admin(project, current_user))
             or current_user.get('role') == 'admin'
         )
     )
@@ -7816,12 +10472,12 @@ def api_update_workgroup(workgroup_id):
         return jsonify({'error': 'Authentication required'}), 401
     
     workgroup = Workgroup.query.get_or_404(workgroup_id)
-    project = Project.query.get(workgroup.project_id)
+    project = Layer.query.get(workgroup.layer_id)
     
     # Check permissions: coordinator, project admin, or site admin
     can_edit = (
         workgroup.coordinator_id == current_user['id']
-        or (project and is_project_admin(project, current_user))
+        or (project and is_layer_admin(project, current_user))
         or current_user.get('role') == 'admin'
     )
     if not can_edit:
@@ -7838,7 +10494,7 @@ def api_update_workgroup(workgroup_id):
     if 'status' in data and data['status'] in ['active', 'inactive', 'completed', 'archived']:
         old_status = workgroup.status
         workgroup.status = data['status']
-        
+
         if old_status != workgroup.status:
             status_change = StatusChange(
                 id=generate_status_change_id(),
@@ -7850,10 +10506,39 @@ def api_update_workgroup(workgroup_id):
                 changed_by_id=current_user['id']
             )
             db.session.add(status_change)
-    
+
+    # Badge settings
+    if 'badge_enabled' in data:
+        workgroup.badge_enabled = bool(data['badge_enabled'])
+
+    for field in ['badge_submission_days', 'badge_voting_days', 'badge_delay_days',
+                  'badge_cycle_spacing_days']:
+        if field in data:
+            setattr(workgroup, field, int(data[field]) if data[field] is not None else None)
+
+    for field in ['badge_earliest_start', 'badge_end_date']:
+        if field in data:
+            from datetime import date
+            val = data[field]
+            if val:
+                try:
+                    setattr(workgroup, field, date.fromisoformat(val))
+                except (ValueError, TypeError):
+                    pass
+            else:
+                setattr(workgroup, field, None)
+
+    for field in ['badge_end_at_next_closing', 'badge_voting_regular',
+                  'badge_voting_time_weighted', 'badge_voting_quadratic']:
+        if field in data:
+            setattr(workgroup, field, bool(data[field]))
+
+    if 'badge_skin_id' in data:
+        workgroup.badge_skin_id = data['badge_skin_id'] or None
+
     workgroup.updated_at = datetime.utcnow()
     db.session.commit()
-    
+
     return jsonify({'success': True, 'workgroup': workgroup.to_dict()})
 
 @app.route('/api/workgroups/<workgroup_id>/approve/', methods=['POST'])
@@ -7868,7 +10553,7 @@ def api_approve_workgroup(workgroup_id):
     
     # Check permissions: site admin, editor, or project initiator
     is_site_admin = current_user.get('role') in ['admin', 'editor']
-    is_project_initiator = workgroup.project and is_project_admin(workgroup.project, current_user)
+    is_project_initiator = workgroup.layer and is_layer_admin(workgroup.layer, current_user)
     
     if not (is_site_admin or is_project_initiator):
         return jsonify({'error': 'Only project admin or site admin can approve workgroups'}), 403
@@ -8137,8 +10822,8 @@ def api_admin_get_chair_nominations():
             wgc.group_acronym,
             wg.name as workgroup_name,
             wg.slug as workgroup_slug,
-            p.name as project_name,
-            p.slug as project_slug,
+            p.name as layer_name,
+            p.slug as layer_slug,
             u.id as nominee_id,
             u.username as nominee_username,
             u.profileImage as nominee_profile_image,
@@ -8147,7 +10832,7 @@ def api_admin_get_chair_nominations():
             nominator.displayName as nominator_name
         FROM working_group_chair wgc
         LEFT JOIN working_group wg ON wgc.group_acronym = wg.acronym
-        LEFT JOIN project p ON wg.project_id = p.id
+        LEFT JOIN layer p ON wg.layer_id = p.id
         LEFT JOIN user u ON wgc.user_id = u.id
         LEFT JOIN user nominator ON wgc.nominated_by_user_id = nominator.id
         ORDER BY wgc.approved ASC, wgc.set_at DESC
@@ -8167,8 +10852,8 @@ def api_admin_get_chair_nominations():
             'workgroup_acronym': row[6],
             'workgroup_name': row[7],
             'workgroup_slug': row[8],
-            'project_name': row[9],
-            'project_slug': row[10],
+            'layer_name': row[9],
+            'layer_slug': row[10],
             'nominee_id': row[11],
             'nominee_username': row[12],
             'nominee_profile_image': row[13],
@@ -8274,7 +10959,12 @@ def api_list_guilds():
     query = query.order_by(Guild.created_at.desc())
     guilds = query.all()
     
-    return jsonify({'guilds': [g.to_dict() for g in guilds], 'count': len(guilds)})
+    result = []
+    for g in guilds:
+        d = g.to_dict()
+        d['members_count'] = GuildMembership.query.filter_by(guild_id=g.id).count()
+        result.append(d)
+    return jsonify({'guilds': result, 'count': len(result)})
 
 @app.route('/api/guilds/', methods=['POST'])
 @require_auth
@@ -8329,12 +11019,25 @@ def api_create_guild():
     
     return jsonify({'success': True, 'guild': guild.to_dict()}), 201
 
+@app.route('/api/guilds/by-slug/<slug>/', methods=['GET'])
+def api_get_guild_by_slug(slug):
+    """Get guild details by slug (for guild detail page)"""
+    guild = Guild.query.filter_by(slug=slug).first()
+    if not guild:
+        return jsonify({'error': 'Guild not found'}), 404
+    return api_get_guild_impl(guild.id)
+
+
 @app.route('/api/guilds/<guild_id>/', methods=['GET'])
 def api_get_guild(guild_id):
     """Get guild details with members"""
     guild = Guild.query.get_or_404(guild_id)
-    
-    # Get members
+    return api_get_guild_impl(guild_id)
+
+
+def api_get_guild_impl(guild_id):
+    """Shared implementation for guild detail with members"""
+    guild = Guild.query.get_or_404(guild_id)
     memberships = GuildMembership.query.filter_by(guild_id=guild_id).all()
     members = []
     for m in memberships:
@@ -8343,14 +11046,14 @@ def api_get_guild(guild_id):
                 'user_id': m.user_id,
                 'username': m.user.username,
                 'display_name': m.user.displayName or m.user.username,
+                'name': m.user.displayName or m.user.username,
+                'profile_image': m.user.profileImage,
                 'role': m.role,
                 'joined_at': m.joined_at.isoformat() if m.joined_at else None
             })
-    
     guild_dict = guild.to_dict()
     guild_dict['members'] = members
     guild_dict['member_count'] = len(members)
-    
     return jsonify(guild_dict)
 
 @app.route('/api/guilds/<guild_id>/', methods=['PATCH'])
@@ -8452,16 +11155,16 @@ def api_invite_to_guild(guild_id):
 # Clusters API
 # ============================================================================
 
-@app.route('/api/projects/<project_id>/clusters/', methods=['GET'])
-def api_list_clusters(project_id):
+@app.route('/api/layers/<layer_id>/clusters/', methods=['GET'])
+def api_list_clusters(layer_id):
     """List clusters for a project. By default excludes archived (deleted) clusters. ?include_roles=1 adds roles per cluster."""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Filter by status if provided; default to excluding archived so "deleted" clusters disappear
     status = request.args.get('status')
     include_roles = request.args.get('include_roles', '').lower() in ('1', 'true', 'yes')
     
-    query = Cluster.query.filter_by(project_id=project_id)
+    query = Cluster.query.filter_by(layer_id=layer_id)
     if status:
         query = query.filter_by(status=status)
     else:
@@ -8479,18 +11182,18 @@ def api_list_clusters(project_id):
     
     return jsonify({'clusters': result, 'count': len(result)})
 
-@app.route('/api/projects/<project_id>/clusters/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/clusters/', methods=['POST'])
 @require_auth
-def api_create_cluster(project_id):
+def api_create_cluster(layer_id):
     """Create a cluster in a project"""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Check permissions (project initiator or admin)
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can create clusters'}), 403
     
     data = request.get_json()
@@ -8505,19 +11208,19 @@ def api_create_cluster(project_id):
     cluster_slug = create_slug(name)
     
     # Check for slug collision within project
-    existing = Cluster.query.filter_by(project_id=project_id, cluster_slug=cluster_slug).first()
+    existing = Cluster.query.filter_by(layer_id=layer_id, cluster_slug=cluster_slug).first()
     if existing:
         # Add number suffix
         counter = 1
         while existing:
             cluster_slug = f"{create_slug(name)}-{counter}"
-            existing = Cluster.query.filter_by(project_id=project_id, cluster_slug=cluster_slug).first()
+            existing = Cluster.query.filter_by(layer_id=layer_id, cluster_slug=cluster_slug).first()
             counter += 1
     
     cluster_id = generate_cluster_id()
     cluster = Cluster(
         id=cluster_id,
-        project_id=project_id,
+        layer_id=layer_id,
         cluster_slug=cluster_slug,
         name=name,
         description=description if description else None,
@@ -8553,10 +11256,10 @@ def api_update_cluster(cluster_id):
         return jsonify({'error': 'Authentication required'}), 401
     
     cluster = Cluster.query.get_or_404(cluster_id)
-    project = Project.query.get_or_404(cluster.project_id)
+    project = Layer.query.get_or_404(cluster.layer_id)
     
     # Check permissions
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can update clusters'}), 403
     
     data = request.get_json()
@@ -8571,7 +11274,7 @@ def api_update_cluster(cluster_id):
             if new_slug != cluster.cluster_slug:
                 # Check for collision
                 existing = Cluster.query.filter_by(
-                    project_id=cluster.project_id,
+                    layer_id=cluster.layer_id,
                     cluster_slug=new_slug
                 ).filter(Cluster.id != cluster_id).first()
                 if not existing:
@@ -8613,10 +11316,10 @@ def api_delete_cluster(cluster_id):
         return jsonify({'error': 'Authentication required'}), 401
     
     cluster = Cluster.query.get_or_404(cluster_id)
-    project = Project.query.get_or_404(cluster.project_id)
+    project = Layer.query.get_or_404(cluster.layer_id)
     
     # Check permissions
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can archive clusters'}), 403
     
     old_status = cluster.status
@@ -8657,17 +11360,17 @@ def api_list_cluster_roles(cluster_id):
 # Roles API
 # ============================================================================
 
-@app.route('/api/projects/<project_id>/roles/', methods=['GET'])
-def api_list_roles(project_id):
+@app.route('/api/layers/<layer_id>/roles/', methods=['GET'])
+def api_list_roles(layer_id):
     """List roles for a project"""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Filter by status if provided
     status = request.args.get('status')
     cluster_id = request.args.get('cluster_id')
     public_only = request.args.get('public_only', 'false').lower() == 'true'
     
-    query = Role.query.filter_by(project_id=project_id)
+    query = Role.query.filter_by(layer_id=layer_id)
     
     if status:
         query = query.filter_by(status=status)
@@ -8682,15 +11385,15 @@ def api_list_roles(project_id):
     
     return jsonify({'roles': [r.to_dict() for r in roles], 'count': len(roles)})
 
-@app.route('/api/projects/<project_id>/roles/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/roles/', methods=['POST'])
 @require_auth
-def api_create_role(project_id):
+def api_create_role(layer_id):
     """Create a role in a project"""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     data = request.get_json()
     title_guild = data.get('title_guild', '').strip()
@@ -8708,7 +11411,7 @@ def api_create_role(project_id):
     
     # Validate cluster if provided
     if cluster_id:
-        cluster = Cluster.query.filter_by(id=cluster_id, project_id=project_id).first()
+        cluster = Cluster.query.filter_by(id=cluster_id, layer_id=layer_id).first()
         if not cluster:
             return jsonify({'error': 'Invalid cluster for this project'}), 400
     
@@ -8716,18 +11419,18 @@ def api_create_role(project_id):
     role_slug = create_slug(title_guild)
     
     # Check for slug collision within project
-    existing = Role.query.filter_by(project_id=project_id, role_slug=role_slug).first()
+    existing = Role.query.filter_by(layer_id=layer_id, role_slug=role_slug).first()
     if existing:
         counter = 1
         while existing:
             role_slug = f"{create_slug(title_guild)}-{counter}"
-            existing = Role.query.filter_by(project_id=project_id, role_slug=role_slug).first()
+            existing = Role.query.filter_by(layer_id=layer_id, role_slug=role_slug).first()
             counter += 1
     
     role_id = generate_role_id()
     role = Role(
         id=role_id,
-        project_id=project_id,
+        layer_id=layer_id,
         role_slug=role_slug,
         title_guild=title_guild,
         title_operational=title_operational if title_operational else None,
@@ -8754,18 +11457,18 @@ def api_create_role(project_id):
     
     return jsonify({'success': True, 'role': role.to_dict()}), 201
 
-@app.route('/api/projects/<project_id>/roles/import/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/roles/import/', methods=['POST'])
 @require_auth
-def api_import_roles(project_id):
+def api_import_roles(layer_id):
     """Import roles from JSON"""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Check permissions (project initiator or admin)
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can import roles'}), 403
     
     data = request.get_json()
@@ -8788,18 +11491,18 @@ def api_import_roles(project_id):
             
             # Generate slug
             role_slug = create_slug(title_guild)
-            existing = Role.query.filter_by(project_id=project_id, role_slug=role_slug).first()
+            existing = Role.query.filter_by(layer_id=layer_id, role_slug=role_slug).first()
             if existing:
                 counter = 1
                 while existing:
                     role_slug = f"{create_slug(title_guild)}-{counter}"
-                    existing = Role.query.filter_by(project_id=project_id, role_slug=role_slug).first()
+                    existing = Role.query.filter_by(layer_id=layer_id, role_slug=role_slug).first()
                     counter += 1
             
             role_id = generate_role_id()
             role = Role(
                 id=role_id,
-                project_id=project_id,
+                layer_id=layer_id,
                 role_slug=role_slug,
                 title_guild=title_guild,
                 title_operational=role_data.get('title_operational'),
@@ -8828,13 +11531,16 @@ def api_import_roles(project_id):
 
 @app.route('/api/roles/<role_id>/', methods=['GET'])
 def api_get_role(role_id):
-    """Get role details"""
-    role = Role.query.get_or_404(role_id)
+    """Get role details (role_id or public_id UUID)"""
+    if _is_uuid_like(role_id):
+        role = Role.query.filter_by(public_id=role_id).first_or_404()
+    else:
+        role = Role.query.get_or_404(role_id)
     
     role_dict = role.to_dict()
     
     # Add claims count
-    claims_count = Claim.query.filter_by(role_id=role_id, status='active').count()
+    claims_count = Claim.query.filter_by(role_id=role.id, status='active').count()
     role_dict['active_claims_count'] = claims_count
     
     # Add cluster name for role detail display
@@ -8845,8 +11551,8 @@ def api_get_role(role_id):
     
     # Add can_edit for project admin (role detail page Edit button)
     current_user = get_current_user()
-    project = Project.query.get(role.project_id)
-    role_dict['can_edit'] = bool(project and current_user and is_project_admin(project, current_user))
+    project = Layer.query.get(role.layer_id)
+    role_dict['can_edit'] = bool(project and current_user and is_layer_admin(project, current_user))
     
     return jsonify(role_dict)
 
@@ -8859,10 +11565,10 @@ def api_update_role(role_id):
         return jsonify({'error': 'Authentication required'}), 401
     
     role = Role.query.get_or_404(role_id)
-    project = Project.query.get_or_404(role.project_id)
+    project = Layer.query.get_or_404(role.layer_id)
     
     # Check permissions
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can update roles'}), 403
     
     data = request.get_json()
@@ -8886,7 +11592,7 @@ def api_update_role(role_id):
     
     if 'cluster_id' in data:
         if data['cluster_id']:
-            cluster = Cluster.query.filter_by(id=data['cluster_id'], project_id=role.project_id).first()
+            cluster = Cluster.query.filter_by(id=data['cluster_id'], layer_id=role.layer_id).first()
             if cluster:
                 role.cluster_id = data['cluster_id']
         else:
@@ -8903,12 +11609,38 @@ def api_update_role(role_id):
     
     if 'badge_enabled' in data:
         role.badge_enabled = data['badge_enabled']
-    
+
     if 'badge_requires_approval' in data:
         role.badge_requires_approval = data['badge_requires_approval']
-    
+
+    # Badge cycle settings
+    for field in ['badge_submission_days', 'badge_voting_days', 'badge_delay_days',
+                  'badge_cycle_spacing_days']:
+        if field in data:
+            setattr(role, field, int(data[field]) if data[field] is not None else None)
+
+    for field in ['badge_earliest_start', 'badge_end_date']:
+        if field in data:
+            from datetime import date
+            val = data[field]
+            if val:
+                try:
+                    setattr(role, field, date.fromisoformat(val))
+                except (ValueError, TypeError):
+                    pass
+            else:
+                setattr(role, field, None)
+
+    for field in ['badge_end_at_next_closing', 'badge_voting_regular',
+                  'badge_voting_time_weighted', 'badge_voting_quadratic']:
+        if field in data:
+            setattr(role, field, bool(data[field]))
+
+    if 'badge_skin_id' in data:
+        role.badge_skin_id = data['badge_skin_id'] or None
+
     db.session.commit()
-    
+
     return jsonify({'success': True, 'role': role.to_dict()})
 
 @app.route('/api/roles/<role_id>/approve/', methods=['POST'])
@@ -8963,10 +11695,10 @@ def api_change_role_status(role_id):
         return jsonify({'error': 'Authentication required'}), 401
     
     role = Role.query.get_or_404(role_id)
-    project = Project.query.get_or_404(role.project_id)
+    project = Layer.query.get_or_404(role.layer_id)
     
     # Check permissions
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can change role status'}), 403
     
     data = request.get_json()
@@ -9026,17 +11758,17 @@ def api_list_role_claims(role_id):
 # Claims API
 # ============================================================================
 
-@app.route('/api/projects/<project_id>/claims/', methods=['GET'])
-def api_list_claims(project_id):
+@app.route('/api/layers/<layer_id>/claims/', methods=['GET'])
+def api_list_claims(layer_id):
     """List claims for a project"""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Filter by status if provided
     status = request.args.get('status')
     role_id = request.args.get('role_id')
     claimant_id = request.args.get('claimant_id')
     
-    query = Claim.query.filter_by(project_id=project_id)
+    query = Claim.query.filter_by(layer_id=layer_id)
     
     if status:
         query = query.filter_by(status=status)
@@ -9113,7 +11845,7 @@ def api_create_claim(role_id):
     
     claim = Claim(
         id=claim_id,
-        project_id=role.project_id,
+        layer_id=role.layer_id,
         role_id=role_id,
         claimant_id=current_user['id'],
         intent=intent if intent else None,
@@ -9131,14 +11863,17 @@ def api_create_claim(role_id):
         claim.term_status = 'active'
     
     db.session.add(claim)
+    emit_event('role_claimed', actor_type='user', actor_id=current_user['id'],
+               subject_type='claim', subject_id=claim.id, layer_id=role.layer_id,
+               payload={'role_id': role_id, 'status': initial_status})
     db.session.commit()
     
     return jsonify({'success': True, 'claim': claim.to_dict()}), 201
 
 @app.route('/api/claims/<claim_id>/', methods=['GET'])
 def api_get_claim(claim_id):
-    """Get claim details"""
-    claim = Claim.query.get_or_404(claim_id)
+    """Get claim details (claim_id or public_id UUID)"""
+    claim = _resolve_claim(claim_id)
     
     claim_dict = claim.to_dict()
     
@@ -9162,6 +11897,12 @@ def api_get_claim(claim_id):
     
     return jsonify(claim_dict)
 
+def _resolve_claim(claim_id):
+    """Resolve claim by id or public_id UUID"""
+    if _is_uuid_like(claim_id):
+        return Claim.query.filter_by(public_id=claim_id).first_or_404()
+    return Claim.query.get_or_404(claim_id)
+
 @app.route('/api/claims/<claim_id>/', methods=['PATCH'])
 @require_auth
 def api_update_claim(claim_id):
@@ -9170,7 +11911,7 @@ def api_update_claim(claim_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    claim = Claim.query.get_or_404(claim_id)
+    claim = _resolve_claim(claim_id)
     
     # Check permissions (only claimant can update)
     if claim.claimant_id != current_user['id']:
@@ -9197,11 +11938,11 @@ def api_approve_claim(claim_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    claim = Claim.query.get_or_404(claim_id)
-    project = Project.query.get_or_404(claim.project_id)
+    claim = _resolve_claim(claim_id)
+    project = Layer.query.get_or_404(claim.layer_id)
     
     # Check permissions
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can approve claims'}), 403
     
     data = request.get_json()
@@ -9220,7 +11961,7 @@ def api_approve_claim(claim_id):
     status_change = StatusChange(
         id=generate_status_change_id(),
         entity_type='claim',
-        entity_id=claim_id,
+        entity_id=claim.id,
         field_name='status',
         from_value=old_status,
         to_value=claim.status,
@@ -9228,6 +11969,10 @@ def api_approve_claim(claim_id):
         changed_by_id=current_user['id']
     )
     db.session.add(status_change)
+    if approve:
+        emit_event('role_claimed', actor_type='user', actor_id=current_user['id'],
+                   subject_type='claim', subject_id=claim.id, layer_id=claim.layer_id,
+                   payload={'approved': True})
     db.session.commit()
     
     return jsonify({'success': True, 'claim': claim.to_dict()})
@@ -9240,12 +11985,12 @@ def api_change_claim_status(claim_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    claim = Claim.query.get_or_404(claim_id)
-    project = Project.query.get_or_404(claim.project_id)
+    claim = _resolve_claim(claim_id)
+    project = Layer.query.get_or_404(claim.layer_id)
     
     # Check permissions
     is_claimant = claim.claimant_id == current_user['id']
-    is_padmin = is_project_admin(project, current_user)
+    is_padmin = is_layer_admin(project, current_user)
     
     if not (is_claimant or is_padmin):
         return jsonify({'error': 'Permission denied'}), 403
@@ -9270,7 +12015,7 @@ def api_change_claim_status(claim_id):
     status_change = StatusChange(
         id=generate_status_change_id(),
         entity_type='claim',
-        entity_id=claim_id,
+        entity_id=claim.id,
         field_name='status',
         from_value=old_status,
         to_value=new_status,
@@ -9286,17 +12031,17 @@ def api_change_claim_status(claim_id):
 # Badges API
 # ============================================================================
 
-@app.route('/api/projects/<project_id>/badges/', methods=['GET'])
-def api_list_badges(project_id):
+@app.route('/api/layers/<layer_id>/badges/', methods=['GET'])
+def api_list_badges(layer_id):
     """List badges for a project"""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Filter by status if provided
     status = request.args.get('status')
     claim_id = request.args.get('claim_id')
     claimant_id = request.args.get('claimant_id')
     
-    query = Badge.query.filter_by(project_id=project_id)
+    query = Badge.query.filter_by(layer_id=layer_id)
     
     if status:
         query = query.filter_by(status=status)
@@ -9314,7 +12059,7 @@ def api_list_badges(project_id):
 @app.route('/api/claims/<claim_id>/badges/', methods=['GET'])
 def api_list_claim_badges(claim_id):
     """List badges for a claim"""
-    claim = Claim.query.get_or_404(claim_id)
+    claim = _resolve_claim(claim_id)
     
     badges = Badge.query.filter_by(claim_id=claim_id).order_by(Badge.created_at.desc()).all()
     
@@ -9328,7 +12073,7 @@ def api_request_badge(claim_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    claim = Claim.query.get_or_404(claim_id)
+    claim = _resolve_claim(claim_id)
     role = Role.query.get_or_404(claim.role_id)
     
     # Check if badges are enabled for this role
@@ -9340,9 +12085,9 @@ def api_request_badge(claim_id):
         return jsonify({'error': 'Can only request badges for active claims'}), 400
     
     # Check if requester is claimant or project admin
-    project = Project.query.get_or_404(claim.project_id)
+    project = Layer.query.get_or_404(claim.layer_id)
     is_claimant = claim.claimant_id == current_user['id']
-    is_padmin = is_project_admin(project, current_user)
+    is_padmin = is_layer_admin(project, current_user)
     
     if not (is_claimant or is_padmin):
         return jsonify({'error': 'Only the claimant or project admins can request badges'}), 403
@@ -9372,7 +12117,7 @@ def api_request_badge(claim_id):
     
     badge = Badge(
         id=badge_id,
-        project_id=claim.project_id,
+        layer_id=claim.layer_id,
         claim_id=claim_id,
         role_id=claim.role_id,
         claimant_id=claim.claimant_id,
@@ -9390,14 +12135,21 @@ def api_request_badge(claim_id):
         badge.approved_at = datetime.utcnow()
     
     db.session.add(badge)
+    evt_type = 'badge_approved' if initial_status == 'approved' else 'badge_nominated'
+    emit_event(evt_type, actor_type='user', actor_id=current_user['id'],
+               subject_type='badge', subject_id=badge.id, layer_id=claim.layer_id,
+               payload={'badge_type': badge_type})
     db.session.commit()
     
     return jsonify({'success': True, 'badge': badge.to_dict()}), 201
 
 @app.route('/api/badges/<badge_id>/', methods=['GET'])
 def api_get_badge(badge_id):
-    """Get badge details"""
-    badge = Badge.query.get_or_404(badge_id)
+    """Get badge details (badge_id or public_id UUID)"""
+    if _is_uuid_like(badge_id):
+        badge = Badge.query.filter_by(public_id=badge_id).first_or_404()
+    else:
+        badge = Badge.query.get_or_404(badge_id)
     
     badge_dict = badge.to_dict()
     
@@ -9430,10 +12182,10 @@ def api_approve_badge(badge_id):
         return jsonify({'error': 'Authentication required'}), 401
     
     badge = Badge.query.get_or_404(badge_id)
-    project = Project.query.get_or_404(badge.project_id)
+    project = Layer.query.get_or_404(badge.layer_id)
     
     # Check permissions
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project initiator or admins can approve badges'}), 403
     
     data = request.get_json()
@@ -9463,6 +12215,10 @@ def api_approve_badge(badge_id):
         changed_by_id=current_user['id']
     )
     db.session.add(status_change)
+    evt_type = 'badge_approved' if approve else 'badge_rejected'
+    emit_event(evt_type, actor_type='user', actor_id=current_user['id'],
+               subject_type='badge', subject_id=badge.id, layer_id=badge.layer_id,
+               payload={'approve': approve})
     db.session.commit()
     
     return jsonify({'success': True, 'badge': badge.to_dict()})
@@ -9519,14 +12275,14 @@ def api_issue_badge(badge_id):
 # VOTING ROUTES
 # ================================================================
 
-@app.route('/api/projects/<project_id>/submissions/', methods=['GET'])
-def api_list_project_submissions(project_id):
+@app.route('/api/layers/<layer_id>/submissions/', methods=['GET'])
+def api_list_project_submissions(layer_id):
     """List approved drafts (not RFCs) for a project - eligible for voting"""
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Simple criteria: approved drafts for this project (not RFCs)
     submissions = Submission.query.filter(
-        Submission.project_id == project_id,
+        Submission.layer_id == layer_id,
         Submission.status == 'approved',
         Submission.doc_type == 'draft'
     ).order_by(Submission.submitted_at.desc()).all()
@@ -9544,18 +12300,18 @@ def api_list_project_submissions(project_id):
         } for s in submissions]
     })
 
-@app.route('/api/projects/<project_id>/votes/', methods=['POST'])
+@app.route('/api/layers/<layer_id>/votes/', methods=['POST'])
 @require_auth
-def api_create_vote(project_id):
+def api_create_vote(layer_id):
     """Create a new vote for a project"""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
-    project = Project.query.get_or_404(project_id)
+    project = Layer.query.get_or_404(layer_id)
     
     # Check if user is project admin or site admin
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can create votes'}), 403
     
     data = request.get_json()
@@ -9602,7 +12358,7 @@ def api_create_vote(project_id):
     
     # Create vote
     vote = Vote(
-        project_id=project_id,
+        layer_id=layer_id,
         submission_id=submission_id,
         created_by_id=current_user['id'],
         title=title,
@@ -9632,14 +12388,14 @@ def api_create_vote(project_id):
         }
     }), 201
 
-@app.route('/api/projects/<project_id>/votes/', methods=['GET'])
-def api_list_votes(project_id):
+@app.route('/api/layers/<layer_id>/votes/', methods=['GET'])
+def api_list_votes(layer_id):
     """List votes for a project"""
     try:
-        project = Project.query.get_or_404(project_id)
+        project = Layer.query.get_or_404(layer_id)
         
         status_filter = request.args.get('status')
-        query = Vote.query.filter_by(project_id=project_id)
+        query = Vote.query.filter_by(layer_id=layer_id)
         
         if status_filter:
             query = query.filter_by(status=status_filter)
@@ -9660,7 +12416,7 @@ def api_list_votes(project_id):
             } for v in votes]
         })
     except Exception as e:
-        app.logger.error(f"Error in api_list_votes for project {project_id}: {e}")
+        app.logger.error(f"Error in api_list_votes for layer {layer_id}: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 @app.route('/api/votes/<vote_id>/', methods=['GET'])
@@ -9687,7 +12443,7 @@ def api_get_vote(vote_id):
     return jsonify({
         'id': vote.id,
         'public_id': vote.public_id,
-        'project_id': vote.project_id,
+        'layer_id': vote.layer_id,
         'submission_id': vote.submission_id,
         'title': vote.title,
         'description': vote.description,
@@ -9755,6 +12511,9 @@ def api_cast_ballot(vote_id):
             choice=choice
         )
         db.session.add(ballot)
+        emit_event('ballot_cast', actor_type='user', actor_id=current_user['id'],
+                   subject_type='ballot', subject_id=ballot.id, layer_id=vote.layer_id,
+                   payload={'vote_id': vote.id, 'choice': choice})
     
     db.session.commit()
     
@@ -9778,10 +12537,10 @@ def api_cancel_vote(vote_id):
     else:
         vote = Vote.query.get_or_404(vote_id)
     
-    project = Project.query.get_or_404(vote.project_id)
+    project = Layer.query.get_or_404(vote.layer_id)
     
     # Check if user is project admin or site admin
-    if not is_project_admin(project, current_user):
+    if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Only project admins can cancel votes'}), 403
     
     # Check vote can be canceled
@@ -9804,7 +12563,7 @@ def api_cancel_vote(vote_id):
         }
     })
 
-@app.route('/my-projects/')
+@app.route('/my-layers/')
 @require_auth
 def my_projects():
     """Redirect to current user's profile with My Projects tab active"""
@@ -9887,7 +12646,7 @@ def profile():
         auto_selected=auto_selected,
         session_user=session['user']
     )
-    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLGH", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER, hypothesis_config=""))
+    return render_template_string(_format_base_template(title="Profile - MLGH", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER, hypothesis_config=""))
 
 @app.route('/admin/')
 @require_role('admin')
@@ -9902,8 +12661,8 @@ def admin_dashboard():
     pending_chairs = WorkingGroupChair.query.filter_by(approved=False).count()
     
     # New statistics for Projects/Workgroups/Guilds
-    total_projects = Project.query.count()
-    pending_projects = Project.query.filter_by(approval_status='pending').count()
+    total_projects = Layer.query.count()
+    pending_projects = Layer.query.filter_by(approval_status='pending').count()
     total_workgroups = Workgroup.query.count()
     pending_workgroups = Workgroup.query.filter_by(approval_status='pending').count()
     total_guilds = Guild.query.count()
@@ -9978,7 +12737,7 @@ def admin_dashboard():
         <div class="alert alert-primary alert-dismissible fade show" role="alert">
             <i class="fas fa-project-diagram me-2"></i>
             <strong>{pending_projects}</strong> layer(s) pending approval
-            <a href="/admin/projects/" class="alert-link">Review now</a>
+            <a href="/admin/layers/" class="alert-link">Review now</a>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         """
@@ -10027,7 +12786,7 @@ def admin_dashboard():
                     <div>
                         <a href="/admin/users/" class="btn btn-outline-primary me-2"><i class="fas fa-users me-1"></i>Users</a>
                         <a href="/admin/submissions/" class="btn btn-outline-success me-2"><i class="fas fa-file-alt me-1"></i>Submissions</a>
-                        <a href="/admin/projects/" class="btn btn-outline-info me-2"><i class="fas fa-project-diagram me-1"></i>Layers</a>
+                        <a href="/admin/layers/" class="btn btn-outline-info me-2"><i class="fas fa-project-diagram me-1"></i>Layers</a>
                         <a href="/admin/workgroups/" class="btn btn-outline-warning me-2"><i class="fas fa-users me-1"></i>Workgroups</a>
                         <a href="/admin/roles/" class="btn btn-outline-secondary me-2"><i class="fas fa-user-tag me-1"></i>Roles</a>
                         <a href="/admin/badges/" class="btn btn-outline-primary"><i class="fas fa-award me-1"></i>Badges</a>
@@ -10212,7 +12971,7 @@ def admin_dashboard():
     </div>
     """
 
-    return BASE_TEMPLATE.format(
+    return _format_base_template(
         title="Admin Dashboard - MLGH",
         theme=get_current_user().get('theme', 'dark'),
         content=content,
@@ -10441,7 +13200,7 @@ def admin_users():
     </script>
     """
 
-    return BASE_TEMPLATE.format(
+    return _format_base_template(
         title="User Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
@@ -10521,7 +13280,8 @@ def admin_submissions():
             'submitted': 'badge bg-warning text-dark',
             'approved': 'badge bg-success',
             'rejected': 'badge bg-danger',
-            'published': 'badge bg-info'
+            'published': 'badge bg-info',
+            'inscription_pending': 'badge bg-warning'
         }.get(submission.status, 'badge bg-secondary')
 
         # Get revision info
@@ -10751,7 +13511,7 @@ def admin_submissions():
     </script>
     """
 
-    return BASE_TEMPLATE.format(
+    return _format_base_template(
         title="Submission Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
@@ -11380,7 +14140,7 @@ def admin_analytics():
         </div>
         """
     
-    return BASE_TEMPLATE.format(
+    return _format_base_template(
         title="Analytics - MLGH",
         theme=current_theme,
         user_menu=user_menu,
@@ -11542,7 +14302,7 @@ def admin_chairs():
     </div>
     """
 
-    return BASE_TEMPLATE.format(
+    return _format_base_template(
         title="Coordinator Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
@@ -11697,16 +14457,16 @@ def delete_chair(chair_id):
 # Admin Dashboards for Projects/Workgroups/Guilds/Roles/Badges
 # ============================================================================
 
-@app.route('/admin/projects/')
+@app.route('/admin/layers/')
 @require_role('admin')
 def admin_projects():
     """Admin dashboard for managing projects"""
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     # Use same DB counts as admin dashboard so badge matches "Review now" alert
-    pending_projects = Project.query.filter_by(approval_status='pending').order_by(Project.last_activity.desc()).all()
-    approved_projects = Project.query.filter_by(approval_status='approved').order_by(Project.last_activity.desc()).all()
-    rejected_projects = Project.query.filter_by(approval_status='rejected').order_by(Project.last_activity.desc()).all()
+    pending_projects = Layer.query.filter_by(approval_status='pending').order_by(Layer.last_activity.desc()).all()
+    approved_projects = Layer.query.filter_by(approval_status='approved').order_by(Layer.last_activity.desc()).all()
+    rejected_projects = Layer.query.filter_by(approval_status='rejected').order_by(Layer.last_activity.desc()).all()
     pending_count = len(pending_projects)
     approved_count = len(approved_projects)
     rejected_count = len(rejected_projects)
@@ -11718,7 +14478,7 @@ def admin_projects():
     
     def _project_row_html(p, show_actions=False):
         mission = ('<p class="mb-2">' + _escape(p.mission) + '</p>') if p.mission else ''
-        wg_count = Workgroup.query.filter_by(project_id=p.id).count()
+        wg_count = Workgroup.query.filter_by(layer_id=p.id).count()
         created = p.created_at.strftime('%x') if p.created_at else ''
         safe_id = str(p.id).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
         actions = ''
@@ -11737,7 +14497,7 @@ def admin_projects():
             <div class="list-group-item">
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1">
-                        <h5><a href="/projects/''' + (p.slug or '') + '''/" target="_blank">''' + _escape(p.name) + '''</a></h5>
+                        <h5><a href="/layers/''' + (p.slug or '') + '''/" target="_blank">''' + _escape(p.name) + '''</a></h5>
                         ''' + mission + '''
                         <p class="mb-2">''' + _escape(p.description or 'No description') + '''</p>
                         <small class="text-muted">
@@ -11800,12 +14560,12 @@ def admin_projects():
         const container = document.getElementById('manage-projects-container');
         const serverPending = container ? parseInt(container.getAttribute('data-server-pending') || '0', 10) : 0;
         try {
-            const response = await fetch('/api/projects/?_t=' + Date.now(), { credentials: 'include', cache: 'no-store' });
+            const response = await fetch('/api/layers/?_t=' + Date.now(), { credentials: 'include', cache: 'no-store' });
             if (!response.ok) {
                 throw new Error('API returned ' + response.status);
             }
             const data = await response.json();
-            const projects = Array.isArray(data.projects) ? data.projects : [];
+            const projects = Array.isArray(data.layers) ? data.layers : [];
             function approvalStatus(p) { return (p && p.approval_status != null) ? String(p.approval_status).toLowerCase() : ''; }
             const pending = projects.filter(p => approvalStatus(p) === 'pending');
             const approved = projects.filter(p => approvalStatus(p) === 'approved');
@@ -11849,7 +14609,7 @@ def admin_projects():
         
         function escapeHtml(text) {
             if (!text) return '';
-            return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>');
+            return String(text).replace(/&/g, '&amp;').replace(new RegExp('<','g'), '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>');
         }
         
         let html = '<div class="list-group">';
@@ -11869,7 +14629,7 @@ def admin_projects():
             html += '<div class="list-group-item">' +
                 '<div class="d-flex justify-content-between align-items-start">' +
                     '<div class="flex-grow-1">' +
-                        '<h5><a href="/projects/' + project.slug + '/" target="_blank">' + escapeHtml(project.name) + '</a></h5>' +
+                        '<h5><a href="/layers/' + project.slug + '/" target="_blank">' + escapeHtml(project.name) + '</a></h5>' +
                         missionHtml +
                         descHtml +
                         '<small class="text-muted">' +
@@ -11891,7 +14651,7 @@ def admin_projects():
         if (!confirm('Approve this project?')) return;
         
         try {
-            const response = await fetch(`/api/projects/${projectId}/approve/`, {
+            const response = await fetch(`/api/layers/${projectId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 credentials: 'include',
@@ -11916,7 +14676,7 @@ def admin_projects():
         if (note === null) return;
         
         try {
-            const response = await fetch(`/api/projects/${projectId}/approve/`, {
+            const response = await fetch(`/api/layers/${projectId}/approve/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 credentials: 'include',
@@ -11996,20 +14756,20 @@ def admin_workgroups():
     async function loadWorkgroups() {
         try {
             // Load all projects first
-            const projectsResp = await fetch('/api/projects/');
+            const projectsResp = await fetch('/api/layers/');
             const projectsData = await projectsResp.json();
             
             let allWorkgroups = [];
             
             // Load workgroups from all projects
-            for (const project of projectsData.projects) {
-                const wgResp = await fetch(`/api/projects/${project.id}/workgroups/`);
+            for (const project of projectsData.layers) {
+                const wgResp = await fetch(`/api/layers/${project.id}/workgroups/`);
                 const wgData = await wgResp.json();
                 
                 // Add project info to each workgroup
                 wgData.workgroups.forEach(wg => {
-                    wg.project_name = project.name;
-                    wg.project_slug = project.slug;
+                    wg.layer_name = project.name;
+                    wg.layer_slug = project.slug;
                     allWorkgroups.push(wg);
                 });
             }
@@ -12044,7 +14804,7 @@ def admin_workgroups():
                             <h5><a href="/workgroups/${wg.slug}/" target="_blank">${wg.name}</a></h5>
                             <p class="mb-2">${wg.description || 'No description'}</p>
                             <small class="text-muted">
-                                Layer: <a href="/projects/${wg.project_slug}/" target="_blank">${wg.project_name}</a> | 
+                                Layer: <a href="/layers/${wg.layer_slug}/" target="_blank">${wg.layer_name}</a> | 
                                 Created: ${new Date(wg.created_at).toLocaleDateString()} | 
                                 Status: ${wg.status}
                             </small>
@@ -12252,7 +15012,7 @@ def admin_chair_nominations():
                         
                         <div class="mb-3">
                             <strong>Layer:</strong> 
-                            <a href="/projects/${nom.project_slug}/" target="_blank">${nom.project_name}</a>
+                            <a href="/layers/${nom.layer_slug}/" target="_blank">${nom.layer_name}</a>
                         </div>
                         
                         ${status === 'pending' ? `
@@ -12362,20 +15122,20 @@ def admin_roles():
     async function loadRoles() {
         try {
             // Load all projects first
-            const projectsResp = await fetch('/api/projects/');
+            const projectsResp = await fetch('/api/layers/');
             const projectsData = await projectsResp.json();
             
             let allRoles = [];
             
             // Load roles from all projects
-            for (const project of projectsData.projects) {
-                const rolesResp = await fetch(`/api/projects/${project.id}/roles/`);
+            for (const project of projectsData.layers) {
+                const rolesResp = await fetch(`/api/layers/${project.id}/roles/`);
                 const rolesData = await rolesResp.json();
                 
                 // Add project info to each role
                 rolesData.roles.forEach(role => {
-                    role.project_name = project.name;
-                    role.project_slug = project.slug;
+                    role.layer_name = project.name;
+                    role.layer_slug = project.slug;
                     allRoles.push(role);
                 });
             }
@@ -12411,7 +15171,7 @@ def admin_roles():
                             ${role.title_operational ? `<h6 class="text-muted">${role.title_operational}</h6>` : ''}
                             <p class="mb-2">${role.description.substring(0, 200)}...</p>
                             <small class="text-muted">
-                                Layer: <a href="/projects/${role.project_slug}/" target="_blank">${role.project_name}</a> | 
+                                Layer: <a href="/layers/${role.layer_slug}/" target="_blank">${role.layer_name}</a> | 
                                 Created: ${new Date(role.created_at).toLocaleDateString()} | 
                                 Public: ${role.public_visible ? 'Yes' : 'No'}
                             </small>
@@ -12508,20 +15268,20 @@ def admin_badges():
     async function loadBadges() {
         try {
             // Load all projects first
-            const projectsResp = await fetch('/api/projects/');
+            const projectsResp = await fetch('/api/layers/');
             const projectsData = await projectsResp.json();
             
             let allBadges = [];
             
             // Load badges from all projects
-            for (const project of projectsData.projects) {
-                const badgesResp = await fetch(`/api/projects/${project.id}/badges/`);
+            for (const project of projectsData.layers) {
+                const badgesResp = await fetch(`/api/layers/${project.id}/badges/`);
                 const badgesData = await badgesResp.json();
                 
                 // Add project info to each badge
                 badgesData.badges.forEach(badge => {
-                    badge.project_name = project.name;
-                    badge.project_slug = project.slug;
+                    badge.layer_name = project.name;
+                    badge.layer_slug = project.slug;
                     allBadges.push(badge);
                 });
             }
@@ -12565,7 +15325,7 @@ def admin_badges():
                                 ${badge.inscription_id ? `<strong>Inscription:</strong> ${badge.inscription_id}<br>` : ''}
                             </p>
                             <small class="text-muted">
-                                Layer: <a href="/projects/${badge.project_slug}/" target="_blank">${badge.project_name}</a> | 
+                                Layer: <a href="/layers/${badge.layer_slug}/" target="_blank">${badge.layer_name}</a> | 
                                 Created: ${new Date(badge.created_at).toLocaleDateString()}
                             </small>
                         </div>
@@ -12733,7 +15493,7 @@ def admin_member_requests():
         </div>
     </div>
     """
-    return BASE_TEMPLATE.format(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/admin/member_requests/<int:req_id>/approve')
 @require_role('admin')
@@ -12776,6 +15536,11 @@ def reject_member_request(req_id):
 # Routes
 @app.route('/')
 def home():
+    # On layer subdomain (e.g. the-overweb.themetalayer.org), redirect to project detail
+    if getattr(g, 'layer', None):
+        path = url_for('layer_detail', layer_slug=g.layer.slug)
+        prefix = request.headers.get('X-Forwarded-Prefix', '').rstrip('/')
+        return redirect((prefix + path) if prefix else path)
     # Generate user menu
     current_user = get_current_user()
     current_theme = current_user.get('theme', 'dark') if current_user else 'dark'  # Default to dark
@@ -12784,7 +15549,7 @@ def home():
     # Count documents: DRAFTS + approved/published submissions
     doc_count = len(DRAFTS) + Submission.query.filter(Submission.status.in_(['approved', 'published'])).count()
     
-    return BASE_TEMPLATE.format(title="MLGH", theme=current_theme, user_menu=user_menu, content=f"""
+    return _format_base_template(title="MLGH", theme=current_theme, user_menu=user_menu, content=f"""
     
     <div class="container mt-4">
         <div class="row">
@@ -12799,7 +15564,7 @@ def home():
                             </div>
                             <div class="card-body">
                                 <p>Browse and discover MLTF layers and their workgroups.</p>
-                                <a href="/projects/" class="btn btn-primary">View Layers</a>
+                                <a href="/layers/" class="btn btn-primary">View Layers</a>
                             </div>
                         </div>
                     </div>
@@ -12870,11 +15635,11 @@ def home():
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-header">
-                                <h5><i class="fas fa-images me-2"></i>Role Images</h5>
+                                <h5><i class="fas fa-medal me-2"></i>Badges</h5>
                             </div>
                             <div class="card-body">
                                 <p>Browse and vote on visual representations for roles across all projects.</p>
-                                <a href="/role-images/" class="btn btn-primary">View Gallery</a>
+                                <a href="/badges/" class="btn btn-primary">View Badges</a>
                             </div>
                         </div>
                     </div>
@@ -12917,11 +15682,14 @@ def person_by_public_id(public_id):
     user = User.query.filter_by(public_id=public_id).first_or_404()
     return redirect(url_for('user_profile', username=user.username or user.handle))
 
-@app.route('/layer/<public_id>')
-def layer_by_public_id(public_id):
-    """Resolve project/layer by public_id UUID"""
-    project = Project.query.filter_by(public_id=public_id).first_or_404()
-    return redirect(url_for('project_detail', project_slug=project.slug))
+@app.route('/layer/<layer_ref>')
+def layer_by_public_id(layer_ref):
+    """Resolve layer by public_id (UUID) or slug. GOV-HUB-3: themetalayer.org/layer/layername"""
+    if _is_uuid_like(layer_ref):
+        project = Layer.query.filter_by(public_id=layer_ref).first_or_404()
+    else:
+        project = Layer.query.filter_by(slug=layer_ref).first_or_404()
+    return redirect(url_for('layer_detail', layer_slug=project.slug))
 
 @app.route('/draft/<public_id>')
 def draft_by_public_id(public_id):
@@ -12936,11 +15704,32 @@ def vote_by_public_id_redirect(public_id):
     # Redirect to the full vote detail page
     return redirect(url_for('vote_detail', vote_public_id=vote.public_id))
 
+@app.route('/role/<public_id>')
+def role_by_public_id(public_id):
+    """Resolve role by public_id UUID"""
+    role = Role.query.filter_by(public_id=public_id).first_or_404()
+    return redirect(url_for('role_detail', role_slug=role.role_slug))
+
+@app.route('/claim/<public_id>')
+def claim_by_public_id(public_id):
+    """Resolve claim by public_id UUID - redirect to role page"""
+    claim = Claim.query.filter_by(public_id=public_id).first_or_404()
+    role = Role.query.get_or_404(claim.role_id)
+    return redirect(url_for('role_detail', role_slug=role.role_slug))
+
+@app.route('/badge/<public_id>')
+def badge_by_public_id(public_id):
+    """Resolve badge by public_id UUID - redirect to role page"""
+    badge = Badge.query.filter_by(public_id=public_id).first_or_404()
+    claim = Claim.query.get_or_404(badge.claim_id)
+    role = Role.query.get_or_404(claim.role_id)
+    return redirect(url_for('role_detail', role_slug=role.role_slug))
+
 @app.route('/votes/<vote_public_id>/')
 def vote_detail(vote_public_id):
     """Vote detail page"""
     vote = Vote.query.filter_by(public_id=vote_public_id).first_or_404()
-    project = Project.query.get_or_404(vote.project_id)
+    project = Layer.query.get_or_404(vote.layer_id)
     submission = Submission.query.get_or_404(vote.submission_id)
     
     current_user = get_current_user()
@@ -13059,7 +15848,7 @@ def vote_detail(vote_public_id):
                     <div class="card-body">
                         <p><strong>Status:</strong> <span class="badge bg-{status_color}">{vote.status.upper()}</span></p>
                         {result_html}
-                        <p><strong>Layer:</strong> <a href="/projects/{project.slug}/">{project.name}</a></p>
+                        <p><strong>Layer:</strong> <a href="/layers/{project.slug}/">{project.name}</a></p>
                         <p><strong>Draft:</strong> <a href="/doc/draft/{submission.draft_name}/">{submission.title}</a></p>
                         <p><strong>Start:</strong> {vote.start_at.strftime('%Y-%m-%d %H:%M UTC')}</p>
                         <p><strong>End:</strong> {vote.end_at.strftime('%Y-%m-%d %H:%M UTC')}</p>
@@ -13110,7 +15899,7 @@ def vote_detail(vote_public_id):
     </script>
     '''
     
-    return BASE_TEMPLATE.format(title=f"Vote: {vote.title}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Vote: {vote.title}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/active/')
 def active_documents():
@@ -13221,7 +16010,7 @@ def all_documents():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/draft/<path:draft_name>.txt')
 def draft_text(draft_name):
@@ -13747,11 +16536,11 @@ Meta-Layer Initiative
         async function loadDraftVotes() {{
             try {{
                 // Find votes that reference this submission
-                const allProjects = await fetch('/api/projects/').then(r => r.json());
+                const allProjects = await fetch('/api/layers/').then(r => r.json());
                 let votes = [];
                 
-                for (const proj of allProjects.projects || []) {{
-                    const res = await fetch(`/api/projects/${{proj.id}}/votes/`);
+                for (const proj of allProjects.layers || []) {{
+                    const res = await fetch(`/api/layers/${{proj.id}}/votes/`);
                     const data = await res.json();
                     const matchingVotes = (data.votes || []).filter(v => v.submission_id === submissionId);
                     votes.push(...matchingVotes);
@@ -13797,7 +16586,7 @@ Meta-Layer Initiative
     # Generate Hypothesis configuration for this document
     hypothesis_config = generate_hypothesis_config(document_name=draft['name'], document_type='draft')
     
-    return BASE_TEMPLATE.format(
+    return _format_base_template(
         title=f"{title_id} - MLGH", 
         theme=current_theme, 
         user_menu=user_menu, 
@@ -14119,7 +16908,7 @@ def draft_comments(draft_name):
     </script>
 """
 
-    return BASE_TEMPLATE.format(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/draft/<draft_name>/history/')
 def draft_history(draft_name):
@@ -14202,7 +16991,7 @@ def draft_history(draft_name):
             </div>
     """
 
-    return BASE_TEMPLATE.format(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/doc/draft/<draft_name>/follow/', methods=['POST'])
 def follow_draft(draft_name):
@@ -14472,7 +17261,7 @@ def draft_revisions(draft_name):
     </div>
     """
 
-    return BASE_TEMPLATE.format(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
 @app.route('/group/')
 def groups():
@@ -14534,7 +17323,7 @@ def groups():
     </div>
     """
 
-    return BASE_TEMPLATE.format(
+    return _format_base_template(
         title="Workgroups - MLGH",
         theme=current_theme,
         content=content,
@@ -14839,7 +17628,7 @@ def group_detail(acronym):
     </script>
     """
 
-    return BASE_TEMPLATE.format(
+    return _format_base_template(
         title=f"{group['name']} - MLGH",
         theme=current_theme,
         content=content,
@@ -15106,9 +17895,11 @@ def people():
         # data-search and data-groups for client-side filter
         search_text = f"{display} {u.username}".lower()
         role_td = f'<td>{role_badge}</td>' if is_editor_or_admin else ''
+        avatar_html = f'<img src="{u.profileImage}" alt="" class="rounded-circle me-2" style="width:36px;height:36px;object-fit:cover">' if u.profileImage else f'<span class="rounded-circle me-2 d-inline-flex align-items-center justify-content-center bg-secondary text-white" style="width:36px;height:36px;font-size:0.9rem">{(display or "?")[0].upper()}</span>'
+        profile_link = f'/profile/{u.username}/'
         rows.append(f"""
         <tr data-search="{search_text}" data-groups="{all_groups}">
-            <td><strong>{display}</strong><br><small class="text-muted">@{u.username}</small></td>
+            <td><div class="d-flex align-items-center">{avatar_html}<div><a href="{profile_link}" class="fw-bold text-decoration-none">{display}</a><br><small class="text-muted">@{u.username}</small></div></div></td>
             {role_td}
             <td>{member_badges}</td>
             <td>{coord_badges}</td>
@@ -15229,53 +18020,92 @@ def meetings():
 @app.route('/roles/<role_slug>/images/')
 def role_images_gallery(role_slug):
     """Gallery of role image proposals with voting"""
+    import json as _json
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
-    is_admin = current_user and current_user.get('role') == 'admin'
-    
+    is_global_admin = current_user and current_user.get('role') == 'admin'
+
     # Load role for display name and link back to role
     role = Role.query.filter_by(role_slug=role_slug).first()
     role_title = role.title_guild if role else role_slug
-    
+
+    role_badge_json = 'null'
+    role_id_js = 'null'
+    is_project_admin_flag = False
+    if role:
+        role_dict = role.to_dict()
+        project = Layer.query.get(role.layer_id)
+        is_project_admin_flag = bool(project and current_user and is_layer_admin(project, current_user))
+        role_dict['can_manage'] = is_project_admin_flag
+        role_badge_json = _json.dumps(role_dict)
+        role_id_js = _json.dumps(role.id)
+
     content = f"""
     <div class="container mt-4">
-        <div class="row mb-4">
-            <div class="col-md-12">
-                <h1>Role Images: <a href="/roles/{role_slug}/" class="text-decoration-none">{role_title}</a></h1>
-                <p class="lead">Community-proposed images for this role</p>
-            </div>
-        </div>
-        
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <label for="sort-select" class="form-label">Sort by:</label>
-                <select id="sort-select" class="form-select" onchange="loadImages()">
-                    <option value="net_score">Net Score (Votes)</option>
-                    <option value="upvotes">Most Upvotes</option>
-                    <option value="date">Most Recent</option>
-                </select>
-            </div>
-            <div class="col-md-6 text-end">
-                {'<button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#submitImageModal"><i class="fas fa-plus me-2"></i>Submit Image</button>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Submit</a>'}
-            </div>
-        </div>
-        
-        <div id="images-container" class="row">
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+        <div class="row">
+            <!-- Main designs column -->
+            <div class="col-md-8">
+                <div class="mb-3">
+                    <h1 class="mb-0">Designs: <a href="/roles/{role_slug}/" class="text-decoration-none">{role_title}</a></h1>
+                    <p class="text-muted mb-0">Community-submitted badge designs for this role</p>
                 </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <select id="sort-select" class="form-select form-select-sm w-auto" onchange="loadImages()">
+                        <option value="net_score">Net Score</option>
+                        <option value="upvotes">Most Upvotes</option>
+                        <option value="date">Most Recent</option>
+                    </select>
+                    {'<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#submitImageModal"><i class="fas fa-plus me-1"></i>Submit Design</button>' if current_user else '<a href="/login/" class="btn btn-primary btn-sm"><i class="fas fa-sign-in-alt me-1"></i>Login to Submit</a>'}
+                </div>
+
+                <div id="images-container" class="row">
+                    <div class="col-12 text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar: badge cycle + skin picker -->
+            <div class="col-md-4">
+                <!-- Cycle timeline card -->
+                <div class="card mb-3" id="cycle-card">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="fas fa-clock me-1"></i>Badge Cycle</h6>
+                    </div>
+                    <div class="card-body py-2 small" id="cycle-body">
+                        <div class="text-muted">Loading…</div>
+                    </div>
+                </div>
+
+                <!-- Skin picker card -->
+                <div class="card mb-3">
+                    <div class="card-header py-2"><h6 class="mb-0"><i class="fas fa-palette me-1"></i>Badge Skin</h6></div>
+                    <div class="card-body py-2">
+                        <p class="small text-muted mb-2">Preview designs in each layout skin{'. Admins can select the active skin.' if is_project_admin_flag else '.'}</p>
+                        <div id="skin-list" class="d-flex flex-column gap-2">
+                            <div class="text-muted small">Loading skins…</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Back link -->
+                <a href="/badges/" class="btn btn-outline-secondary btn-sm w-100">
+                    <i class="fas fa-arrow-left me-1"></i>All Badges
+                </a>
             </div>
         </div>
     </div>
-    
+
     <!-- Submit Image Modal -->
     <div class="modal fade" id="submitImageModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Submit Role Image</h5>
+                    <h5 class="modal-title">Submit Role Design</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -15288,18 +18118,18 @@ def role_images_gallery(role_slug):
                                 <option value="ordinal">Bitcoin Ordinal</option>
                             </select>
                         </div>
-                        
+
                         <div id="uploadField" class="mb-3">
                             <label for="imageFile" class="form-label">Image File</label>
                             <input type="file" class="form-control" id="imageFile" accept="image/*">
                             <small class="text-muted">Max 600×600 px, 5MB. Formats: PNG, JPG, GIF, WebP, SVG</small>
                         </div>
-                        
+
                         <div id="urlField" class="mb-3" style="display:none;">
                             <label for="imageUrl" class="form-label">Image URL</label>
                             <input type="url" class="form-control" id="imageUrl" placeholder="https://example.com/image.png">
                         </div>
-                        
+
                         <div id="ordinalFields" style="display:none;">
                             <div class="mb-3">
                                 <label for="inscriptionId" class="form-label">Inscription ID</label>
@@ -15319,154 +18149,376 @@ def role_images_gallery(role_slug):
             </div>
         </div>
     </div>
-    
+
     <script>
     const roleSlug = '{role_slug}';
-    const isAdmin = {'true' if is_admin else 'false'};
-    
+    const roleId = {role_id_js};
+    const isAdmin = {'true' if is_global_admin else 'false'};
+    const roleData = {role_badge_json};
+    const canManage = {'true' if is_project_admin_flag else 'false'};
+    let allSkins = [];
+    let activeSkinId = roleData ? roleData.badge_skin_id : null;
+    let previewImageSrc = null;
+    let cycleData = null;
+
+    // ── Helpers ──────────────────────────────────────────────────────
+    function fmtDate(iso) {{
+        if (!iso) return '—';
+        return new Date(iso + (iso.includes('T') ? '' : 'T00:00:00')).toLocaleDateString(undefined, {{month:'short',day:'numeric',year:'numeric'}});
+    }}
+    function daysUntil(iso) {{
+        if (!iso) return null;
+        const d = new Date(iso + (iso.includes('T') ? '' : 'T00:00:00'));
+        return Math.ceil((d - Date.now()) / 86400000);
+    }}
+
+    // ── Cycle timeline ───────────────────────────────────────────────
+    async function loadCycleCard() {{
+        const el = document.getElementById('cycle-body');
+        try {{
+            const r = await fetch(`/api/roles/${{roleSlug}}/badge-cycle/`);
+            cycleData = await r.json();
+            renderCycleCard();
+        }} catch(e) {{
+            el.innerHTML = '<span class="text-danger small">Could not load cycle data.</span>';
+        }}
+    }}
+
+    function renderCycleCard() {{
+        const el = document.getElementById('cycle-body');
+        if (!cycleData) {{ el.innerHTML = '<span class="text-muted">No data.</span>'; return; }}
+        if (!cycleData.badge_enabled) {{
+            el.innerHTML = '<span class="text-muted">Badges not enabled for this role.</span>';
+            return;
+        }}
+
+        const cycle = cycleData.cycle;
+        const up = cycleData.upcoming;
+        let html = '';
+
+        if (cycle && cycle.status !== 'completed') {{
+            // ── Active cycle ──
+            const statusColors = {{ submission: 'success', delay: 'warning', voting: 'primary' }};
+            const statusLabels = {{ submission: 'Submission Open', delay: 'Delay Period', voting: 'Voting Open' }};
+            const color = statusColors[cycle.status] || 'secondary';
+            const label = statusLabels[cycle.status] || cycle.status;
+            html += `<div class="mb-2"><span class="badge bg-${{color}}">${{label}}</span></div>`;
+            html += renderTimeline([
+                {{ label: 'First submission', date: cycle.first_submission_at, active: true }},
+                {{ label: 'Submission closes', date: cycle.submission_ends_at, active: cycle.status === 'delay' || cycle.status === 'voting' }},
+                {{ label: 'Voting opens', date: cycle.voting_starts_at, active: cycle.status === 'voting' }},
+                {{ label: 'Voting closes', date: cycle.voting_ends_at, active: false }},
+            ]);
+            if (cycle.status === 'submission') {{
+                const d = daysUntil(cycle.submission_ends_at);
+                if (d !== null) html += `<div class="mt-2 text-muted small">Submission closes in <strong>${{d}}</strong> day${{d===1?'':'s'}}</div>`;
+            }} else if (cycle.status === 'voting') {{
+                const d = daysUntil(cycle.voting_ends_at);
+                if (d !== null) html += `<div class="mt-2 text-muted small">Voting closes in <strong>${{d}}</strong> day${{d===1?'':'s'}}</div>`;
+            }}
+        }} else if (cycle && cycle.status === 'completed') {{
+            // ── Most recent completed cycle ──
+            html += `<div class="mb-2"><span class="badge bg-secondary">Last Cycle (Completed)</span></div>`;
+            html += renderTimeline([
+                {{ label: 'First submission', date: cycle.first_submission_at, active: false }},
+                {{ label: 'Submission closed', date: cycle.submission_ends_at, active: false }},
+                {{ label: 'Voting opened', date: cycle.voting_starts_at, active: false }},
+                {{ label: 'Voting closed', date: cycle.voting_ends_at, active: false }},
+            ]);
+            html += '<hr class="my-2">';
+            // fall through to show upcoming projections below
+            if (up) html += renderUpcoming(up);
+            if (cycleData.can_manage) {{
+                html += `<button class="btn btn-sm btn-outline-success w-100 mt-2" onclick="startCycle()"><i class="fas fa-play me-1"></i>Start New Cycle</button>`;
+            }}
+        }} else {{
+            // ── No cycle yet ──
+            if (up) html += renderUpcoming(up);
+            if (cycleData.can_manage) {{
+                const canStart = !up || !up.days_until_start || up.days_until_start <= 0;
+                if (canStart) {{
+                    html += `<button class="btn btn-sm btn-success w-100 mt-2" onclick="startCycle()"><i class="fas fa-play me-1"></i>Start Cycle</button>`;
+                }} else {{
+                    html += `<div class="mt-2 text-muted small">Can start in ${{up.days_until_start}} day${{up.days_until_start===1?'':'s'}}</div>`;
+                }}
+            }}
+        }}
+
+        el.innerHTML = html;
+    }}
+
+    function renderTimeline(steps) {{
+        const rows = steps.map(s => {{
+            const cls = s.active ? 'text-success fw-semibold' : 'text-muted';
+            const icon = s.active ? '●' : '○';
+            return `<div class="d-flex justify-content-between gap-2 ${{cls}}">
+                <span>${{icon}} ${{s.label}}</span><span>${{fmtDate(s.date)}}</span>
+            </div>`;
+        }});
+        return `<div class="d-flex flex-column gap-1" style="font-size:0.78rem">${{rows.join('')}}</div>`;
+    }}
+
+    function renderUpcoming(up) {{
+        let html = `<div class="small mb-1 text-muted">Projected dates (based on settings):</div>`;
+        html += renderTimeline([
+            {{ label: 'Earliest open', date: up.badge_earliest_start, active: !up.days_until_start || up.days_until_start <= 0 }},
+            {{ label: 'Submission closes', date: up.estimated_submission_end, active: false }},
+            {{ label: 'Voting opens', date: up.estimated_voting_start, active: false }},
+            {{ label: 'Voting closes', date: up.estimated_voting_end, active: false }},
+        ]);
+        const vtypes = [];
+        if (up.voting_regular !== false) vtypes.push('Regular');
+        if (up.voting_time_weighted) vtypes.push('Time-weighted');
+        if (up.voting_quadratic) vtypes.push('Quadratic');
+        html += `<div class="d-flex justify-content-between mt-1" style="font-size:0.75rem">
+            <span class="text-muted">Voting</span><span>${{vtypes.join(', ')}}</span></div>`;
+        if (up.days_until_start > 0) {{
+            html += `<div class="mt-1 text-info small">Opens in <strong>${{up.days_until_start}}</strong> day${{up.days_until_start===1?'':'s'}}</div>`;
+        }}
+        if (up.badge_end_date) {{
+            html += `<div class="text-warning small mt-1">Ends ${{fmtDate(up.badge_end_date)}}</div>`;
+        }}
+        return html;
+    }}
+
+    async function startCycle() {{
+        if (!confirm('Start a new badge cycle now?')) return;
+        try {{
+            const r = await fetch(`/api/roles/${{roleSlug}}/badge-cycle/start/`, {{method:'POST'}});
+            const d = await r.json();
+            if (r.ok) {{
+                await loadCycleCard();
+            }} else {{
+                alert(d.error || 'Could not start cycle');
+            }}
+        }} catch(e) {{ alert('Error starting cycle'); }}
+    }}
+
+    // ── Skin picker ──────────────────────────────────────────────────
+    async function loadSkins() {{
+        try {{
+            const r = await fetch('/api/badge-skins/');
+            const d = await r.json();
+            allSkins = d.skins || [];
+            renderSkinList();
+        }} catch(e) {{
+            document.getElementById('skin-list').innerHTML = '<small class="text-danger">Could not load skins.</small>';
+        }}
+    }}
+
+    function renderSkinList() {{
+        const el = document.getElementById('skin-list');
+        if (!allSkins.length) {{ el.innerHTML = '<small class="text-muted">No skins available.</small>'; return; }}
+        el.innerHTML = allSkins.map(s => {{
+            const isSelected = activeSkinId && (s.id === activeSkinId || s.slug === activeSkinId);
+            const isPreview = previewSkinSlug === s.slug;
+            let borderCls = '';
+            if (isSelected) borderCls = 'border-success';
+            else if (isPreview) borderCls = 'border-primary';
+            return `
+            <div class="skin-option border rounded p-2 ${{borderCls}} ${{isSelected ? 'bg-success bg-opacity-10' : isPreview ? 'bg-primary bg-opacity-10' : ''}}"
+                 style="cursor:pointer" onclick="previewSkin('${{s.slug}}')">
+                <div class="d-flex align-items-center gap-2">
+                    <div style="width:36px;height:36px;background:#444;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+                        ${{s.preview_image_url
+                            ? `<img src="${{s.preview_image_url}}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;">`
+                            : `<i class="fas fa-layer-group text-muted small"></i>`}}
+                    </div>
+                    <div class="flex-grow-1 min-width-0">
+                        <div class="fw-semibold small d-flex align-items-center gap-1">
+                            ${{s.name}}
+                            ${{isSelected ? '<span class="badge bg-success" style="font-size:0.6rem">Active</span>' : ''}}
+                        </div>
+                        <div class="text-muted" style="font-size:0.72rem">${{s.description || ''}}</div>
+                    </div>
+                    ${{isPreview ? '<i class="fas fa-eye text-primary"></i>' : ''}}
+                </div>
+                ${{canManage ? `
+                <div class="mt-1 pt-1 border-top d-flex gap-1">
+                    ${{isSelected
+                        ? `<button class="btn btn-outline-danger btn-sm flex-fill" style="font-size:0.7rem;padding:2px 6px"
+                               onclick="event.stopPropagation();saveSkin(null)">Remove</button>`
+                        : `<button class="btn btn-outline-success btn-sm flex-fill" style="font-size:0.7rem;padding:2px 6px"
+                               onclick="event.stopPropagation();saveSkin('${{s.id}}')">Select</button>`}}
+                </div>` : ''}}
+            </div>`;
+        }}).join('');
+    }}
+
+    let previewSkinSlug = null;
+
+    function previewSkin(slug) {{
+        previewSkinSlug = previewSkinSlug === slug ? null : slug;
+        renderSkinList();
+        if (previewImageSrc && previewSkinSlug) renderSkinPreview();
+        else {{
+            const prev = document.getElementById('skin-preview-area');
+            if (prev && !previewSkinSlug) prev.remove();
+        }}
+    }}
+
+    async function saveSkin(skinId) {{
+        if (!roleId) {{ alert('Role ID not available'); return; }}
+        try {{
+            const r = await fetch(`/api/roles/${{roleId}}/`, {{
+                method: 'PATCH',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{badge_skin_id: skinId}})
+            }});
+            const d = await r.json();
+            if (r.ok) {{
+                activeSkinId = d.role ? d.role.badge_skin_id : skinId;
+                renderSkinList();
+            }} else {{
+                alert(d.error || 'Failed to save skin');
+            }}
+        }} catch(e) {{ alert('Error saving skin'); }}
+    }}
+
+    function renderSkinPreview() {{
+        const skin = allSkins.find(s => s.slug === previewSkinSlug);
+        if (!skin || !previewImageSrc) return;
+        const spec = skin.layout_spec || {{}};
+        const imageRegion = (spec.regions || []).find(r => r.id === 'image') || {{}};
+        const isCircle = imageRegion.size === 'circle';
+        const isLeft = imageRegion.placement === 'left';
+        const html = `
+        <div style="max-width:300px;margin:0.75rem auto;border:1px solid #444;border-radius:8px;overflow:hidden;background:#1a1a2e;">
+            <div style="display:flex;flex-direction:${{isLeft ? 'row' : 'column'}};align-items:center;padding:12px;gap:10px;">
+                <img src="${{previewImageSrc}}" style="width:${{isLeft ? '60px' : isCircle ? '80px' : '100%%'}};height:${{isLeft ? '60px' : 'auto'}};
+                    object-fit:cover;border-radius:${{isCircle ? '50%%' : '6px'}};flex-shrink:0;">
+                <div>
+                    <div style="font-weight:bold;color:#fff;">${{roleData ? roleData.title_guild : roleSlug}}</div>
+                    <div style="font-size:0.8rem;color:#aaa;">Claimant Name</div>
+                </div>
+            </div>
+            <div style="background:#111;padding:4px 12px;font-size:0.7rem;color:#666;text-align:center;">
+                ${{skin.name}} skin preview
+            </div>
+        </div>`;
+        let preview = document.getElementById('skin-preview-area');
+        if (!preview) {{
+            preview = document.createElement('div');
+            preview.id = 'skin-preview-area';
+            document.getElementById('skin-list').after(preview);
+        }}
+        preview.innerHTML = html;
+    }}
+
+    // ── Design cards ─────────────────────────────────────────────────
     function toggleSourceFields() {{
         const sourceType = document.getElementById('sourceType').value;
         document.getElementById('uploadField').style.display = sourceType === 'upload' ? 'block' : 'none';
         document.getElementById('urlField').style.display = sourceType === 'url' ? 'block' : 'none';
         document.getElementById('ordinalFields').style.display = sourceType === 'ordinal' ? 'block' : 'none';
     }}
-    
+
     async function loadImages() {{
         const sortBy = document.getElementById('sort-select').value;
         const container = document.getElementById('images-container');
-        
         try {{
             const response = await fetch(`/api/roles/${{roleSlug}}/images/?sort=${{sortBy}}`);
             const data = await response.json();
-            
             if (data.images.length === 0) {{
-                container.innerHTML = '<div class="col-12 text-center py-5"><p class="text-muted">No images yet. Be the first to submit one!</p></div>';
+                container.innerHTML = '<div class="col-12 text-center py-5"><p class="text-muted">No designs yet. Be the first to submit one!</p></div>';
                 return;
             }}
-            
             container.innerHTML = data.images.map(img => {{
-                // Determine image source
                 let imgSrc = img.image_url;
                 if (img.source_type === 'upload' && img.file_path) {{
                     imgSrc = `/uploads/role_images/${{img.file_path.split('/').pop()}}`;
                 }} else if (img.source_type === 'ordinal') {{
                     imgSrc = `https://ordinals.com/content/${{img.inscription_id}}`;
                 }}
-                
+                const fallbackSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect fill='%23ddd' width='200' height='200'/%3E%3Ctext fill='%23999' x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='16'%3ENo image%3C/text%3E%3C/svg%3E";
                 return `
-                <div class="col-md-4 mb-4">
+                <div class="col-md-6 mb-3">
                     <div class="card h-100">
-                        <a href="/roles/${{roleSlug}}/images/${{img.id}}/">
-                            <img src="${{imgSrc}}" class="card-img-top" alt="Role image" style="height: 250px; object-fit: cover;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'200\\'%3E%3Crect fill=\\'%23ddd\\' width=\\'200\\' height=\\'200\\'/%3E%3Ctext fill=\\'%23999\\' x=\\'50%25\\' y=\\'50%25\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' font-family=\\'sans-serif\\' font-size=\\'16\\'%3EImage not available%3C/text%3E%3C/svg%3E';">
+                        <a href="/roles/${{roleSlug}}/images/${{img.id}}/" class="d-block bg-dark"
+                           onclick="previewImageSrc='${{imgSrc}}'; if(previewSkinSlug) {{ event.preventDefault(); renderSkinPreview(); }}">
+                            <img src="${{imgSrc}}" class="card-img-top" alt="Design" style="width:100%;height:auto;display:block;object-fit:contain;"
+                                 onerror="this.src='${{fallbackSvg}}'">
                         </a>
-                        <div class="card-body">
-                            ${{img.is_primary ? '<span class="badge bg-success mb-2">Primary Image</span>' : ''}}
-                            ${{img.is_hidden && isAdmin ? '<span class="badge bg-warning mb-2">Hidden</span>' : ''}}
-                            <p class="small text-muted mb-2">
-                                By ${{img.submitted_by_name}}<br>
-                                ${{new Date(img.submitted_at).toLocaleDateString()}}
-                            </p>
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="btn-group">
-                                    <button class="btn btn-sm ${{img.user_vote === 1 ? 'btn-success' : 'btn-outline-success'}}" onclick="vote('${{img.id}}', 1, event)">
+                        <div class="card-body py-2">
+                            ${{img.is_primary ? '<span class="badge bg-success mb-1">Primary</span> ' : ''}}
+                            ${{img.is_hidden && isAdmin ? '<span class="badge bg-warning mb-1">Hidden</span> ' : ''}}
+                            <p class="small text-muted mb-1">By ${{img.submitted_by_name}} · ${{new Date(img.submitted_at).toLocaleDateString()}}</p>
+                            <div class="d-flex justify-content-between align-items-center gap-1">
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn ${{img.user_vote === 1 ? 'btn-success' : 'btn-outline-success'}}" onclick="vote('${{img.id}}', 1, event)">
                                         <i class="fas fa-thumbs-up"></i> ${{img.upvotes}}
                                     </button>
-                                    <button class="btn btn-sm ${{img.user_vote === -1 ? 'btn-danger' : 'btn-outline-danger'}}" onclick="vote('${{img.id}}', -1, event)">
+                                    <button class="btn ${{img.user_vote === -1 ? 'btn-danger' : 'btn-outline-danger'}}" onclick="vote('${{img.id}}', -1, event)">
                                         <i class="fas fa-thumbs-down"></i> ${{img.downvotes}}
                                     </button>
                                 </div>
-                                <span class="badge bg-primary">Score: ${{img.net_score}}</span>
+                                <span class="badge bg-primary">${{img.net_score}}</span>
+                                <button class="btn btn-outline-secondary btn-sm" title="Preview with skin"
+                                    onclick="previewImageSrc='${{imgSrc}}'; if(previewSkinSlug) renderSkinPreview(); else document.getElementById('skin-list').scrollIntoView({{behavior:'smooth'}})">
+                                    <i class="fas fa-palette"></i>
+                                </button>
                             </div>
                         </div>
                     </div>
-                </div>
-                `;
+                </div>`;
             }}).join('');
         }} catch (error) {{
-            console.error('Error loading images:', error);
-            container.innerHTML = '<div class="col-12 text-center py-5"><p class="text-danger">Error loading images</p></div>';
+            container.innerHTML = '<div class="col-12 text-center py-5"><p class="text-danger">Error loading designs</p></div>';
         }}
     }}
-    
+
     async function vote(imageId, value, event) {{
-        event.preventDefault();
-        event.stopPropagation();
-        
+        event.preventDefault(); event.stopPropagation();
         try {{
             const response = await fetch(`/api/role-images/${{imageId}}/vote/`, {{
                 method: 'POST',
                 headers: {{'Content-Type': 'application/json'}},
                 body: JSON.stringify({{value}})
             }});
-            
-            if (response.ok) {{
-                loadImages();
-            }} else {{
-                const data = await response.json();
-                alert(data.error || 'Failed to vote');
-            }}
-        }} catch (error) {{
-            console.error('Error voting:', error);
-            alert('Error voting on image');
-        }}
+            if (response.ok) {{ loadImages(); }}
+            else {{ const d = await response.json(); alert(d.error || 'Failed to vote'); }}
+        }} catch (error) {{ alert('Error voting'); }}
     }}
-    
+
     async function submitImage() {{
         const sourceType = document.getElementById('sourceType').value;
         const formData = new FormData();
         formData.append('source_type', sourceType);
-        
         if (sourceType === 'upload') {{
             const file = document.getElementById('imageFile').files[0];
-            if (!file) {{
-                alert('Please select a file');
-                return;
-            }}
+            if (!file) {{ alert('Please select a file'); return; }}
             formData.append('file', file);
         }} else if (sourceType === 'url') {{
             const url = document.getElementById('imageUrl').value;
-            if (!url) {{
-                alert('Please enter an image URL');
-                return;
-            }}
+            if (!url) {{ alert('Please enter an image URL'); return; }}
             formData.append('image_url', url);
         }} else if (sourceType === 'ordinal') {{
             const inscriptionId = document.getElementById('inscriptionId').value;
-            if (!inscriptionId) {{
-                alert('Please enter an inscription ID');
-                return;
-            }}
+            if (!inscriptionId) {{ alert('Please enter an inscription ID'); return; }}
             formData.append('inscription_id', inscriptionId);
             formData.append('content_type', document.getElementById('contentType').value);
             formData.append('chain', 'bitcoin');
         }}
-        
         try {{
-            const response = await fetch(`/api/roles/${{roleSlug}}/images/`, {{
-                method: 'POST',
-                body: formData
-            }});
-            
+            const response = await fetch(`/api/roles/${{roleSlug}}/images/`, {{ method: 'POST', body: formData }});
             if (response.ok) {{
                 bootstrap.Modal.getInstance(document.getElementById('submitImageModal')).hide();
                 document.getElementById('submitImageForm').reset();
                 loadImages();
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to submit image');
+                alert(data.error || 'Failed to submit design');
             }}
-        }} catch (error) {{
-            console.error('Error submitting image:', error);
-            alert('Error submitting image');
-        }}
+        }} catch (error) {{ alert('Error submitting design'); }}
     }}
-    
-    // Load images on page load
+
+    loadCycleCard();
+    loadSkins();
     loadImages();
     </script>
     """
-    
-    return render_page(f"Role Images: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+    return render_page(f"Designs: {role_title} - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/roles/<role_slug>/images/<image_id>/')
 def role_image_detail(role_slug, image_id):
@@ -15513,8 +18565,8 @@ def role_image_detail(role_slug, image_id):
                             {f'<span class="badge bg-warning ms-2">Hidden</span>' if image.is_hidden and is_admin else ''}
                         </h2>
                         
-                        <div class="text-center mb-4">
-                            {'<iframe src="' + image.image_url + '" style="width: 100%; height: 500px; border: none;"></iframe>' if image.source_type == 'ordinal' and image.content_type and 'html' in image.content_type.lower() else '<img src="' + image.image_url + '" class="img-fluid" alt="Role image" style="max-height: 500px;">'}
+                        <div class="mb-4">
+                            {'<iframe src="' + image.image_url + '" style="width: 100%; height: 500px; border: none;"></iframe>' if image.source_type == 'ordinal' and image.content_type and 'html' in (image.content_type or '').lower() else '<img src="' + image.image_url + '" class="img-fluid" alt="Role image" style="width:100%;height:auto;display:block;object-fit:contain;">'}
                         </div>
                         
                         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -15770,7 +18822,7 @@ def role_image_detail(role_slug, image_id):
 # Projects, Workgroups, and Guilds UI Pages
 # ============================================================================
 
-@app.route('/projects/')
+@app.route('/layers/')
 def projects_directory():
     """Projects directory page"""
     user_menu = generate_user_menu()
@@ -15785,7 +18837,7 @@ def projects_directory():
                 <p class="lead">Browse and discover MLTF layers</p>
             </div>
             <div class="col-md-4 text-end">
-                {'<a href="/projects/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Layer</a>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
+                {'<a href="/layers/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Layer</a>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
             </div>
         </div>
         
@@ -15834,7 +18886,7 @@ def projects_directory():
         const statusFilter = document.getElementById('status-filter').value;
         const approvalFilter = document.getElementById('approval-filter').value;
         
-        let url = '/api/projects/';
+        let url = '/api/layers/';
         const params = new URLSearchParams();
         if (statusFilter) params.append('status', statusFilter);
         if (approvalFilter) params.append('approval_status', approvalFilter);
@@ -15843,7 +18895,7 @@ def projects_directory():
         try {{
             const response = await fetch(url);
             const data = await response.json();
-            allProjects = data.projects;
+            allProjects = data.layers;
             displayProjects(allProjects);
         }} catch (error) {{
             console.error('Error loading projects:', error);
@@ -15873,21 +18925,20 @@ def projects_directory():
             const statusBadge = (project.approval_status === 'approved' && project.status === 'proposed') ? '' : getStatusBadge(project.status);
             const approvalBadge = getApprovalBadge(project.approval_status);
             
-            const projectImgHtml = project.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{project.image_url}}" alt="${{project.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
+            const projectImgHtml = project.image_url ? `<div class="card-img-top overflow-hidden" style="background: var(--bg-secondary, #f8f9fa);"><img src="${{project.image_url}}" alt="${{project.name}}" class="w-100" style="display: block; vertical-align: top;"></div>` : '';
             html += `
                 <div class="col-md-6 col-lg-4 mb-4">
                     <div class="card h-100">
                         ${{projectImgHtml}}
                         <div class="card-body">
                             <h5 class="card-title">
-                                <a href="/projects/${{project.slug}}/">${{project.name}}</a>
+                                <a href="/layers/${{project.slug}}/">${{project.name}}</a>
                             </h5>
                             <div class="mb-2">
                                 ${{statusBadge}}
                                 ${{approvalBadge}}
                             </div>
-                            ${{project.mission ? '<p class="card-text fw-medium">' + (project.mission || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>') + '</p>' : ''}}
-                            <p class="card-text text-muted">${{(project.description || 'No description').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>')}}</p>
+                            <p class="card-text text-muted layer-card-text">${{(project.description || 'No description').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>')}}</p>
                             <div class="mt-3">
                                 <small class="text-muted">
                                     <i class="fas fa-users me-1"></i> ${{project.workgroups_count || 0}} workgroups
@@ -15949,7 +19000,7 @@ def workgroups_directory():
                 <p class="lead">Browse workgroups across all projects</p>
             </div>
             <div class="col-md-4 text-end">
-                <a href="/projects/" class="btn btn-secondary mb-2 w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layers</a>
+                <a href="/layers/" class="btn btn-secondary mb-2 w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layers</a>
                 {'<button class="btn btn-primary w-100" onclick="showCreateWorkgroupModal()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>' if current_user else ''}
             </div>
         </div>
@@ -15992,9 +19043,9 @@ def workgroups_directory():
     
     async function loadProjects() {{
         try {{
-            const response = await fetch('/api/projects/?approval_status=approved');
+            const response = await fetch('/api/layers/?approval_status=approved');
             const data = await response.json();
-            allProjects = data.projects;
+            allProjects = data.layers;
             
             const select = document.getElementById('project-filter');
             allProjects.forEach(project => {{
@@ -16017,7 +19068,7 @@ def workgroups_directory():
             
             if (projectFilter) {{
                 // Load workgroups for specific project
-                let url = `/api/projects/${{projectFilter}}/workgroups/`;
+                let url = `/api/layers/${{projectFilter}}/workgroups/`;
                 if (statusFilter) url += `?status=${{statusFilter}}`;
                 
                 const response = await fetch(url);
@@ -16026,7 +19077,7 @@ def workgroups_directory():
             }} else {{
                 // Load workgroups from all projects
                 for (const project of allProjects) {{
-                    let url = `/api/projects/${{project.id}}/workgroups/`;
+                    let url = `/api/layers/${{project.id}}/workgroups/`;
                     if (statusFilter) url += `?status=${{statusFilter}}`;
                     
                     const response = await fetch(url);
@@ -16063,7 +19114,7 @@ def workgroups_directory():
         workgroups.forEach(wg => {{
             const statusBadge = getStatusBadge(wg.status);
             const approvalBadge = getApprovalBadge(wg.approval_status);
-            const project = allProjects.find(p => p.id === wg.project_id);
+            const project = allProjects.find(p => p.id === wg.layer_id);
             
             const wgImgHtml = wg.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{wg.image_url}}" alt="${{wg.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
             html += `
@@ -16209,7 +19260,7 @@ def workgroups_directory():
             submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
             
             try {{
-                const response = await fetch(`/api/projects/${{projectId}}/workgroups/`, {{
+                const response = await fetch(`/api/layers/${{projectId}}/workgroups/`, {{
                     method: 'POST',
                     headers: {{'Content-Type': 'application/json'}},
                     body: JSON.stringify({{ name, description }})
@@ -16296,9 +19347,9 @@ def waitlists_directory():
     
     async function loadProjects() {{
         try {{
-            const response = await fetch('/api/projects/?approval_status=approved');
+            const response = await fetch('/api/layers/?approval_status=approved');
             const data = await response.json();
-            allProjects = data.projects;
+            allProjects = data.layers;
             
             const select = document.getElementById('project-filter');
             allProjects.forEach(project => {{
@@ -16321,13 +19372,13 @@ def waitlists_directory():
             
             if (projectFilter) {{
                 // Load waitlists for specific project
-                const response = await fetch(`/api/projects/${{projectFilter}}/waitlists/`);
+                const response = await fetch(`/api/layers/${{projectFilter}}/waitlists/`);
                 const data = await response.json();
                 allWaitlists = data.waitlists || [];
             }} else {{
                 // Load waitlists from all projects
                 for (const project of allProjects) {{
-                    const response = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+                    const response = await fetch(`/api/layers/${{project.id}}/waitlists/`);
                     const data = await response.json();
                     if (data.waitlists) {{
                         allWaitlists = allWaitlists.concat(data.waitlists);
@@ -16380,7 +19431,7 @@ def waitlists_directory():
         
         let html = '';
         waitlists.forEach(wl => {{
-            const project = allProjects.find(p => p.id === wl.project_id);
+            const project = allProjects.find(p => p.id === wl.layer_id);
             const now = new Date();
             const startDate = new Date(wl.start_date);
             const closingDate = wl.closing_date ? new Date(wl.closing_date) : null;
@@ -16417,7 +19468,7 @@ def waitlists_directory():
                         ${{imgHtml}}
                         <div class="card-body">
                             <h5 class="card-title">
-                                <a href="/projects/${{project ? project.slug : wl.project_id}}/waitlist/${{wl.id}}/">${{wl.name}}</a>
+                                <a href="/waitlists/${{wl.id}}/">${{wl.name}}</a>
                             </h5>
                             <div class="mb-2">
                                 ${{statusBadge}}
@@ -16426,7 +19477,7 @@ def waitlists_directory():
                             </div>
                             <p class="card-text text-muted small mb-2">
                                 <i class="fas fa-project-diagram me-1"></i>
-                                <a href="/projects/${{project ? project.slug : wl.project_id}}/">${{project ? project.name : 'Unknown Layer'}}</a>
+                                <a href="/layers/${{project ? project.slug : wl.layer_id}}/">${{project ? project.name : 'Unknown Layer'}}</a>
                             </p>
                             <p class="card-text">${{wl.description || 'No description'}}</p>
                             <div class="mt-3">
@@ -16450,6 +19501,677 @@ def waitlists_directory():
     """
     
     return render_page("Waitlists Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+@app.route('/waitlists/<int:waitlist_id>/')
+def waitlist_detail(waitlist_id):
+    """Standalone waitlist detail page"""
+    from flask import abort
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+
+    waitlist = Waitlist.query.get_or_404(waitlist_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    is_admin = bool(current_user and is_layer_admin(project, current_user))
+
+    if not waitlist.active and not is_admin:
+        abort(404)
+
+    is_admin_json = 'true' if is_admin else 'false'
+    is_auth_json = 'true' if current_user else 'false'
+    waitlist_id_js = waitlist_id
+    project_slug_js = project.slug
+
+    # Pre-compute conditional HTML blocks (can't use triple-quoted strings inside f-string expressions)
+    edit_btn_html = '<button class="btn btn-outline-primary btn-sm" onclick="openEditModal()"><i class="fas fa-edit me-1"></i>Edit Waitlist</button>' if is_admin else ''
+    add_ms_btn_html = '<button class="btn btn-primary btn-sm" onclick="openAddMilestoneModal()"><i class="fas fa-plus me-1"></i>Add Milestone</button>' if is_admin else ''
+    entries_card_html = '<div class="card mb-4" id="entries-card"><div class="card-header"><i class="fas fa-users me-2"></i>Members</div><div class="card-body p-0" id="entries-body"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div></div></div>' if is_admin else ''
+
+    edit_modal_html = ''
+    if is_admin:
+        edit_modal_html = '''
+    <div class="modal fade" id="editWaitlistModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fas fa-edit me-2"></i>Edit Waitlist</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div id="edit-alert"></div>
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label fw-semibold">Name *</label>
+                <input type="text" id="edit-name" class="form-control">
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold">Description</label>
+                <textarea id="edit-description" class="form-control" rows="3"></textarea>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Max Spots</label>
+                <input type="number" id="edit-max-number" class="form-control" min="0" placeholder="Unlimited">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Start Date</label>
+                <input type="datetime-local" id="edit-start-date" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Closing Date</label>
+                <input type="datetime-local" id="edit-closing-date" class="form-control">
+              </div>
+              <div class="col-12">
+                <div class="d-flex flex-wrap gap-4 mt-1">
+                  <div class="form-check"><input class="form-check-input" type="checkbox" id="edit-active"><label class="form-check-label" for="edit-active">Active</label></div>
+                  <div class="form-check"><input class="form-check-input" type="checkbox" id="edit-public"><label class="form-check-label" for="edit-public">Public</label></div>
+                  <div class="form-check"><input class="form-check-input" type="checkbox" id="edit-archived"><label class="form-check-label" for="edit-archived">Archived</label></div>
+                  <div class="form-check"><input class="form-check-input" type="checkbox" id="edit-referrals"><label class="form-check-label" for="edit-referrals">Enable Referrals</label></div>
+                  <div class="form-check"><input class="form-check-input" type="checkbox" id="edit-milestones"><label class="form-check-label" for="edit-milestones">Enable Milestones</label></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary" onclick="saveWaitlistEdit()"><i class="fas fa-save me-1"></i>Save</button>
+          </div>
+        </div>
+      </div>
+    </div>'''
+
+    add_ms_modal_html = ''
+    if is_admin:
+        add_ms_modal_html = '''
+    <div class="modal fade" id="addMilestoneModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fas fa-flag me-2"></i>Add Milestone</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div id="ms-alert"></div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Threshold (# of members)</label>
+              <input type="number" id="ms-threshold" class="form-control" min="1" placeholder="e.g. 100">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Title *</label>
+              <input type="text" id="ms-title" class="form-control" placeholder="Milestone title">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Description</label>
+              <textarea id="ms-description" class="form-control" rows="2" placeholder="Optional description"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary" onclick="saveMilestone()"><i class="fas fa-plus me-1"></i>Add</button>
+          </div>
+        </div>
+      </div>
+    </div>'''
+
+    admin_js = ''
+    if is_admin:
+        admin_js = '''
+    /* ---- Admin: Edit Waitlist ---- */
+    function openEditModal() {
+        if (!wlData) return;
+        const w = wlData;
+        document.getElementById('edit-name').value = w.name || '';
+        document.getElementById('edit-description').value = w.description || '';
+        document.getElementById('edit-max-number').value = w.max_number || '';
+        document.getElementById('edit-start-date').value = toLocalInput(w.start_date);
+        document.getElementById('edit-closing-date').value = toLocalInput(w.closing_date);
+        document.getElementById('edit-active').checked = !!w.active;
+        document.getElementById('edit-public').checked = !!w.public;
+        document.getElementById('edit-archived').checked = !!w.archived;
+        document.getElementById('edit-referrals').checked = !!w.referrals;
+        document.getElementById('edit-milestones').checked = !!w.milestones;
+        document.getElementById('edit-alert').innerHTML = '';
+        new bootstrap.Modal(document.getElementById('editWaitlistModal')).show();
+    }
+
+    async function saveWaitlistEdit() {
+        const name = document.getElementById('edit-name').value.trim();
+        if (!name) { document.getElementById('edit-alert').innerHTML = '<div class="alert alert-danger">Name is required.</div>'; return; }
+        const maxNum = document.getElementById('edit-max-number').value;
+        const startVal = document.getElementById('edit-start-date').value;
+        const closingVal = document.getElementById('edit-closing-date').value;
+        const payload = {
+            name,
+            description: document.getElementById('edit-description').value,
+            max_number: maxNum ? parseInt(maxNum) : null,
+            start_date: startVal || null,
+            closing_date: closingVal || null,
+            active: document.getElementById('edit-active').checked,
+            public: document.getElementById('edit-public').checked,
+            archived: document.getElementById('edit-archived').checked,
+            referrals: document.getElementById('edit-referrals').checked,
+            milestones: document.getElementById('edit-milestones').checked,
+        };
+        try {
+            const res = await fetch(`/api/waitlists/${WAITLIST_ID}/`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (res.ok) {
+                bootstrap.Modal.getInstance(document.getElementById('editWaitlistModal')).hide();
+                loadWaitlist();
+            } else {
+                document.getElementById('edit-alert').innerHTML = '<div class="alert alert-danger">' + esc(data.error || 'Save failed') + '</div>';
+            }
+        } catch(e) {
+            document.getElementById('edit-alert').innerHTML = '<div class="alert alert-danger">Network error</div>';
+        }
+    }
+
+    /* ---- Admin: Milestones ---- */
+    function openAddMilestoneModal() {
+        document.getElementById('ms-threshold').value = '';
+        document.getElementById('ms-title').value = '';
+        document.getElementById('ms-description').value = '';
+        document.getElementById('ms-alert').innerHTML = '';
+        new bootstrap.Modal(document.getElementById('addMilestoneModal')).show();
+    }
+
+    async function saveMilestone() {
+        const title = document.getElementById('ms-title').value.trim();
+        if (!title) { document.getElementById('ms-alert').innerHTML = '<div class="alert alert-danger">Title is required.</div>'; return; }
+        const threshold = parseInt(document.getElementById('ms-threshold').value) || 0;
+        const description = document.getElementById('ms-description').value.trim();
+        try {
+            const res = await fetch(`/api/waitlists/${WAITLIST_ID}/milestones/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title, threshold, description})
+            });
+            const data = await res.json();
+            if (res.ok) {
+                bootstrap.Modal.getInstance(document.getElementById('addMilestoneModal')).hide();
+                loadWaitlist();
+            } else {
+                document.getElementById('ms-alert').innerHTML = '<div class="alert alert-danger">' + esc(data.error || 'Failed to add') + '</div>';
+            }
+        } catch(e) {
+            document.getElementById('ms-alert').innerHTML = '<div class="alert alert-danger">Network error</div>';
+        }
+    }
+
+    async function deleteMilestone(milestoneId) {
+        if (!confirm('Delete this milestone?')) return;
+        try {
+            const res = await fetch(`/api/waitlists/${WAITLIST_ID}/milestones/${milestoneId}/`, {method: 'DELETE'});
+            if (res.ok) loadWaitlist();
+            else { const d = await res.json(); alert(d.error || 'Failed to delete'); }
+        } catch(e) { alert('Failed to delete'); }
+    }
+
+    async function loadEntries(page) {
+        page = page || 1;
+        const el = document.getElementById('entries-body');
+        if (!el) return;
+        el.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+        try {
+            const res = await fetch(`/api/waitlists/${WAITLIST_ID}/entries/`);
+            const data = await res.json();
+            const entries = data.entries || [];
+            if (entries.length === 0) {
+                el.innerHTML = '<p class="text-muted p-3 mb-0">No members yet.</p>';
+                return;
+            }
+            const pageSize = 25;
+            const totalPages = Math.ceil(entries.length / pageSize);
+            const start = (page - 1) * pageSize;
+            const pageEntries = entries.slice(start, start + pageSize);
+
+            let html = '<div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Member</th><th>Referred By</th><th>Joined</th></tr></thead><tbody>';
+            pageEntries.forEach(e => {
+                html += '<tr><td>' + e.position + '</td>';
+                if (e.type === 'email') {
+                    html += '<td><span class="text-muted">' + esc(e.email) + '</span>' + (e.message ? ' <small class="text-muted">' + esc(e.message) + '</small>' : '') + '</td>';
+                } else {
+                    html += '<td><a href="/profile/' + esc(e.username) + '/">' + esc(e.display_name || e.username) + '</a></td>';
+                }
+                html += '<td>' + (e.referred_by ? esc(e.referred_by) : '—') + '</td>';
+                html += '<td>' + (e.joined_at ? new Date(e.joined_at).toLocaleDateString() : '—') + '</td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+            if (totalPages > 1) {
+                html += '<div class="d-flex justify-content-between align-items-center p-2">';
+                html += '<small class="text-muted">Showing ' + (start+1) + '–' + Math.min(start+pageSize, entries.length) + ' of ' + entries.length + '</small>';
+                html += '<div class="btn-group btn-group-sm">';
+                if (page > 1) html += '<button class="btn btn-outline-secondary" onclick="loadEntries(' + (page-1) + ')">Prev</button>';
+                if (page < totalPages) html += '<button class="btn btn-outline-secondary" onclick="loadEntries(' + (page+1) + ')">Next</button>';
+                html += '</div></div>';
+            }
+            el.innerHTML = html;
+        } catch(e) {
+            el.innerHTML = '<div class="alert alert-danger m-2">Error loading entries</div>';
+        }
+    }'''
+
+    content = f"""
+    <div class="container mt-4">
+
+      <!-- Breadcrumb -->
+      <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+          <li class="breadcrumb-item"><a href="/waitlists/">Waitlists</a></li>
+          <li class="breadcrumb-item"><a href="/layers/{project.slug}/">{project.name}</a></li>
+          <li class="breadcrumb-item active" id="breadcrumb-name">{waitlist.name}</li>
+        </ol>
+      </nav>
+
+      <!-- Header card -->
+      <div class="card mb-4" id="waitlist-header-card">
+        <div class="card-body">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+              <h1 class="h3 mb-1" id="wl-name">{waitlist.name}</h1>
+              <p class="text-muted mb-2">
+                <i class="fas fa-layer-group me-1"></i>
+                <a href="/layers/{project.slug}/">{project.name}</a>
+              </p>
+              <div id="wl-badges" class="mb-2"></div>
+            </div>
+            <div class="text-end">
+              <div id="wl-counts" class="mb-2"></div>
+              {'<button class="btn btn-outline-primary btn-sm" onclick="openEditModal()"><i class="fas fa-edit me-1"></i>Edit Waitlist</button>' if is_admin else ''}
+            </div>
+          </div>
+          <p id="wl-description" class="mt-2 mb-0"></p>
+        </div>
+      </div>
+
+      <div class="row">
+        <!-- Left column: embed widget + milestones -->
+        <div class="col-lg-7">
+
+          <!-- Embed preview -->
+          <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span><i class="fas fa-window-maximize me-2"></i>Live Widget Preview</span>
+              <a href="/embed/waitlist/{waitlist_id}/build/" class="btn btn-outline-secondary btn-sm" target="_blank">
+                <i class="fas fa-sliders-h me-1"></i>Customize Embed
+              </a>
+            </div>
+            <div class="card-body p-3">
+              <iframe src="/embed/waitlist/{waitlist_id}/" style="width:100%;height:280px;border:none;border-radius:8px;" loading="lazy"></iframe>
+            </div>
+          </div>
+
+          <!-- Milestones -->
+          <div class="card mb-4" id="milestones-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span><i class="fas fa-flag me-2"></i>Milestones</span>
+              {'<button class="btn btn-primary btn-sm" onclick="openAddMilestoneModal()"><i class="fas fa-plus me-1"></i>Add Milestone</button>' if is_admin else ''}
+            </div>
+            <div class="card-body" id="milestones-body">
+              <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right column: join action + entries -->
+        <div class="col-lg-5">
+
+          <!-- Join / status action card -->
+          <div class="card mb-4">
+            <div class="card-body" id="action-body">
+              <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+            </div>
+          </div>
+
+          <!-- Entries (admin only) -->
+          {entries_card_html}
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Waitlist Modal (admin only) -->
+    {edit_modal_html}
+
+    <!-- Add Milestone Modal (admin only) -->
+    {add_ms_modal_html}
+
+    <!-- Join Waitlist Modal -->
+    <div class="modal fade" id="joinWaitlistModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fas fa-list-alt me-2"></i>Join Waitlist</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p>You're joining <strong id="join-wl-name"></strong>.</p>
+            <div class="mb-3">
+              <label class="form-label">Message (optional)</label>
+              <textarea id="join-message" class="form-control" rows="2" placeholder="Add a note..."></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary" onclick="submitJoin()">Join</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    const WAITLIST_ID = {waitlist_id_js};
+    const PROJECT_SLUG = '{project_slug_js}';
+    const IS_ADMIN = {is_admin_json};
+    const IS_AUTH = {is_auth_json};
+    let wlData = null;
+
+    function esc(s) {{
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(new RegExp('<','g'),'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }}
+
+    function toLocalInput(isoStr) {{
+        if (!isoStr) return '';
+        const d = new Date(isoStr);
+        const pad = n => String(n).padStart(2,'0');
+        return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }}
+
+    async function loadWaitlist() {{
+        try {{
+            const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/`);
+            if (!res.ok) {{ document.getElementById('waitlist-header-card').innerHTML = '<div class="card-body"><div class="alert alert-danger">Waitlist not found.</div></div>'; return; }}
+            wlData = await res.json();
+            renderHeader();
+            renderAction();
+            renderMilestones(wlData.milestones || []);
+            if (IS_ADMIN) loadEntries();
+        }} catch(e) {{
+            console.error(e);
+        }}
+    }}
+
+    function renderHeader() {{
+        const w = wlData;
+        document.getElementById('wl-name').textContent = w.name || '';
+        document.getElementById('breadcrumb-name').textContent = w.name || '';
+        document.getElementById('wl-description').textContent = w.description || '';
+
+        const now = new Date();
+        const startDate = w.start_date ? new Date(w.start_date) : null;
+        const closingDate = w.closing_date ? new Date(w.closing_date) : null;
+        const isFull = w.max_number && w.count >= w.max_number;
+        let statusHtml = '';
+        if (!w.active || w.archived) {{
+            statusHtml = '<span class="badge bg-secondary">Closed</span>';
+        }} else if (startDate && now < startDate) {{
+            statusHtml = '<span class="badge bg-info">Upcoming</span>';
+        }} else if (isFull) {{
+            statusHtml = '<span class="badge bg-warning text-dark">Full</span>';
+        }} else if (closingDate && now > closingDate) {{
+            statusHtml = '<span class="badge bg-secondary">Closed</span>';
+        }} else {{
+            statusHtml = '<span class="badge bg-success">Active</span>';
+        }}
+        if (w.referrals) statusHtml += ' <span class="badge bg-primary"><i class="fas fa-users"></i> Referrals</span>';
+        if (w.milestones) statusHtml += ' <span class="badge bg-info"><i class="fas fa-flag"></i> Milestones</span>';
+        document.getElementById('wl-badges').innerHTML = statusHtml;
+
+        let countHtml = '<span class="fw-bold fs-5">' + (w.count || 0) + '</span> <span class="text-muted">member' + ((w.count||0)!==1?'s':'') + '</span>';
+        if (w.max_number) {{
+            const remaining = w.max_number - (w.count || 0);
+            countHtml += '<br><small class="text-muted">' + remaining + ' spot' + (remaining!==1?'s':'') + ' remaining</small>';
+        }}
+        document.getElementById('wl-counts').innerHTML = countHtml;
+    }}
+
+    function renderAction() {{
+        const w = wlData;
+        const el = document.getElementById('action-body');
+        const now = new Date();
+        const startDate = w.start_date ? new Date(w.start_date) : null;
+        const closingDate = w.closing_date ? new Date(w.closing_date) : null;
+        const isFull = w.max_number && w.count >= w.max_number;
+        const started = !startDate || now >= startDate;
+        const closed = (!w.active || w.archived) || (closingDate && now > closingDate) || isFull;
+
+        let html = '';
+        if (w.my_entry) {{
+            html += '<div class="text-center py-3">';
+            html += '<span class="badge bg-success fs-6 mb-2"><i class="fas fa-check-circle me-1"></i>You&#39;re on this waitlist</span><br>';
+            html += '<span class="text-muted">Position #' + w.my_entry.position + '</span><br>';
+            if (w.referral_url) {{
+                html += '<div class="mt-3"><p class="small text-muted mb-1">Your referral link:</p><div class="input-group input-group-sm"><input type="text" class="form-control" value="' + esc(w.referral_url) + '" id="ref-link-input" readonly><button class="btn btn-outline-secondary" onclick="copyRefLink()"><i class="fas fa-copy"></i></button></div></div>';
+            }}
+            html += '<button class="btn btn-outline-danger btn-sm mt-3" onclick="leaveWaitlist()"><i class="fas fa-sign-out-alt me-1"></i>Leave Waitlist</button>';
+            html += '</div>';
+        }} else if (!IS_AUTH) {{
+            html = '<div class="text-center py-3"><p class="mb-3">Sign in to join this waitlist.</p><a href="/login/" class="btn btn-primary">Sign In</a></div>';
+        }} else if (!started) {{
+            html = '<div class="text-center py-3"><span class="badge bg-info fs-6">Opens ' + (startDate ? startDate.toLocaleDateString() : '') + '</span></div>';
+        }} else if (isFull) {{
+            html = '<div class="text-center py-3"><span class="badge bg-warning text-dark fs-6">Waitlist Full</span></div>';
+        }} else if (closed) {{
+            html = '<div class="text-center py-3"><span class="badge bg-secondary fs-6">Waitlist Closed</span></div>';
+        }} else {{
+            html = '<div class="text-center py-3"><button class="btn btn-primary btn-lg" onclick="showJoinModal()"><i class="fas fa-list-alt me-2"></i>Join Waitlist</button></div>';
+        }}
+        el.innerHTML = html;
+    }}
+
+    function renderMilestones(milestones) {{
+        const el = document.getElementById('milestones-body');
+        if (!milestones || milestones.length === 0) {{
+            el.innerHTML = '<p class="text-muted p-3 mb-0">No milestones yet.</p>';
+            return;
+        }}
+        let html = '<ul class="list-group list-group-flush">';
+        milestones.forEach(m => {{
+            html += '<li class="list-group-item d-flex justify-content-between align-items-start">';
+            html += '<div><span class="badge bg-secondary me-2">' + m.threshold + '</span>';
+            html += '<strong>' + esc(m.title) + '</strong>';
+            if (m.description) html += '<br><small class="text-muted">' + esc(m.description) + '</small>';
+            html += '</div>';
+            if (IS_ADMIN) {{
+                html += '<button class="btn btn-outline-danger btn-sm" onclick="deleteMilestone(' + m.id + ')"><i class="fas fa-trash"></i></button>';
+            }}
+            html += '</li>';
+        }});
+        html += '</ul>';
+        el.innerHTML = html;
+    }}
+
+    async function loadEntries(page) {{
+        page = page || 1;
+        const el = document.getElementById('entries-body');
+        if (!el) return;
+        el.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+        try {{
+            const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/entries/`);
+            const data = await res.json();
+            const entries = data.entries || [];
+            if (entries.length === 0) {{
+                el.innerHTML = '<p class="text-muted p-3 mb-0">No members yet.</p>';
+                return;
+            }}
+            const pageSize = 25;
+            const totalPages = Math.ceil(entries.length / pageSize);
+            const start = (page - 1) * pageSize;
+            const pageEntries = entries.slice(start, start + pageSize);
+
+            let html = '<div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>#</th><th>Member</th><th>Referred By</th><th>Joined</th></tr></thead><tbody>';
+            pageEntries.forEach(e => {{
+                html += '<tr><td>' + e.position + '</td>';
+                if (e.type === 'email') {{
+                    html += '<td><span class="text-muted">' + esc(e.email) + '</span>' + (e.message ? ' <small class="text-muted">' + esc(e.message) + '</small>' : '') + '</td>';
+                }} else {{
+                    html += '<td><a href="/profile/' + esc(e.username) + '/">' + esc(e.display_name || e.username) + '</a></td>';
+                }}
+                html += '<td>' + (e.referred_by ? esc(e.referred_by) : '—') + '</td>';
+                html += '<td>' + (e.joined_at ? new Date(e.joined_at).toLocaleDateString() : '—') + '</td>';
+                html += '</tr>';
+            }});
+            html += '</tbody></table></div>';
+            if (totalPages > 1) {{
+                html += '<div class="d-flex justify-content-between align-items-center p-2">';
+                html += '<small class="text-muted">Showing ' + (start+1) + '–' + Math.min(start+pageSize, entries.length) + ' of ' + entries.length + '</small>';
+                html += '<div class="btn-group btn-group-sm">';
+                if (page > 1) html += '<button class="btn btn-outline-secondary" onclick="loadEntries(' + (page-1) + ')">Prev</button>';
+                if (page < totalPages) html += '<button class="btn btn-outline-secondary" onclick="loadEntries(' + (page+1) + ')">Next</button>';
+                html += '</div></div>';
+            }}
+            el.innerHTML = html;
+        }} catch(e) {{
+            el.innerHTML = '<div class="alert alert-danger m-2">Error loading entries</div>';
+        }}
+    }}
+
+    /* ---- Join / Leave ---- */
+    function showJoinModal() {{
+        document.getElementById('join-wl-name').textContent = wlData ? wlData.name : '';
+        document.getElementById('join-message').value = '';
+        new bootstrap.Modal(document.getElementById('joinWaitlistModal')).show();
+    }}
+
+    async function submitJoin() {{
+        const msg = document.getElementById('join-message').value;
+        try {{
+            const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/join/`, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{message: msg}})
+            }});
+            const data = await res.json();
+            if (res.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('joinWaitlistModal')).hide();
+                loadWaitlist();
+            }} else {{
+                alert(data.error || 'Failed to join');
+            }}
+        }} catch(e) {{ alert('Failed to join'); }}
+    }}
+
+    async function leaveWaitlist() {{
+        if (!confirm('Leave this waitlist?')) return;
+        try {{
+            const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/leave/`, {{method: 'POST'}});
+            if (res.ok) loadWaitlist();
+            else {{ const d = await res.json(); alert(d.error || 'Failed to leave'); }}
+        }} catch(e) {{ alert('Failed to leave'); }}
+    }}
+
+    function copyRefLink() {{
+        const el = document.getElementById('ref-link-input');
+        if (el) {{ el.select(); document.execCommand('copy'); }}
+    }}
+
+    /* ---- Admin: Edit Waitlist ---- */
+    function openEditModal() {{
+        if (!wlData) return;
+        const w = wlData;
+        document.getElementById('edit-name').value = w.name || '';
+        document.getElementById('edit-description').value = w.description || '';
+        document.getElementById('edit-max-number').value = w.max_number || '';
+        document.getElementById('edit-start-date').value = toLocalInput(w.start_date);
+        document.getElementById('edit-closing-date').value = toLocalInput(w.closing_date);
+        document.getElementById('edit-active').checked = !!w.active;
+        document.getElementById('edit-public').checked = !!w.public;
+        document.getElementById('edit-archived').checked = !!w.archived;
+        document.getElementById('edit-referrals').checked = !!w.referrals;
+        document.getElementById('edit-milestones').checked = !!w.milestones;
+        document.getElementById('edit-alert').innerHTML = '';
+        new bootstrap.Modal(document.getElementById('editWaitlistModal')).show();
+    }}
+
+    async function saveWaitlistEdit() {{
+        const name = document.getElementById('edit-name').value.trim();
+        if (!name) {{ document.getElementById('edit-alert').innerHTML = '<div class="alert alert-danger">Name is required.</div>'; return; }}
+        const maxNum = document.getElementById('edit-max-number').value;
+        const startVal = document.getElementById('edit-start-date').value;
+        const closingVal = document.getElementById('edit-closing-date').value;
+        const payload = {{
+            name,
+            description: document.getElementById('edit-description').value,
+            max_number: maxNum ? parseInt(maxNum) : null,
+            start_date: startVal || null,
+            closing_date: closingVal || null,
+            active: document.getElementById('edit-active').checked,
+            public: document.getElementById('edit-public').checked,
+            archived: document.getElementById('edit-archived').checked,
+            referrals: document.getElementById('edit-referrals').checked,
+            milestones: document.getElementById('edit-milestones').checked,
+        }};
+        try {{
+            const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/`, {{
+                method: 'PATCH',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify(payload)
+            }});
+            const data = await res.json();
+            if (res.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('editWaitlistModal')).hide();
+                loadWaitlist();
+            }} else {{
+                document.getElementById('edit-alert').innerHTML = '<div class="alert alert-danger">' + esc(data.error || 'Save failed') + '</div>';
+            }}
+        }} catch(e) {{
+            document.getElementById('edit-alert').innerHTML = '<div class="alert alert-danger">Network error</div>';
+        }}
+    }}
+
+    /* ---- Admin: Milestones ---- */
+    function openAddMilestoneModal() {{
+        document.getElementById('ms-threshold').value = '';
+        document.getElementById('ms-title').value = '';
+        document.getElementById('ms-description').value = '';
+        document.getElementById('ms-alert').innerHTML = '';
+        new bootstrap.Modal(document.getElementById('addMilestoneModal')).show();
+    }}
+
+    async function saveMilestone() {{
+        const title = document.getElementById('ms-title').value.trim();
+        if (!title) {{ document.getElementById('ms-alert').innerHTML = '<div class="alert alert-danger">Title is required.</div>'; return; }}
+        const threshold = parseInt(document.getElementById('ms-threshold').value) || 0;
+        const description = document.getElementById('ms-description').value.trim();
+        try {{
+            const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/milestones/`, {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{title, threshold, description}})
+            }});
+            const data = await res.json();
+            if (res.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('addMilestoneModal')).hide();
+                loadWaitlist();
+            }} else {{
+                document.getElementById('ms-alert').innerHTML = '<div class="alert alert-danger">' + esc(data.error || 'Failed to add') + '</div>';
+            }}
+        }} catch(e) {{
+            document.getElementById('ms-alert').innerHTML = '<div class="alert alert-danger">Network error</div>';
+        }}
+    }}
+
+    async function deleteMilestone(milestoneId) {{
+        if (!confirm('Delete this milestone?')) return;
+        try {{
+            const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/milestones/${{milestoneId}}/`, {{method: 'DELETE'}});
+            if (res.ok) loadWaitlist();
+            else {{ const d = await res.json(); alert(d.error || 'Failed to delete'); }}
+        }} catch(e) {{ alert('Failed to delete'); }}
+    }}
+
+    // Init
+    loadWaitlist();
+    </script>
+    """
+
+    return render_page(f"{waitlist.name} - Waitlist", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/guilds/')
 def guilds_directory():
@@ -16537,11 +20259,11 @@ def guilds_directory():
                 ? '<span class="badge bg-success">Active</span>' 
                 : '<span class="badge bg-secondary">Archived</span>';
             
-            const guildImgHtml = guild.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{"guild.image_url"}}" alt="${{"guild.name"}}" class="w-100 h-100 object-fit-cover"></div>` : '';
+            const guildImgHtml = guild.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{guild.image_url}}" alt="${{guild.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
             html += `
                 <div class="col-md-6 col-lg-4 mb-4">
                     <div class="card h-100">
-                        ${{"guildImgHtml"}}
+                        ${{guildImgHtml}}
                         <div class="card-body">
                             <h5 class="card-title">
                                 <a href="/guilds/${{guild.slug}}/">${{guild.name}}</a>
@@ -16575,13 +20297,14 @@ def guilds_directory():
     return render_page("Guilds Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 def _render_project_detail(project_slug, waitlist_id=None):
-    """Shared logic for project detail page. waitlist_id when from /projects/<slug>/waitlist/<id>/"""
+    """Shared logic for project detail page. waitlist_id when from /layers/<slug>/waitlist/<id>/"""
+    app.logger.info(f"[LAYER] _render_project_detail: project_slug={project_slug!r} waitlist_id={waitlist_id}")
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
     
-    project_obj = Project.query.filter_by(slug=project_slug).first()
-    show_admin_tab = bool(project_obj and current_user and is_project_admin(project_obj, current_user))
+    project_obj = Layer.query.filter_by(slug=project_slug).first()
+    show_admin_tab = bool(project_obj and current_user and is_layer_admin(project_obj, current_user))
     initial_waitlist_id = int(waitlist_id) if waitlist_id else None
     
     admin_tab_html = ''
@@ -16601,9 +20324,12 @@ def _render_project_detail(project_slug, waitlist_id=None):
         admin_tab_listener = "document.getElementById('admin-tab').addEventListener('shown.bs.tab', loadAdmins);"
     
     content = f"""
+    <style>
+    #projectTabs .nav-link {{ padding-top: 0.3rem; padding-bottom: 0.3rem; font-size: 0.875rem; line-height: 1.2; }}
+    </style>
     <div class="container mt-4">
-        <div id="project-header" class="mb-4">
-            <div class="d-flex justify-content-center py-5">
+        <div id="project-title" class="mb-3">
+            <div class="d-flex justify-content-center py-3">
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
@@ -16635,6 +20361,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         
         <div class="tab-content" id="projectTabContent">
             <div class="tab-pane fade show active" id="overview">
+                <div id="project-header" class="mb-4"></div>
                 <div id="overview-content"></div>
             </div>
             <div class="tab-pane fade" id="workgroups">
@@ -16726,7 +20453,8 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 </div>
                 <div class="modal-body">
                     <p class="lead" id="embed-waitlist-name"></p>
-                    <p class="text-muted">Copy and paste this code into your website to embed the waitlist widget. Signups will be tracked with the source URL.</p>
+                    <a id="embed-builder-link" href="#" class="btn btn-primary mb-3"><i class="fas fa-sliders-h me-1"></i>Customize Embed (colors, options, preview)</a>
+                    <p class="text-muted small">Copy and paste this code into your website. Signups are tracked with the source URL.</p>
                     
                     <div class="mb-4">
                         <label class="form-label"><strong>Embed Code (iframe)</strong></label>
@@ -16805,6 +20533,44 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" id="create-vote-submit-btn" onclick="submitCreateVote()"><i class="fas fa-check me-2"></i>Create Vote</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="emailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-envelope me-2"></i>Email Recipients</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="email-modal-alert" class="alert d-none" role="alert"></div>
+                    <form id="emailForm">
+                        <div class="mb-3">
+                            <label class="form-label">Recipients (max 100)</label>
+                            <div id="email-recipient-groups" class="border rounded p-3 bg-light"></div>
+                            <div class="form-text">Select one or more groups. Unsubscribed users are excluded.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="email-from" class="form-label">From</label>
+                            <select class="form-select" id="email-from"></select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="email-subject" class="form-label">Subject *</label>
+                            <input type="text" class="form-control" id="email-subject" required placeholder="e.g. Layer update">
+                        </div>
+                        <div class="mb-3">
+                            <label for="email-body" class="form-label">Message *</label>
+                            <textarea class="form-control" id="email-body" rows="6" required placeholder="Your message..."></textarea>
+                            <div class="form-text">An unsubscribe link is added automatically to every email.</div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="email-submit-btn" onclick="submitEmail()"><i class="fas fa-paper-plane me-2"></i>Send</button>
                 </div>
             </div>
         </div>
@@ -16890,13 +20656,68 @@ def _render_project_detail(project_slug, waitlist_id=None):
     
     <script>
     let project = null;
-    const projectSlug = '{project_slug}';
+    const projectSlug = {json.dumps(project_slug)};
     const initialWaitlistId = {json.dumps(initial_waitlist_id)};
     const isAuthenticated = {'true' if current_user else 'false'};
     const isAdmin = {('true' if current_user and current_user.get('is_admin') else 'false')};
     const isProjectAdmin = {'true' if show_admin_tab else 'false'};
     
     const referralRef = {json.dumps(request.args.get('ref') or '')};
+    
+    function getProjectTabKey(buttonId) {{
+        if (!buttonId) return null;
+        if (buttonId === 'overview-tab') return 'overview';
+        if (buttonId === 'workgroups-tab') return 'workgroups';
+        if (buttonId === 'clusters-tab') return 'clusters';
+        if (buttonId === 'roles-tab') return 'roles';
+        if (buttonId === 'claims-tab') return 'claims';
+        if (buttonId === 'votes-tab') return 'votes';
+        if (buttonId === 'admin-tab') return 'admin';
+        const m = buttonId.match(/^waitlist-tab-(\\d+)$/);
+        return m ? 'waitlist-' + m[1] : null;
+    }}
+    
+    function saveTabState(current, previous) {{
+        try {{
+            const key = 'projectDetailTab_' + projectSlug;
+            localStorage.setItem(key + '_current', current);
+            if (previous) localStorage.setItem(key + '_previous', previous);
+        }} catch (e) {{ console.warn('saveTabState:', e); }}
+    }}
+    
+    function switchToTab(tabId) {{
+        const map = {{ workgroups: 'workgroups-tab', clusters: 'clusters-tab', roles: 'roles-tab', claims: 'claims-tab', votes: 'votes-tab', admin: 'admin-tab' }};
+        const btnId = map[tabId];
+        const tabEl = btnId ? document.getElementById(btnId) : null;
+        if (tabEl) tabEl.click();
+    }}
+    
+    function switchToTabFromHash() {{
+        const hash = (window.location.hash || '').replace(/^#/, '');
+        if (hash === 'claims' || hash === 'votes') switchToTab(hash);
+    }}
+    
+    function restoreTabState() {{
+        try {{
+            if (window.location.hash && ['claims', 'votes'].includes(window.location.hash.replace('#', ''))) {{
+                switchToTabFromHash();
+                return;
+            }}
+            const key = 'projectDetailTab_' + projectSlug;
+            const stored = localStorage.getItem(key + '_current');
+            if (!stored || stored === 'overview') return;
+            let tabEl = null;
+            if (stored.startsWith('waitlist-')) {{
+                const id = stored.replace('waitlist-', '');
+                tabEl = document.getElementById('waitlist-tab-' + id);
+            }} else {{
+                const map = {{ workgroups: 'workgroups-tab', clusters: 'clusters-tab', roles: 'roles-tab', claims: 'claims-tab', votes: 'votes-tab', admin: 'admin-tab' }};
+                const btnId = map[stored];
+                tabEl = btnId ? document.getElementById(btnId) : null;
+            }}
+            if (tabEl) tabEl.click();
+        }} catch (e) {{ console.warn('restoreTabState:', e); }}
+    }}
     
     function escapeHtml(text) {{
         if (!text) return '';
@@ -16910,22 +20731,32 @@ def _render_project_detail(project_slug, waitlist_id=None):
     
     async function loadProject() {{
         try {{
-            const response = await fetch('/api/projects/');
-            const data = await response.json();
-            project = data.projects.find(p => p.slug === projectSlug);
-            
-            if (!project) {{
-                document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Layer not found</div>';
+            console.log('[LAYER] loadProject called, projectSlug=', projectSlug, 'type=', typeof projectSlug);
+            if (!projectSlug || typeof projectSlug !== 'string') {{
+                console.error('[LAYER] loadProject: invalid projectSlug');
+                document.getElementById('project-title').innerHTML = '<div class="alert alert-danger">Invalid layer URL. <a href="/layers/">Back to Layers</a></div>';
                 return;
             }}
-            const detailResp = await fetch('/api/projects/' + project.id + '/');
-            const detail = await detailResp.json();
+            const slug = String(projectSlug).trim();
+            const url = '/api/layers/by-slug/' + encodeURIComponent(slug) + '/';
+            console.log('[LAYER] loadProject fetching:', url);
+            const resp = await fetch(url, {{ credentials: 'include' }});
+            console.log('[LAYER] loadProject response:', resp.status, resp.statusText, 'url=', resp.url);
+            if (!resp.ok) {{
+                const text = await resp.text();
+                console.error('[LAYER] loadProject fetch failed:', resp.status, text.substring(0, 200));
+                document.getElementById('project-title').innerHTML = '<div class="alert alert-danger">Layer not found. <a href="/layers/">Back to Layers</a></div>';
+                return;
+            }}
+            const detail = await resp.json();
+            console.log('[LAYER] loadProject got project:', detail?.name, 'id=', detail?.id);
+            project = detail;
             project.is_member = detail.is_member === true;
             project.member_role = detail.member_role || null;
             
             displayProjectHeader();
             loadOverview();
-            const wlResp = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+            const wlResp = await fetch(`/api/layers/${{project.id}}/waitlists/`);
             const wlData = await wlResp.json().catch(() => ({{ waitlists: [], count: 0 }}));
             const enabledWaitlists = (wlData.waitlists || []).filter(w => w.active !== false);
             buildWaitlistTabs(enabledWaitlists);
@@ -16936,10 +20767,12 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 }} else {{
                     showWaitlistInactiveMessage(initialWaitlistId);
                 }}
+            }} else {{
+                restoreTabState();
             }}
         }} catch (error) {{
             console.error('Error loading project:', error);
-            document.getElementById('project-header').innerHTML = '<div class="alert alert-danger">Error loading project</div>';
+            document.getElementById('project-title').innerHTML = '<div class="alert alert-danger">Error loading project</div>';
         }}
     }}
     
@@ -16956,7 +20789,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         const ref = refInput && refInput.value ? refInput.value.trim() : (referralRef || '');
         const body = ref ? {{ referral_code: ref }} : {{}};
         try {{
-            const res = await fetch('/api/projects/' + project.id + '/join/', {{
+            const res = await fetch('/api/layers/' + project.id + '/join/', {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify(body)
@@ -16974,7 +20807,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     async function leaveProject() {{
         if (!confirm('Leave this project?')) return;
         try {{
-            const res = await fetch('/api/projects/' + project.id + '/leave/', {{ method: 'POST' }});
+            const res = await fetch('/api/layers/' + project.id + '/leave/', {{ method: 'POST' }});
             if (res.ok) {{
                 project.is_member = false;
                 project.member_role = null;
@@ -17001,17 +20834,17 @@ def _render_project_detail(project_slug, waitlist_id=None):
         if (isProjectAdmin) {{
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showCreateVoteModal()"><i class="fas fa-vote-yea me-2"></i>Create Vote</button></div>';
+            actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showEmailModal()"><i class="fas fa-envelope me-2"></i>Email</button></div>';
         }}
-        actionsHtml += '<div class="mb-2"><a href="/projects/" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layers</a></div>';
+        actionsHtml += '<div class="mb-2"><a href="/layers/" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layers</a></div>';
         if (isProjectAdmin) {{
             actionsHtml += '<button class="btn btn-secondary btn-sm w-100" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>';
         }}
         const imageHtml = project.image_url ? '<div class="card mb-3"><div class="card-body p-2 text-center"><img src="' + project.image_url + '" alt="' + escapeHtmlBasic(project.name) + '" class="img-fluid rounded" style="max-height: 200px; max-width: 100%;"></div></div>' : '';
+        document.getElementById('project-title').innerHTML = '<div class="d-flex align-items-center flex-wrap gap-2"><h1 class="mb-0 me-2">' + escapeHtml(project.name) + '</h1>' + statusBadge + approvalBadge + '</div>';
         document.getElementById('project-header').innerHTML =
             '<div class="row">' +
                 '<div class="col-md-8">' +
-                    '<h1>' + escapeHtml(project.name) + '</h1>' +
-                    '<div class="mb-3">' + statusBadge + approvalBadge + '</div>' +
                     '<p class="lead">' + escapeHtml(project.description || 'No description') + '</p>' +
                 '</div>' +
                 '<div class="col-md-4">' +
@@ -17049,18 +20882,92 @@ def _render_project_detail(project_slug, waitlist_id=None):
                     </div>
                 </div>
             </div>
+            <div class="row">
+                <div class="col-12">
+                    <div class="card mb-4">
+                        <div class="card-header"><h5 class="mb-0"><i class="fas fa-stream me-2"></i>Recent Activity</h5></div>
+                        <div class="card-body">
+                            <div id="activity-feed-container"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         `;
         
         loadRolesCounts();
+        loadActivityFeed();
+    }}
+    
+    function formatActivityEvent(ev) {{
+        const who = ev.actor_display_name || (ev.actor_type === 'user' ? 'A member' : 'System');
+        const p = ev.payload || {{}};
+        const timeAgo = (d) => {{
+            const s = Math.floor((Date.now() - new Date(d)) / 1000);
+            if (s < 60) return 'just now';
+            if (s < 3600) return Math.floor(s/60) + 'm ago';
+            if (s < 86400) return Math.floor(s/3600) + 'h ago';
+            if (s < 604800) return Math.floor(s/86400) + 'd ago';
+            return new Date(d).toLocaleDateString();
+        }};
+        let text = '';
+        let tabId = null;
+        switch (ev.event_type) {{
+            case 'member_joined': text = who + ' joined as ' + (p.role || 'contributor'); break;
+            case 'member_removed': text = who + ' left the layer'; break;
+            case 'role_claimed': text = who + ' claimed a role'; tabId = 'claims'; break;
+            case 'badge_nominated': text = who + ' was nominated for a badge'; tabId = 'claims'; break;
+            case 'badge_approved': text = who + ' received a badge'; tabId = 'claims'; break;
+            case 'badge_rejected': text = 'A badge request was rejected'; break;
+            case 'vote_started': text = 'Vote started: ' + (p.title || 'Vote'); tabId = 'votes'; break;
+            case 'vote_closed': text = 'Vote closed' + (p.result ? ' (' + p.result + ')' : ''); tabId = 'votes'; break;
+            case 'ballot_cast': text = who + ' cast a ballot'; break;
+            case 'layer_config_changed': text = who + ' updated layer settings'; break;
+            default: text = ev.event_type.replace(/_/g, ' ');
+        }}
+        return {{ text, tabId, timeAgo: timeAgo(ev.created_at) }};
+    }}
+    
+    async function loadActivityFeed() {{
+        const container = document.getElementById('activity-feed-container');
+        if (!container || !project) return;
+        try {{
+            const res = await fetch(`/api/layers/${{project.id}}/activity/?limit=15`);
+            const data = await res.json();
+            if (!res.ok) {{
+                container.innerHTML = '<p class="text-muted small">Unable to load activity.</p>';
+                return;
+            }}
+            const events = data.events || [];
+            if (events.length === 0) {{
+                container.innerHTML = '<p class="text-muted small mb-0">No activity yet. Join the layer or claim a role to get started.</p>';
+                return;
+            }}
+            let html = '<ul class="list-unstyled mb-0">';
+            events.forEach(ev => {{
+                const {{ text, tabId, timeAgo }} = formatActivityEvent(ev);
+                html += '<li class="d-flex justify-content-between align-items-start py-2 border-bottom border-light">';
+                html += '<span class="small">' + (tabId ? '<span class="text-decoration-none activity-tab-link link-primary" style="cursor:pointer" data-tab="' + tabId + '">' + escapeHtmlBasic(text) + '</span>' : escapeHtmlBasic(text)) + '</span>';
+                html += '<span class="text-muted small ms-2">' + timeAgo + '</span>';
+                html += '</li>';
+            }});
+            html += '</ul>';
+            container.innerHTML = html;
+            container.querySelectorAll('.activity-tab-link[data-tab]').forEach(function(el) {{
+                el.addEventListener('click', function(e) {{ e.preventDefault(); switchToTab(this.getAttribute('data-tab')); }});
+            }});
+        }} catch (err) {{
+            console.error('loadActivityFeed:', err);
+            container.innerHTML = '<p class="text-muted small">Unable to load activity.</p>';
+        }}
     }}
     
     async function loadRolesCounts() {{
         try {{
-            const rolesResp = await fetch(`/api/projects/${{project.id}}/roles/`);
+            const rolesResp = await fetch(`/api/layers/${{project.id}}/roles/`);
             const rolesData = await rolesResp.json();
             document.getElementById('roles-count').textContent = rolesData.count;
             
-            const claimsResp = await fetch(`/api/projects/${{project.id}}/claims/?status=active`);
+            const claimsResp = await fetch(`/api/layers/${{project.id}}/claims/?status=active`);
             const claimsData = await claimsResp.json();
             document.getElementById('claims-count').textContent = claimsData.count;
         }} catch (error) {{
@@ -17076,8 +20983,8 @@ def _render_project_detail(project_slug, waitlist_id=None):
         }}
         container.innerHTML = '<div class="py-4 text-center"><div class="spinner-border text-primary"></div></div>';
         try {{
-            console.log('loadVotes: fetching from /api/projects/' + project.id + '/votes/');
-            const res = await fetch(`/api/projects/${{project.id}}/votes/`);
+            console.log('loadVotes: fetching from /api/layers/' + project.id + '/votes/');
+            const res = await fetch(`/api/layers/${{project.id}}/votes/`);
             console.log('loadVotes: response status', res.status, res.ok);
             
             const data = await res.json();
@@ -17144,7 +21051,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         const submissionSelect = document.getElementById('vote-submission-id');
         submissionSelect.innerHTML = '<option value="">Loading...</option>';
         try {{
-            const res = await fetch(`/api/projects/${{project.id}}/submissions/`);
+            const res = await fetch(`/api/layers/${{project.id}}/submissions/`);
             const data = await res.json();
             const submissions = data.submissions || [];
             if (submissions.length === 0) {{
@@ -17162,6 +21069,89 @@ def _render_project_detail(project_slug, waitlist_id=None):
         
         const modal = new bootstrap.Modal(document.getElementById('createVoteModal'));
         modal.show();
+    }}
+    
+    async function showEmailModal() {{
+        document.getElementById('email-modal-alert').classList.add('d-none');
+        document.getElementById('emailForm').reset();
+        const groupsEl = document.getElementById('email-recipient-groups');
+        const fromEl = document.getElementById('email-from');
+        groupsEl.innerHTML = '<div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading...</div>';
+        fromEl.innerHTML = '<option>Loading...</option>';
+        try {{
+            const res = await fetch(`/api/layers/${{project.id}}/email-recipients/`);
+            const data = await res.json();
+            if (!res.ok) {{
+                groupsEl.innerHTML = '<div class="text-danger">' + (data.error || 'Failed to load') + '</div>';
+                return;
+            }}
+            const groups = data.groups || {{}};
+            let html = '';
+            for (const [key, info] of Object.entries(groups)) {{
+                const count = info.count || 0;
+                const label = info.label || key;
+                html += '<div class="form-check"><input class="form-check-input" type="checkbox" value="' + escapeHtmlBasic(key) + '" id="email-grp-' + escapeHtmlBasic(key) + '"><label class="form-check-label" for="email-grp-' + escapeHtmlBasic(key) + '">' + escapeHtml(label) + ' (' + count + ')</label></div>';
+            }}
+            groupsEl.innerHTML = html || '<p class="text-muted mb-0">No recipient groups available.</p>';
+            const fromOpts = data.from_options || [];
+            fromEl.innerHTML = fromOpts.map(o => '<option value="' + escapeHtmlBasic(o.value) + '">' + escapeHtml(o.label) + '</option>').join('');
+            const modal = new bootstrap.Modal(document.getElementById('emailModal'));
+            modal.show();
+        }} catch (e) {{
+            groupsEl.innerHTML = '<div class="text-danger">Error: ' + escapeHtml(e.message) + '</div>';
+        }}
+    }}
+    
+    async function submitEmail() {{
+        const groups = Array.from(document.querySelectorAll('#email-recipient-groups input:checked')).map(cb => cb.value);
+        const fromAddr = document.getElementById('email-from').value;
+        const subject = document.getElementById('email-subject').value.trim();
+        const body = document.getElementById('email-body').value.trim();
+        const alertEl = document.getElementById('email-modal-alert');
+        alertEl.classList.add('d-none');
+        if (!groups.length) {{
+            alertEl.textContent = 'Select at least one recipient group';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        if (!subject || !body) {{
+            alertEl.textContent = 'Subject and message are required';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        const btn = document.getElementById('email-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Sending...';
+        try {{
+            const res = await fetch(`/api/layers/${{project.id}}/send-email/`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ groups: groups, subject: subject, body: body, from: fromAddr }})
+            }});
+            const data = await res.json();
+            if (!res.ok) {{
+                alertEl.textContent = data.error || 'Failed to send';
+                alertEl.className = 'alert alert-danger';
+                alertEl.classList.remove('d-none');
+                return;
+            }}
+            alertEl.textContent = 'Sent to ' + (data.sent || 0) + ' recipient(s).';
+            alertEl.className = 'alert alert-success';
+            alertEl.classList.remove('d-none');
+            document.getElementById('emailForm').reset();
+            setTimeout(() => {{
+                bootstrap.Modal.getInstance(document.getElementById('emailModal')).hide();
+            }}, 1500);
+        }} catch (e) {{
+            alertEl.textContent = 'Error: ' + e.message;
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+        }} finally {{
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send';
+        }}
     }}
     
     async function submitCreateVote() {{
@@ -17189,7 +21179,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
         
         try {{
-            const res = await fetch(`/api/projects/${{project.id}}/votes/`, {{
+            const res = await fetch(`/api/layers/${{project.id}}/votes/`, {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify({{
@@ -17235,6 +21225,42 @@ def _render_project_detail(project_slug, waitlist_id=None):
     document.getElementById('votes-tab').addEventListener('shown.bs.tab', loadVotes);
     {admin_tab_listener}
     
+    function clearHashIfNeeded(tabKey) {{
+        const nonHashTabs = ['overview', 'workgroups', 'clusters', 'roles', 'admin'];
+        const isNonHash = nonHashTabs.includes(tabKey) || (tabKey && tabKey.startsWith('waitlist-'));
+        if (isNonHash && window.location.hash) {{
+            saveTabState(tabKey, 'claims');
+            const clean = window.location.origin + window.location.pathname + window.location.search;
+            try {{ history.replaceState(null, '', clean); }} catch (e) {{}}
+            if (window.location.hash) window.location.replace(clean);
+        }}
+    }}
+    
+    ['overview-tab','workgroups-tab','clusters-tab','roles-tab'].forEach(function(id) {{
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', function() {{ clearHashIfNeeded(getProjectTabKey(id)); }}, true);
+    }});
+    
+    document.getElementById('projectTabs').addEventListener('shown.bs.tab', function(e) {{
+        const tabKey = getProjectTabKey(e.target.id);
+        if (tabKey) {{
+            const prevKey = localStorage.getItem('projectDetailTab_' + projectSlug + '_current');
+            saveTabState(tabKey, (prevKey && prevKey !== tabKey) ? prevKey : 'overview');
+            clearHashIfNeeded(tabKey);
+        }}
+    }});
+    
+    document.getElementById('projectTabs').addEventListener('click', function(e) {{
+        const btn = e.target.closest('[id^="waitlist-tab-"]');
+        if (btn && btn.id && btn.id.match(/^waitlist-tab-(\\d+)$/)) {{
+            clearHashIfNeeded('waitlist-' + btn.id.match(/^waitlist-tab-(\\d+)$/)[1]);
+        }}
+    }}, true);
+    
+    if (window.location.hash && ['claims', 'votes'].includes(window.location.hash.replace(/^#/, ''))) {{
+        setTimeout(switchToTabFromHash, 50);
+    }}
+    
     function buildWaitlistTabs(waitlists) {{
         const marker = document.getElementById('waitlist-tabs-marker');
         const paneMarker = document.getElementById('waitlist-panes-marker');
@@ -17273,7 +21299,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         if (!pane || !project) return;
         pane.innerHTML = '<div class="py-4 text-center"><div class="spinner-border text-primary"></div></div>';
         try {{
-            const res = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+            const res = await fetch(`/api/layers/${{project.id}}/waitlists/`);
             const data = await res.json();
             const w = (data.waitlists || []).find(x => x.id === waitlistId);
             if (!w) {{
@@ -17286,7 +21312,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             const canJoin = isAuthenticated && started && !closed && !full && !w.my_entry;
             const countStr = w.max_number != null ? `${{w.count}} of ${{w.max_number}}` : `${{w.count}}`;
             const closingStr = w.closing_date ? new Date(w.closing_date).toLocaleDateString() : '-';
-            const link = w.referral_url || (window.location.origin + '/projects/' + projectSlug + '/waitlist/' + w.id + '/');
+            const link = w.referral_url || (window.location.origin + '/layers/' + projectSlug + '/waitlist/' + w.id + '/');
             const wName = escapeHtmlBasic(w.name || '');
             const wDesc = escapeHtmlBasic(w.description || 'No description');
             let milestonesHtml = '';
@@ -17312,13 +21338,15 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 actionHtml = '<a href="/login/" class="btn btn-primary btn-sm">Sign in to join</a>';
             }}
             const leaveBtn = w.my_entry ? '<button class="btn btn-outline-danger btn-sm" onclick="leaveWaitlist(' + w.id + ')">Leave</button>' : '';
+            const embedBtn = isProjectAdmin ? '<button class="btn btn-outline-primary btn-sm" onclick="showEmbedCodeFromEl(this)" data-waitlist-id="' + w.id + '" data-waitlist-name="' + (w.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + '"><i class="fas fa-code me-1"></i>Embed</button>' : '';
+            const detailBtn = '<a href="/waitlists/' + w.id + '/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-external-link-alt me-1"></i>Detail Page</a>';
             const linkHtml = w.referrals ? 'Your referral link: <a href="' + link + '" target="_blank">' + link + '</a>' : 'Link: <a href="' + link + '">' + link + '</a>';
             const dateStarted = w.start_date ? new Date(w.start_date).toLocaleDateString() : '-';
             const visibility = w.public ? 'Public' : 'Private';
             
             const wImg = (w.image_url) ? '<div class="mb-3"><img src="' + w.image_url + '" alt="' + wName + '" class="img-fluid rounded" style="max-height: 180px;"></div>' : '';
             const html = '<div class="card mb-4"><div class="card-body">' +
-                '<nav aria-label="breadcrumb"><ol class="breadcrumb mb-2"><li class="breadcrumb-item"><a href="/projects/">Layers</a></li><li class="breadcrumb-item"><a href="/projects/' + projectSlug + '/">' + escapeHtmlBasic(project.name) + '</a></li><li class="breadcrumb-item active">' + wName + ' Waitlist</li></ol></nav>' +
+                '<nav aria-label="breadcrumb"><ol class="breadcrumb mb-2"><li class="breadcrumb-item"><a href="/layers/">Layers</a></li><li class="breadcrumb-item"><a href="/layers/' + projectSlug + '/">' + escapeHtmlBasic(project.name) + '</a></li><li class="breadcrumb-item active">' + wName + ' Waitlist</li></ol></nav>' +
                 wImg +
                 '<h5 class="card-title">' + wName + '</h5>' +
                 '<p class="text-muted">' + wDesc + '</p>' +
@@ -17326,6 +21354,8 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 '<p class="small">' + linkHtml + '</p>' +
                 '<div class="d-flex flex-wrap align-items-center gap-3 mt-3">' +
                 actionHtml +
+                embedBtn +
+                detailBtn +
                 '<span class="text-muted">' + countStr + ' on waitlist</span>' +
                 '<span class="text-muted">Closing: ' + closingStr + '</span>' +
                 leaveBtn +
@@ -17381,7 +21411,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
         
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/admins/`);
+            const response = await fetch(`/api/layers/${{project.id}}/admins/`);
             if (response.status === 403) {{
                 container.innerHTML = '<div class="alert alert-warning">You do not have permission to view layer admins.</div>';
                 return;
@@ -17415,7 +21445,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             
             // Add pending workgroups section for approval
             html += '<hr class="my-4"><h4 class="mb-3">Pending workgroups</h4>';
-            const wgResponse = await fetch(`/api/projects/${{project.id}}/workgroups/?approval_status=pending`);
+            const wgResponse = await fetch(`/api/layers/${{project.id}}/workgroups/?approval_status=pending`);
             const wgData = await wgResponse.json();
             if (wgData.workgroups && wgData.workgroups.length > 0) {{
                 html += '<div class="list-group">';
@@ -17442,7 +21472,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             
             // Add waitlist management section
             html += '<hr class="my-4"><div class="d-flex justify-content-between align-items-center mb-3"><h4>Waitlists</h4><button class="btn btn-primary btn-sm" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
-            const wlResponse = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+            const wlResponse = await fetch(`/api/layers/${{project.id}}/waitlists/`);
             const wlData = await wlResponse.json();
             if (wlData.waitlists && wlData.waitlists.length > 0) {{
                 html += '<div class="list-group">';
@@ -17450,15 +21480,15 @@ def _render_project_detail(project_slug, waitlist_id=None):
                     const statusBadge = wl.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>';
                     const wlNameEsc = escapeHtmlBasic(wl.name || '');
                     const wlDescEsc = escapeHtmlBasic(wl.description || 'No description');
-                    const wlNameAttr = (wl.name || '').split("\\\\").join("\\\\\\\\").split("'").join("\\\\'");
+                    const wlNameAttr = (wl.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
                     html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start">' +
                         '<div class="flex-grow-1">' +
-                        '<h6 class="mb-1">' + wlNameEsc + ' ' + statusBadge + '</h6>' +
+                        '<h6 class="mb-1"><a href="/waitlists/' + wl.id + '/" class="text-decoration-none">' + wlNameEsc + '</a> ' + statusBadge + '</h6>' +
                         '<p class="mb-1 text-muted small">' + wlDescEsc + '</p>' +
                         '<p class="mb-0 small text-muted">Members: ' + wl.count + (wl.max_number ? ' / ' + wl.max_number : '') + '</p>' +
                         '</div><div class="btn-group btn-group-sm">' +
-                        '<button class="btn btn-outline-primary" onclick="showEmbedCode(' + wl.id + ', \\'' + wlNameAttr + '\\')"><i class="fas fa-code"></i></button>' +
-                        '<a href="/projects/' + projectSlug + '/waitlist/' + wl.id + '/" class="btn btn-outline-secondary" target="_blank"><i class="fas fa-external-link-alt"></i></a>' +
+                        '<button class="btn btn-outline-primary" onclick="showEmbedCodeFromEl(this)" data-waitlist-id="' + wl.id + '" data-waitlist-name="' + wlNameAttr + '"><i class="fas fa-code"></i></button>' +
+                        '<a href="/waitlists/' + wl.id + '/" class="btn btn-outline-secondary"><i class="fas fa-external-link-alt"></i></a>' +
                         '</div></div></div>';
                 }});
                 html += '</div>';
@@ -17542,7 +21572,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     
     async function addAdmin(userId) {{
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/admins/`, {{
+            const response = await fetch(`/api/layers/${{project.id}}/admins/`, {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify({{ user_id: userId }})
@@ -17563,7 +21593,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         const displayName = (btn && btn.closest('.list-group-item')) ? btn.closest('.list-group-item').querySelector('a').textContent : 'this user';
         if (!confirm('Remove "' + displayName + '" as layer admin?')) return;
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/admins/${{userId}}/`, {{ method: 'DELETE' }});
+            const response = await fetch(`/api/layers/${{project.id}}/admins/${{userId}}/`, {{ method: 'DELETE' }});
             const data = await response.json();
             if (response.ok) {{
                 loadAdmins();
@@ -17579,7 +21609,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         document.getElementById('workgroups-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
         
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/workgroups/`);
+            const response = await fetch(`/api/layers/${{project.id}}/workgroups/`);
             const data = await response.json();
             
             let html = `
@@ -17624,7 +21654,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         document.getElementById('clusters-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
         
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/clusters/?include_roles=1`);
+            const response = await fetch(`/api/layers/${{project.id}}/clusters/?include_roles=1`);
             const data = await response.json();
             
             let html = `
@@ -17689,7 +21719,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         document.getElementById('roles-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
         
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/roles/`);
+            const response = await fetch(`/api/layers/${{project.id}}/roles/`);
             const data = await response.json();
             
             let html = `
@@ -17734,7 +21764,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         document.getElementById('claims-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
         
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/claims/`);
+            const response = await fetch(`/api/layers/${{project.id}}/claims/`);
             const data = await response.json();
             
             let html = `<h4 class="mb-3">Claims (${{data.count}})</h4>`;
@@ -17793,7 +21823,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     async function loadWaitlists() {{
         document.getElementById('waitlist-content').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
         try {{
-            const response = await fetch(`/api/projects/${{project.id}}/waitlists/`);
+            const response = await fetch(`/api/layers/${{project.id}}/waitlists/`);
             const data = await response.json();
             
             let html = `<div class="d-flex justify-content-between align-items-center mb-4">
@@ -17819,7 +21849,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                                 <div class="col-md-8">
                                     <nav aria-label="breadcrumb">
                                         <ol class="breadcrumb">
-                                            <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">Layer</a></li>
+                                            <li class="breadcrumb-item"><a href="/layers/${{project.slug}}/">Layer</a></li>
                                             <li class="breadcrumb-item active">${{wl.name}} Waitlist</li>
                                         </ol>
                                     </nav>
@@ -17840,7 +21870,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                                             <p class="mb-2"><strong>On waitlist:</strong> ${{wl.count}}${{wl.max_number ? ' of ' + wl.max_number : ''}}</p>
                                             ${{wl.closing_date ? '<p class="mb-2"><strong>Closes:</strong> ' + new Date(wl.closing_date).toLocaleDateString() + '</p>' : ''}}
                                             ${{statusBadge}}
-                                            ${{isProjectAdmin ? '<hr><button class="btn btn-outline-primary btn-sm w-100 mt-2" onclick="showEmbedCode(' + wl.id + ', this.dataset.wlName)" data-wl-name="' + wl.name + '"><i class="fas fa-code me-2"></i>Get Embed Code</button>' : ''}}
+                                            ${{isProjectAdmin ? '<hr><p class="small text-muted mb-2">Embed this waitlist on your website:</p><button class="btn btn-outline-primary btn-sm w-100" onclick="showEmbedCodeFromEl(this)" data-waitlist-id="' + wl.id + '" data-waitlist-name="' + (wl.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + '"><i class="fas fa-code me-2"></i>Get Embed Code</button>' : ''}}
                                         </div>
                                     </div>
                                 </div>
@@ -17893,12 +21923,18 @@ def _render_project_detail(project_slug, waitlist_id=None):
         }});
     }}
     
+    function showEmbedCodeFromEl(el) {{
+        const id = el.getAttribute('data-waitlist-id');
+        const name = el.getAttribute('data-waitlist-name') || '';
+        showEmbedCode(parseInt(id, 10), name);
+    }}
     function showEmbedCode(waitlistId, waitlistName) {{
         const baseUrl = window.location.origin;
         const embedUrl = `${{baseUrl}}/embed/waitlist/${{waitlistId}}/`;
         const iframeCode = `<iframe src="${{embedUrl}}" width="100%" height="600" frameborder="0" style="border: none; border-radius: 12px;"></iframe>`;
         
         document.getElementById('embed-waitlist-name').textContent = waitlistName;
+        document.getElementById('embed-builder-link').href = `${{baseUrl}}/embed/waitlist/${{waitlistId}}/build/`;
         document.getElementById('embed-url').value = embedUrl;
         document.getElementById('embed-code-iframe').value = iframeCode;
         
@@ -18067,7 +22103,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 const body = {{ name, description, image_url: image_url || null, start_date: startDate, public: isPublic, referrals, active }};
                 if (closingDate) body.closing_date = closingDate;
                 if (maxNumber) body.max_number = parseInt(maxNumber, 10);
-                const res = await fetch(`/api/projects/${{project.id}}/waitlists/`, {{
+                const res = await fetch(`/api/layers/${{project.id}}/waitlists/`, {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
                     body: JSON.stringify(body)
@@ -18174,7 +22210,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         if (!container || !project) return;
         container.innerHTML = '<div class="list-group-item text-muted small">Loading...</div>';
         try {{
-            const response = await fetch('/api/projects/' + project.id + '/admins/', {{ credentials: 'include' }});
+            const response = await fetch('/api/layers/' + project.id + '/admins/', {{ credentials: 'include' }});
             if (response.status === 403) {{
                 container.innerHTML = '<div class="list-group-item text-warning small">You need layer admin access to view or manage admins.</div>';
                 return;
@@ -18231,7 +22267,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     
     async function addAdminFromEditModal(userId) {{
         try {{
-            const response = await fetch('/api/projects/' + project.id + '/admins/', {{
+            const response = await fetch('/api/layers/' + project.id + '/admins/', {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
                 credentials: 'include',
@@ -18254,7 +22290,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     async function removeAdminFromEditModal(userId) {{
         if (!confirm('Remove this user as layer admin?')) return;
         try {{
-            const response = await fetch('/api/projects/' + project.id + '/admins/' + userId + '/', {{
+            const response = await fetch('/api/layers/' + project.id + '/admins/' + userId + '/', {{
                 method: 'DELETE',
                 credentials: 'include'
             }});
@@ -18291,7 +22327,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         saveBtn.disabled = true;
         alertEl.classList.add('d-none');
         try {{
-            const res = await fetch('/api/projects/' + project.id + '/', {{
+            const res = await fetch('/api/layers/' + project.id + '/', {{
                 method: 'PATCH',
                 headers: {{ 'Content-Type': 'application/json' }},
                 credentials: 'include',
@@ -18309,7 +22345,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 bootstrap.Modal.getInstance(document.getElementById('editProjectModal')).hide();
                 project = data.project;
                 if (project.slug !== projectSlug) {{
-                    window.location.href = '/projects/' + project.slug + '/';
+                    window.location.href = '/layers/' + project.slug + '/';
                     return;
                 }}
                 displayProjectHeader();
@@ -18379,7 +22415,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
             try {{
-                const response = await fetch(`/api/projects/${{project.id}}/workgroups/`, {{
+                const response = await fetch(`/api/layers/${{project.id}}/workgroups/`, {{
                     method: 'POST',
                     headers: {{'Content-Type': 'application/json'}},
                     body: JSON.stringify({{ name, description }})
@@ -18497,7 +22533,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         }}
         
         // Load clusters for dropdown
-        fetch(`/api/projects/${{project.id}}/clusters/`)
+        fetch(`/api/layers/${{project.id}}/clusters/`)
             .then(r => r.json())
             .then(data => {{
                 const select = document.getElementById('role-cluster');
@@ -18548,7 +22584,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             }};
             
             try {{
-                const response = await fetch(`/api/projects/${{project.id}}/roles/`, {{
+                const response = await fetch(`/api/layers/${{project.id}}/roles/`, {{
                     method: 'POST',
                     headers: {{'Content-Type': 'application/json'}},
                     body: JSON.stringify(formData)
@@ -18655,7 +22691,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
             
             try {{
-                const response = await fetch(`/api/projects/${{project.id}}/clusters/`, {{
+                const response = await fetch(`/api/layers/${{project.id}}/clusters/`, {{
                     method: 'POST',
                     headers: {{'Content-Type': 'application/json'}},
                     body: JSON.stringify({{ name, description, order }})
@@ -18827,19 +22863,24 @@ def _render_project_detail(project_slug, waitlist_id=None):
     </script>
     """
     
-    return render_page(f"Layer: {project_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    html = render_page(f"Layer: {project_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    resp = make_response(html)
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
-@app.route('/projects/<project_slug>/')
-def project_detail(project_slug):
-    """Project detail page"""
-    return _render_project_detail(project_slug)
+@app.route('/layers/<layer_slug>/')
+def layer_detail(layer_slug):
+    """Layer detail page (formerly project detail)"""
+    app.logger.info(f"[LAYER] layer_detail route hit: layer_slug={layer_slug!r}")
+    return _render_project_detail(layer_slug)
 
-@app.route('/projects/<project_slug>/waitlist/<int:waitlist_id>/')
-def project_detail_waitlist(project_slug, waitlist_id):
-    """Project detail with specific waitlist tab (for referral links)"""
-    return _render_project_detail(project_slug, waitlist_id=waitlist_id)
+@app.route('/layers/<layer_slug>/waitlist/<int:waitlist_id>/')
+def layer_detail_waitlist(layer_slug, waitlist_id):
+    """Layer detail with specific waitlist tab (for referral links)"""
+    return _render_project_detail(layer_slug, waitlist_id=waitlist_id)
 
-@app.route('/projects/create/')
+@app.route('/layers/create/')
 @require_auth
 def create_project_page():
     """Create project form page"""
@@ -18894,7 +22935,7 @@ def create_project_page():
                         <button type="submit" class="btn btn-primary" id="submitBtn">
                             <i class="fas fa-plus me-2"></i>Create Layer
                         </button>
-                        <a href="/projects/" class="btn btn-secondary">Cancel</a>
+                        <a href="/layers/" class="btn btn-secondary">Cancel</a>
                     </div>
                 </form>
             </div>
@@ -18918,7 +22959,7 @@ def create_project_page():
         };
         
         try {
-            const response = await fetch('/api/projects/', {
+            const response = await fetch('/api/layers/', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(formData)
@@ -18934,7 +22975,7 @@ def create_project_page():
                     </div>
                 `;
                 setTimeout(() => {
-                    window.location.href = `/projects/${data.project.slug}/`;
+                    window.location.href = `/layers/${data.project.slug}/`;
                 }, 1500);
             } else {
                 throw new Error(data.error || 'Failed to create project');
@@ -19015,19 +23056,12 @@ def guild_detail(guild_slug):
     
     async function loadGuild() {{
         try {{
-            // Find guild by slug
-            const response = await fetch('/api/guilds/');
-            const data = await response.json();
-            guild = data.guilds.find(g => g.slug === guildSlug);
-            
-            if (!guild) {{
+            const response = await fetch('/api/guilds/by-slug/' + encodeURIComponent(guildSlug) + '/');
+            if (!response.ok) {{
                 document.getElementById('guild-header').innerHTML = '<div class="alert alert-danger">Guild not found</div>';
                 return;
             }}
-            
-            // Load full guild details with members
-            const detailResponse = await fetch(`/api/guilds/${{guild.id}}/`);
-            guild = await detailResponse.json();
+            guild = await response.json();
             
             displayGuildHeader();
             displayGuildAbout();
@@ -19054,7 +23088,7 @@ def guild_detail(guild_slug):
                     '<div class="mb-3">' + statusBadge + '</div>' +
                 '</div>' +
                 '<div class="col-md-4 text-end">' +
-                    '${{isInitiator ? \'<button class="btn btn-secondary me-2" onclick="editGuild()"><i class="fas fa-edit me-2"></i>Edit</button>\' : \'\'}}' +
+                    (isInitiator ? '<button class="btn btn-secondary me-2" onclick="editGuild()"><i class="fas fa-edit me-2"></i>Edit</button>' : '') +
                     '<a href="/guilds/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back</a>' +
                 '</div>' +
             '</div>';
@@ -19078,11 +23112,19 @@ def guild_detail(guild_slug):
         let html = '<div class="list-group">';
         guild.members.forEach(member => {{
             const roleClass = member.role === 'initiator' ? 'primary' : member.role === 'admin' ? 'success' : 'secondary';
+            const displayName = member.display_name || member.name || member.username;
+            const avatarHtml = member.profile_image
+                ? `<img src="${{member.profile_image}}" alt="" class="rounded-circle me-2" style="width:32px;height:32px;object-fit:cover">`
+                : `<span class="rounded-circle me-2 d-inline-flex align-items-center justify-content-center bg-secondary text-white" style="width:32px;height:32px;font-size:0.85rem">${{(displayName || '?').charAt(0).toUpperCase()}}</span>`;
+            const profileLink = `/profile/${{member.username}}/`;
             html += `
                 <div class="list-group-item d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>${{member.username}}</strong>
-                        ${{member.name ? `<br><small class="text-muted">${{member.name}}</small>` : ''}}
+                    <div class="d-flex align-items-center">
+                        ${{avatarHtml}}
+                        <div>
+                            <a href="${{profileLink}}" class="fw-bold text-decoration-none">${{displayName}}</a>
+                            ${{displayName !== member.username ? `<br><small class="text-muted">@${{member.username}}</small>` : ''}}
+                        </div>
                     </div>
                     <span class="badge bg-${{roleClass}}">${{member.role}}</span>
                 </div>
@@ -19530,12 +23572,12 @@ def workgroup_detail(workgroup_slug):
     async function loadWorkgroup() {{
         try {{
             // Load all projects first to find the workgroup
-            const projectsResp = await fetch('/api/projects/');
+            const projectsResp = await fetch('/api/layers/');
             const projectsData = await projectsResp.json();
             
             // Search for workgroup across all projects
-            for (const proj of projectsData.projects) {{
-                const wgResp = await fetch(`/api/projects/${{proj.id}}/workgroups/`);
+            for (const proj of projectsData.layers) {{
+                const wgResp = await fetch(`/api/layers/${{proj.id}}/workgroups/`);
                 const wgData = await wgResp.json();
                 const found = wgData.workgroups.find(wg => wg.slug === workgroupSlug);
                 
@@ -19571,17 +23613,17 @@ def workgroup_detail(workgroup_slug):
         const statusBadge = getStatusBadge(workgroup.status);
         const approvalBadge = getApprovalBadge(workgroup.approval_status);
         
-        // Use project data if available, otherwise use workgroup's project_name
+        // Use layer data if available, otherwise use workgroup's layer_name
         const projectSlug = project ? project.slug : '';
-        const projectName = project ? project.name : (workgroup.project_name || 'Layer');
+        const projectName = project ? project.name : (workgroup.layer_name || 'Layer');
         
         document.getElementById('workgroup-header').innerHTML = `
             <div class="row">
                 <div class="col-md-8">
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb">
-                            <li class="breadcrumb-item"><a href="/projects/">Layers</a></li>
-                            ${{projectSlug ? `<li class="breadcrumb-item"><a href="/projects/${{projectSlug}}/">${{projectName}}</a></li>` : `<li class="breadcrumb-item">${{projectName}}</li>`}}
+                            <li class="breadcrumb-item"><a href="/layers/">Layers</a></li>
+                            ${{projectSlug ? `<li class="breadcrumb-item"><a href="/layers/${{projectSlug}}/">${{projectName}}</a></li>` : `<li class="breadcrumb-item">${{projectName}}</li>`}}
                             <li class="breadcrumb-item active">${{workgroup.name}}</li>
                         </ol>
                     </nav>
@@ -19595,7 +23637,7 @@ def workgroup_detail(workgroup_slug):
                     ${{workgroup.image_url ? `<div class="card mb-3"><div class="card-body p-2 text-center"><img src="${{workgroup.image_url}}" alt="${{workgroup.name}}" class="img-fluid rounded" style="max-height: 200px;"></div></div>` : ''}}
                     <div class="text-end">
                         ${{workgroup.can_edit ? '<button type="button" class="btn btn-outline-secondary me-2" onclick="editWorkgroup()"><i class="fas fa-edit me-2"></i>Edit Workgroup</button>' : ''}}
-                        ${{projectSlug ? `<a href="/projects/${{projectSlug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Layer</a>` : '<a href="/workgroups/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Workgroups</a>'}}
+                        ${{projectSlug ? `<a href="/layers/${{projectSlug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Layer</a>` : '<a href="/workgroups/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Workgroups</a>'}}
                     </div>
                 </div>
             </div>
@@ -19626,10 +23668,10 @@ def workgroup_detail(workgroup_slug):
     
     function displayWorkgroupDetails() {{
         const projectSlug = project ? project.slug : '';
-        const projectName = project ? project.name : (workgroup.project_name || 'Unknown Project');
+        const projectName = project ? project.name : (workgroup.layer_name || 'Unknown Project');
         
         document.getElementById('workgroup-details').innerHTML = `
-            <p><strong>Layer:</strong> ${{projectSlug ? `<a href="/projects/${{projectSlug}}/">${{projectName}}</a>` : projectName}}</p>
+            <p><strong>Layer:</strong> ${{projectSlug ? `<a href="/layers/${{projectSlug}}/">${{projectName}}</a>` : projectName}}</p>
             <p><strong>Status:</strong> ${{workgroup.status}}</p>
             <p><strong>Approval:</strong> ${{workgroup.approval_status}}</p>
             <p><strong>Created:</strong> ${{new Date(workgroup.created_at).toLocaleDateString()}}</p>
@@ -20029,7 +24071,7 @@ def user_profile(username):
     
     # Count projects initiated
     projects_count = db.session.execute(text("""
-        SELECT COUNT(*) FROM project WHERE initiator_id = :user_id
+        SELECT COUNT(*) FROM layer WHERE initiator_id = :user_id
     """), {'user_id': profile_user.id}).scalar() or 0
     
     # Count workgroups coordinated
@@ -20056,7 +24098,7 @@ def user_profile(username):
     
     # Get recent activity (simplified for now)
     recent_projects = db.session.execute(text("""
-        SELECT name, slug, created_at FROM project 
+        SELECT name, slug, created_at FROM layer 
         WHERE initiator_id = :user_id 
         ORDER BY created_at DESC LIMIT 5
     """), {'user_id': profile_user.id}).fetchall()
@@ -20096,24 +24138,24 @@ def user_profile(username):
     """), {'user_id': profile_user.id}).fetchall()
     
     # Get project memberships (projects user has joined)
-    project_memberships = ProjectMember.query.filter_by(user_id=profile_user.id, status='active').order_by(ProjectMember.joined_at.desc()).all()
+    project_memberships = LayerMember.query.filter_by(user_id=profile_user.id, status='active').order_by(LayerMember.joined_at.desc()).all()
     
     # Get referral stats if viewing own profile
     referral_code = None
     referral_count = 0
     if current_user and current_user['id'] == profile_user.id:
         referral_code = get_or_create_referral_code(profile_user)
-        referral_count = ProjectMember.query.filter_by(referred_by_id=profile_user.id).count()
+        referral_count = LayerMember.query.filter_by(referred_by_id=profile_user.id).count()
     
     # Get project memberships
-    project_memberships = ProjectMember.query.filter_by(user_id=profile_user.id, status='active').order_by(ProjectMember.joined_at.desc()).all()
+    project_memberships = LayerMember.query.filter_by(user_id=profile_user.id, status='active').order_by(LayerMember.joined_at.desc()).all()
     
     # Get referral stats if viewing own profile
     referral_code = None
     referral_count = 0
     if is_own_profile:
         referral_code = get_or_create_referral_code(profile_user)
-        referral_count = ProjectMember.query.filter_by(referred_by_id=profile_user.id).count()
+        referral_count = LayerMember.query.filter_by(referred_by_id=profile_user.id).count()
     
     content = f"""
     <style>
@@ -20326,7 +24368,7 @@ def user_profile(username):
                             <div class="card-body">
                                 <h5 class="card-title">Initiated Projects</h5>
                                 <div class="list-group list-group-flush">
-                                    {''.join([f'<a href="/projects/{p[1]}/" class="list-group-item list-group-item-action"><strong>{p[0]}</strong><br><small class="text-muted">Created {p[2]}</small></a>' for p in recent_projects]) if recent_projects else '<p class="text-muted">No projects yet.</p>'}
+                                    {''.join([f'<a href="/layers/{p[1]}/" class="list-group-item list-group-item-action"><strong>{p[0]}</strong><br><small class="text-muted">Created {p[2]}</small></a>' for p in recent_projects]) if recent_projects else '<p class="text-muted">No projects yet.</p>'}
                                 </div>
                             </div>
                         </div>
@@ -20338,10 +24380,10 @@ def user_profile(username):
                             <div class="card-body">
                                 <h5 class="card-title">Layer Memberships</h5>
                                 <div class="list-group list-group-flush">
-                                    {''.join([f'''<a href="/projects/{pm.project.slug}/" class="list-group-item list-group-item-action">
+                                    {''.join([f'''<a href="/layers/{pm.layer.slug}/" class="list-group-item list-group-item-action">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <div>
-                                                <strong>{pm.project.name}</strong>
+                                                <strong>{pm.layer.name}</strong>
                                                 <br><small class="text-muted">Role: {pm.role or "Member"} • Joined {pm.joined_at.strftime("%b %Y") if pm.joined_at else "Unknown"}</small>
                                                 {f'<br><small class="text-success"><i class="fas fa-user-plus me-1"></i>Referred by {pm.referred_by.displayName or pm.referred_by.username}</small>' if pm.referred_by else ''}
                                             </div>
@@ -20442,7 +24484,7 @@ def _format_activity_items(projects, submissions):
                 date = datetime.fromisoformat(date.replace('Z', '+00:00'))
             except:
                 date = datetime.utcnow()
-        items.append((date, 'project', f'Created project <strong>{project[0]}</strong>', f'/projects/{project[1]}/'))
+        items.append((date, 'project', f'Created project <strong>{project[0]}</strong>', f'/layers/{project[1]}/'))
     
     for submission in submissions:
         # submission is a tuple (draft_name, submitted_at, id, approved) from recent_submissions
@@ -20833,9 +24875,9 @@ def roles_directory():
     
     async function loadProjects() {{
         try {{
-            const response = await fetch('/api/projects/?approval_status=approved');
+            const response = await fetch('/api/layers/?approval_status=approved');
             const data = await response.json();
-            allProjects = data.projects;
+            allProjects = data.layers;
             
             const select = document.getElementById('project-filter');
             allProjects.forEach(project => {{
@@ -20858,7 +24900,7 @@ def roles_directory():
             
             if (projectFilter) {{
                 // Load roles for specific project
-                let url = `/api/projects/${{projectFilter}}/roles/`;
+                let url = `/api/layers/${{projectFilter}}/roles/`;
                 if (statusFilter) url += `?status=${{statusFilter}}`;
                 
                 const response = await fetch(url);
@@ -20867,12 +24909,12 @@ def roles_directory():
             }} else {{
                 // Load roles from all projects
                 for (const project of allProjects) {{
-                    let url = `/api/projects/${{project.id}}/roles/`;
+                    let url = `/api/layers/${{project.id}}/roles/`;
                     if (statusFilter) url += `?status=${{statusFilter}}`;
                     
                     const response = await fetch(url);
                     const data = await response.json();
-                    allRoles = allRoles.concat(data.roles.map(r => ({{...r, project_name: project.name, project_slug: project.slug}})));
+                    allRoles = allRoles.concat(data.roles.map(r => ({{...r, layer_name: project.name, layer_slug: project.slug}})));
                 }}
             }}
             
@@ -20926,7 +24968,7 @@ def roles_directory():
                             <p class="card-text text-muted small">${{role.description.substring(0, 100)}}...</p>
                             <div class="mt-3">
                                 <small class="text-muted">
-                                    <i class="fas fa-project-diagram me-1"></i> ${{role.project_name || 'Unknown Project'}}
+                                    <i class="fas fa-project-diagram me-1"></i> ${{role.layer_name || 'Unknown Project'}}
                                 </small>
                             </div>
                         </div>
@@ -20950,150 +24992,639 @@ def roles_directory():
     
     return render_page("Roles Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
+@app.route('/badges/')
 @app.route('/role-images/')
 def role_images_directory():
-    """Global role images directory - browse all roles with images"""
+    """Badges directory – design galleries for roles, workgroups, one-time badges"""
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
-    
+
     content = f"""
     <div class="container mt-4">
-        <div class="row mb-4">
+        <div class="row">
             <div class="col-md-8">
-                <h1><i class="fas fa-images me-2"></i>Role Images Gallery</h1>
-                <p class="lead">Browse and vote on role images across all projects</p>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <h1><i class="fas fa-medal me-2"></i>Badges</h1>
+                        <p class="lead mb-2">Design galleries for roles and workgroups across all layers</p>
+                    </div>
+                </div>
+
+                <!-- Tabs: Upcoming / Current / Past -->
+                <ul class="nav nav-tabs mb-3" id="badgeTabs">
+                    <li class="nav-item"><button class="nav-link active" data-tab="all" onclick="switchTab('all',this)">All</button></li>
+                    <li class="nav-item"><button class="nav-link" data-tab="upcoming" onclick="switchTab('upcoming',this)">Upcoming</button></li>
+                    <li class="nav-item"><button class="nav-link" data-tab="current" onclick="switchTab('current',this)">Current</button></li>
+                    <li class="nav-item"><button class="nav-link" data-tab="past" onclick="switchTab('past',this)">Past</button></li>
+                </ul>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <select id="project-filter" class="form-select form-select-sm" onchange="filterAndDisplay()">
+                            <option value="">All Layers</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search roles..." oninput="filterAndDisplay()">
+                    </div>
+                </div>
+
+                <div id="badges-container" class="row">
+                    <div class="col-12 text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
-        
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <label for="project-filter" class="form-label">Layer:</label>
-                <select id="project-filter" class="form-select" onchange="loadRoleImages()">
-                    <option value="">All Layers</option>
-                </select>
-            </div>
-            <div class="col-md-6">
-                <label for="search-input" class="form-label">Search Roles:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">
-            </div>
-        </div>
-        
-        <div id="roles-container" class="row">
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+
+            <div class="col-md-4">
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Actions</h6></div>
+                    <div class="card-body">
+                        <a href="#" class="btn btn-primary w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addDesignModal">
+                            <i class="fas fa-plus me-2"></i>Submit Design
+                        </a>
+                        <a href="/badges/one-time/" class="btn btn-outline-secondary w-100 btn-sm">
+                            <i class="fas fa-star me-1"></i>One-Time Badges
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
-    
+
+    <!-- Submit Design Modal -->
+    <div class="modal fade" id="addDesignModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Submit Design</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addDesignForm">
+                        <div class="mb-3">
+                            <label class="form-label">Layer</label>
+                            <select id="add-image-project" class="form-select" onchange="loadAddImageTargets()">
+                                <option value="">Select layer...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Type</label>
+                            <select id="add-image-type" class="form-select" onchange="loadAddImageTargets()">
+                                <option value="role">Role</option>
+                                <option value="workgroup">Workgroup</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" id="add-target-label">Role</label>
+                            <select id="add-image-role" class="form-select">
+                                <option value="">Select...</option>
+                            </select>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label class="form-label">Source</label>
+                            <select class="form-select" id="addSourceType" onchange="toggleAddSourceFields()">
+                                <option value="upload">Upload File</option>
+                                <option value="url">Image URL</option>
+                            </select>
+                        </div>
+                        <div id="addUploadField" class="mb-3">
+                            <label class="form-label">File</label>
+                            <input type="file" class="form-control" id="addImageFile" accept="image/*">
+                            <small class="text-muted">Max 600×600 px, 5MB. PNG, JPG, GIF, WebP, SVG</small>
+                        </div>
+                        <div id="addUrlField" class="mb-3" style="display:none;">
+                            <label class="form-label">Image URL</label>
+                            <input type="url" class="form-control" id="addImageUrl" placeholder="https://...">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="submitAddImage()"><i class="fas fa-upload me-1"></i>Submit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
     let allRoles = [];
     let allProjects = [];
-    
+    let currentTab = 'all';
+    const now = new Date();
+
+    function switchTab(tab, btn) {{
+        currentTab = tab;
+        document.querySelectorAll('#badgeTabs .nav-link').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        filterAndDisplay();
+    }}
+
+    function badgePhase(role) {{
+        // Returns 'upcoming' | 'current' | 'past' | 'none' based on badge config
+        if (!role.badge_enabled) return 'none';
+        const earliest = role.badge_earliest_start ? new Date(role.badge_earliest_start) : null;
+        if (earliest && earliest > now) return 'upcoming';
+        if (role.image_count > 0) return 'current'; // stub: treat has-designs as current
+        return 'none';
+    }}
+
     async function loadProjects() {{
         try {{
-            const response = await fetch('/api/projects/');
+            const response = await fetch('/api/layers/');
             const data = await response.json();
-            allProjects = data.projects;
-            
+            allProjects = data.layers;
             const select = document.getElementById('project-filter');
+            const addSelect = document.getElementById('add-image-project');
             allProjects.forEach(project => {{
-                const option = document.createElement('option');
-                option.value = project.id;
-                option.textContent = project.name;
-                select.appendChild(option);
+                const opt = document.createElement('option');
+                opt.value = project.id; opt.textContent = project.name;
+                select.appendChild(opt);
+                const addOpt = opt.cloneNode(true);
+                addSelect.appendChild(addOpt);
             }});
-        }} catch (error) {{
-            console.error('Error loading projects:', error);
-        }}
+        }} catch (error) {{ console.error('Error loading projects:', error); }}
     }}
-    
-    async function loadRoleImages() {{
-        const projectFilter = document.getElementById('project-filter').value;
-        
-        document.getElementById('roles-container').innerHTML = `
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        `;
-        
+
+    async function loadAllBadges() {{
+        document.getElementById('badges-container').innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>';
         try {{
             let url = '/api/role-images/roles-with-stats/';
-            if (projectFilter) url += '?project_id=' + encodeURIComponent(projectFilter);
-            
+            const pf = document.getElementById('project-filter').value;
+            if (pf) url += '?layer_id=' + encodeURIComponent(pf);
             const response = await fetch(url);
             const data = await response.json();
-            allRoles = (data.roles || []).filter(r => (r.image_count || 0) > 0);
-            
-            displayRoles(allRoles);
+            allRoles = data.roles || [];
+            filterAndDisplay();
         }} catch (error) {{
-            console.error('Error loading roles:', error);
-            document.getElementById('roles-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading roles</div></div>';
+            document.getElementById('badges-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading badges</div></div>';
         }}
     }}
-    
-    function displayRoles(roles) {{
-        const container = document.getElementById('roles-container');
-        
+
+    function filterAndDisplay() {{
+        const search = document.getElementById('search-input').value.toLowerCase();
+        let filtered = allRoles.filter(role => {{
+            const matchesSearch = !search ||
+                (role.title_guild || '').toLowerCase().includes(search) ||
+                (role.title_operational || '').toLowerCase().includes(search) ||
+                (role.description || '').toLowerCase().includes(search);
+            const phase = badgePhase(role);
+            const matchesTab = currentTab === 'all' || phase === currentTab;
+            return matchesSearch && matchesTab;
+        }});
+        displayBadges(filtered);
+    }}
+
+    function displayBadges(roles) {{
+        const container = document.getElementById('badges-container');
         if (roles.length === 0) {{
-            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No roles found</div></div>';
+            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No badge designs found for this filter.</div></div>';
             return;
         }}
-        
         let html = '';
         roles.forEach(role => {{
-            const projectName = role.project_name || 'Unknown Project';
+            const projectName = role.layer_name || '';
             const roleSlug = role.role_slug || role.slug || '';
-            const imageCount = role.image_count != null ? role.image_count : 0;
-            const voteCount = role.vote_count != null ? role.vote_count : 0;
-            
+            const designCount = role.image_count || 0;
+            const voteCount = role.vote_count || 0;
+            const earliest = role.badge_earliest_start;
+            const phase = badgePhase(role);
+
+            let phaseBadge = '';
+            let phaseInfo = '';
+            if (phase === 'upcoming' && earliest) {{
+                const diff = Math.ceil((new Date(earliest) - now) / 86400000);
+                phaseBadge = '<span class="badge bg-info me-1">Upcoming</span>';
+                phaseInfo = `<small class="text-muted d-block">Opens in ${{diff}} day${{diff !== 1 ? 's' : ''}}</small>`;
+            }} else if (phase === 'current') {{
+                phaseBadge = '<span class="badge bg-success me-1">Active</span>';
+            }}
+
             html += `
-                <div class="col-md-4 mb-4">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h5 class="card-title">
-                                <a href="/roles/${{roleSlug}}/images/" class="text-decoration-none">${{role.title_guild}}</a>
-                            </h5>
-                            ${{role.title_operational ? `<h6 class="card-subtitle mb-2 text-muted">${{role.title_operational}}</h6>` : ''}}
-                            <p class="card-text text-muted small">
-                                <i class="fas fa-project-diagram me-1"></i>${{projectName}}
-                            </p>
-                            <p class="card-text">${{role.description ? role.description.substring(0, 100) + '...' : ''}}</p>
-                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                                <a href="/roles/${{roleSlug}}/images/" class="btn btn-primary btn-sm">
-                                    <i class="fas fa-images me-1"></i>View Images
-                                </a>
-                                <span class="text-muted small">${{imageCount}} image${{imageCount !== 1 ? 's' : ''}} · ${{voteCount}} vote${{voteCount !== 1 ? 's' : ''}}</span>
-                            </div>
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title mb-1">
+                            <a href="/roles/${{roleSlug}}/images/" class="text-decoration-none">${{role.title_guild}}</a>
+                        </h5>
+                        ${{role.title_operational ? `<div class="text-muted small mb-1">${{role.title_operational}}</div>` : ''}}
+                        <div class="mb-1">${{phaseBadge}}<small class="text-muted"><i class="fas fa-layer-group me-1"></i>${{projectName}}</small></div>
+                        ${{phaseInfo}}
+                        <p class="card-text small mt-2">${{role.description ? role.description.substring(0, 90) + (role.description.length > 90 ? '...' : '') : ''}}</p>
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mt-auto">
+                            <a href="/roles/${{roleSlug}}/images/" class="btn btn-primary btn-sm">
+                                <i class="fas fa-images me-1"></i>Designs (${{designCount}})
+                            </a>
+                            <span class="text-muted small">${{voteCount}} vote${{voteCount !== 1 ? 's' : ''}}</span>
                         </div>
                     </div>
                 </div>
-            `;
+            </div>`;
         }});
-        
         container.innerHTML = html;
     }}
-    
-    function filterRoles() {{
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-        const filtered = allRoles.filter(role => 
-            role.title_guild.toLowerCase().includes(searchTerm) ||
-            (role.title_operational && role.title_operational.toLowerCase().includes(searchTerm)) ||
-            role.description.toLowerCase().includes(searchTerm)
-        );
-        displayRoles(filtered);
+
+    async function loadAddImageTargets() {{
+        const projectId = document.getElementById('add-image-project').value;
+        const type = document.getElementById('add-image-type').value;
+        const roleSelect = document.getElementById('add-image-role');
+        const label = document.getElementById('add-target-label');
+        label.textContent = type === 'workgroup' ? 'Workgroup' : 'Role';
+        roleSelect.innerHTML = '<option value="">Select...</option>';
+        if (!projectId) return;
+        try {{
+            const url = type === 'workgroup'
+                ? '/api/layers/' + projectId + '/workgroups/'
+                : '/api/layers/' + projectId + '/roles/';
+            const response = await fetch(url);
+            const data = await response.json();
+            const items = type === 'workgroup' ? (data.workgroups || []) : (data.roles || []);
+            items.forEach(item => {{
+                const opt = document.createElement('option');
+                opt.value = item.slug || item.role_slug || item.id;
+                opt.textContent = item.name || item.title_guild;
+                roleSelect.appendChild(opt);
+            }});
+        }} catch (e) {{ console.error('Error loading targets:', e); }}
     }}
-    
-    // Load data on page load
-    loadProjects().then(() => loadRoleImages());
+
+    document.getElementById('addDesignModal').addEventListener('show.bs.modal', function() {{
+        document.getElementById('addDesignForm').reset();
+        toggleAddSourceFields();
+    }});
+
+    function toggleAddSourceFields() {{
+        const t = document.getElementById('addSourceType').value;
+        document.getElementById('addUploadField').style.display = t === 'upload' ? 'block' : 'none';
+        document.getElementById('addUrlField').style.display = t === 'url' ? 'block' : 'none';
+    }}
+
+    async function submitAddImage() {{
+        const slug = document.getElementById('add-image-role').value;
+        const type = document.getElementById('add-image-type').value;
+        if (!slug) {{ alert('Please select a ' + (type === 'workgroup' ? 'workgroup' : 'role')); return; }}
+        const sourceType = document.getElementById('addSourceType').value;
+        const formData = new FormData();
+        formData.append('source_type', sourceType);
+        if (sourceType === 'upload') {{
+            const file = document.getElementById('addImageFile').files[0];
+            if (!file) {{ alert('Please select an image file'); return; }}
+            formData.append('file', file);
+        }} else {{
+            const url = document.getElementById('addImageUrl').value.trim();
+            if (!url) {{ alert('Please enter an image URL'); return; }}
+            formData.append('image_url', url);
+        }}
+        try {{
+            const response = await fetch('/api/roles/' + encodeURIComponent(slug) + '/images/', {{
+                method: 'POST', credentials: 'include', body: formData
+            }});
+            const data = await response.json();
+            if (response.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('addDesignModal')).hide();
+                window.location.href = '/roles/' + slug + '/images/';
+            }} else {{
+                alert(data.error || 'Upload failed');
+            }}
+        }} catch (e) {{ alert('Upload failed'); }}
+    }}
+
+    document.getElementById('project-filter').addEventListener('change', loadAllBadges);
+    loadProjects().then(() => loadAllBadges());
     </script>
     """
-    
-    return render_page("Role Images Gallery - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+    return render_page("Badges - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+
+@app.route('/badges/one-time/')
+@require_auth
+def one_time_badges_page():
+    """One-time badge management page"""
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+
+    content = f"""
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8">
+                <h1><i class="fas fa-star me-2"></i>One-Time Badges</h1>
+                <p class="lead mb-3">Badges for specific tasks or milestones, awarded once.</p>
+
+                <!-- filter bar -->
+                <div class="row g-2 mb-3">
+                    <div class="col-md-5">
+                        <select id="otb-project-filter" class="form-select form-select-sm" onchange="loadOTBs()">
+                            <option value="">All Layers</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <select id="otb-status-filter" class="form-select form-select-sm" onchange="loadOTBs()">
+                            <option value="">All Statuses</option>
+                            <option value="draft">Draft</option>
+                            <option value="upcoming">Upcoming</option>
+                            <option value="submission">Submission open</option>
+                            <option value="delay">Delay</option>
+                            <option value="voting">Voting</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="otb-list"></div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card mb-3">
+                    <div class="card-header"><h6 class="mb-0">Actions</h6></div>
+                    <div class="card-body">
+                        <button class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#createOTBModal">
+                            <i class="fas fa-plus me-2"></i>Create One-Time Badge
+                        </button>
+                        <div class="mt-2">
+                            <a href="/badges/" class="btn btn-outline-secondary w-100 btn-sm">
+                                <i class="fas fa-arrow-left me-1"></i>Back to Badges
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create OTB Modal -->
+    <div class="modal fade" id="createOTBModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create One-Time Badge</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="otb-create-alert"></div>
+                    <form id="createOTBForm">
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-6">
+                                <label class="form-label">Layer *</label>
+                                <select id="otb-project" class="form-select"></select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Title *</label>
+                                <input type="text" class="form-control" id="otb-title" placeholder="e.g. Launch Day Contributor">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" id="otb-description" rows="2"></textarea>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-4">
+                                <label class="form-label">Earliest start *</label>
+                                <input type="date" class="form-control" id="otb-earliest-start">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label"># of badges</label>
+                                <input type="number" class="form-control" id="otb-quantity" value="1" min="1">
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-4">
+                                <label class="form-label small">Submission days</label>
+                                <input type="number" class="form-control form-control-sm" id="otb-submission-days" value="14" min="1">
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small">Delay days</label>
+                                <input type="number" class="form-control form-control-sm" id="otb-delay-days" value="2" min="0">
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small">Voting days</label>
+                                <input type="number" class="form-control form-control-sm" id="otb-voting-days" value="7" min="1">
+                            </div>
+                        </div>
+                        <label class="form-label small mb-1">Voting types</label>
+                        <div class="d-flex gap-3 mb-2">
+                            <div class="form-check"><input class="form-check-input" type="checkbox" id="otb-vote-regular" checked disabled><label class="form-check-label small">Regular</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" id="otb-vote-tw"><label class="form-check-label small">Time-weighted</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" id="otb-vote-quad"><label class="form-check-label small">Quadratic</label></div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="submitCreateOTB()">
+                        <i class="fas fa-save me-1"></i>Create
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    let allProjects = [];
+
+    const STATUS_COLORS = {{
+        draft: 'secondary', upcoming: 'info', submission: 'primary',
+        delay: 'warning', voting: 'success', completed: 'dark'
+    }};
+
+    async function loadProjects() {{
+        const r = await fetch('/api/layers/');
+        const d = await r.json();
+        allProjects = d.layers || [];
+        const pf = document.getElementById('otb-project-filter');
+        const ps = document.getElementById('otb-project');
+        allProjects.forEach(p => {{
+            const o1 = new Option(p.name, p.id);
+            const o2 = new Option(p.name, p.id);
+            pf.appendChild(o1);
+            ps.appendChild(o2);
+        }});
+    }}
+
+    async function loadOTBs() {{
+        const projectId = document.getElementById('otb-project-filter').value;
+        const status = document.getElementById('otb-status-filter').value;
+        let url = '/api/one-time-badges/';
+        if (projectId) url += '?layer_id=' + encodeURIComponent(projectId);
+        const r = await fetch(url);
+        const d = await r.json();
+        let badges = d.badges || [];
+        if (status) badges = badges.filter(b => b.status === status);
+        renderOTBs(badges);
+    }}
+
+    function renderOTBs(badges) {{
+        const el = document.getElementById('otb-list');
+        if (!badges.length) {{
+            el.innerHTML = '<div class="alert alert-info">No one-time badges found.</div>';
+            return;
+        }}
+        const now = new Date();
+        el.innerHTML = badges.map(b => {{
+            const earliest = b.earliest_start ? new Date(b.earliest_start) : null;
+            const color = STATUS_COLORS[b.status] || 'secondary';
+            let timeInfo = '';
+            if (b.status === 'upcoming' && earliest) {{
+                const days = Math.ceil((earliest - now) / 86400000);
+                timeInfo = `<small class="text-muted">Opens in ${{days}} day${{days !== 1 ? 's' : ''}} &middot; </small>`;
+            }} else if (b.submission_ends_at) {{
+                timeInfo = `<small class="text-muted">Submissions close ${{new Date(b.submission_ends_at).toLocaleDateString()}} &middot; </small>`;
+            }}
+            const proj = allProjects.find(p => p.id === b.layer_id);
+            return `<div class="card mb-2">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="mb-0">${{b.title}}</h6>
+                            <small class="text-muted">${{proj ? proj.name : b.layer_id}}</small>
+                        </div>
+                        <span class="badge bg-${{color}}">${{b.status}}</span>
+                    </div>
+                    ${{b.description ? `<p class="small mt-1 mb-1">${{b.description}}</p>` : ''}}
+                    <div class="mt-1">
+                        ${{timeInfo}}
+                        <small class="text-muted">${{b.quantity}} badge${{b.quantity !== 1 ? 's' : ''}} &middot;
+                        ${{b.submission_days}}d sub / ${{b.delay_days}}d delay / ${{b.voting_days}}d vote</small>
+                    </div>
+                    <div class="mt-2 d-flex gap-2">
+                        <button class="btn btn-outline-primary btn-sm" onclick="openEditOTB('${{b.id}}')">
+                            <i class="fas fa-edit me-1"></i>Edit
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="deleteOTB('${{b.id}}', '${{b.title}}')">
+                            <i class="fas fa-trash me-1"></i>Delete
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }}).join('');
+    }}
+
+    async function submitCreateOTB() {{
+        const projectId = document.getElementById('otb-project').value;
+        const title = document.getElementById('otb-title').value.trim();
+        const earliest = document.getElementById('otb-earliest-start').value;
+        if (!projectId || !title || !earliest) {{
+            document.getElementById('otb-create-alert').innerHTML = '<div class="alert alert-danger py-1">Layer, title, and earliest start are required.</div>';
+            return;
+        }}
+        const payload = {{
+            layer_id: projectId, title,
+            description: document.getElementById('otb-description').value.trim(),
+            earliest_start: earliest,
+            quantity: parseInt(document.getElementById('otb-quantity').value) || 1,
+            submission_days: parseInt(document.getElementById('otb-submission-days').value) || 14,
+            delay_days: parseInt(document.getElementById('otb-delay-days').value) || 2,
+            voting_days: parseInt(document.getElementById('otb-voting-days').value) || 7,
+            voting_time_weighted: document.getElementById('otb-vote-tw').checked,
+            voting_quadratic: document.getElementById('otb-vote-quad').checked,
+        }};
+        const r = await fetch('/api/one-time-badges/', {{
+            method: 'POST', headers: {{'Content-Type': 'application/json'}},
+            credentials: 'include', body: JSON.stringify(payload)
+        }});
+        const d = await r.json();
+        if (r.ok) {{
+            bootstrap.Modal.getInstance(document.getElementById('createOTBModal')).hide();
+            document.getElementById('createOTBForm').reset();
+            document.getElementById('otb-create-alert').innerHTML = '';
+            loadOTBs();
+        }} else {{
+            document.getElementById('otb-create-alert').innerHTML = `<div class="alert alert-danger py-1">${{d.error || 'Failed'}}</div>`;
+        }}
+    }}
+
+    async function openEditOTB(badgeId) {{
+        const r = await fetch('/api/one-time-badges/' + badgeId + '/');
+        const d = await r.json();
+        const b = d.badge;
+        const html = `
+        <div class="modal fade" id="editOTBModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header"><h5 class="modal-title">Edit One-Time Badge</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <div class="modal-body">
+                        <div id="otb-edit-alert"></div>
+                        <div class="mb-2"><label class="form-label small">Title</label>
+                            <input class="form-control" id="otb-edit-title" value="${{b.title}}"></div>
+                        <div class="mb-2"><label class="form-label small">Description</label>
+                            <textarea class="form-control" id="otb-edit-desc" rows="2">${{b.description || ''}}</textarea></div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="form-label small">Earliest start</label>
+                                <input type="date" class="form-control" id="otb-edit-earliest" value="${{b.earliest_start || ''}}"></div>
+                            <div class="col-6"><label class="form-label small">Quantity</label>
+                                <input type="number" class="form-control" id="otb-edit-qty" value="${{b.quantity}}" min="1"></div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-4"><label class="form-label small">Sub days</label>
+                                <input type="number" class="form-control form-control-sm" id="otb-edit-sub" value="${{b.submission_days}}" min="1"></div>
+                            <div class="col-4"><label class="form-label small">Delay days</label>
+                                <input type="number" class="form-control form-control-sm" id="otb-edit-delay" value="${{b.delay_days}}" min="0"></div>
+                            <div class="col-4"><label class="form-label small">Vote days</label>
+                                <input type="number" class="form-control form-control-sm" id="otb-edit-vote" value="${{b.voting_days}}" min="1"></div>
+                        </div>
+                        <div class="mb-2"><label class="form-label small">Status</label>
+                            <select class="form-select form-select-sm" id="otb-edit-status">
+                                ${{['draft','upcoming','submission','delay','voting','completed'].map(s =>
+                                    `<option value="${{s}}"${{b.status===s?' selected':''}}>${{s}}</option>`).join('')}}
+                            </select></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" onclick="saveEditOTB('${{b.id}}')">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+        document.getElementById('editOTBModal')?.remove();
+        document.body.insertAdjacentHTML('beforeend', html);
+        new bootstrap.Modal(document.getElementById('editOTBModal')).show();
+    }}
+
+    async function saveEditOTB(badgeId) {{
+        const payload = {{
+            title: document.getElementById('otb-edit-title').value.trim(),
+            description: document.getElementById('otb-edit-desc').value.trim(),
+            earliest_start: document.getElementById('otb-edit-earliest').value || null,
+            quantity: parseInt(document.getElementById('otb-edit-qty').value) || 1,
+            submission_days: parseInt(document.getElementById('otb-edit-sub').value) || 14,
+            delay_days: parseInt(document.getElementById('otb-edit-delay').value) || 2,
+            voting_days: parseInt(document.getElementById('otb-edit-vote').value) || 7,
+            status: document.getElementById('otb-edit-status').value,
+        }};
+        const r = await fetch('/api/one-time-badges/' + badgeId + '/', {{
+            method: 'PATCH', headers: {{'Content-Type': 'application/json'}},
+            credentials: 'include', body: JSON.stringify(payload)
+        }});
+        const d = await r.json();
+        if (r.ok) {{
+            bootstrap.Modal.getInstance(document.getElementById('editOTBModal')).hide();
+            loadOTBs();
+        }} else {{
+            document.getElementById('otb-edit-alert').innerHTML = `<div class="alert alert-danger py-1">${{d.error || 'Failed'}}</div>`;
+        }}
+    }}
+
+    async function deleteOTB(badgeId, title) {{
+        if (!confirm('Delete "' + title + '"? This cannot be undone.')) return;
+        const r = await fetch('/api/one-time-badges/' + badgeId + '/', {{
+            method: 'DELETE', credentials: 'include'
+        }});
+        if (r.ok) loadOTBs();
+        else alert('Delete failed');
+    }}
+
+    loadProjects().then(() => loadOTBs());
+    </script>
+    """
+
+    return render_page("One-Time Badges - MLGH", content, theme=current_theme, user_menu=user_menu)
+
 
 @app.route('/roles/<role_slug>/')
 def role_detail(role_slug):
@@ -21162,12 +25693,12 @@ def role_detail(role_slug):
     async function loadRole() {{
         try {{
             // Load all projects to find the role
-            const projectsResp = await fetch('/api/projects/');
+            const projectsResp = await fetch('/api/layers/');
             const projectsData = await projectsResp.json();
             
             // Search for role across all projects
-            for (const proj of projectsData.projects) {{
-                const rolesResp = await fetch(`/api/projects/${{proj.id}}/roles/`);
+            for (const proj of projectsData.layers) {{
+                const rolesResp = await fetch(`/api/layers/${{proj.id}}/roles/`);
                 const rolesData = await rolesResp.json();
                 const found = rolesData.roles.find(r => r.slug === roleSlug);
                 
@@ -21207,8 +25738,8 @@ def role_detail(role_slug):
                 <div class="col-md-8">
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb">
-                            <li class="breadcrumb-item"><a href="/projects/">Layers</a></li>
-                            <li class="breadcrumb-item"><a href="/projects/${{project.slug}}/">${{project.name}}</a></li>
+                            <li class="breadcrumb-item"><a href="/layers/">Layers</a></li>
+                            <li class="breadcrumb-item"><a href="/layers/${{project.slug}}/">${{project.name}}</a></li>
                             <li class="breadcrumb-item active">${{role.title_guild}}</li>
                         </ol>
                     </nav>
@@ -21234,14 +25765,14 @@ def role_detail(role_slug):
     
     function displayRoleDetails() {{
         const clusterLine = role.cluster_name
-            ? `<p><strong>Cluster:</strong> <a href="/projects/${{project.slug}}/#clusters">${{role.cluster_name}}</a></p>`
+            ? `<p><strong>Cluster:</strong> <a href="/layers/${{project.slug}}/#clusters">${{role.cluster_name}}</a></p>`
             : (role.cluster_id ? '<p><strong>Cluster:</strong> <span class="text-muted">—</span></p>' : '');
         
         const imageHtml = role.image_url ? `<div class="mb-3 text-center"><img src="${{role.image_url}}" alt="${{role.title_guild}}" class="img-fluid rounded" style="max-height: 200px;"></div>` : '';
         
         document.getElementById('role-details').innerHTML = `
             ${{imageHtml}}
-            <p><strong>Layer:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
+            <p><strong>Layer:</strong> <a href="/layers/${{project.slug}}/">${{project.name}}</a></p>
             ${{clusterLine}}
             <p><strong>Status:</strong> ${{role.status}}</p>
             <p><strong>Visibility:</strong> ${{role.public_visible ? 'Public' : 'Private'}}</p>
@@ -21393,6 +25924,67 @@ def role_detail(role_slug):
                                         <option value="">No cluster</option>
                                     </select>
                                 </div>
+
+                                <hr>
+                                <h6 class="mb-3"><i class="fas fa-medal me-2"></i>Badge Settings</h6>
+                                <div class="row g-2 mb-2">
+                                    <div class="col-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="edit-role-badge-enabled">
+                                            <label class="form-check-label" for="edit-role-badge-enabled">Badge enabled</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="edit-role-badge-approval">
+                                            <label class="form-check-label" for="edit-role-badge-approval">Require approval</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="role-badge-fields" class="border rounded p-2 bg-light bg-opacity-10">
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-4">
+                                            <label class="form-label small mb-0">Submission days</label>
+                                            <input type="number" class="form-control form-control-sm" id="edit-role-badge-submission-days" min="1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label small mb-0">Delay days</label>
+                                            <input type="number" class="form-control form-control-sm" id="edit-role-badge-delay-days" min="0">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label small mb-0">Voting days</label>
+                                            <input type="number" class="form-control form-control-sm" id="edit-role-badge-voting-days" min="1">
+                                        </div>
+                                    </div>
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-6">
+                                            <label class="form-label small mb-0">Earliest start date</label>
+                                            <input type="date" class="form-control form-control-sm" id="edit-role-badge-earliest-start">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small mb-0">Min. days between cycles</label>
+                                            <input type="number" class="form-control form-control-sm" id="edit-role-badge-cycle-spacing" min="1">
+                                        </div>
+                                    </div>
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-6">
+                                            <label class="form-label small mb-0">End date (optional)</label>
+                                            <input type="date" class="form-control form-control-sm" id="edit-role-badge-end-date">
+                                        </div>
+                                        <div class="col-6 d-flex align-items-end">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="edit-role-badge-end-next">
+                                                <label class="form-check-label small" for="edit-role-badge-end-next">End at next closing</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <label class="form-label small mb-1">Voting types</label>
+                                    <div class="d-flex gap-3 flex-wrap">
+                                        <div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-vote-regular" checked disabled><label class="form-check-label small" for="edit-role-vote-regular">Regular</label></div>
+                                        <div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-vote-tw"><label class="form-check-label small" for="edit-role-vote-tw">Time-weighted</label></div>
+                                        <div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-vote-quad"><label class="form-check-label small" for="edit-role-vote-quad">Quadratic</label></div>
+                                    </div>
+                                </div>
                             </form>
                         </div>
                         <div class="modal-footer">
@@ -21412,9 +26004,21 @@ def role_detail(role_slug):
         document.getElementById('edit-role-title-operational').value = role.title_operational || '';
         document.getElementById('edit-role-description').value = role.description || '';
         document.getElementById('edit-role-alert-container').innerHTML = '';
+        // Badge fields
+        document.getElementById('edit-role-badge-enabled').checked = !!role.badge_enabled;
+        document.getElementById('edit-role-badge-approval').checked = !!role.badge_requires_approval;
+        document.getElementById('edit-role-badge-submission-days').value = role.badge_submission_days ?? 14;
+        document.getElementById('edit-role-badge-delay-days').value = role.badge_delay_days ?? 2;
+        document.getElementById('edit-role-badge-voting-days').value = role.badge_voting_days ?? 7;
+        document.getElementById('edit-role-badge-earliest-start').value = role.badge_earliest_start || '';
+        document.getElementById('edit-role-badge-cycle-spacing').value = role.badge_cycle_spacing_days ?? 365;
+        document.getElementById('edit-role-badge-end-date').value = role.badge_end_date || '';
+        document.getElementById('edit-role-badge-end-next').checked = !!role.badge_end_at_next_closing;
+        document.getElementById('edit-role-vote-tw').checked = !!role.badge_voting_time_weighted;
+        document.getElementById('edit-role-vote-quad').checked = !!role.badge_voting_quadratic;
         const clusterSelect = document.getElementById('edit-role-cluster');
         clusterSelect.innerHTML = '<option value="">No cluster</option>';
-        fetch(`/api/projects/${{project.id}}/clusters/`).then(r => r.json()).then(d => {{
+        fetch(`/api/layers/${{project.id}}/clusters/`).then(r => r.json()).then(d => {{
             (d.clusters || []).forEach(c => {{
                 const opt = document.createElement('option');
                 opt.value = c.id || '';
@@ -21437,11 +26041,25 @@ def role_detail(role_slug):
             const btn = document.getElementById('editRoleSubmitBtn');
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+            const badgePayload = {{
+                badge_enabled: document.getElementById('edit-role-badge-enabled').checked,
+                badge_requires_approval: document.getElementById('edit-role-badge-approval').checked,
+                badge_submission_days: parseInt(document.getElementById('edit-role-badge-submission-days').value) || 14,
+                badge_delay_days: parseInt(document.getElementById('edit-role-badge-delay-days').value) || 2,
+                badge_voting_days: parseInt(document.getElementById('edit-role-badge-voting-days').value) || 7,
+                badge_earliest_start: document.getElementById('edit-role-badge-earliest-start').value || null,
+                badge_cycle_spacing_days: parseInt(document.getElementById('edit-role-badge-cycle-spacing').value) || 365,
+                badge_end_date: document.getElementById('edit-role-badge-end-date').value || null,
+                badge_end_at_next_closing: document.getElementById('edit-role-badge-end-next').checked,
+                badge_voting_regular: true,
+                badge_voting_time_weighted: document.getElementById('edit-role-vote-tw').checked,
+                badge_voting_quadratic: document.getElementById('edit-role-vote-quad').checked,
+            }};
             try {{
                 const response = await fetch(`/api/roles/${{role.id}}/`, {{
                     method: 'PATCH',
                     headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{ title_guild: titleGuild, title_operational: titleOperational || null, description, cluster_id: clusterId }})
+                    body: JSON.stringify({{ title_guild: titleGuild, title_operational: titleOperational || null, description, cluster_id: clusterId, ...badgePayload }})
                 }});
                 if (!response.ok) {{
                     const data = await response.json();
@@ -21452,6 +26070,7 @@ def role_detail(role_slug):
                 role.description = description;
                 role.cluster_id = clusterId;
                 role.cluster_name = clusterId ? clusterSelect.options[clusterSelect.selectedIndex].text : null;
+                Object.assign(role, badgePayload);
                 modal.hide();
                 displayRoleHeader();
                 displayRoleDescription();
@@ -21542,12 +26161,12 @@ https://github.com/username/project"></textarea>
     async function loadRole() {{
         try {{
             // Load all projects to find the role
-            const projectsResp = await fetch('/api/projects/');
+            const projectsResp = await fetch('/api/layers/');
             const projectsData = await projectsResp.json();
             
             // Search for role across all projects
-            for (const proj of projectsData.projects) {{
-                const rolesResp = await fetch(`/api/projects/${{proj.id}}/roles/`);
+            for (const proj of projectsData.layers) {{
+                const rolesResp = await fetch(`/api/layers/${{proj.id}}/roles/`);
                 const rolesData = await rolesResp.json();
                 const found = rolesData.roles.find(r => r.slug === roleSlug);
                 
@@ -21588,7 +26207,7 @@ https://github.com/username/project"></textarea>
                 <h5>${{role.title_guild}}</h5>
                 ${{role.title_operational ? `<h6 class="text-muted">${{role.title_operational}}</h6>` : ''}}
                 <p class="mt-3">${{role.description}}</p>
-                <p class="mb-0"><strong>Layer:</strong> <a href="/projects/${{project.slug}}/">${{project.name}}</a></p>
+                <p class="mb-0"><strong>Layer:</strong> <a href="/layers/${{project.slug}}/">${{project.name}}</a></p>
             </div>
         `;
     }}
