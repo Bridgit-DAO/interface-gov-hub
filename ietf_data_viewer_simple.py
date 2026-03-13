@@ -2245,6 +2245,77 @@ class ArtifactRelation(db.Model):
     )
 
 
+# ================================================================
+# QUEST + QUEST SUBMISSION (GOV-HUB-3 Phase 2.1)
+# ================================================================
+
+class Quest(db.Model):
+    """Layer-scoped bounty/contribution task. Submissions link via QuestSubmission."""
+    __tablename__ = 'quest'
+
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    creator_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    quest_type = db.Column(db.String(50), default='contribution', nullable=False, index=True)
+    difficulty = db.Column(db.String(20), default='medium', nullable=False)
+    status = db.Column(db.String(20), default='open', nullable=False, index=True)
+    acceptance_criteria = db.Column(db.Text, nullable=True)
+    due_date = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    layer = db.relationship('Layer', backref=db.backref('quests', lazy='dynamic'))
+    creator = db.relationship('User', backref=db.backref('created_quests', lazy='dynamic'))
+
+
+class QuestSubmission(db.Model):
+    """Submission of an artifact (e.g. draft) for a quest. Tracks review state."""
+    __tablename__ = 'quest_submission'
+
+    id = db.Column(db.Integer, primary_key=True)
+    quest_id = db.Column(db.Integer, db.ForeignKey('quest.id'), nullable=False, index=True)
+    artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)
+    submitter_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    status = db.Column(db.String(20), default='pending_review', nullable=False, index=True)
+    review_notes = db.Column(db.Text, nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    reviewed_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    quest = db.relationship('Quest', backref=db.backref('submissions', lazy='dynamic'))
+    artifact = db.relationship('Artifact', backref=db.backref('quest_submissions', lazy='dynamic'))
+    submitter = db.relationship('User', foreign_keys=[submitter_user_id])
+    reviewed_by = db.relationship('User', foreign_keys=[reviewed_by_user_id])
+
+
+# ================================================================
+# MONUMENT (GOV-HUB-3 Phase 2.5 — Digital Monuments Registry)
+# ================================================================
+
+class Monument(db.Model):
+    """Layer-scoped digital monument; references external URI, links to artifacts."""
+    __tablename__ = 'monument'
+
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    monument_type = db.Column(db.String(50), default='reference', nullable=False, index=True)
+    steward_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    uri = db.Column(db.String(500), nullable=True)
+    provenance = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), default='active', nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    layer = db.relationship('Layer', backref=db.backref('monuments', lazy='dynamic'))
+    steward = db.relationship('User', backref=db.backref('stewarded_monuments', lazy='dynamic'))
+
+
 def _ensure_artifact_for_submission(submission):
     """Create Artifact for a new Submission (GOV-HUB-3). Idempotent if artifact_id already set."""
     if submission.artifact_id:
@@ -9333,10 +9404,91 @@ def api_layer_opportunities(layer_id):
             missing_support.append(item)
         if not has_opposition:
             missing_opposition.append(item)
+    # Open quests (GOV-HUB-3 Phase 2.1)
+    open_quests = []
+    try:
+        for q in Quest.query.filter_by(layer_id=layer_id, status='open').order_by(Quest.created_at.desc()).limit(20):
+            open_quests.append({
+                'id': q.id, 'public_id': q.public_id, 'title': q.title,
+                'quest_type': q.quest_type, 'difficulty': q.difficulty,
+            })
+    except Exception:
+        pass
     return jsonify({
         'missing_support': missing_support,
         'missing_opposition': missing_opposition,
+        'open_quests': open_quests,
     }), 200
+
+@app.route('/api/layers/<layer_id>/quests/', methods=['GET', 'POST'])
+def api_layer_quests(layer_id):
+    """List or create quests for a layer (GOV-HUB-3 Phase 2.1)."""
+    Layer.query.get_or_404(layer_id)
+    if request.method == 'GET':
+        status_filter = request.args.get('status') or 'open'
+        q = Quest.query.filter_by(layer_id=layer_id)
+        if status_filter:
+            q = q.filter(Quest.status == status_filter)
+        quests = q.order_by(Quest.created_at.desc()).all()
+        return jsonify({
+            'quests': [{
+                'id': q.id, 'public_id': q.public_id, 'title': q.title, 'description': q.description,
+                'quest_type': q.quest_type, 'difficulty': q.difficulty, 'status': q.status,
+                'acceptance_criteria': q.acceptance_criteria,
+                'due_date': q.due_date.isoformat() if q.due_date else None,
+                'created_at': q.created_at.isoformat() if q.created_at else None,
+            } for q in quests]
+        }), 200
+    # POST: create quest (requires auth)
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    data = request.get_json() or {}
+    quest = Quest(
+        layer_id=layer_id,
+        creator_user_id=current_user.get('id'),
+        title=data.get('title') or 'Untitled Quest',
+        description=data.get('description'),
+        quest_type=data.get('quest_type', 'contribution'),
+        difficulty=data.get('difficulty', 'medium'),
+        status='open',
+        acceptance_criteria=data.get('acceptance_criteria'),
+    )
+    db.session.add(quest)
+    db.session.flush()
+    emit_event('quest_created', actor_type='user', actor_id=current_user.get('id'),
+               subject_type='quest', subject_id=str(quest.id), layer_id=layer_id,
+               payload={'title': quest.title})
+    db.session.commit()
+    return jsonify({
+        'quest': {'id': quest.id, 'public_id': quest.public_id, 'title': quest.title},
+    }), 201
+
+@app.route('/api/quests/<int:quest_id>/submit/', methods=['POST'])
+def api_quest_submit(quest_id):
+    """Submit an artifact for a quest (GOV-HUB-3 Phase 2.1)."""
+    quest = Quest.query.get_or_404(quest_id)
+    if quest.status != 'open':
+        return jsonify({'error': 'Quest is not open for submissions'}), 400
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    data = request.get_json() or {}
+    artifact_id = data.get('artifact_id')
+    if not artifact_id:
+        return jsonify({'error': 'artifact_id required'}), 400
+    Artifact.query.get_or_404(artifact_id)
+    qs = QuestSubmission(
+        quest_id=quest_id,
+        artifact_id=artifact_id,
+        submitter_user_id=current_user.get('id'),
+        status='pending_review',
+    )
+    db.session.add(qs)
+    db.session.commit()
+    return jsonify({
+        'quest_submission': {'id': qs.id, 'status': qs.status, 'artifact_id': artifact_id},
+    }), 201
 
 @app.route('/api/artifacts/<artifact_id>/relations/', methods=['GET'])
 def api_artifact_relations(artifact_id):
@@ -21313,8 +21465,9 @@ def _render_project_detail(project_slug, waitlist_id=None):
             }}
             const ms = data.missing_support || [];
             const mo = data.missing_opposition || [];
-            if (ms.length === 0 && mo.length === 0) {{
-                container.innerHTML = '<p class="text-muted small mb-0">All drafts have support and opposition. Great participation!</p>';
+            const oq = data.open_quests || [];
+            if (ms.length === 0 && mo.length === 0 && oq.length === 0) {{
+                container.innerHTML = '<p class="text-muted small mb-0">All drafts have support and opposition. No open quests. Great participation!</p>';
                 return;
             }}
             let html = '<div class="row">';
@@ -21332,6 +21485,14 @@ def _render_project_detail(project_slug, waitlist_id=None):
                     html += '<li class="mb-1"><a href="/doc/draft/' + (a.draft_id || a.id) + '/" class="text-decoration-none">' + escapeHtmlBasic(a.title || 'Untitled') + '</a></li>';
                 }});
                 if (mo.length > 5) html += '<li class="text-muted">+' + (mo.length - 5) + ' more</li>';
+                html += '</ul></div>';
+            }}
+            if (oq.length > 0) {{
+                html += '<div class="col-12 mt-2"><h6 class="text-primary"><i class="fas fa-tasks me-1"></i>Open quests</h6><ul class="list-unstyled small">';
+                oq.slice(0, 5).forEach(q => {{
+                    html += '<li class="mb-1"><span class="badge bg-secondary me-1">' + escapeHtmlBasic(q.quest_type || 'quest') + '</span><a href="/layers/' + (project?.slug || project?.id || '') + '/quests/' + q.id + '" class="text-decoration-none">' + escapeHtmlBasic(q.title || 'Untitled') + '</a></li>';
+                }});
+                if (oq.length > 5) html += '<li class="text-muted">+' + (oq.length - 5) + ' more</li>';
                 html += '</ul></div>';
             }}
             html += '</div>';
@@ -23328,6 +23489,17 @@ def layer_detail(layer_slug):
 def layer_detail_waitlist(layer_slug, waitlist_id):
     """Layer detail with specific waitlist tab (for referral links)"""
     return _render_project_detail(layer_slug, waitlist_id=waitlist_id)
+
+@app.route('/layers/<layer_slug>/quests/<int:quest_id>/')
+def layer_quest_detail(layer_slug, quest_id):
+    """Quest detail: redirect to layer Opportunities tab (GOV-HUB-3 Phase 2.1)."""
+    layer = Layer.query.filter_by(slug=layer_slug).first() or Layer.query.get(layer_slug)
+    if not layer:
+        return "Layer not found", 404
+    quest = Quest.query.filter_by(id=quest_id, layer_id=layer.id).first()
+    if not quest:
+        return "Quest not found", 404
+    return redirect(url_for('layer_detail', layer_slug=layer_slug) + '#opportunities')
 
 @app.route('/layers/<layer_slug>/artifacts/<artifact_id>/')
 def artifact_detail(layer_slug, artifact_id):
