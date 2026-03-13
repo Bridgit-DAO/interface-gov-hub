@@ -3504,8 +3504,19 @@ BASE_TEMPLATE = """
         .layer-card-text {{
             display: -webkit-box;
             -webkit-box-orient: vertical;
-            -webkit-line-clamp: 10;
+            -webkit-line-clamp: 3;
             overflow: hidden;
+            font-size: 0.85rem;
+            line-height: 1.35;
+        }}
+        /* Responsive: layers grid, navbar, containers */
+        @media (max-width: 575.98px) {{
+            .container {{ padding-left: 12px; padding-right: 12px; }}
+            .navbar-nav {{ padding: 8px 0; }}
+            .navbar-brand {{ font-size: 16px; padding: 12px 16px; }}
+        }}
+        @media (min-width: 1400px) {{
+            .layer-card-col {{ flex: 0 0 16.666667%; max-width: 16.666667%; }}
         }}
 
         /* Theme toggle button */
@@ -19199,19 +19210,19 @@ def projects_directory():
     current_user = get_current_user()
     
     content = f"""
-    <div class="container mt-4">
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <h1>Layers Directory</h1>
-                <p class="lead">Browse and discover MLTF layers</p>
+    <div class="container-fluid container-lg mt-3 mt-md-4 px-3 px-md-4">
+        <div class="row mb-3 mb-md-4 align-items-center">
+            <div class="col-12 col-md-8 mb-2 mb-md-0">
+                <h1 class="h4 h2-md mb-1">Layers Directory</h1>
+                <p class="lead mb-0 small text-muted">Browse and discover MLTF layers</p>
             </div>
-            <div class="col-md-4 text-end">
-                {'<a href="/layers/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Layer</a>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
+            <div class="col-12 col-md-4 text-md-end">
+                {'<a href="/layers/create/" class="btn btn-primary w-100 w-md-auto"><i class="fas fa-plus me-2"></i>Create Layer</a>' if current_user else '<a href="/login/" class="btn btn-primary w-100 w-md-auto"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
             </div>
         </div>
         
-        <div class="row mb-4">
-            <div class="col-md-4">
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-sm-6 col-lg-4">
                 <label for="status-filter" class="form-label">Status:</label>
                 <select id="status-filter" class="form-select" onchange="loadProjects()">
                     <option value="">All Statuses</option>
@@ -19281,6 +19292,14 @@ def projects_directory():
         displayProjects(filtered);
     }}
     
+    function truncateToSentences(text, maxSentences) {{
+        if (!text) return 'No description';
+        const plain = String(text).replace(/<br\\s*\\/?>/gi, ' ').replace(/<[^>]+>/g, '').trim();
+        const sentences = plain.split(/(?<=[.!?])\\s+/);
+        const taken = sentences.slice(0, maxSentences || 2).join(' ');
+        return taken + (sentences.length > (maxSentences || 2) ? '…' : '');
+    }}
+    
     function displayProjects(projects) {{
         const container = document.getElementById('projects-container');
         
@@ -19293,29 +19312,31 @@ def projects_directory():
         projects.forEach(project => {{
             const statusBadge = (project.approval_status === 'approved' && project.status === 'proposed') ? '' : getStatusBadge(project.status);
             const approvalBadge = getApprovalBadge(project.approval_status);
+            const desc = truncateToSentences(project.description || 'No description', 2);
+            const descEsc = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             
-            const projectImgHtml = project.image_url ? `<div class="card-img-top overflow-hidden" style="background: var(--bg-secondary, #f8f9fa);"><img src="${{project.image_url}}" alt="${{project.name}}" class="w-100" style="display: block; vertical-align: top;"></div>` : '';
+            const projectImgHtml = project.image_url ? `<div class="card-img-top overflow-hidden" style="background: var(--bg-secondary, #f8f9fa);"><img src="${{project.image_url}}" alt="${{project.name}}" class="w-100" style="display: block; vertical-align: top; object-fit: cover;"></div>` : '';
             html += `
-                <div class="col-md-6 col-lg-4 mb-4">
+                <div class="col-12 col-sm-6 col-md-4 col-lg-3 col-xl-2 mb-4">
                     <div class="card h-100">
                         ${{projectImgHtml}}
-                        <div class="card-body">
-                            <h5 class="card-title">
-                                <a href="/layers/${{project.slug}}/">${{project.name}}</a>
-                            </h5>
-                            <div class="mb-2">
+                        <div class="card-body d-flex flex-column">
+                            <h6 class="card-title">
+                                <a href="/layers/${{project.slug}}/">${{(project.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}}</a>
+                            </h6>
+                            <div class="mb-2 small">
                                 ${{statusBadge}}
                                 ${{approvalBadge}}
                             </div>
-                            <p class="card-text text-muted layer-card-text">${{(project.description || 'No description').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>')}}</p>
-                            <div class="mt-3">
+                            <p class="card-text text-muted small layer-card-text flex-grow-1" style="font-size: 0.8rem; line-height: 1.3; -webkit-line-clamp: 3; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;">${{descEsc}}</p>
+                            <div class="mt-auto">
                                 <small class="text-muted">
                                     <i class="fas fa-users me-1"></i> ${{project.workgroups_count || 0}} workgroups
                                 </small>
                             </div>
                         </div>
-                        <div class="card-footer">
-                            <small class="text-muted">Created ${{new Date(project.created_at).toLocaleDateString()}}</small>
+                        <div class="card-footer py-2">
+                            <small class="text-muted">${{new Date(project.created_at).toLocaleDateString()}}</small>
                         </div>
                     </div>
                 </div>
@@ -20724,6 +20745,9 @@ def _render_project_detail(project_slug, waitlist_id=None):
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="votes-tab" data-bs-toggle="tab" data-bs-target="#votes" type="button">Votes</button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="opportunities-tab" data-bs-toggle="tab" data-bs-target="#opportunities" type="button">Opportunities</button>
+            </li>
             {admin_tab_html}
             <li id="waitlist-tabs-marker" class="nav-item d-none"></li>
         </ul>
@@ -20747,6 +20771,15 @@ def _render_project_detail(project_slug, waitlist_id=None):
             </div>
             <div class="tab-pane fade" id="votes">
                 <div id="votes-content"></div>
+            </div>
+            <div class="tab-pane fade" id="opportunities">
+                <div class="card mb-4">
+                    <div class="card-header"><h5 class="mb-0"><i class="fas fa-bullseye me-2"></i>Opportunities</h5></div>
+                    <div class="card-body">
+                        <p class="text-muted">Drafts needing support or opposition, open quests, and ways to contribute.</p>
+                        <div id="opportunities-tab-container"><div class="text-center py-4"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>
+                    </div>
+                </div>
             </div>
             {admin_tab_pane_html}
             <div id="waitlist-panes-marker" class="d-none"></div>
@@ -21041,6 +21074,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         if (buttonId === 'roles-tab') return 'roles';
         if (buttonId === 'claims-tab') return 'claims';
         if (buttonId === 'votes-tab') return 'votes';
+        if (buttonId === 'opportunities-tab') return 'opportunities';
         if (buttonId === 'admin-tab') return 'admin';
         const m = buttonId.match(/^waitlist-tab-(\\d+)$/);
         return m ? 'waitlist-' + m[1] : null;
@@ -21055,7 +21089,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     }}
     
     function switchToTab(tabId) {{
-        const map = {{ workgroups: 'workgroups-tab', clusters: 'clusters-tab', roles: 'roles-tab', claims: 'claims-tab', votes: 'votes-tab', admin: 'admin-tab' }};
+        const map = {{ workgroups: 'workgroups-tab', clusters: 'clusters-tab', roles: 'roles-tab', claims: 'claims-tab', votes: 'votes-tab', opportunities: 'opportunities-tab', admin: 'admin-tab' }};
         const btnId = map[tabId];
         const tabEl = btnId ? document.getElementById(btnId) : null;
         if (tabEl) tabEl.click();
@@ -21080,7 +21114,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 const id = stored.replace('waitlist-', '');
                 tabEl = document.getElementById('waitlist-tab-' + id);
             }} else {{
-                const map = {{ workgroups: 'workgroups-tab', clusters: 'clusters-tab', roles: 'roles-tab', claims: 'claims-tab', votes: 'votes-tab', admin: 'admin-tab' }};
+                const map = {{ workgroups: 'workgroups-tab', clusters: 'clusters-tab', roles: 'roles-tab', claims: 'claims-tab', votes: 'votes-tab', opportunities: 'opportunities-tab', admin: 'admin-tab' }};
                 const btnId = map[stored];
                 tabEl = btnId ? document.getElementById(btnId) : null;
             }}
@@ -21254,16 +21288,6 @@ def _render_project_detail(project_slug, waitlist_id=None):
             <div class="row">
                 <div class="col-12">
                     <div class="card mb-4">
-                        <div class="card-header"><h5 class="mb-0"><i class="fas fa-bullseye me-2"></i>Opportunities</h5></div>
-                        <div class="card-body">
-                            <div id="opportunities-container"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-12">
-                    <div class="card mb-4">
                         <div class="card-header"><h5 class="mb-0"><i class="fas fa-stream me-2"></i>Recent Activity</h5></div>
                         <div class="card-body">
                             <div id="activity-feed-container"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>
@@ -21274,12 +21298,11 @@ def _render_project_detail(project_slug, waitlist_id=None):
         `;
         
         loadRolesCounts();
-        loadOpportunities();
         loadActivityFeed();
     }}
     
     async function loadOpportunities() {{
-        const container = document.getElementById('opportunities-container');
+        const container = document.getElementById('opportunities-container') || document.getElementById('opportunities-content') || document.getElementById('opportunities-tab-container');
         if (!container || !project) return;
         try {{
             const res = await fetch(`/api/layers/${{project.id}}/opportunities/`);
@@ -21648,6 +21671,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     document.getElementById('roles-tab').addEventListener('shown.bs.tab', loadRoles);
     document.getElementById('claims-tab').addEventListener('shown.bs.tab', loadClaims);
     document.getElementById('votes-tab').addEventListener('shown.bs.tab', loadVotes);
+    document.getElementById('opportunities-tab').addEventListener('shown.bs.tab', loadOpportunities);
     {admin_tab_listener}
     
     function clearHashIfNeeded(tabKey) {{
@@ -21661,7 +21685,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         }}
     }}
     
-    ['overview-tab','workgroups-tab','clusters-tab','roles-tab'].forEach(function(id) {{
+    ['overview-tab','workgroups-tab','clusters-tab','roles-tab','claims-tab','votes-tab','opportunities-tab'].forEach(function(id) {{
         const el = document.getElementById(id);
         if (el) el.addEventListener('click', function() {{ clearHashIfNeeded(getProjectTabKey(id)); }}, true);
     }});
@@ -23578,12 +23602,15 @@ def create_project_page():
                 document.getElementById('alert-container').innerHTML = `
                     <div class="alert alert-success">
                         <i class="fas fa-check-circle me-2"></i>
-                        Project created successfully! Redirecting...
+                        Layer created successfully! Redirecting...
                     </div>
                 `;
-                setTimeout(() => {
-                    window.location.href = `/layers/${data.project.slug}/`;
-                }, 1500);
+                const slug = data.layer?.slug || data.project?.slug;
+                if (slug) {
+                    setTimeout(() => { window.location.href = `/layers/${slug}/`; }, 1500);
+                } else {
+                    setTimeout(() => { window.location.href = '/layers/'; }, 1500);
+                }
             } else {
                 throw new Error(data.error || 'Failed to create project');
             }
