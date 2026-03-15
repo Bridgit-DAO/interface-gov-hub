@@ -1,7 +1,7 @@
 # UUID Primary Key Migration — Maintenance Window
 
-**Phase:** 6 (PLANNING_FULL_PICTURE.md)  
-**Scope:** Full PK migration from int/string to UUID for all major entities.
+**Phase:** 6 + 7 (PLANNING_FULL_PICTURE.md)  
+**Scope:** Full PK migration from int/string to UUID for all major entities. Phase 7 migrates remaining string(50) PK tables.
 
 ## Pre-Migration Checklist
 
@@ -26,6 +26,7 @@ python migrate_uuid_pk.py --db /path/to/datatracker.db
 python migrate_uuid_pk.py --phase 1   # User only
 python migrate_uuid_pk.py --phase 2   # Layer only
 python migrate_uuid_pk.py --phase 3   # Submission only
+python migrate_uuid_pk.py --phase 7   # BadgeSkin, BadgeCycle, OneTimeBadge, GuildInvitation, StatusChange (if 1–6 already run)
 ```
 
 ## Phases
@@ -62,7 +63,7 @@ If migration fails or issues are discovered:
 2. **Update routes** — Any routes using integer/string IDs must accept UUID
 3. **Update API** — Ensure API accepts UUID in paths
 4. **Recreate indexes** — Migration drops tables; run `db.create_all()` or add index migration if needed
-5. **Smoke test** — Login, view layers, submissions, votes, roles, claims, badges
+5. **Smoke test** — Login, view layers (workgroups count), submissions, votes, roles, claims, badges, waitlists (Members, Milestones), embed widget
 
 6. **Submission/Layer creation** — Code that creates `Submission(id=submission_id, ...)` or `Layer(id=project_id, ...)` with short human-readable IDs must be updated: either omit `id` (let default UUID generate) or pass `id=str(uuid4())`. Use `draft_name`/`ml_number` for human-readable identifiers.
 
