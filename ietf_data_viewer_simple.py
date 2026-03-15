@@ -317,6 +317,9 @@ def init_db():
         # Run database migrations for ordinals support
         migrate_ordinals_support()
         migrate_inscription_order_and_config()
+        migrate_vote_ballot_order_seed()
+        migrate_artifact_spec_fields()
+        migrate_submission_draft_name_backfill()
 
         # Check if we need to migrate for Hypothesis accounts
         try:
@@ -742,10 +745,75 @@ def migrate_inscription_order_and_config():
             conn.commit()
             print("✅ Added offer_tier_pricing to layer")
 
+        # Add meta-domain columns (ordinal-sourced domain for layer identity)
+        for col, col_type in [('meta_domain_inscription_id', 'VARCHAR(255)'), ('meta_domain', 'TEXT')]:
+            cursor.execute("PRAGMA table_info(layer)")
+            current_cols = [c[1] for c in cursor.fetchall()]
+            if col not in current_cols:
+                cursor.execute(f"ALTER TABLE layer ADD COLUMN {col} {col_type}")
+                conn.commit()
+                print(f"✅ Added {col} to layer")
+
         conn.close()
         print("✅ Inscription order and site config migration complete")
     except Exception as e:
         print(f"⚠️  Error in inscription migration: {e}")
+
+
+def migrate_vote_ballot_order_seed():
+    """Add ballot_order_seed to vote table for randomized candidate order."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(vote)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'ballot_order_seed' not in cols:
+            cursor.execute("ALTER TABLE vote ADD COLUMN ballot_order_seed INTEGER")
+            conn.commit()
+            print("✅ Added ballot_order_seed to vote")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in vote ballot_order_seed migration: {e}")
+
+
+def migrate_artifact_spec_fields():
+    """Add artifact_specification.md fields to artifact table."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(artifact)")
+        cols = [c[1] for c in cursor.fetchall()]
+        for col, col_type in [
+            ('artifact_subtype', 'VARCHAR(50)'),
+            ('body', 'TEXT'),
+            ('source_language', 'VARCHAR(20)'),
+            ('current_language', 'VARCHAR(20)'),
+            ('updated_at', 'DATETIME'),
+        ]:
+            if col not in cols:
+                cursor.execute(f"ALTER TABLE artifact ADD COLUMN {col} {col_type}")
+                conn.commit()
+                print(f"✅ Added {col} to artifact")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in artifact spec migration: {e}")
+
+
+def migrate_submission_draft_name_backfill():
+    """Backfill draft_name for submissions with NULL (post-UUID migration)."""
+    try:
+        subs = Submission.query.filter(Submission.draft_name.is_(None)).all()
+        for s in subs:
+            s.draft_name = s.id  # Use UUID as draft_name so get_submission_by_ref finds by either
+        if subs:
+            db.session.commit()
+            print(f"✅ Backfilled draft_name for {len(subs)} submission(s)")
+    except Exception as e:
+        print(f"⚠️  Error in draft_name backfill: {e}")
 
 
 def migrate_ordinals_support():
@@ -933,13 +1001,13 @@ db = SQLAlchemy(app)
 
 # Database Models
 class Submission(db.Model):
-    id = db.Column(db.String(8), primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     title = db.Column(db.String(255))
     authors = db.Column(db.JSON)  # List of author dicts
     abstract = db.Column(db.Text)
     group = db.Column(db.String(50))
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True, index=True)
     filename = db.Column(db.String(255))
     file_path = db.Column(db.String(500))
     draft_name = db.Column(db.String(255))
@@ -986,8 +1054,8 @@ class InscriptionOrder(db.Model):
     """Stripe payment for inscription via wizard flow."""
     __tablename__ = 'inscription_order'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True, index=True)
     status = db.Column(db.String(30), default='pending_payment')
     # pending_payment | paid | inscribing | completed | failed
     content_text = db.Column(db.Text, nullable=True)
@@ -1019,12 +1087,12 @@ class InscriptionOrder(db.Model):
 
 
 class Comment(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     draft_name = db.Column(db.String(255), index=True)
     text = db.Column(db.Text)
     author = db.Column(db.String(100))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
+    parent_id = db.Column(db.String(36), db.ForeignKey('comment.id'), nullable=True)
     edited_at = db.Column(db.DateTime, nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
     original_text = db.Column(db.Text, nullable=True)  # Store original text for edit history
@@ -1033,7 +1101,7 @@ class Comment(db.Model):
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy=True)
 
 class DocumentHistory(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     draft_name = db.Column(db.String(255), index=True)
     action = db.Column(db.String(50))
     user = db.Column(db.String(100))
@@ -1041,14 +1109,14 @@ class DocumentHistory(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
 class WorkingGroupMember(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     group_acronym = db.Column(db.String(50), index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # primary lookup
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)  # primary lookup
     user_name = db.Column(db.String(100), index=True)  # for display
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     username = db.Column(db.String(50), unique=True, index=True)
     password_hash = db.Column(db.String(255))
@@ -1090,8 +1158,8 @@ class User(db.Model):
     last_login = db.Column(db.DateTime, nullable=True)
 
 class UserFollow(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     draft_name = db.Column(db.String(100), nullable=False)
     followed_at = db.Column(db.DateTime, default=datetime.utcnow)
     notification_level = db.Column(db.String(20), default='all')  # all, significant, major, comments, none
@@ -1103,8 +1171,8 @@ class UserFollow(db.Model):
 
 class HypothesisAccount(db.Model):
     """Links Meta-Layer users to their Hypothesis accounts"""
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, unique=True)
     hypothesis_username = db.Column(db.String(100), nullable=False, unique=True)
     hypothesis_userid = db.Column(db.String(100), nullable=False, unique=True)  # acct:username@authority
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -1122,9 +1190,9 @@ class HypothesisAccount(db.Model):
 
 class CoordinatorRequest(db.Model):
     """User-requested coordinator role; requires approval. Ties coordinator to user id."""
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     group_acronym = db.Column(db.String(50), index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # known user
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)  # known user
     username = db.Column(db.String(100), index=True)  # always set for lookup
     display_name = db.Column(db.String(200))  # for display in lists
     status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
@@ -1134,9 +1202,9 @@ class CoordinatorRequest(db.Model):
 
 class WorkgroupMemberRequest(db.Model):
     """Pending member join when workgroup has members_require_approval=True."""
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     group_acronym = db.Column(db.String(50), index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     user_name = db.Column(db.String(100), index=True)
     status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
     requested_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -1144,10 +1212,10 @@ class WorkgroupMemberRequest(db.Model):
     reviewed_by = db.Column(db.String(100), nullable=True)
 
 class WorkingGroupChair(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     group_acronym = db.Column(db.String(50), index=True)
     chair_name = db.Column(db.String(100))
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # set when created from CoordinatorRequest
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)  # set when created from CoordinatorRequest
     approved = db.Column(db.Boolean, default=False)
     set_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -1155,9 +1223,9 @@ class RoleImage(db.Model):
     """Visual representation proposed for a role"""
     __tablename__ = 'role_image'
     
-    id = db.Column(db.String(50), primary_key=True)  # rimg_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(50), nullable=True, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True, index=True)
     role_slug = db.Column(db.String(100), nullable=False, index=True)  # kept for backward compat
 
     # Polymorphic entity reference
@@ -1165,7 +1233,7 @@ class RoleImage(db.Model):
     entity_id = db.Column(db.String(100), nullable=True, index=True)    # role_slug, wg id, or otb id
 
     # Cycle association
-    cycle_id = db.Column(db.String(50), nullable=True, index=True)  # FK to badge_cycle.id
+    cycle_id = db.Column(db.String(36), db.ForeignKey('badge_cycle.id'), nullable=True, index=True)
 
     # Source
     source_type = db.Column(db.String(20), nullable=False)  # 'upload', 'url', 'ordinal'
@@ -1188,11 +1256,11 @@ class RoleImage(db.Model):
     
     # Admin actions
     admin_note = db.Column(db.Text, nullable=True)
-    promoted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    promoted_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     promoted_at = db.Column(db.DateTime, nullable=True)
     
     # Audit
-    submitted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    submitted_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     
@@ -1237,9 +1305,9 @@ class RoleImageVote(db.Model):
     """User vote on a role image proposal"""
     __tablename__ = 'role_image_vote'
     
-    id = db.Column(db.Integer, primary_key=True)
-    image_id = db.Column(db.String(50), db.ForeignKey('role_image.id'), nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    image_id = db.Column(db.String(36), db.ForeignKey('role_image.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     
     # Vote value: 1 (upvote) or -1 (downvote)
     value = db.Column(db.Integer, nullable=False)  # 1 or -1
@@ -1266,7 +1334,7 @@ class BadgeSkin(db.Model):
     """Layout template for rendering a badge"""
     __tablename__ = 'badge_skin'
 
-    id = db.Column(db.String(50), primary_key=True)  # skin_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     name = db.Column(db.String(100), nullable=False)
     slug = db.Column(db.String(100), unique=True, nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -1289,10 +1357,10 @@ class BadgeCycle(db.Model):
     """Tracks one submission+voting cycle for a role or workgroup badge"""
     __tablename__ = 'badge_cycle'
 
-    id = db.Column(db.String(50), primary_key=True)  # bcyc_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     entity_type = db.Column(db.String(20), nullable=False, index=True)  # 'role' | 'workgroup'
     entity_id = db.Column(db.String(100), nullable=False, index=True)   # role_slug or workgroup id
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
 
     first_submission_at = db.Column(db.DateTime, nullable=True)
     submission_ends_at = db.Column(db.DateTime, nullable=True)
@@ -1323,8 +1391,8 @@ class OneTimeBadge(db.Model):
     """A badge for a specific one-time task"""
     __tablename__ = 'one_time_badge'
 
-    id = db.Column(db.String(50), primary_key=True)  # otb_...
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
 
@@ -1341,7 +1409,7 @@ class OneTimeBadge(db.Model):
     voting_quadratic = db.Column(db.Boolean, default=False)
 
     # Skin
-    badge_skin_id = db.Column(db.String(50), db.ForeignKey('badge_skin.id'), nullable=True)
+    badge_skin_id = db.Column(db.String(36), db.ForeignKey('badge_skin.id'), nullable=True)
 
     # Lifecycle: draft | upcoming | submission | delay | voting | completed
     status = db.Column(db.String(20), default='draft', index=True)
@@ -1350,7 +1418,7 @@ class OneTimeBadge(db.Model):
     voting_starts_at = db.Column(db.DateTime, nullable=True)
     voting_ends_at = db.Column(db.DateTime, nullable=True)
 
-    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
@@ -1390,13 +1458,13 @@ class Layer(db.Model):
     """Primary organizing entity for submissions, documents, and workgroups (formerly Project)"""
     __tablename__ = 'layer'
     
-    id = db.Column(db.String(50), primary_key=True)  # proj_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     name = db.Column(db.String(255), unique=True, nullable=False, index=True)
     slug = db.Column(db.String(255), unique=True, nullable=False, index=True)
     
     # Initiator
-    initiator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    initiator_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     
     # Status (descriptive, not evaluative)
     status = db.Column(db.String(20), default='proposed', index=True)
@@ -1409,7 +1477,7 @@ class Layer(db.Model):
     # Admin approval
     approval_status = db.Column(db.String(20), default='pending', index=True)
     # pending, approved, rejected
-    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
     
     # Mission and description
@@ -1420,7 +1488,7 @@ class Layer(db.Model):
     last_activity = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Succession
-    superseded_by_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True)
+    superseded_by_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True)
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -1428,6 +1496,10 @@ class Layer(db.Model):
     
     # Immortalize wizard: opt-in for tier pricing
     offer_tier_pricing = db.Column(db.Boolean, default=False)
+    
+    # Meta-domain: ordinal-sourced domain for layer identity (e.g. example.com.meta)
+    meta_domain_inscription_id = db.Column(db.String(255), nullable=True, index=True)
+    meta_domain = db.Column(db.Text, nullable=True)  # Cached domain string from ordinal content
     
     # Relationships
     initiator = db.relationship('User', foreign_keys=[initiator_id], backref='initiated_layers')
@@ -1451,6 +1523,8 @@ class Layer(db.Model):
             'last_activity': self.last_activity.isoformat() if self.last_activity else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'meta_domain_inscription_id': getattr(self, 'meta_domain_inscription_id', None),
+            'meta_domain': getattr(self, 'meta_domain', None),
         }
 
 
@@ -1458,12 +1532,12 @@ class LayerMember(db.Model):
     """Track layer membership and referrals (formerly ProjectMember)"""
     __tablename__ = 'layer_member'
     
-    id = db.Column(db.Integer, primary_key=True)
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     
     # Referral tracking
-    referred_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    referred_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     referral_code = db.Column(db.String(50), nullable=True)  # The referral code used to join
     
     # Role in project (optional)
@@ -1504,9 +1578,9 @@ class LayerAdmin(db.Model):
     """Assigned layer admins (in addition to initiator/owner). Owner cannot be removed. (formerly ProjectAdmin)"""
     __tablename__ = 'layer_admin'
     
-    id = db.Column(db.Integer, primary_key=True)
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     added_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     __table_args__ = (
@@ -1521,8 +1595,8 @@ class Waitlist(db.Model):
     """Project waitlist: name, description, public/private, referrals, active, dates, max, milestones."""
     __tablename__ = 'waitlist'
     
-    id = db.Column(db.Integer, primary_key=True)
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     
@@ -1549,6 +1623,10 @@ class Waitlist(db.Model):
         user_count = WaitlistEntry.query.filter_by(waitlist_id=self.id, left_at=None).count()
         email_count = WaitlistEmailSignup.query.filter_by(waitlist_id=self.id, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).count()
         count = user_count + email_count
+        try:
+            max_val = int(self.max_number) if self.max_number not in (None, '') else None
+        except (ValueError, TypeError):
+            max_val = None
         return {
             'id': self.id,
             'layer_id': self.layer_id,
@@ -1565,7 +1643,7 @@ class Waitlist(db.Model):
             'milestones': self.milestones,
             'show_milestones': self.show_milestones,
             'count': count,
-            'full': self.max_number is not None and count >= self.max_number,
+            'full': max_val is not None and count >= max_val,
             'closed': self.closing_date is not None and datetime.utcnow() >= self.closing_date,
             'started': self.start_date is not None and datetime.utcnow() >= self.start_date,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -1576,12 +1654,12 @@ class WaitlistEntry(db.Model):
     """One user on a waitlist; can leave (left_at set). Position = order of join."""
     __tablename__ = 'waitlist_entry'
     
-    id = db.Column(db.Integer, primary_key=True)
-    waitlist_id = db.Column(db.Integer, db.ForeignKey('waitlist.id'), nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    waitlist_id = db.Column(db.String(36), db.ForeignKey('waitlist.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     message = db.Column(db.Text, nullable=True)
     position = db.Column(db.Integer, nullable=False)  # 1-based queue order
-    referred_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    referred_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     referral_code = db.Column(db.String(50), nullable=True)
     source = db.Column(db.String(255), nullable=True)  # Track signup source (e.g., 'embed:example.com', 'direct', 'referral')
     source_url = db.Column(db.String(500), nullable=True)  # Full URL where signup occurred
@@ -1599,9 +1677,9 @@ class EmailUnsubscribe(db.Model):
     """Users/emails who opted out of project emails."""
     __tablename__ = 'email_unsubscribe'
     
-    id = db.Column(db.Integer, primary_key=True)
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     email = db.Column(db.String(255), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -1612,8 +1690,8 @@ class WaitlistEmailSignup(db.Model):
     """Email-only waitlist signup (embed). Separate from WaitlistEntry (user-based)."""
     __tablename__ = 'waitlist_email_signup'
     
-    id = db.Column(db.Integer, primary_key=True)
-    waitlist_id = db.Column(db.Integer, db.ForeignKey('waitlist.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    waitlist_id = db.Column(db.String(36), db.ForeignKey('waitlist.id'), nullable=False, index=True)
     email = db.Column(db.String(255), nullable=False)
     message = db.Column(db.Text, nullable=True)
     verification_token = db.Column(db.String(64), nullable=True, index=True)
@@ -1631,8 +1709,8 @@ class WaitlistMilestone(db.Model):
     """Milestone: activates at threshold (number on waitlist). Order by threshold."""
     __tablename__ = 'waitlist_milestone'
     
-    id = db.Column(db.Integer, primary_key=True)
-    waitlist_id = db.Column(db.Integer, db.ForeignKey('waitlist.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    waitlist_id = db.Column(db.String(36), db.ForeignKey('waitlist.id'), nullable=False, index=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     threshold = db.Column(db.Integer, nullable=False)  # Number on waitlist to activate (ordering = by this)
@@ -1665,7 +1743,7 @@ class Workgroup(db.Model):
     """Task-focused group within a layer"""
     __tablename__ = 'working_group'
     
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
     acronym = db.Column(db.String(50), unique=True, index=True)  # Legacy field
     name = db.Column(db.String(255), nullable=False)
@@ -1675,7 +1753,7 @@ class Workgroup(db.Model):
     state = db.Column(db.String(20), nullable=True)  # Legacy field
     
     # Layer relationship (required)
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
     
     # Image
     image_url = db.Column(db.String(500), nullable=True)
@@ -1692,10 +1770,10 @@ class Workgroup(db.Model):
     badge_voting_regular = db.Column(db.Boolean, default=True)
     badge_voting_time_weighted = db.Column(db.Boolean, default=False)
     badge_voting_quadratic = db.Column(db.Boolean, default=False)
-    badge_skin_id = db.Column(db.String(50), db.ForeignKey('badge_skin.id'), nullable=True)
+    badge_skin_id = db.Column(db.String(36), db.ForeignKey('badge_skin.id'), nullable=True)
 
     # Coordinator (formerly "chair")
-    coordinator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    coordinator_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     
     # Status
     status = db.Column(db.String(20), default='active', index=True)
@@ -1704,7 +1782,7 @@ class Workgroup(db.Model):
     # Approval
     approval_status = db.Column(db.String(20), default='pending', index=True)
     # pending, approved, rejected
-    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
     
     # Timestamps
@@ -1753,12 +1831,12 @@ class Guild(db.Model):
     """Cross-project collaboration group"""
     __tablename__ = 'guild'
     
-    id = db.Column(db.String(50), primary_key=True)  # guild_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     name = db.Column(db.String(255), unique=True, nullable=False, index=True)
     slug = db.Column(db.String(255), unique=True, nullable=False, index=True)
     
     # Initiator (automatically becomes admin)
-    initiator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    initiator_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     
     # Description
     description = db.Column(db.Text, nullable=True)
@@ -1795,9 +1873,9 @@ class GuildMembership(db.Model):
     """Guild membership with roles"""
     __tablename__ = 'guild_membership'
     
-    id = db.Column(db.Integer, primary_key=True)
-    guild_id = db.Column(db.String(50), db.ForeignKey('guild.id'), nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    guild_id = db.Column(db.String(36), db.ForeignKey('guild.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     
     # Role: initiator, admin, member
     role = db.Column(db.String(20), default='member', nullable=False)
@@ -1819,11 +1897,11 @@ class GuildInvitation(db.Model):
     """Guild invitation system"""
     __tablename__ = 'guild_invitation'
     
-    id = db.Column(db.String(50), primary_key=True)  # ginv_...
-    guild_id = db.Column(db.String(50), db.ForeignKey('guild.id'), nullable=False, index=True)
-    inviter_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    guild_id = db.Column(db.String(36), db.ForeignKey('guild.id'), nullable=False, index=True)
+    inviter_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     invitee_email = db.Column(db.String(255), nullable=False, index=True)
-    invitee_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # If user exists
+    invitee_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)  # If user exists
     
     # Status
     status = db.Column(db.String(20), default='pending', index=True)
@@ -1856,9 +1934,9 @@ class Cluster(db.Model):
     """Organizational grouping of roles within a project"""
     __tablename__ = 'cluster'
     
-    id = db.Column(db.String(50), primary_key=True)  # clu_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
     cluster_slug = db.Column(db.String(100), nullable=False)
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -1869,7 +1947,7 @@ class Cluster(db.Model):
     # active, archived
     
     # Audit
-    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     
@@ -1901,9 +1979,9 @@ class Role(db.Model):
     """Defined unit of responsibility scoped to a project"""
     __tablename__ = 'role'
     
-    id = db.Column(db.String(50), primary_key=True)  # rol_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
     role_slug = db.Column(db.String(100), nullable=False)
     
     # Titles
@@ -1915,7 +1993,7 @@ class Role(db.Model):
     image_url = db.Column(db.String(500), nullable=True)
     
     # Organization
-    cluster_id = db.Column(db.String(50), db.ForeignKey('cluster.id'), nullable=True)
+    cluster_id = db.Column(db.String(36), db.ForeignKey('cluster.id'), nullable=True)
     order = db.Column(db.Integer, default=0)
     
     # Status
@@ -1927,6 +2005,7 @@ class Role(db.Model):
     
     # Configuration
     claim_requires_approval = db.Column(db.Boolean, default=False)
+    requires_election = db.Column(db.Boolean, default=False)  # Role must be filled via election vote
     badge_enabled = db.Column(db.Boolean, default=True)
     badge_requires_approval = db.Column(db.Boolean, default=True)
 
@@ -1945,11 +2024,11 @@ class Role(db.Model):
     badge_voting_quadratic = db.Column(db.Boolean, default=False)
 
     # Badge skin (layout template)
-    badge_skin_id = db.Column(db.String(50), db.ForeignKey('badge_skin.id'), nullable=True)
+    badge_skin_id = db.Column(db.String(36), db.ForeignKey('badge_skin.id'), nullable=True)
 
     # Audit
-    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    approved_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
@@ -1983,6 +2062,7 @@ class Role(db.Model):
             'status': self.status,
             'public_visible': self.public_visible,
             'claim_requires_approval': self.claim_requires_approval,
+            'requires_election': getattr(self, 'requires_election', False),
             'badge_enabled': self.badge_enabled,
             'badge_requires_approval': self.badge_requires_approval,
             'badge_submission_days': self.badge_submission_days,
@@ -2003,11 +2083,11 @@ class Claim(db.Model):
     """User's declaration of stewarding a role"""
     __tablename__ = 'claim'
     
-    id = db.Column(db.String(50), primary_key=True)  # clm_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
-    role_id = db.Column(db.String(50), db.ForeignKey('role.id'), nullable=False, index=True)
-    claimant_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    role_id = db.Column(db.String(36), db.ForeignKey('role.id'), nullable=False, index=True)
+    claimant_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     
     # Intent and evidence
     intent = db.Column(db.Text, nullable=True)
@@ -2019,7 +2099,7 @@ class Claim(db.Model):
     
     # Approval (if required)
     approval_required = db.Column(db.Boolean, default=False)
-    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
     
     # Term (optional time-bounding)
@@ -2070,13 +2150,13 @@ class Badge(db.Model):
     """Recognition artifact linked to a claim"""
     __tablename__ = 'badge'
     
-    id = db.Column(db.String(50), primary_key=True)  # bdg_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
-    claim_id = db.Column(db.String(50), db.ForeignKey('claim.id'), nullable=False, index=True)
-    role_id = db.Column(db.String(50), db.ForeignKey('role.id'), nullable=False)
-    claimant_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    requested_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    claim_id = db.Column(db.String(36), db.ForeignKey('claim.id'), nullable=False, index=True)
+    role_id = db.Column(db.String(36), db.ForeignKey('role.id'), nullable=False)
+    claimant_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    requested_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     
     # Badge type
     badge_type = db.Column(db.String(50), default='role_badge')
@@ -2095,7 +2175,7 @@ class Badge(db.Model):
     btc_taproot_address = db.Column(db.String(255), nullable=True)
     
     # Approval
-    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    approved_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
     approval_note = db.Column(db.Text, nullable=True)
     
@@ -2151,7 +2231,7 @@ class StatusChange(db.Model):
     """Audit trail for status changes across all entities"""
     __tablename__ = 'status_change'
     
-    id = db.Column(db.String(50), primary_key=True)  # sc_...
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     
     # Polymorphic reference
     entity_type = db.Column(db.String(20), nullable=False)
@@ -2165,7 +2245,7 @@ class StatusChange(db.Model):
     note = db.Column(db.Text, nullable=True)
     
     # Audit
-    changed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    changed_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     changed_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -2184,13 +2264,13 @@ class EventLog(db.Model):
     """Append-only governance event log. Powers activity feeds, notifications, audit trails."""
     __tablename__ = 'event_log'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     event_type = db.Column(db.String(50), nullable=False, index=True)
     actor_type = db.Column(db.String(30), nullable=True)   # user, system
     actor_id = db.Column(db.String(50), nullable=True, index=True)
     subject_type = db.Column(db.String(30), nullable=True)  # layer_member, vote, claim, badge, etc.
     subject_id = db.Column(db.String(50), nullable=True, index=True)
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True, index=True)
     payload_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
@@ -2206,35 +2286,59 @@ class EventLog(db.Model):
 # ================================================================
 
 class Artifact(db.Model):
-    """Central knowledge object. Submission is linked via artifact_id (subtype semantics)."""
+    """Central knowledge object per artifact_specification.md. Submission linked via artifact_id."""
     __tablename__ = 'artifact'
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=True, index=True)
-    creator_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
-    artifact_type = db.Column(db.String(50), nullable=False, index=True)  # submission, reflection, etc.
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True, index=True)
+    creator_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
+    artifact_type = db.Column(db.String(50), nullable=False, index=True)  # proposal, evidence, insight, reflection, translation, implementation, decision, monument, bridge, submission
+    artifact_subtype = db.Column(db.String(50), nullable=True, index=True)  # e.g. governance_proposal, rfc_draft
     title = db.Column(db.String(255), nullable=True)
     summary = db.Column(db.Text, nullable=True)
+    body = db.Column(db.Text, nullable=True)
     uri = db.Column(db.String(500), nullable=True)
+    source_language = db.Column(db.String(20), nullable=True)
+    current_language = db.Column(db.String(20), nullable=True)
     status = db.Column(db.String(20), default='draft', nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)
 
     layer = db.relationship('Layer', backref=db.backref('artifacts', lazy='dynamic'))
     creator = db.relationship('User', backref=db.backref('created_artifacts', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'public_id': self.public_id,
+            'layer_id': self.layer_id,
+            'creator_user_id': self.creator_user_id,
+            'artifact_type': self.artifact_type,
+            'artifact_subtype': getattr(self, 'artifact_subtype', None),
+            'title': self.title,
+            'summary': self.summary,
+            'body': getattr(self, 'body', None),
+            'uri': self.uri,
+            'source_language': getattr(self, 'source_language', None),
+            'current_language': getattr(self, 'current_language', None),
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if getattr(self, 'updated_at', None) else None,
+        }
 
 
 class ArtifactRelation(db.Model):
     """Typed relationships between artifacts. Backbone of the artifact graph."""
     __tablename__ = 'artifact_relation'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     from_object_type = db.Column(db.String(50), nullable=False, index=True)
     from_object_id = db.Column(db.String(100), nullable=False, index=True)
     to_object_type = db.Column(db.String(50), nullable=False, index=True)
     to_object_id = db.Column(db.String(100), nullable=False, index=True)
     relation_type = db.Column(db.String(50), nullable=False, index=True)
-    created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    created_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     created_by = db.relationship('User', backref=db.backref('artifact_relations_created', lazy='dynamic'))
@@ -2253,10 +2357,10 @@ class Quest(db.Model):
     """Layer-scoped bounty/contribution task. Submissions link via QuestSubmission."""
     __tablename__ = 'quest'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
-    creator_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    creator_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     quest_type = db.Column(db.String(50), default='contribution', nullable=False, index=True)
@@ -2275,14 +2379,14 @@ class QuestSubmission(db.Model):
     """Submission of an artifact (e.g. draft) for a quest. Tracks review state."""
     __tablename__ = 'quest_submission'
 
-    id = db.Column(db.Integer, primary_key=True)
-    quest_id = db.Column(db.Integer, db.ForeignKey('quest.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    quest_id = db.Column(db.String(36), db.ForeignKey('quest.id'), nullable=False, index=True)
     artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)
-    submitter_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    submitter_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     status = db.Column(db.String(20), default='pending_review', nullable=False, index=True)
     review_notes = db.Column(db.Text, nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
-    reviewed_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    reviewed_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     quest = db.relationship('Quest', backref=db.backref('submissions', lazy='dynamic'))
@@ -2299,13 +2403,13 @@ class Monument(db.Model):
     """Layer-scoped digital monument; references external URI, links to artifacts."""
     __tablename__ = 'monument'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     monument_type = db.Column(db.String(50), default='reference', nullable=False, index=True)
-    steward_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    steward_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     uri = db.Column(db.String(500), nullable=True)
     provenance = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), default='active', nullable=False, index=True)
@@ -2376,13 +2480,13 @@ class Vote(db.Model):
     """A vote/ballot on a draft submission within a project context."""
     __tablename__ = 'vote'
     
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid4()))
     
-    layer_id = db.Column(db.String(50), db.ForeignKey('layer.id'), nullable=False, index=True)
-    submission_id = db.Column(db.String(8), db.ForeignKey('submission.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    submission_id = db.Column(db.String(36), db.ForeignKey('submission.id'), nullable=True, index=True)
     artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)
-    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
     
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -2397,8 +2501,9 @@ class Vote(db.Model):
     result = db.Column(db.String(20), nullable=True)
     result_summary = db.Column(db.Text, nullable=True)
     vote_type = db.Column(db.String(20), default='approval', nullable=False, index=True)  # approval | election
-    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=True, index=True)
+    role_id = db.Column(db.String(36), db.ForeignKey('role.id'), nullable=True, index=True)
     seats = db.Column(db.Integer, default=1, nullable=False)
+    ballot_order_seed = db.Column(db.Integer, nullable=True)  # For randomized candidate order on ballot
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     closed_at = db.Column(db.DateTime, nullable=True)
@@ -2414,9 +2519,9 @@ class VoteEligibilitySnapshot(db.Model):
     """Snapshot of eligible voters at vote activation time."""
     __tablename__ = 'vote_eligibility_snapshot'
     
-    id = db.Column(db.Integer, primary_key=True)
-    vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), nullable=False, index=True)
-    person_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    vote_id = db.Column(db.String(36), db.ForeignKey('vote.id'), nullable=False, index=True)
+    person_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     is_eligible = db.Column(db.Boolean, default=True, nullable=False)
     reason = db.Column(db.String(255), nullable=True)
     captured_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -2431,10 +2536,10 @@ class VoteEligibilitySnapshot(db.Model):
 class VoteCandidate(db.Model):
     """Candidate in an election-style vote (GOV-HUB-3 Phase 2.4)."""
     __tablename__ = 'vote_candidate'
-
-    id = db.Column(db.Integer, primary_key=True)
-    vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    vote_id = db.Column(db.String(36), db.ForeignKey('vote.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     display_name = db.Column(db.String(255), nullable=True)
     status = db.Column(db.String(20), default='approved', nullable=False)  # approved, withdrawn
     display_order = db.Column(db.Integer, default=0, nullable=False)  # randomized ballot order
@@ -2452,9 +2557,9 @@ class Ballot(db.Model):
     """A single person's ballot cast in a vote."""
     __tablename__ = 'ballot'
     
-    id = db.Column(db.Integer, primary_key=True)
-    vote_id = db.Column(db.Integer, db.ForeignKey('vote.id'), nullable=False, index=True)
-    person_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    vote_id = db.Column(db.String(36), db.ForeignKey('vote.id'), nullable=False, index=True)
+    person_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
     choice = db.Column(db.String(50), nullable=False)  # 'yes'|'no'|'abstain' or candidate_id for elections
     cast_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -2523,16 +2628,49 @@ def close_vote(vote):
         vote.closed_at = datetime.utcnow()
         emit_event('vote_closed', actor_type='system', subject_type='vote', subject_id=vote.id,
                    layer_id=vote.layer_id, payload={'result': vote.result, 'votes_cast': votes_cast, 'winners': winners})
+        by_candidate = []
+        for c in vote.candidates.filter(VoteCandidate.status == 'approved').order_by(VoteCandidate.display_order, VoteCandidate.id):
+            u = User.query.get(c.user_id)
+            name = (u.displayName or u.username or u.oauthName or f'User {c.user_id}') if u else f'Candidate {c.id}'
+            by_candidate.append({'candidate_id': str(c.id), 'name': name, 'votes': candidate_votes.get(str(c.id), 0)})
+        winner_names = []
+        for cid in winners:
+            vc = VoteCandidate.query.get(str(cid)) if cid else None
+            if vc:
+                u = User.query.get(vc.user_id)
+                winner_names.append((u.displayName or u.username or u.oauthName or f'User {vc.user_id}') if u else f'Candidate {cid}')
+            else:
+                winner_names.append(str(cid))
         vote.result_summary = json.dumps({
             'eligible': eligible_count,
             'votes_cast': votes_cast,
             'candidate_totals': dict(candidate_votes),
+            'by_candidate': by_candidate,
             'winners': winners,
+            'winner_names': winner_names,
             'seats': seats,
             'quorum_required': vote.quorum_count,
             'quorum_met': quorum_met,
             'result': vote.result
         })
+        db.session.flush()
+        if vote.role_id and winners:
+            for cid in winners:
+                vc = VoteCandidate.query.get(str(cid)) if cid else None
+                if vc:
+                    claim_id = generate_claim_id()
+                    claim = Claim(
+                        id=claim_id,
+                        layer_id=vote.layer_id,
+                        role_id=vote.role_id,
+                        claimant_id=vc.user_id,
+                        intent='Elected via vote',
+                        status='active',
+                        approval_required=False
+                    )
+                    db.session.add(claim)
+                    emit_event('role_claimed', actor_type='system', subject_type='claim', subject_id=claim_id,
+                               layer_id=vote.layer_id, payload={'role_id': vote.role_id, 'claimant_id': vc.user_id, 'election_vote_id': vote.id})
     else:
         yes_count = sum(1 for b in ballots if b.choice == 'yes')
         no_count = sum(1 for b in ballots if b.choice == 'no')
@@ -2666,6 +2804,22 @@ def upload_image_600x600(file_storage, upload_folder, url_prefix, filename_prefi
         return None, f'Failed to save file: {e}'
     return f"{url_prefix}/{safe_name}", None
 
+def get_submission_by_ref(ref):
+    """Look up submission by id (UUID), draft_name, ml_number, or public_id."""
+    if not ref:
+        return None
+    s = Submission.query.filter_by(id=ref).first()
+    if s:
+        return s
+    s = Submission.query.filter_by(draft_name=ref).first()
+    if s:
+        return s
+    s = Submission.query.filter_by(ml_number=ref).first()
+    if s:
+        return s
+    s = Submission.query.filter_by(public_id=ref).first()
+    return s
+
 def generate_draft_name(title, authors):
     """Generate a draft name from title and authors"""
     # Extract first author's last name
@@ -2751,20 +2905,6 @@ def generate_badge_id():
     suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
     return f"bdg_{suffix}"
 
-def generate_status_change_id():
-    """Generate unique status change ID with sc_ prefix"""
-    import random
-    import string
-    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
-    return f"sc_{suffix}"
-
-def generate_guild_invitation_id():
-    """Generate unique guild invitation ID with ginv_ prefix"""
-    import random
-    import string
-    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
-    return f"ginv_{suffix}"
-
 def generate_invitation_token():
     """Generate secure token for guild invitations"""
     import secrets
@@ -2840,6 +2980,98 @@ def shorten_inscription_id(inscription_id, chars_each_side=8):
     end = inscription_id[-chars_each_side:]
     
     return f'{start}....{end}'
+
+
+def _ordinals_fetch_json(url, retry=False):
+    """
+    Fetch JSON from ordinals.com. Retries once with timestamp query param on failure.
+    Used by get_last_inscription_for_sat (reinscription resolution).
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json',
+        }
+        r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        if not retry:
+            ts = int(time.time() / (60 * 10))  # 10 min bucket
+            return _ordinals_fetch_json(f"{url}?timestamp={ts}", retry=True)
+        raise
+
+
+def get_last_inscription_for_sat(sat):
+    """
+    Retrieve the last (most recent) inscription on a given sat.
+    Uses ordinals.com /r/sat/{sat}/at/-1 for reinscription resolution.
+    Returns inscription ID (e.g. abc123...i0) or None.
+    """
+    if sat is None:
+        return None
+    try:
+        url = f"https://ordinals.com/r/sat/{sat}/at/-1"
+        data = _ordinals_fetch_json(url)
+        return data.get("id")
+    except Exception as e:
+        app.logger.warning(f"get_last_inscription_for_sat sat={sat}: {e}")
+        return None
+
+
+def _election_candidates_ordered(vote):
+    """Return approved candidates for an election vote in ballot order (randomized when active)."""
+    import hashlib
+    import random
+    candidates = list(vote.candidates.filter(VoteCandidate.status == 'approved').order_by(VoteCandidate.display_order, VoteCandidate.id))
+    if not candidates:
+        return []
+    # Set ballot_order_seed when vote is active and seed not yet set
+    if vote.status in ('scheduled', 'active') and getattr(vote, 'ballot_order_seed', None) is None:
+        vote.ballot_order_seed = random.randint(1, 2**31 - 1)
+        db.session.commit()
+    seed = getattr(vote, 'ballot_order_seed', None) or 0
+    if seed:
+        # Deterministic shuffle: sort by hash(seed, candidate_id)
+        def order_key(c):
+            h = hashlib.sha256(f"{seed}_{c.id}".encode()).hexdigest()
+            return int(h[:16], 16)
+        candidates = sorted(candidates, key=order_key)
+    return candidates
+
+
+def fetch_meta_domain_from_inscription(inscription_id):
+    """
+    Fetch meta-domain string from ordinal inscription content.
+    If content is a sat number, resolve reinscription via get_last_inscription_for_sat.
+    Returns domain string or None.
+    """
+    if not inscription_id:
+        return None
+    try:
+        url = f"https://ordinals.com/content/{inscription_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/plain,application/octet-stream,*/*',
+        }
+        r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
+        content = r.text.strip()
+        # If content is a sat number, resolve reinscription
+        try:
+            sat = int(content)
+            resolved_id = get_last_inscription_for_sat(sat)
+            if resolved_id:
+                r2 = requests.get(f"https://ordinals.com/content/{resolved_id}", headers=headers, timeout=15)
+                r2.raise_for_status()
+                content = r2.text.strip()
+        except (ValueError, TypeError):
+            pass
+        return content if content else None
+    except Exception as e:
+        app.logger.warning(f"fetch_meta_domain_from_inscription {inscription_id}: {e}")
+        return None
+
 
 def generate_referral_code(username):
     """Generate a unique referral code for a user"""
@@ -3150,7 +3382,7 @@ def add_comment_reply(draft_name, parent_comment_id, reply_text, user):
         draft_name=draft_name,
         text=reply_text,
         author=user['name'],
-        parent_id=int(parent_comment_id)
+        parent_id=parent_comment_id
     )
     db.session.add(reply)
     db.session.commit()
@@ -5687,7 +5919,7 @@ def add_security_headers(response):
         # All other routes: permissive CSP so inline scripts and CDNs work
         csp = (
             "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http:; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http: blob:; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'unsafe-hashes' https: http: blob:; "
             "style-src 'self' 'unsafe-inline' https: http:; "
             "frame-src 'self' https: http: blob:; "
             "connect-src 'self' https: http: wss:; "
@@ -5958,7 +6190,7 @@ def submit_draft():
                 doc_type = 'draft'
             
             submission = Submission(
-                id=submission_id,
+                draft_name=submission_id,
                 title=title,
                 authors=authors_list,
                 abstract=abstract,
@@ -6005,7 +6237,7 @@ def submit_draft():
             
             # Create submission record with file data
             submission = Submission(
-                id=submission_id,
+                draft_name=submission_id,
                 title=title,
                 authors=authors_list,
                 abstract=abstract,
@@ -6031,7 +6263,7 @@ def submit_draft():
         add_to_document_history(f"draft-{submission_id}", "submitted", get_current_user()['name'], f"New draft submitted {source_desc}: {title}")
 
         flash('Draft submitted successfully!', 'success')
-        return redirect(f'/submit/status/{submission_id}/')
+        return redirect(f'/submit/status/{submission.draft_name or submission.id}/')
 
     return _format_base_template(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
 
@@ -6110,7 +6342,7 @@ def submit_revision(draft_name):
     # If not found in DRAFTS, try to find as a submission
     submission = None
     if not draft:
-        submission = Submission.query.filter_by(id=draft_name).first()
+        submission = get_submission_by_ref(draft_name)
         if submission and submission.status == 'approved':
             draft = {
                 'name': submission.id,
@@ -6130,7 +6362,7 @@ def submit_revision(draft_name):
         return redirect('/doc/all/')
     
     # Inherit project_id from parent draft (revisions belong to same layer)
-    parent_sub = Submission.query.filter_by(id=draft_name).first()
+    parent_sub = get_submission_by_ref(draft_name)
     revision_layer_id = parent_sub.layer_id if parent_sub else (g.layer.id if g.layer else None)
     
     # Determine display ID (ML-Draft-XXX or internal ID)
@@ -6197,7 +6429,7 @@ def submit_revision(draft_name):
             
             # Create revision submission with ordinal data
             submission = Submission(
-                id=submission_id,
+                draft_name=submission_id,
                 title=title,
                 authors=authors_list,
                 abstract=abstract,
@@ -6248,7 +6480,7 @@ def submit_revision(draft_name):
             
             # Create revision submission with file data
             submission = Submission(
-                id=submission_id,
+                draft_name=submission_id,
                 title=title,
                 authors=authors_list,
                 abstract=abstract,
@@ -6282,7 +6514,7 @@ def submit_revision(draft_name):
         )
         
         flash(f'Revision {new_rev} submitted successfully!', 'success')
-        return redirect(f'/submit/status/{submission_id}/')
+        return redirect(f'/submit/status/{submission.draft_name or submission.id}/')
     
     # GET: Show form with pre-populated data
     # Generate workgroup options
@@ -6935,7 +7167,7 @@ def submission_detail(submission_id):
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     current_user = get_current_user()
 
-    submission = Submission.query.filter_by(id=submission_id).first()
+    submission = get_submission_by_ref(submission_id)
     if not submission:
         return "Submission not found", 404
 
@@ -7786,7 +8018,7 @@ def inscribe_stripe_webhook():
         import string
         submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
         submission = Submission(
-            id=submission_id,
+            draft_name=submission_id,
             title=order.title or 'Untitled',
             authors=order.authors or [],
             abstract=order.abstract or '',
@@ -8338,9 +8570,7 @@ def api_start_role_badge_cycle(role_slug):
     vote_start = sub_end + timedelta(days=delay_days)
     vote_end = vote_start + timedelta(days=vote_days)
 
-    cycle_id = 'bcyc_' + _uuid.uuid4().hex[:12]
     cycle = BadgeCycle(
-        id=cycle_id,
         entity_type='role',
         entity_id=role_slug,
         layer_id=role.layer_id,
@@ -8401,9 +8631,7 @@ def api_create_one_time_badge():
     except ValueError:
         return jsonify({'error': 'Invalid earliest_start date'}), 400
 
-    otb_id = 'otb_' + str(uuid4()).replace('-', '')[:20]
     otb = OneTimeBadge(
-        id=otb_id,
         layer_id=layer_id_val,
         title=title,
         description=data.get('description', ''),
@@ -8891,7 +9119,21 @@ def api_list_projects():
     query = query.order_by(Layer.last_activity.desc())
     
     layers = query.all()
-    resp = jsonify({'layers': [p.to_dict() for p in layers], 'count': len(layers)})
+    # Bulk workgroups count (avoid N+1)
+    layer_ids = [p.id for p in layers]
+    count_map = {}
+    if layer_ids:
+        from sqlalchemy import func
+        rows = db.session.query(Workgroup.layer_id, func.count(Workgroup.id)).filter(
+            Workgroup.layer_id.in_(layer_ids)
+        ).group_by(Workgroup.layer_id).all()
+        count_map = {lid: c for lid, c in rows}
+    result = []
+    for p in layers:
+        d = p.to_dict()
+        d['workgroups_count'] = count_map.get(p.id, 0)
+        result.append(d)
+    resp = jsonify({'layers': result, 'count': len(layers)})
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
     return resp
 
@@ -8917,8 +9159,7 @@ def api_create_project():
     if existing:
         return jsonify({'error': 'Layer name already exists'}), 400
     
-    # Generate ID and slug
-    project_id = generate_layer_id()
+    # Generate slug (id is UUID, generated by default)
     slug = create_slug(name)
     
     # Validate slug against reserved subdomains
@@ -8936,9 +9177,8 @@ def api_create_project():
             counter += 1
             slug = f"{original_slug}-{counter}"
     
-    # Create layer
+    # Create layer (id is UUID, generated by default)
     layer = Layer(
-        id=project_id,
         name=name,
         slug=slug,
         initiator_id=current_user['id'],
@@ -9056,7 +9296,6 @@ def api_update_project(layer_id):
         # Record status change
         if old_status != project.status:
             status_change = StatusChange(
-                id=generate_status_change_id(),
                 entity_type='project',
                 entity_id=layer_id,
                 field_name='status',
@@ -9069,6 +9308,15 @@ def api_update_project(layer_id):
     
     if 'status_reason' in data:
         project.status_reason = data['status_reason']
+    
+    if 'meta_domain_inscription_id' in data:
+        val = (data['meta_domain_inscription_id'] or '').strip()
+        project.meta_domain_inscription_id = val if val else None
+        if val:
+            domain = fetch_meta_domain_from_inscription(val)
+            project.meta_domain = domain
+        else:
+            project.meta_domain = None
     
     project.updated_at = datetime.utcnow()
     if data:
@@ -9102,7 +9350,6 @@ def api_approve_project(layer_id):
     
     # Record status change
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='project',
         entity_id=layer_id,
         field_name='approval_status',
@@ -9172,7 +9419,7 @@ def api_add_project_admin(layer_id):
     username = data.get('username')
     
     if user_id is not None:
-        user_id = int(user_id)
+        user_id = str(user_id)  # UUID string
     elif username:
         u = User.query.filter_by(username=username).first()
         if not u:
@@ -9205,7 +9452,7 @@ def api_add_project_admin(layer_id):
     })
 
 
-@app.route('/api/layers/<layer_id>/admins/<int:user_id>/', methods=['DELETE'])
+@app.route('/api/layers/<layer_id>/admins/<user_id>/', methods=['DELETE'])
 @require_auth
 def api_remove_layer_admin(layer_id, user_id):
     """Remove a project admin. Owner cannot be removed."""
@@ -9268,9 +9515,9 @@ def api_layer_activity(layer_id):
     events = query.order_by(EventLog.created_at.desc()).offset(offset).limit(limit).all()
     actor_ids = {e.actor_id for e in events if e.actor_type == 'user' and e.actor_id}
     users = {}
-    ids_int = [int(x) for x in actor_ids if x and str(x).isdigit()]
-    if ids_int:
-        for u in User.query.filter(User.id.in_(ids_int)).all():
+    ids_list = [str(x) for x in actor_ids if x and (len(str(x)) == 36 and '-' in str(x) or str(x).isdigit())]
+    if ids_list:
+        for u in User.query.filter(User.id.in_(ids_list)).all():
             users[str(u.id)] = u.displayName or u.username or f'User {u.id}'
     event_list = []
     for e in events:
@@ -9507,7 +9754,7 @@ def api_layer_quests(layer_id):
         'quest': {'id': quest.id, 'public_id': quest.public_id, 'title': quest.title},
     }), 201
 
-@app.route('/api/quests/<int:quest_id>/submit/', methods=['POST'])
+@app.route('/api/quests/<quest_id>/submit/', methods=['POST'])
 def api_quest_submit(quest_id):
     """Submit an artifact for a quest (GOV-HUB-3 Phase 2.1)."""
     quest = Quest.query.get_or_404(quest_id)
@@ -9581,7 +9828,7 @@ def api_layer_monuments(layer_id):
     }), 201
 
 
-@app.route('/api/monuments/<int:monument_id>/', methods=['GET'])
+@app.route('/api/monuments/<monument_id>/', methods=['GET'])
 def api_monument_detail(monument_id):
     """Get a single monument."""
     m = Monument.query.get_or_404(monument_id)
@@ -9593,7 +9840,7 @@ def api_monument_detail(monument_id):
     }), 200
 
 
-@app.route('/api/monuments/<int:monument_id>/link-artifact/', methods=['POST'])
+@app.route('/api/monuments/<monument_id>/link-artifact/', methods=['POST'])
 def api_monument_link_artifact(monument_id):
     """Link a monument to an artifact via ArtifactRelation (GOV-HUB-3 Phase 2.5)."""
     monument = Monument.query.get_or_404(monument_id)
@@ -9621,6 +9868,94 @@ def api_monument_link_artifact(monument_id):
     return jsonify({
         'relation': {'id': rel.id, 'relation_type': relation_type, 'artifact_id': artifact_id},
     }), 201
+
+
+@app.route('/api/artifacts/<artifact_id>/', methods=['GET'])
+def api_get_artifact(artifact_id):
+    """Get artifact for modal (artifact_specification.md)."""
+    art = Artifact.query.get_or_404(artifact_id)
+    return jsonify(art.to_dict())
+
+
+@app.route('/api/artifacts/<artifact_id>/', methods=['PATCH'])
+@require_auth
+def api_update_artifact(artifact_id):
+    """Update artifact (artifact_specification.md). Layer member or admin."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    art = Artifact.query.get_or_404(artifact_id)
+    if art.layer_id:
+        layer = Layer.query.get(art.layer_id)
+        if layer and not is_layer_admin(layer, current_user):
+            member = LayerMember.query.filter_by(layer_id=art.layer_id, user_id=current_user['id'], status='active').first()
+            if not member:
+                return jsonify({'error': 'Not a layer member'}), 403
+    data = request.get_json() or {}
+    for field in ('title', 'summary', 'body', 'uri', 'artifact_type', 'artifact_subtype', 'status', 'source_language', 'current_language'):
+        if field in data:
+            setattr(art, field, data[field] if data[field] is not None else None)
+    art.updated_at = datetime.utcnow()
+    db.session.commit()
+    emit_event('artifact_updated', actor_type='user', actor_id=current_user['id'],
+               subject_type='artifact', subject_id=art.id, layer_id=art.layer_id,
+               payload={'updated_fields': list(data.keys())})
+    return jsonify({'success': True, 'artifact': art.to_dict()})
+
+
+@app.route('/api/layers/<layer_id>/artifacts/', methods=['POST'])
+@require_auth
+def api_create_artifact(layer_id):
+    """Create standalone artifact (artifact_specification.md)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    layer = Layer.query.get_or_404(layer_id)
+    if not is_layer_admin(layer, current_user):
+        member = LayerMember.query.filter_by(layer_id=layer_id, user_id=current_user['id'], status='active').first()
+        if not member:
+            return jsonify({'error': 'Not a layer member'}), 403
+    data = request.get_json() or {}
+    art = Artifact(
+        layer_id=layer_id,
+        creator_user_id=current_user['id'],
+        artifact_type=data.get('artifact_type', 'proposal'),
+        artifact_subtype=data.get('artifact_subtype'),
+        title=data.get('title', '').strip() or None,
+        summary=data.get('summary') or None,
+        body=data.get('body') or None,
+        uri=data.get('uri') or None,
+        status=data.get('status', 'draft'),
+        source_language=data.get('source_language'),
+        current_language=data.get('current_language'),
+    )
+    db.session.add(art)
+    db.session.flush()
+    emit_event('artifact_created', actor_type='user', actor_id=current_user['id'],
+               subject_type='artifact', subject_id=art.id, layer_id=layer_id,
+               payload={'artifact_type': art.artifact_type})
+    db.session.commit()
+    return jsonify({'success': True, 'artifact': art.to_dict()}), 201
+
+
+@app.route('/api/submissions/<submission_id>/ensure-artifact/', methods=['POST'])
+@require_auth
+def api_ensure_submission_artifact(submission_id):
+    """Ensure artifact exists for submission. Creates if missing. Returns artifact."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    sub = Submission.query.get_or_404(submission_id)
+    if sub.layer_id:
+        layer = Layer.query.get(sub.layer_id)
+        if layer and not is_layer_admin(layer, current_user):
+            member = LayerMember.query.filter_by(layer_id=sub.layer_id, user_id=current_user['id'], status='active').first()
+            if not member:
+                return jsonify({'error': 'Not a layer member'}), 403
+    _ensure_artifact_for_submission(sub)
+    db.session.commit()
+    art = Artifact.query.get(sub.artifact_id)
+    return jsonify({'success': True, 'artifact': art.to_dict(), 'artifact_id': art.id})
 
 
 @app.route('/api/artifacts/<artifact_id>/relations/', methods=['GET'])
@@ -9875,7 +10210,7 @@ def api_create_waitlist(layer_id):
     
     return jsonify({'waitlist': waitlist.to_dict()}), 201
 
-@app.route('/api/waitlists/<int:waitlist_id>/', methods=['GET'])
+@app.route('/api/waitlists/<waitlist_id>/', methods=['GET'])
 def api_get_waitlist(waitlist_id):
     """Get single waitlist with milestones and user's entry"""
     waitlist = Waitlist.query.get_or_404(waitlist_id)
@@ -9902,7 +10237,7 @@ def api_get_waitlist(waitlist_id):
     
     return jsonify(d)
 
-@app.route('/api/waitlists/<int:waitlist_id>/', methods=['PATCH'])
+@app.route('/api/waitlists/<waitlist_id>/', methods=['PATCH'])
 @require_auth
 def api_update_waitlist(waitlist_id):
     """Update waitlist - project admin only"""
@@ -9952,7 +10287,7 @@ def api_update_waitlist(waitlist_id):
     db.session.commit()
     return jsonify({'waitlist': waitlist.to_dict()}), 200
 
-@app.route('/api/waitlists/<int:waitlist_id>/entries/', methods=['GET'])
+@app.route('/api/waitlists/<waitlist_id>/entries/', methods=['GET'])
 @require_auth
 def api_list_waitlist_entries(waitlist_id):
     """List entries (names) - project admin only"""
@@ -10041,10 +10376,9 @@ def _resolve_project_email_recipients(project_id, groups):
     for k in groups:
         if k.startswith('waitlist_'):
             wid = k.replace('waitlist_', '')
-            try:
-                wid = int(wid)
-            except ValueError:
+            if not wid:
                 continue
+            wid = str(wid)  # UUID or legacy int as string
             for e in WaitlistEntry.query.filter_by(waitlist_id=wid, left_at=None).all():
                 if e.user and e.user.email:
                     add(e.user.email, e.user_id)
@@ -10202,14 +10536,28 @@ def unsubscribe_from_project():
         <h2>Layer not found</h2>
         <p><a href="/">Return to MLGH</a></p></body></html>""", 404
     
-    try:
-        uid = int(user_id_or_email)
+    # user_id_or_email can be UUID string, legacy int, or email
+    if user_id_or_email and len(str(user_id_or_email)) == 36 and '-' in str(user_id_or_email):
+        uid = str(user_id_or_email)
         existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, user_id=uid).first()
         if not existing:
             db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=uid, email=None))
             db.session.commit()
-    except ValueError:
-        email = user_id_or_email.lower()
+    elif user_id_or_email and str(user_id_or_email).isdigit():
+        try:
+            uid = str(user_id_or_email)  # legacy int as string for DB
+            existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, user_id=uid).first()
+            if not existing:
+                db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=uid, email=None))
+                db.session.commit()
+        except Exception:
+            pass
+    else:
+        email = user_id_or_email.lower() if user_id_or_email else ''
+        existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, email=email).first()
+        if not existing:
+            db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=None, email=email))
+            db.session.commit()
         existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, email=email).first()
         if not existing:
             db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=None, email=email))
@@ -10249,7 +10597,7 @@ def _send_waitlist_verification_email(signup, waitlist, confirm_url):
         return False
 
 
-@app.route('/api/waitlists/<int:waitlist_id>/join-email/', methods=['POST'])
+@app.route('/api/waitlists/<waitlist_id>/join-email/', methods=['POST'])
 def api_join_waitlist_email(waitlist_id):
     """Join waitlist via email (no auth). Sends verification link. For embed widget."""
     waitlist = Waitlist.query.get_or_404(waitlist_id)
@@ -10276,7 +10624,11 @@ def api_join_waitlist_email(waitlist_id):
     user_count = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).count()
     email_count = WaitlistEmailSignup.query.filter_by(waitlist_id=waitlist_id, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).count()
     total = user_count + email_count
-    if waitlist.max_number is not None and total >= waitlist.max_number:
+    try:
+        max_val = int(waitlist.max_number) if waitlist.max_number not in (None, '') else None
+    except (ValueError, TypeError):
+        max_val = None
+    if max_val is not None and total >= max_val:
         return jsonify({'error': 'Waitlist is full'}), 400
     
     # Check for existing (pending or verified) email signup
@@ -10365,7 +10717,7 @@ def waitlist_confirm(token):
 </body></html>""", 200
 
 
-@app.route('/api/waitlists/<int:waitlist_id>/join/', methods=['POST'])
+@app.route('/api/waitlists/<waitlist_id>/join/', methods=['POST'])
 @require_auth
 def api_join_waitlist(waitlist_id):
     """Join waitlist. If referred and not on project, add to project. Optional message."""
@@ -10381,7 +10733,11 @@ def api_join_waitlist(waitlist_id):
     if waitlist.closing_date and now >= waitlist.closing_date:
         return jsonify({'error': 'Waitlist is closed'}), 400
     count = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, left_at=None).count()
-    if waitlist.max_number is not None and count >= waitlist.max_number:
+    try:
+        max_val = int(waitlist.max_number) if waitlist.max_number not in (None, '') else None
+    except (ValueError, TypeError):
+        max_val = None
+    if max_val is not None and count >= max_val:
         return jsonify({'error': 'Waitlist is full'}), 400
     
     existing = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id']).first()
@@ -10421,7 +10777,7 @@ def api_join_waitlist(waitlist_id):
     entry = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id'], left_at=None).first()
     return jsonify({'entry': {'position': entry.position, 'joined_at': entry.joined_at.isoformat()}, 'waitlist': waitlist.to_dict()}), 201
 
-@app.route('/api/waitlists/<int:waitlist_id>/leave/', methods=['POST'])
+@app.route('/api/waitlists/<waitlist_id>/leave/', methods=['POST'])
 @require_auth
 def api_leave_waitlist(waitlist_id):
     """Leave waitlist"""
@@ -10439,13 +10795,13 @@ def api_leave_waitlist(waitlist_id):
     db.session.commit()
     return jsonify({'message': 'Left waitlist'}), 200
 
-@app.route('/api/waitlists/<int:waitlist_id>/milestones/', methods=['GET'])
+@app.route('/api/waitlists/<waitlist_id>/milestones/', methods=['GET'])
 def api_list_waitlist_milestones(waitlist_id):
     waitlist = Waitlist.query.get_or_404(waitlist_id)
     ms = waitlist.milestone_list.order_by(WaitlistMilestone.threshold).all()
     return jsonify({'milestones': [{'id': m.id, 'title': m.title, 'description': m.description, 'threshold': m.threshold, 'action_type': m.action_type} for m in ms]}), 200
 
-@app.route('/api/waitlists/<int:waitlist_id>/milestones/', methods=['POST'])
+@app.route('/api/waitlists/<waitlist_id>/milestones/', methods=['POST'])
 @require_auth
 def api_create_waitlist_milestone(waitlist_id):
     """Add milestone - project admin only"""
@@ -10472,7 +10828,7 @@ def api_create_waitlist_milestone(waitlist_id):
     db.session.commit()
     return jsonify({'milestone': {'id': m.id, 'title': m.title, 'description': m.description, 'threshold': m.threshold, 'action_type': m.action_type}}), 201
 
-@app.route('/api/waitlists/<int:waitlist_id>/milestones/<int:milestone_id>/', methods=['DELETE'])
+@app.route('/api/waitlists/<waitlist_id>/milestones/<milestone_id>/', methods=['DELETE'])
 @require_auth
 def api_delete_waitlist_milestone(waitlist_id, milestone_id):
     """Delete milestone - project admin only"""
@@ -10578,7 +10934,7 @@ def embed_auth_js():
     """Web3Auth for embed - modal inline, no popup/tab."""
     return EMBED_AUTH_JS, 200, {'Content-Type': 'application/javascript; charset=utf-8'}
 
-@app.route('/embed/waitlist/<int:waitlist_id>/')
+@app.route('/embed/waitlist/<waitlist_id>/')
 def embed_waitlist_widget(waitlist_id):
     """Embeddable waitlist widget - customizable via query params. Compact layout."""
     waitlist = Waitlist.query.get_or_404(waitlist_id)
@@ -10593,7 +10949,11 @@ def embed_waitlist_widget(waitlist_id):
     now = datetime.utcnow()
     is_upcoming = now < waitlist.start_date
     is_closed = waitlist.archived or not waitlist.active or (waitlist.closing_date and now >= waitlist.closing_date)
-    is_full = waitlist.max_number and entry_count >= waitlist.max_number
+    try:
+        max_val = int(waitlist.max_number) if waitlist.max_number not in (None, '') else None
+    except (ValueError, TypeError):
+        max_val = None
+    is_full = max_val is not None and entry_count >= max_val
     base_url = request.url_root.rstrip('/')
     opts = _embed_widget_params()
     import html as html_mod
@@ -10605,7 +10965,7 @@ def embed_waitlist_widget(waitlist_id):
     footer_css_rule = ".wl-footer a{" + footer_link_style + "}"
     show_desc = opts['desc'] and (waitlist.description or '')
     show_count = opts['count']
-    show_spots = opts['spots'] and waitlist.max_number
+    show_spots = opts['spots'] and max_val is not None
     msg_mode = opts['msg']
     show_msg = msg_mode in ('allow', 'require')
     msg_required = msg_mode == 'require'
@@ -10613,8 +10973,8 @@ def embed_waitlist_widget(waitlist_id):
     stats_parts = []
     if show_count:
         stats_parts.append(f'<div class="wl-stat"><span class="wl-stat-val" id="entry-count">{entry_count}</span><span class="wl-stat-lbl">Members</span></div>')
-    if show_spots:
-        stats_parts.append(f'<div class="wl-stat"><span class="wl-stat-val">{waitlist.max_number - entry_count}</span><span class="wl-stat-lbl">Spots Left</span></div>')
+    if show_spots and max_val is not None:
+        stats_parts.append(f'<div class="wl-stat"><span class="wl-stat-val">{max_val - entry_count}</span><span class="wl-stat-lbl">Spots Left</span></div>')
     stats_html = f'<div class="wl-stats">{"".join(stats_parts)}</div>' if stats_parts else ''
     status_msg = ''
     if is_upcoming:
@@ -10687,7 +11047,7 @@ def embed_waitlist_widget(waitlist_id):
     return widget_html, 200, {'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'ALLOWALL'}
 
 
-@app.route('/embed/waitlist/<int:waitlist_id>/build/')
+@app.route('/embed/waitlist/<waitlist_id>/build/')
 @require_auth
 def embed_waitlist_builder(waitlist_id):
     """Embed builder page: configure options and preview. Project admin only."""
@@ -11082,7 +11442,6 @@ def api_update_workgroup(workgroup_id):
 
         if old_status != workgroup.status:
             status_change = StatusChange(
-                id=generate_status_change_id(),
                 entity_type='workgroup',
                 entity_id=workgroup_id,
                 field_name='status',
@@ -11155,7 +11514,6 @@ def api_approve_workgroup(workgroup_id):
     workgroup.approved_at = datetime.utcnow()
     
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='workgroup',
         entity_id=workgroup_id,
         field_name='approval_status',
@@ -11169,7 +11527,7 @@ def api_approve_workgroup(workgroup_id):
     
     return jsonify({'success': True, 'workgroup': workgroup.to_dict()})
 
-@app.route('/api/workgroups/<int:workgroup_id>/chairs/', methods=['GET'])
+@app.route('/api/workgroups/<workgroup_id>/chairs/', methods=['GET'])
 def api_list_workgroup_chairs(workgroup_id):
     """List chairs for a workgroup"""
     workgroup = Workgroup.query.get_or_404(workgroup_id)
@@ -11197,7 +11555,7 @@ def api_list_workgroup_chairs(workgroup_id):
     
     return jsonify({'chairs': chairs, 'count': len(chairs)})
 
-@app.route('/api/workgroups/<int:workgroup_id>/members/', methods=['GET'])
+@app.route('/api/workgroups/<workgroup_id>/members/', methods=['GET'])
 def api_list_workgroup_members(workgroup_id):
     """List members for a workgroup"""
     workgroup = Workgroup.query.get_or_404(workgroup_id)
@@ -11224,7 +11582,7 @@ def api_list_workgroup_members(workgroup_id):
     
     return jsonify({'members': members, 'count': len(members)})
 
-@app.route('/api/workgroups/<int:workgroup_id>/join/', methods=['POST'])
+@app.route('/api/workgroups/<workgroup_id>/join/', methods=['POST'])
 @require_auth
 def api_join_workgroup(workgroup_id):
     """Join a workgroup as a member"""
@@ -11269,7 +11627,7 @@ def api_join_workgroup(workgroup_id):
     
     return jsonify({'success': True, 'message': 'Successfully joined workgroup'})
 
-@app.route('/api/workgroups/<int:workgroup_id>/nominate-chair/', methods=['POST'])
+@app.route('/api/workgroups/<workgroup_id>/nominate-chair/', methods=['POST'])
 @require_auth
 def api_nominate_chair(workgroup_id):
     """Nominate yourself as a chair/coordinator for a workgroup"""
@@ -11449,7 +11807,7 @@ def api_admin_get_chair_nominations():
     
     return jsonify({'nominations': nominations, 'count': len(nominations)})
 
-@app.route('/api/admin/chair-nominations/<int:nomination_id>/approve/', methods=['POST'])
+@app.route('/api/admin/chair-nominations/<nomination_id>/approve/', methods=['POST'])
 @require_role('admin')
 def api_admin_approve_chair_nomination(nomination_id):
     """Approve a chair nomination"""
@@ -11467,7 +11825,7 @@ def api_admin_approve_chair_nomination(nomination_id):
     
     return jsonify({'success': True, 'message': 'Chair nomination approved'})
 
-@app.route('/api/admin/chair-nominations/<int:nomination_id>/reject/', methods=['POST'])
+@app.route('/api/admin/chair-nominations/<nomination_id>/reject/', methods=['POST'])
 @require_role('admin')
 def api_admin_reject_chair_nomination(nomination_id):
     """Reject and delete a chair nomination"""
@@ -11710,11 +12068,9 @@ def api_invite_to_guild(guild_id):
     
     # Create invitation
     from datetime import timedelta
-    invitation_id = generate_guild_invitation_id()
     token = generate_invitation_token()
     
     invitation = GuildInvitation(
-        id=invitation_id,
         guild_id=guild_id,
         inviter_id=current_user['id'],
         invitee_email=email,
@@ -11731,7 +12087,7 @@ def api_invite_to_guild(guild_id):
     
     return jsonify({
         'success': True,
-        'invitation_id': invitation_id,
+        'invitation_id': invitation.id,
         'invitation_link': invitation_link,
         'expires_at': invitation.expires_at.isoformat()
     }), 201
@@ -11878,7 +12234,6 @@ def api_update_cluster(cluster_id):
         # Record status change
         if old_status != cluster.status:
             status_change = StatusChange(
-                id=generate_status_change_id(),
                 entity_type='cluster',
                 entity_id=cluster_id,
                 field_name='status',
@@ -11912,7 +12267,6 @@ def api_delete_cluster(cluster_id):
     
     # Record status change
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='cluster',
         entity_id=cluster_id,
         field_name='status',
@@ -12030,6 +12384,8 @@ def api_create_role(layer_id):
     # Set configuration options if provided
     if 'claim_requires_approval' in data:
         role.claim_requires_approval = data['claim_requires_approval']
+    if 'requires_election' in data:
+        role.requires_election = data['requires_election']
     if 'badge_enabled' in data:
         role.badge_enabled = data['badge_enabled']
     if 'badge_requires_approval' in data:
@@ -12139,6 +12495,23 @@ def api_get_role(role_id):
     project = Layer.query.get(role.layer_id)
     role_dict['can_edit'] = bool(project and current_user and is_layer_admin(project, current_user))
     
+    # Add active_election when role requires election (for "Run for this role" link)
+    if getattr(role, 'requires_election', False):
+        active_vote = Vote.query.filter_by(
+            role_id=role.id,
+            vote_type='election'
+        ).filter(Vote.status.in_(['scheduled', 'active'])).first()
+        if active_vote:
+            role_dict['active_election'] = {
+                'vote_id': active_vote.id,
+                'public_id': active_vote.public_id,
+                'title': active_vote.title
+            }
+        else:
+            role_dict['active_election'] = None
+    else:
+        role_dict['active_election'] = None
+    
     return jsonify(role_dict)
 
 @app.route('/api/roles/<role_id>/', methods=['PATCH'])
@@ -12191,6 +12564,8 @@ def api_update_role(role_id):
     
     if 'claim_requires_approval' in data:
         role.claim_requires_approval = data['claim_requires_approval']
+    if 'requires_election' in data:
+        role.requires_election = data['requires_election']
     
     if 'badge_enabled' in data:
         role.badge_enabled = data['badge_enabled']
@@ -12257,7 +12632,6 @@ def api_approve_role(role_id):
     
     # Record status change
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='role',
         entity_id=role_id,
         field_name='status',
@@ -12297,7 +12671,6 @@ def api_change_role_status(role_id):
     
     # Record status change
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='role',
         entity_id=role_id,
         field_name='status',
@@ -12362,7 +12735,7 @@ def api_list_claims(layer_id):
         query = query.filter_by(role_id=role_id)
     
     if claimant_id:
-        query = query.filter_by(claimant_id=int(claimant_id))
+        query = query.filter_by(claimant_id=str(claimant_id))
     
     claims = query.order_by(Claim.created_at.desc()).all()
     
@@ -12544,7 +12917,6 @@ def api_approve_claim(claim_id):
     
     # Record status change
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='claim',
         entity_id=claim.id,
         field_name='status',
@@ -12598,7 +12970,6 @@ def api_change_claim_status(claim_id):
     
     # Record status change
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='claim',
         entity_id=claim.id,
         field_name='status',
@@ -12635,7 +13006,7 @@ def api_list_badges(layer_id):
         query = query.filter_by(claim_id=claim_id)
     
     if claimant_id:
-        query = query.filter_by(claimant_id=int(claimant_id))
+        query = query.filter_by(claimant_id=str(claimant_id))
     
     badges = query.order_by(Badge.created_at.desc()).all()
     
@@ -12790,7 +13161,6 @@ def api_approve_badge(badge_id):
     
     # Record status change
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='badge',
         entity_id=badge_id,
         field_name='status',
@@ -12842,7 +13212,6 @@ def api_issue_badge(badge_id):
     
     # Record status change
     status_change = StatusChange(
-        id=generate_status_change_id(),
         entity_type='badge',
         entity_id=badge_id,
         field_name='status',
@@ -12876,6 +13245,7 @@ def api_list_project_submissions(layer_id):
         'submissions': [{
             'id': s.id,
             'public_id': s.public_id,
+            'artifact_id': s.artifact_id,
             'title': s.title,
             'draft_name': s.draft_name,
             'ml_number': s.ml_number,
@@ -12903,16 +13273,17 @@ def api_create_vote(layer_id):
     title = data.get('title', '').strip()
     description = data.get('description', '').strip()
     submission_id = data.get('submission_id', '').strip()
+    role_id = data.get('role_id', '').strip()
+    vote_type = data.get('vote_type', 'approval')
     start_at_str = data.get('start_at', '').strip()
     end_at_str = data.get('end_at', '').strip()
     quorum_count = data.get('quorum_count')
     win_threshold = data.get('win_threshold', 0.5)
+    seats = max(1, int(data.get('seats', 1)))
     
     # Validation
     if not title:
         return jsonify({'error': 'Vote title is required'}), 400
-    if not submission_id:
-        return jsonify({'error': 'Submission ID is required'}), 400
     if not start_at_str or not end_at_str:
         return jsonify({'error': 'Start and end times are required'}), 400
     if quorum_count is None or quorum_count < 1:
@@ -12920,10 +13291,21 @@ def api_create_vote(layer_id):
     if not (0.0 <= win_threshold <= 1.0):
         return jsonify({'error': 'Win threshold must be between 0.0 and 1.0'}), 400
     
-    # Check submission exists
-    submission = Submission.query.get(submission_id)
-    if not submission:
-        return jsonify({'error': 'Submission not found'}), 404
+    submission = None
+    artifact_id = None
+    if vote_type == 'election':
+        if not role_id:
+            return jsonify({'error': 'Role is required for election votes'}), 400
+        role = Role.query.get(role_id)
+        if not role or role.layer_id != layer_id:
+            return jsonify({'error': 'Role not found or not in this layer'}), 404
+    else:
+        if not submission_id:
+            return jsonify({'error': 'Submission ID is required for approval votes'}), 400
+        submission = get_submission_by_ref(submission_id)
+        if not submission:
+            return jsonify({'error': 'Submission not found'}), 404
+        artifact_id = submission.artifact_id
     
     # Parse dates
     try:
@@ -12944,8 +13326,8 @@ def api_create_vote(layer_id):
     # Create vote (GOV-HUB-3: set artifact_id from submission when available; Phase 2.4: election fields)
     vote = Vote(
         layer_id=layer_id,
-        submission_id=submission_id,
-        artifact_id=submission.artifact_id,
+        submission_id=submission_id if submission_id else None,
+        artifact_id=artifact_id,
         created_by_id=current_user['id'],
         title=title,
         description=description or None,
@@ -13032,7 +13414,7 @@ def api_get_vote(vote_id):
     # Candidates for election-type votes (GOV-HUB-3 Phase 2.4)
     candidates = []
     if getattr(vote, 'vote_type', 'approval') == 'election':
-        for c in vote.candidates.filter(VoteCandidate.status == 'approved').order_by(VoteCandidate.display_order, VoteCandidate.id):
+        for c in _election_candidates_ordered(vote):
             u = User.query.get(c.user_id)
             candidates.append({
                 'id': c.id, 'user_id': c.user_id,
@@ -13091,10 +13473,18 @@ def api_cast_ballot(vote_id):
         return jsonify({'error': 'You are not eligible to vote in this election'}), 403
     
     data = request.get_json()
-    choice = data.get('choice', '').strip().lower()
+    choice_raw = data.get('choice', '')
+    choice = str(choice_raw).strip() if choice_raw is not None else ''
     
-    if choice not in ['yes', 'no', 'abstain']:
-        return jsonify({'error': 'Choice must be yes, no, or abstain'}), 400
+    vote_type = getattr(vote, 'vote_type', 'approval') or 'approval'
+    if vote_type == 'election':
+        valid_ids = [str(c.id) for c in vote.candidates.filter(VoteCandidate.status == 'approved').all()]
+        if choice not in valid_ids:
+            return jsonify({'error': 'Invalid candidate choice'}), 400
+    else:
+        choice = choice.lower()
+        if choice not in ['yes', 'no', 'abstain']:
+            return jsonify({'error': 'Choice must be yes, no, or abstain'}), 400
     
     # Check for existing ballot
     existing_ballot = Ballot.query.filter_by(
@@ -13125,6 +13515,111 @@ def api_cast_ballot(vote_id):
         'choice': choice,
         'cast_at': datetime.utcnow().isoformat()
     })
+
+@app.route('/api/votes/<vote_id>/close/', methods=['POST'])
+@require_auth
+def api_close_vote(vote_id):
+    """Close an active vote (project admins only)"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    if len(vote_id) == 36 and '-' in vote_id:
+        vote = Vote.query.filter_by(public_id=vote_id).first_or_404()
+    else:
+        vote = Vote.query.get_or_404(vote_id)
+    
+    project = Layer.query.get_or_404(vote.layer_id)
+    if not is_layer_admin(project, current_user):
+        return jsonify({'error': 'Only project admins can close votes'}), 403
+    
+    if vote.status != 'active':
+        return jsonify({'error': 'Only active votes can be closed'}), 400
+    
+    success, msg = close_vote(vote)
+    if not success:
+        return jsonify({'error': msg}), 400
+    
+    return jsonify({
+        'success': True,
+        'result': vote.result,
+        'message': msg
+    })
+
+
+@app.route('/api/votes/<vote_id>/candidates/', methods=['POST'])
+@require_auth
+def api_add_vote_candidate(vote_id):
+    """Self-register or add a candidate to an election vote. No body = current user (self-register). Body {user_id: N} = admin add."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    if len(vote_id) == 36 and '-' in vote_id:
+        vote = Vote.query.filter_by(public_id=vote_id).first_or_404()
+    else:
+        vote = Vote.query.get_or_404(vote_id)
+    
+    vote_type = getattr(vote, 'vote_type', None) or 'approval'
+    if vote_type != 'election':
+        return jsonify({'error': 'Only election votes have candidates'}), 400
+    
+    if vote.status not in ['scheduled', 'active']:
+        return jsonify({'error': 'Vote is not open for candidates'}), 400
+    
+    data = request.get_json() or {}
+    target_user_id = data.get('user_id')
+    
+    if target_user_id is None:
+        # Self-registration: use current user
+        target_user_id = current_user['id']
+        is_admin_add = False
+    else:
+        # Admin add: require layer admin
+        project = Layer.query.get_or_404(vote.layer_id)
+        if not is_layer_admin(project, current_user):
+            return jsonify({'error': 'Only layer admins can add other users as candidates'}), 403
+        target_user_id = str(target_user_id)  # UUID string
+        is_admin_add = True
+    
+    # Check user is layer member
+    member = LayerMember.query.filter_by(
+        layer_id=vote.layer_id,
+        user_id=target_user_id,
+        status='active'
+    ).first()
+    if not member:
+        return jsonify({'error': 'User must be an active layer member to be a candidate'}), 403
+    
+    # Check not already a candidate
+    existing = VoteCandidate.query.filter_by(
+        vote_id=vote.id,
+        user_id=target_user_id
+    ).first()
+    if existing:
+        return jsonify({'error': 'User is already a candidate'}), 400
+    
+    max_order = db.session.query(db.func.max(VoteCandidate.display_order)).filter_by(vote_id=vote.id).scalar() or 0
+    cand = VoteCandidate(
+        vote_id=vote.id,
+        user_id=target_user_id,
+        display_order=max_order + 1,
+        status='approved'
+    )
+    db.session.add(cand)
+    db.session.commit()
+    
+    emit_event('vote_candidate_added', actor_type='user', actor_id=current_user['id'],
+               subject_type='vote_candidate', subject_id=cand.id, layer_id=vote.layer_id,
+               payload={'vote_id': vote.id, 'user_id': target_user_id, 'self_register': not is_admin_add})
+    
+    u = User.query.get(target_user_id)
+    name = (u.displayName or u.username or u.oauthName or f'User {target_user_id}') if u else f'User {target_user_id}'
+    return jsonify({
+        'success': True,
+        'candidate': {'id': cand.id, 'user_id': target_user_id, 'name': name}
+    })
+
 
 @app.route('/api/votes/<vote_id>/cancel/', methods=['POST'])
 @require_auth
@@ -14131,7 +14626,7 @@ def update_submission_status(submission_id):
     if new_status not in ['submitted', 'approved', 'rejected', 'published']:
         return jsonify({'success': False, 'message': 'Invalid status'}), 400
 
-    submission = Submission.query.filter_by(id=submission_id).first()
+    submission = get_submission_by_ref(submission_id)
     if not submission:
         return jsonify({'success': False, 'message': 'Submission not found'}), 404
 
@@ -14184,7 +14679,7 @@ def update_submission_status(submission_id):
         
         if is_revision and parent_draft_name:
             # This is a revision - find the parent draft and use its ML number
-            parent_submission = Submission.query.filter_by(id=parent_draft_name).first()
+            parent_submission = get_submission_by_ref(parent_draft_name)
             if parent_submission and parent_submission.ml_number:
                 # AUTO-ASSIGN next available revision number if duplicate detected
                 revision_num = getattr(submission, 'revision_number', '')
@@ -14315,7 +14810,7 @@ def get_next_ml_number(doc_type='draft'):
 @app.route('/submit/approve/<submission_id>', methods=['POST'])
 @require_role('admin')
 def approve_submission(submission_id):
-    submission = Submission.query.filter_by(id=submission_id).first()
+    submission = get_submission_by_ref(submission_id)
     if not submission:
         flash('Submission not found', 'error')
         return redirect('/admin/submissions/')
@@ -14364,7 +14859,7 @@ def approve_submission(submission_id):
     
     if is_revision and parent_draft_name:
         # This is a revision - find the parent draft and use its ML number
-        parent_submission = Submission.query.filter_by(id=parent_draft_name).first()
+        parent_submission = get_submission_by_ref(parent_draft_name)
         if parent_submission and parent_submission.ml_number:
             # AUTO-ASSIGN next available revision number if duplicate detected
             revision_num = getattr(submission, 'revision_number', '')
@@ -14455,7 +14950,7 @@ def approve_submission(submission_id):
 @app.route('/submit/reject/<submission_id>', methods=['POST'])
 @require_role('admin')
 def reject_submission(submission_id):
-    submission = Submission.query.filter_by(id=submission_id).first()
+    submission = get_submission_by_ref(submission_id)
     if not submission:
         flash('Submission not found', 'error')
         return redirect('/admin/submissions/')
@@ -14476,7 +14971,7 @@ def reject_submission(submission_id):
 @require_auth
 def view_submission(submission_id):
     """View a submission file inline (for PDFs and other viewable files)"""
-    submission = Submission.query.filter_by(id=submission_id).first()
+    submission = get_submission_by_ref(submission_id)
     if not submission:
         return "Submission not found", 404
 
@@ -14495,7 +14990,7 @@ def view_submission(submission_id):
 @require_auth
 def download_submission(submission_id):
     """Download a submission file"""
-    submission = Submission.query.filter_by(id=submission_id).first()
+    submission = get_submission_by_ref(submission_id)
     if not submission:
         return "Submission not found", 404
 
@@ -14911,7 +15406,7 @@ def admin_chairs():
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
-@app.route('/admin/users/<int:user_id>/add-coordinator', methods=['GET', 'POST'])
+@app.route('/admin/users/<user_id>/add-coordinator', methods=['GET', 'POST'])
 @require_role('admin')
 def add_coordinator_for_user(user_id):
     """Add an existing user as coordinator for a workgroup (by user id, workgroup from list)."""
@@ -14993,7 +15488,7 @@ def add_coordinator_for_user(user_id):
     """
     return render_page("Add as coordinator - MLGH", content, theme=current_theme, user_menu=user_menu)
 
-@app.route('/admin/coordinator_requests/<int:req_id>/approve')
+@app.route('/admin/coordinator_requests/<req_id>/approve')
 @require_role('admin')
 def approve_coordinator_request(req_id):
     """Approve a user's coordinator request; creates WorkingGroupChair with their user id."""
@@ -15017,7 +15512,7 @@ def approve_coordinator_request(req_id):
     flash(f'Coordinator request approved: {req.display_name or req.username} for {req.group_acronym}', 'success')
     return redirect('/admin/chairs/')
 
-@app.route('/admin/coordinator_requests/<int:req_id>/reject')
+@app.route('/admin/coordinator_requests/<req_id>/reject')
 @require_role('admin')
 def reject_coordinator_request(req_id):
     req = CoordinatorRequest.query.get(req_id)
@@ -15032,7 +15527,7 @@ def reject_coordinator_request(req_id):
     flash(f'Coordinator request rejected: {req.display_name or req.username}', 'warning')
     return redirect('/admin/chairs/')
 
-@app.route('/admin/chairs/<int:chair_id>/approve')
+@app.route('/admin/chairs/<chair_id>/approve')
 @require_auth
 def approve_chair(chair_id):
     chair = WorkingGroupChair.query.get(chair_id)
@@ -15044,7 +15539,7 @@ def approve_chair(chair_id):
         flash('Coordinator not found', 'error')
     return redirect('/admin/chairs/')
 
-@app.route('/admin/chairs/<int:chair_id>/delete')
+@app.route('/admin/chairs/<chair_id>/delete')
 @require_auth
 def delete_chair(chair_id):
     chair = WorkingGroupChair.query.get(chair_id)
@@ -15620,10 +16115,10 @@ def admin_chair_nominations():
                         
                         ${status === 'pending' ? `
                             <div class="d-flex gap-2">
-                                <button class="btn btn-success flex-fill" onclick="approveNomination(${nom.id})">
+                                <button class="btn btn-success flex-fill" onclick="approveNomination('${nom.id}')">
                                     <i class="fas fa-check me-2"></i>Approve
                                 </button>
-                                <button class="btn btn-danger flex-fill" onclick="rejectNomination(${nom.id})">
+                                <button class="btn btn-danger flex-fill" onclick="rejectNomination('${nom.id}')">
                                     <i class="fas fa-times me-2"></i>Reject
                                 </button>
                             </div>
@@ -16098,7 +16593,7 @@ def admin_member_requests():
     """
     return _format_base_template(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
 
-@app.route('/admin/member_requests/<int:req_id>/approve')
+@app.route('/admin/member_requests/<req_id>/approve')
 @require_role('admin')
 def approve_member_request(req_id):
     req = WorkgroupMemberRequest.query.get(req_id)
@@ -16122,7 +16617,7 @@ def approve_member_request(req_id):
     flash(f'Member approved: {req.user_name} for {req.group_acronym}', 'success')
     return redirect('/admin/member_requests/')
 
-@app.route('/admin/member_requests/<int:req_id>/reject')
+@app.route('/admin/member_requests/<req_id>/reject')
 @require_role('admin')
 def reject_member_request(req_id):
     req = WorkgroupMemberRequest.query.get(req_id)
@@ -16331,9 +16826,12 @@ def badge_by_public_id(public_id):
 @app.route('/votes/<vote_public_id>/')
 def vote_detail(vote_public_id):
     """Vote detail page"""
+    import html as html_mod
     vote = Vote.query.filter_by(public_id=vote_public_id).first_or_404()
     project = Layer.query.get_or_404(vote.layer_id)
-    submission = Submission.query.get_or_404(vote.submission_id)
+    submission = get_submission_by_ref(vote.submission_id) if vote.submission_id else None
+    role = Role.query.get(vote.role_id) if vote.role_id else None
+    is_election = getattr(vote, 'vote_type', 'approval') == 'election'
     
     current_user = get_current_user()
     current_theme = current_user.get('theme', 'dark') if current_user else 'dark'
@@ -16395,35 +16893,69 @@ def vote_detail(vote_public_id):
     
     # Build ballot form if eligible and active
     ballot_form_html = ''
+    candidates = []
+    if is_election:
+        for c in _election_candidates_ordered(vote):
+            u = User.query.get(c.user_id)
+            name = (u.displayName or u.username or u.oauthName or f'User {c.user_id}') if u else f'Candidate {c.id}'
+            candidates.append({'id': c.id, 'name': name})
     if vote.status == 'active' and is_eligible:
         voted_msg = ''
         if has_voted:
-            voted_msg = f'<p class="text-success">✓ You have already voted: <strong>{user_ballot.choice.upper()}</strong></p>'
-        ballot_form_html = f'''<div class="card mb-3">
-            <div class="card-header"><h5>Cast Your Ballot</h5></div>
-            <div class="card-body">
-                <p>You are eligible to vote in this election.</p>
-                {voted_msg}
-                <div class="btn-group" role="group">
-                    <button class="btn btn-success" onclick="castBallot('yes')">Vote YES</button>
-                    <button class="btn btn-danger" onclick="castBallot('no')">Vote NO</button>
-                    <button class="btn btn-secondary" onclick="castBallot('abstain')">Abstain</button>
+            choice_display = user_ballot.choice
+            if is_election and candidates:
+                for c in candidates:
+                    if str(c['id']) == str(user_ballot.choice):
+                        choice_display = c['name']; break
+            voted_msg = f'<p class="text-success">✓ You have already voted: <strong>{choice_display}</strong></p>'
+        if is_election and candidates:
+            seats = getattr(vote, 'seats', 1)
+            seat_note = f' (top {seats} will win)' if seats > 1 else ''
+            candidate_radios = ''.join(f'<div class="form-check"><input class="form-check-input" type="radio" name="vote-candidate" id="cand-{c["id"]}" value="{c["id"]}"><label class="form-check-label" for="cand-{c["id"]}">{html_mod.escape(c["name"])}</label></div>' for c in candidates)
+            ballot_form_html = f'''<div class="card mb-3">
+                <div class="card-header"><h5>Cast Your Ballot</h5></div>
+                <div class="card-body">
+                    <p>You are eligible to vote in this election. Choose one candidate{seat_note}:</p>
+                    {voted_msg}
+                    <div class="mb-2">{candidate_radios}</div>
+                    <button class="btn btn-primary btn-sm" onclick="castBallotCandidate()">Submit Vote</button>
+                    <div id="ballot-status" class="mt-2"></div>
                 </div>
-                <div id="ballot-status" class="mt-2"></div>
-            </div>
-        </div>'''
+            </div>'''
+        else:
+            ballot_form_html = f'''<div class="card mb-3">
+                <div class="card-header"><h5>Cast Your Ballot</h5></div>
+                <div class="card-body">
+                    <p>You are eligible to vote in this election.</p>
+                    {voted_msg}
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-success" onclick="castBallot('yes')">Vote YES</button>
+                        <button class="btn btn-danger" onclick="castBallot('no')">Vote NO</button>
+                        <button class="btn btn-secondary" onclick="castBallot('abstain')">Abstain</button>
+                    </div>
+                    <div id="ballot-status" class="mt-2"></div>
+                </div>
+            </div>'''
     
     # Build results HTML
     results_html = ''
     if vote.status == 'closed' or result_summary:
         if result_summary:
-            quorum_text = 'Yes' if result_summary['quorum_met'] else 'No'
-            results_content = f'''<p><strong>Yes:</strong> {result_summary['yes']}</p>
-                <p><strong>No:</strong> {result_summary['no']}</p>
-                <p><strong>Abstain:</strong> {result_summary['abstain']}</p>
-                <p><strong>Total Votes Cast:</strong> {result_summary['votes_cast']} / {result_summary['eligible']} eligible</p>
-                <p><strong>Quorum Met:</strong> {quorum_text}</p>
-                <p><strong>Yes Ratio:</strong> {int(result_summary['yes_ratio'] * 100)}%</p>'''
+            if is_election and 'by_candidate' in result_summary:
+                rows = ''.join(f'<p><strong>{html_mod.escape(str(c.get("name", c.get("candidate_id", "?"))))}:</strong> {c.get("votes", 0)} votes</p>' for c in result_summary.get('by_candidate', []))
+                seats = result_summary.get('seats', 1)
+                winners_label = f'Winners (top {seats})' if seats > 1 else 'Winner'
+                results_content = f'''{rows}
+                    <p><strong>Total Votes Cast:</strong> {result_summary.get('votes_cast', 0)} / {result_summary.get('eligible', 0)} eligible</p>
+                    <p><strong>{winners_label}:</strong> {', '.join(html_mod.escape(str(w)) for w in result_summary.get('winner_names', result_summary.get('winners', [])))}</p>'''
+            else:
+                quorum_text = 'Yes' if result_summary.get('quorum_met') else 'No'
+                results_content = f'''<p><strong>Yes:</strong> {result_summary.get('yes', 0)}</p>
+                    <p><strong>No:</strong> {result_summary.get('no', 0)}</p>
+                    <p><strong>Abstain:</strong> {result_summary.get('abstain', 0)}</p>
+                    <p><strong>Total Votes Cast:</strong> {result_summary.get('votes_cast', 0)} / {result_summary.get('eligible', 0)} eligible</p>
+                    <p><strong>Quorum Met:</strong> {quorum_text}</p>
+                    <p><strong>Yes Ratio:</strong> {int((result_summary.get('yes_ratio') or 0) * 100)}%</p>'''
         else:
             results_content = f'<p>Votes cast: {ballot_count} / {eligible_count} eligible</p>'
         results_html = f'''<div class="card mb-3">
@@ -16436,6 +16968,25 @@ def vote_detail(vote_public_id):
     if current_user:
         status_text = '✓ Eligible' if is_eligible else '✗ Not Eligible'
         user_status_html = f'<p><strong>Your Status:</strong> {status_text}</p>'
+    
+    # Run for this role: is_election, scheduled/active, user is layer member, not already candidate
+    is_layer_member = bool(current_user and LayerMember.query.filter_by(
+        layer_id=vote.layer_id, user_id=current_user['id'], status='active'
+    ).first())
+    is_candidate = bool(current_user and VoteCandidate.query.filter_by(
+        vote_id=vote.id, user_id=current_user['id'], status='approved'
+    ).first())
+    show_run_for_role = is_election and vote.status in ('scheduled', 'active') and current_user and is_layer_member and not is_candidate
+    run_for_role_html = ''
+    if show_run_for_role:
+        run_for_role_html = f'''<div class="card mb-3">
+            <div class="card-header"><h5>Run for this Role</h5></div>
+            <div class="card-body">
+                <p>You are a layer member. Declare your candidacy for this election.</p>
+                <button class="btn btn-primary" onclick="runForRole()"><i class="fas fa-user-plus me-2"></i>Run for this Role</button>
+                <div id="run-for-role-status" class="mt-2"></div>
+            </div>
+        </div>'''
     
     content = f'''
     <div class="container mt-4">
@@ -16452,14 +17003,16 @@ def vote_detail(vote_public_id):
                         <p><strong>Status:</strong> <span class="badge bg-{status_color}">{vote.status.upper()}</span></p>
                         {result_html}
                         <p><strong>Layer:</strong> <a href="/layers/{project.slug}/">{project.name}</a></p>
-                        <p><strong>Draft:</strong> <a href="/doc/draft/{submission.draft_name}/">{submission.title}</a></p>
+                        {f'<p><strong>Role:</strong> <a href="/layers/{project.slug}/#roles">{role.title_guild}</a></p>' if is_election and role else f'<p><strong>Draft:</strong> <a href="/doc/draft/{submission.draft_name}/">{submission.title}</a></p>' if submission else ''}
                         <p><strong>Start:</strong> {vote.start_at.strftime('%Y-%m-%d %H:%M UTC')}</p>
                         <p><strong>End:</strong> {vote.end_at.strftime('%Y-%m-%d %H:%M UTC')}</p>
                         <p><strong>Quorum Required:</strong> {vote.quorum_count} votes</p>
                         <p><strong>Win Threshold:</strong> {int(vote.win_threshold * 100)}%</p>
+                        {f'<p><strong>Seats:</strong> Elect up to {vote.seats} winner(s)</p>' if is_election and getattr(vote, 'seats', 1) > 1 else ''}
                     </div>
                 </div>
                 
+                {run_for_role_html}
                 {ballot_form_html}
                 {results_html}
             </div>
@@ -16480,6 +17033,7 @@ def vote_detail(vote_public_id):
     </div>
     
     <script>
+    const votePublicId = '{vote.public_id}';
     function castBallot(choice) {{
         fetch('/api/votes/{vote.public_id}/ballot/', {{
             method: 'POST',
@@ -16498,6 +17052,34 @@ def vote_detail(vote_public_id):
         .catch(err => {{
             document.getElementById('ballot-status').innerHTML = '<div class="alert alert-danger">Error casting ballot</div>';
         }});
+    }}
+    function castBallotCandidate() {{
+        const sel = document.querySelector('input[name="vote-candidate"]:checked');
+        if (!sel) {{
+            document.getElementById('ballot-status').innerHTML = '<div class="alert alert-warning">Please select a candidate</div>';
+            return;
+        }}
+        castBallot(sel.value);
+    }}
+    async function runForRole() {{
+        const statusEl = document.getElementById('run-for-role-status');
+        statusEl.innerHTML = '<span class="text-muted">Registering...</span>';
+        try {{
+            const res = await fetch('/api/votes/' + votePublicId + '/candidates/', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                credentials: 'include'
+            }});
+            const data = await res.json();
+            if (res.ok && data.success) {{
+                statusEl.innerHTML = '<div class="alert alert-success">You are now a candidate. Refresh to see the ballot.</div>';
+                setTimeout(() => location.reload(), 1500);
+            }} else {{
+                statusEl.innerHTML = '<div class="alert alert-danger">' + (data.error || 'Failed to register') + '</div>';
+            }}
+        }} catch (e) {{
+            statusEl.innerHTML = '<div class="alert alert-danger">Error: ' + e.message + '</div>';
+        }}
     }}
     </script>
     '''
@@ -16530,8 +17112,11 @@ def all_documents():
     # For each approved submission, check if there's a newer approved revision
     for submission in approved_submissions:
         # Check if there's an approved revision for this draft
+        parent_refs = [submission.id]
+        if submission.draft_name:
+            parent_refs.append(submission.draft_name)
         latest_revision = Submission.query.filter(
-            Submission.parent_draft_name == submission.id,
+            Submission.parent_draft_name.in_(parent_refs),
             Submission.is_revision == True,
             Submission.status.in_(['approved', 'published'])
         ).order_by(Submission.revision_number.desc()).first()
@@ -16624,10 +17209,10 @@ def draft_text(draft_name):
     # If not found in DRAFTS, try to find as a submission ID
     submission = None
     if not draft:
-        submission = Submission.query.filter_by(id=draft_name).first()
+        submission = get_submission_by_ref(draft_name)
         if submission:
             draft = {
-                'name': submission.id,
+                'name': submission.draft_name or submission.id,
                 'title': submission.title,
                 'authors': submission.authors,
                 'abstract': submission.abstract or 'Abstract not available for this draft.',
@@ -16744,12 +17329,7 @@ def draft_detail(draft_name):
     # If not found in DRAFTS, try to find as a submission ID or ML number
     submission = None
     if not draft:
-        # Try to find by submission ID first
-        submission = Submission.query.filter_by(id=draft_name).first()
-        
-        # If not found by ID, try to find by ML number
-        if not submission:
-            submission = Submission.query.filter_by(ml_number=draft_name).first()
+        submission = get_submission_by_ref(draft_name)
         if submission:
             # Calculate pages and words for ordinals
             source_type = getattr(submission, 'sourceType', 'file')
@@ -16780,7 +17360,7 @@ def draft_detail(draft_name):
             
             # Create a draft-like object from the submission
             draft = {
-                'name': submission.id,
+                'name': submission.draft_name or submission.id,
                 'title': submission.title,
                 'authors': submission.authors,
                 'abstract': submission.abstract or 'Abstract not available for this draft.',
@@ -16994,11 +17574,7 @@ Meta-Layer Initiative
     # Resolve submission for artifact link (draft may come from DRAFTS or Submission)
     _sub = submission
     if not _sub and draft:
-        _sub = Submission.query.filter_by(id=draft.get('name')).first() or \
-               Submission.query.filter_by(ml_number=draft.get('name')).first() or \
-               Submission.query.filter_by(ml_number=draft.get('ml_number')).first() or \
-               Submission.query.filter_by(id=draft_name).first() or \
-               Submission.query.filter_by(ml_number=draft_name).first()
+        _sub = get_submission_by_ref(draft.get('name')) or get_submission_by_ref(draft.get('ml_number')) or get_submission_by_ref(draft_name)
     artifact_id = getattr(_sub, 'artifact_id', None) if _sub else None
     layer_slug = None
     supports = []
@@ -17067,6 +17643,117 @@ Meta-Layer Initiative
                     </div>
                 </div>
 '''
+    if not layer_slug and _sub and getattr(_sub, 'layer_id', None):
+        layer = Layer.query.get(_sub.layer_id)
+        layer_slug = layer.slug if layer else None
+
+    def _artifact_card_and_modal_html(draft, sub, aid, lslug, user):
+        if not lslug or not user:
+            return ''
+        if not sub and not aid:
+            return ''
+        has_artifact = bool(aid)
+        sub_id = getattr(sub, 'id', None) if sub else None
+        artifact_types = ['proposal', 'evidence', 'insight', 'reflection', 'translation', 'implementation', 'decision', 'monument', 'bridge', 'submission']
+        aid_js = f"'{aid}'" if aid else 'null'
+        sub_id_js = f"'{sub_id}'" if sub_id else 'null'
+        return f'''
+        <div class="card mt-3">
+            <div class="card-header"><h5>Artifact</h5></div>
+            <div class="card-body">
+                {f'<a href="/layers/{lslug}/artifacts/{aid}/" class="btn btn-outline-secondary btn-sm mb-2 w-100">View full artifact</a>' if aid else ''}
+                <button type="button" class="btn btn-outline-primary btn-sm w-100" id="artifact-modal-btn" data-artifact-id={aid_js} data-submission-id={sub_id_js}>
+                    <i class="fas fa-edit me-1"></i>{'Edit Artifact' if has_artifact else 'Create Artifact'}
+                </button>
+            </div>
+        </div>
+        <div class="modal fade" id="artifactModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="artifactModalTitle">Edit Artifact</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="artifact-alert" class="alert d-none mb-2"></div>
+                        <div class="mb-2"><label class="form-label">Type</label><select class="form-select" id="artifact-type"><option value="">—</option>{''.join(f'<option value="{t}">{t}</option>' for t in artifact_types)}</select></div>
+                        <div class="mb-2"><label class="form-label">Subtype</label><input type="text" class="form-control" id="artifact-subtype" placeholder="e.g. governance proposal"></div>
+                        <div class="mb-2"><label class="form-label">Title</label><input type="text" class="form-control" id="artifact-title" placeholder="Artifact title"></div>
+                        <div class="mb-2"><label class="form-label">Summary</label><textarea class="form-control" id="artifact-summary" rows="2" placeholder="Brief summary"></textarea></div>
+                        <div class="mb-2"><label class="form-label">Body</label><textarea class="form-control" id="artifact-body" rows="4" placeholder="Full content"></textarea></div>
+                        <div class="mb-2"><label class="form-label">URI</label><input type="text" class="form-control" id="artifact-uri" placeholder="https://..."></div>
+                        <div class="mb-2"><label class="form-label">Status</label><select class="form-select" id="artifact-status"><option value="draft">draft</option><option value="published">published</option><option value="archived">archived</option></select></div>
+                        <div class="row"><div class="col-6"><label class="form-label">Source language</label><input type="text" class="form-control" id="artifact-source-lang" placeholder="en"></div><div class="col-6"><label class="form-label">Current language</label><input type="text" class="form-control" id="artifact-current-lang" placeholder="en"></div></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="artifact-save-btn">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script>
+        (function(){{
+            const btn = document.getElementById('artifact-modal-btn');
+            if (!btn) return;
+            const aid = btn.dataset.artifactId;
+            const subId = btn.dataset.submissionId;
+            const modal = new bootstrap.Modal(document.getElementById('artifactModal'));
+            const modalTitle = document.getElementById('artifactModalTitle');
+            const saveBtn = document.getElementById('artifact-save-btn');
+            const alertEl = document.getElementById('artifact-alert');
+            const fields = ['artifact_type','artifact_subtype','title','summary','body','uri','status','source_language','current_language'];
+            const ids = {{artifact_type:'artifact-type',artifact_subtype:'artifact-subtype',title:'artifact-title',summary:'artifact-summary',body:'artifact-body',uri:'artifact-uri',status:'artifact-status',source_language:'artifact-source-lang',current_language:'artifact-current-lang'}};
+            function showAlert(msg,type){{
+                alertEl.textContent=msg; alertEl.className='alert alert-'+type; alertEl.classList.remove('d-none');
+            }}
+            function getPayload(){{
+                const p={{}};
+                for (const f of fields){{ const el=document.getElementById(ids[f]); if(el) p[f]=el.value===''?null:el.value; }}
+                return p;
+            }}
+            function setFields(art){{
+                for (const f of fields){{ const el=document.getElementById(ids[f]); if(el&&art[f]!==undefined) el.value=art[f]||''; }}
+            }}
+            btn.addEventListener('click', async function(){{
+                modalTitle.textContent = aid ? 'Edit Artifact' : 'Create Artifact';
+                if (aid) {{
+                    try {{
+                        const r = await fetch('/api/artifacts/'+aid+'/', {{credentials:'same-origin'}});
+                        const d = await r.json();
+                        if (r.ok) setFields(d); else showAlert(d.error||'Failed to load','danger');
+                    }} catch(e) {{ showAlert(e.message,'danger'); }}
+                }} else {{
+                    setFields({{}});
+                }}
+                modal.show();
+            }});
+            saveBtn.addEventListener('click', async function(){{
+                saveBtn.disabled=true; alertEl.classList.add('d-none');
+                try {{
+                    let d;
+                    if (aid) {{
+                        const r = await fetch('/api/artifacts/'+aid+'/', {{method:'PATCH',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(getPayload()),credentials:'same-origin'}});
+                        d = await r.json();
+                        if (r.ok) {{ location.reload(); saveBtn.disabled=false; return; }}
+                    }} else {{
+                        if (!subId) {{ showAlert('No submission','danger'); saveBtn.disabled=false; return; }}
+                        const r0 = await fetch('/api/submissions/'+subId+'/ensure-artifact/', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{}}),credentials:'same-origin'}});
+                        d = await r0.json();
+                        if (r0.ok && d.artifact_id) {{
+                            const r1 = await fetch('/api/artifacts/'+d.artifact_id+'/', {{method:'PATCH',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(getPayload()),credentials:'same-origin'}});
+                            d = await r1.json();
+                            if (r1.ok) {{ location.reload(); saveBtn.disabled=false; return; }}
+                        }}
+                    }}
+                    showAlert(d.error||'Failed','danger');
+                }} catch(e) {{ showAlert(e.message,'danger'); }}
+                saveBtn.disabled=false;
+            }});
+        }})();
+        </script>
+        '''
+
     # Show ML number only if approved, otherwise show submission ID
     if draft.get('status') == 'approved' and draft.get('ml_number'):
         display_id = draft.get('ml_number')
@@ -17145,6 +17832,7 @@ Meta-Layer Initiative
             </div>
             
             <div class="col-md-4">
+                {_artifact_card_and_modal_html(draft, _sub, artifact_id, layer_slug, current_user)}
                 {support_oppose_card_html}
                 <div class="card">
                     <div class="card-header">
@@ -17286,7 +17974,7 @@ def draft_comments(draft_name):
     # If not found in DRAFTS, try to find as a submission ID
     submission = None
     if not draft:
-        submission = Submission.query.filter_by(id=draft_name).first()
+        submission = get_submission_by_ref(draft_name)
         if submission:
             draft = {
                 'name': submission.id,
@@ -17356,7 +18044,7 @@ def draft_comments(draft_name):
             comment_id = request.form.get('comment_id')
             new_text = request.form.get('new_text', '').strip()
             if comment_id and new_text:
-                comment = Comment.query.filter_by(id=int(comment_id)).first()
+                comment = Comment.query.filter_by(id=comment_id).first()
                 if comment and comment.author == current_user['name']:
                     # Check time limit
                     time_diff = datetime.utcnow() - comment.timestamp
@@ -17380,7 +18068,7 @@ def draft_comments(draft_name):
         elif action == 'delete':
             comment_id = request.form.get('comment_id')
             if comment_id:
-                comment = Comment.query.filter_by(id=int(comment_id)).first()
+                comment = Comment.query.filter_by(id=comment_id).first()
                 if comment and comment.author == current_user['name']:
                     # Check time limit
                     time_diff = datetime.utcnow() - comment.timestamp
@@ -17600,7 +18288,7 @@ def draft_history(draft_name):
     # If not found in DRAFTS, try to find as a submission ID
     submission = None
     if not draft:
-        submission = Submission.query.filter_by(id=draft_name).first()
+        submission = get_submission_by_ref(draft_name)
         if submission:
             draft = {
                 'name': submission.id,
@@ -17751,7 +18439,7 @@ def draft_revisions(draft_name):
     submission = None
     original_submission_id = None
     if not draft:
-        submission = Submission.query.filter_by(id=draft_name).first()
+        submission = get_submission_by_ref(draft_name)
         if submission:
             # Determine the original submission ID
             # If this submission is a revision, use its parent_draft_name
@@ -17849,7 +18537,7 @@ def draft_revisions(draft_name):
     original_id = draft.get('original_submission_id', draft['name'])
     
     # Get the original submission for display
-    original_submission = Submission.query.filter_by(id=original_id).first()
+    original_submission = get_submission_by_ref(original_id)
     
     # Find all approved/published revisions for this draft
     all_revisions = Submission.query.filter(
@@ -20194,7 +20882,7 @@ def waitlists_directory():
     
     return render_page("Waitlists Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
 
-@app.route('/waitlists/<int:waitlist_id>/')
+@app.route('/waitlists/<waitlist_id>/')
 def waitlist_detail(waitlist_id):
     """Standalone waitlist detail page"""
     from flask import abort
@@ -20211,7 +20899,7 @@ def waitlist_detail(waitlist_id):
 
     is_admin_json = 'true' if is_admin else 'false'
     is_auth_json = 'true' if current_user else 'false'
-    waitlist_id_js = waitlist_id
+    waitlist_id_js = json.dumps(str(waitlist_id))  # UUID must be quoted in JS
     project_slug_js = project.slug
 
     # Pre-compute conditional HTML blocks (can't use triple-quoted strings inside f-string expressions)
@@ -20671,7 +21359,7 @@ def waitlist_detail(waitlist_id):
             if (m.description) html += '<br><small class="text-muted">' + esc(m.description) + '</small>';
             html += '</div>';
             if (IS_ADMIN) {{
-                html += '<button class="btn btn-outline-danger btn-sm" onclick="deleteMilestone(' + m.id + ')"><i class="fas fa-trash"></i></button>';
+                html += '<button class="btn btn-outline-danger btn-sm" data-milestone-id="' + esc(m.id || '') + '" onclick="deleteMilestone(this.dataset.milestoneId)"><i class="fas fa-trash"></i></button>';
             }}
             html += '</li>';
         }});
@@ -20997,7 +21685,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
     
     project_obj = Layer.query.filter_by(slug=project_slug).first()
     show_admin_tab = bool(project_obj and current_user and is_layer_admin(project_obj, current_user))
-    initial_waitlist_id = int(waitlist_id) if waitlist_id else None
+    initial_waitlist_id = str(waitlist_id) if waitlist_id else None
     
     admin_tab_html = ''
     admin_tab_pane_html = ''
@@ -21187,6 +21875,57 @@ def _render_project_detail(project_slug, waitlist_id=None):
         </div>
     </div>
     
+    <div class="modal fade" id="createQuestModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-tasks me-2"></i>Create Quest</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="create-quest-alert" class="alert d-none" role="alert"></div>
+                    <form id="createQuestForm">
+                        <div class="mb-3">
+                            <label for="quest-title" class="form-label">Title *</label>
+                            <input type="text" class="form-control" id="quest-title" required placeholder="e.g. Write opposition for draft X">
+                        </div>
+                        <div class="mb-3">
+                            <label for="quest-description" class="form-label">Description</label>
+                            <textarea class="form-control" id="quest-description" rows="3" placeholder="What contribution are you looking for?"></textarea>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="quest-type" class="form-label">Type</label>
+                                <select class="form-select" id="quest-type">
+                                    <option value="contribution">Contribution</option>
+                                    <option value="bounty">Bounty</option>
+                                    <option value="review">Review</option>
+                                    <option value="documentation">Documentation</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="quest-difficulty" class="form-label">Difficulty</label>
+                                <select class="form-select" id="quest-difficulty">
+                                    <option value="easy">Easy</option>
+                                    <option value="medium" selected>Medium</option>
+                                    <option value="hard">Hard</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="quest-acceptance-criteria" class="form-label">Acceptance criteria (optional)</label>
+                            <textarea class="form-control" id="quest-acceptance-criteria" rows="2" placeholder="What must be done to complete this quest?"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="create-quest-submit-btn" onclick="submitCreateQuest()"><i class="fas fa-check me-2"></i>Create Quest</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <div class="modal fade" id="createVoteModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -21198,19 +21937,41 @@ def _render_project_detail(project_slug, waitlist_id=None):
                     <div id="create-vote-alert" class="alert d-none" role="alert"></div>
                     <form id="createVoteForm">
                         <div class="mb-3">
+                            <label class="form-label">Vote type *</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="vote-type" id="vote-type-approval" value="approval" checked onchange="toggleVoteTypeFields()">
+                                <label class="form-check-label" for="vote-type-approval">Approval — Vote on a draft (yes/no)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="vote-type" id="vote-type-election" value="election" onchange="toggleVoteTypeFields()">
+                                <label class="form-check-label" for="vote-type-election">Election — Vote for a role (choose among candidates)</label>
+                            </div>
+                        </div>
+                        <div class="mb-3">
                             <label for="vote-title" class="form-label">Title *</label>
-                            <input type="text" class="form-control" id="vote-title" required placeholder="e.g. Approve ML-DRAFT-001">
+                            <input type="text" class="form-control" id="vote-title" required placeholder="e.g. Approve ML-DRAFT-001 or Election: Director">
                         </div>
                         <div class="mb-3">
                             <label for="vote-description" class="form-label">Description</label>
                             <textarea class="form-control" id="vote-description" rows="2" placeholder="What is being decided"></textarea>
                         </div>
-                        <div class="mb-3">
+                        <div class="mb-3" id="vote-submission-section">
                             <label for="vote-submission-id" class="form-label">Draft to vote on *</label>
-                            <select class="form-select" id="vote-submission-id" required>
+                            <select class="form-select" id="vote-submission-id">
                                 <option value="">Loading drafts...</option>
                             </select>
                             <div class="form-text">Select an approved draft from this layer's workgroups</div>
+                        </div>
+                        <div class="mb-3 d-none" id="vote-role-section">
+                            <label for="vote-role-id" class="form-label">Role to elect *</label>
+                            <select class="form-select" id="vote-role-id">
+                                <option value="">Loading roles...</option>
+                            </select>
+                            <div class="form-text">Roles with "requires election" (or any role) can be filled via vote</div>
+                            <div class="mt-2">
+                                <label for="vote-seats" class="form-label small">Seats (winners)</label>
+                                <input type="number" class="form-control form-control-sm" id="vote-seats" min="1" value="1" style="max-width:80px">
+                            </div>
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
@@ -21347,6 +22108,12 @@ def _render_project_detail(project_slug, waitlist_id=None):
                         <div class="mb-3">
                             <label for="edit-project-status-reason" class="form-label">Status Reason (optional)</label>
                             <input type="text" class="form-control" id="edit-project-status-reason" placeholder="e.g. reason for status change">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-project-meta-domain-inscription" class="form-label">Meta-domain inscription ID</label>
+                            <input type="text" class="form-control" id="edit-project-meta-domain-inscription" placeholder="e.g. abc123...i0">
+                            <div class="form-text">Ordinal inscription whose content is the meta-domain (e.g. example.com.meta). Fetched once and cached.</div>
+                            <div id="edit-project-meta-domain-display" class="mt-1 text-muted small"></div>
                         </div>
                     </form>
                 </div>
@@ -21538,6 +22305,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         }}
         if (isProjectAdmin) {{
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
+            actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showCreateQuestModal()"><i class="fas fa-tasks me-2"></i>Create Quest</button></div>';
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showCreateVoteModal()"><i class="fas fa-vote-yea me-2"></i>Create Vote</button></div>';
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showEmailModal()"><i class="fas fa-envelope me-2"></i>Email</button></div>';
         }}
@@ -21777,9 +22545,21 @@ def _render_project_detail(project_slug, waitlist_id=None):
         }}
     }}
     
+    function toggleVoteTypeFields() {{
+        const isElection = document.getElementById('vote-type-election')?.checked;
+        const subSec = document.getElementById('vote-submission-section');
+        const roleSec = document.getElementById('vote-role-section');
+        const subSelect = document.getElementById('vote-submission-id');
+        if (subSec) subSec.classList.toggle('d-none', !!isElection);
+        if (roleSec) roleSec.classList.toggle('d-none', !isElection);
+        if (subSelect) subSelect.required = !isElection;
+    }}
+    
     async function showCreateVoteModal() {{
         document.getElementById('create-vote-alert').classList.add('d-none');
         document.getElementById('createVoteForm').reset();
+        document.getElementById('vote-type-approval').checked = true;
+        toggleVoteTypeFields();
         
         // Set timezone labels (handle both modal variants)
         const tzAbbr = new Date().toLocaleTimeString('en-us', {{timeZoneName:'short'}}).split(' ').pop();
@@ -21826,8 +22606,39 @@ def _render_project_detail(project_slug, waitlist_id=None):
             submissionSelect.innerHTML = '<option value="">Error loading drafts</option>';
         }}
         
+        // Load roles for election
+        const roleSelect = document.getElementById('vote-role-id');
+        if (roleSelect) {{
+            roleSelect.innerHTML = '<option value="">Loading...</option>';
+            try {{
+                const rRes = await fetch(`/api/layers/${{project.id}}/roles/`);
+                const rData = await rRes.json();
+                const roles = rData.roles || [];
+                roleSelect.innerHTML = '<option value="">Select a role...</option>';
+                roles.forEach(r => {{
+                    const lab = r.requires_election ? r.title_guild + ' (requires election)' : r.title_guild;
+                    roleSelect.innerHTML += `<option value="${{r.id}}">${{escapeHtmlBasic(lab)}}</option>`;
+                }});
+            }} catch (e) {{
+                roleSelect.innerHTML = '<option value="">Error loading roles</option>';
+            }}
+        }}
+        
+        toggleVoteTypeFields();
         const modal = new bootstrap.Modal(document.getElementById('createVoteModal'));
         modal.show();
+    }}
+    
+    function toggleVoteTypeFields() {{
+        const isElection = document.getElementById('vote-type-election')?.checked;
+        const subSec = document.getElementById('vote-submission-section');
+        const roleSec = document.getElementById('vote-role-section');
+        const subSel = document.getElementById('vote-submission-id');
+        if (subSec) subSec.classList.toggle('d-none', !!isElection);
+        if (roleSec) roleSec.classList.toggle('d-none', !isElection);
+        if (subSel) subSel.required = !isElection;
+        const roleSel = document.getElementById('vote-role-id');
+        if (roleSel) roleSel.required = !!isElection;
     }}
     
     async function showEmailModal() {{
@@ -21917,6 +22728,10 @@ def _render_project_detail(project_slug, waitlist_id=None):
         const title = document.getElementById('vote-title').value.trim();
         const description = document.getElementById('vote-description').value.trim();
         const submission_id = document.getElementById('vote-submission-id').value.trim();
+        const role_id = document.getElementById('vote-role-id')?.value?.trim() || '';
+        const seats = parseInt(document.getElementById('vote-seats')?.value || '1', 10) || 1;
+        const isElection = document.getElementById('vote-type-election')?.checked;
+        const vote_type = isElection ? 'election' : 'approval';
         const startVal = document.getElementById('vote-start').value;
         const endVal = document.getElementById('vote-end').value;
         const quorum = parseInt(document.getElementById('vote-quorum').value, 10);
@@ -21924,8 +22739,20 @@ def _render_project_detail(project_slug, waitlist_id=None):
         
         const alertEl = document.getElementById('create-vote-alert');
         alertEl.classList.add('d-none');
-        if (!title || !submission_id || !startVal || !endVal) {{
-            alertEl.textContent = 'Title, Submission ID, Start, and End are required';
+        if (!title || !startVal || !endVal) {{
+            alertEl.textContent = 'Title, Start, and End are required';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        if (isElection && !role_id) {{
+            alertEl.textContent = 'Role is required for election votes';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        if (!isElection && !submission_id) {{
+            alertEl.textContent = 'Draft is required for approval votes';
             alertEl.className = 'alert alert-danger';
             alertEl.classList.remove('d-none');
             return;
@@ -21944,7 +22771,10 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 body: JSON.stringify({{
                     title: title,
                     description: description,
-                    submission_id: submission_id,
+                    submission_id: submission_id || null,
+                    role_id: role_id || null,
+                    vote_type: vote_type,
+                    seats: seats,
                     start_at: startAt,
                     end_at: endAt,
                     quorum_count: quorum,
@@ -21974,6 +22804,68 @@ def _render_project_detail(project_slug, waitlist_id=None):
         }}
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-check me-2"></i>Create Vote';
+    }}
+    
+    function showCreateQuestModal() {{
+        const alertEl = document.getElementById('create-quest-alert');
+        if (alertEl) alertEl.classList.add('d-none');
+        const form = document.getElementById('createQuestForm');
+        if (form) form.reset();
+        const modal = new bootstrap.Modal(document.getElementById('createQuestModal'));
+        modal.show();
+    }}
+    
+    async function submitCreateQuest() {{
+        const title = document.getElementById('quest-title').value.trim();
+        const description = document.getElementById('quest-description').value.trim();
+        const questType = document.getElementById('quest-type').value || 'contribution';
+        const difficulty = document.getElementById('quest-difficulty').value || 'medium';
+        const acceptanceCriteria = document.getElementById('quest-acceptance-criteria').value.trim();
+        
+        const alertEl = document.getElementById('create-quest-alert');
+        alertEl.classList.add('d-none');
+        if (!title) {{
+            alertEl.textContent = 'Title is required';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        
+        const btn = document.getElementById('create-quest-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+        
+        try {{
+            const res = await fetch(`/api/layers/${{project.id}}/quests/`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    title: title,
+                    description: description || null,
+                    quest_type: questType,
+                    difficulty: difficulty,
+                    acceptance_criteria: acceptanceCriteria || null
+                }})
+            }});
+            const data = await res.json().catch(() => ({{}}));
+            
+            if (res.ok) {{
+                bootstrap.Modal.getInstance(document.getElementById('createQuestModal')).hide();
+                document.getElementById('opportunities-tab').click();
+                loadOpportunities();
+            }} else {{
+                alertEl.textContent = data.error || 'Failed to create quest';
+                alertEl.className = 'alert alert-danger';
+                alertEl.classList.remove('d-none');
+            }}
+        }} catch (e) {{
+            console.error('Create quest fetch error:', e);
+            alertEl.textContent = 'Network error: ' + e.message;
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+        }}
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-check me-2"></i>Create Quest';
     }}
     
     // Tab event listeners
@@ -22087,7 +22979,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 actionHtml = '<span class="badge bg-success">Joined</span><span class="text-muted">Position #' + w.my_entry.position + '</span>';
             }} else if (canJoin) {{
                 const wlNameForJs = (w.name || 'Waitlist').split("\\\\").join("\\\\\\\\").split("'").join("\\\\'");
-                actionHtml = '<button class="btn btn-primary btn-sm" onclick="showJoinWaitlistModal(' + w.id + ', \\'' + wlNameForJs + '\\')">Join</button>';
+                actionHtml = '<button class="btn btn-primary btn-sm" data-waitlist-id="' + (w.id || '').replace(/"/g, '&quot;') + '" data-waitlist-name="' + wlNameForJs.replace(/"/g, '&quot;') + '" onclick="showJoinWaitlistModal(this.dataset.waitlistId, this.dataset.waitlistName)">Join</button>';
             }} else if (!started) {{
                 actionHtml = '<span class="badge bg-secondary">Not started</span>';
             }} else if (full) {{
@@ -22097,7 +22989,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
             }} else if (!isAuthenticated) {{
                 actionHtml = '<a href="/login/" class="btn btn-primary btn-sm">Sign in to join</a>';
             }}
-            const leaveBtn = w.my_entry ? '<button class="btn btn-outline-danger btn-sm" onclick="leaveWaitlist(' + w.id + ')">Leave</button>' : '';
+            const leaveBtn = w.my_entry ? '<button class="btn btn-outline-danger btn-sm" data-waitlist-id="' + (w.id || '').replace(/"/g, '&quot;') + '" onclick="leaveWaitlist(this.dataset.waitlistId)">Leave</button>' : '';
             const embedBtn = isProjectAdmin ? '<button class="btn btn-outline-primary btn-sm" onclick="showEmbedCodeFromEl(this)" data-waitlist-id="' + w.id + '" data-waitlist-name="' + (w.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + '"><i class="fas fa-code me-1"></i>Embed</button>' : '';
             const detailBtn = '<a href="/waitlists/' + w.id + '/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-external-link-alt me-1"></i>Detail Page</a>';
             const linkHtml = w.referrals ? 'Your referral link: <a href="' + link + '" target="_blank">' + link + '</a>' : 'Link: <a href="' + link + '">' + link + '</a>';
@@ -22197,7 +23089,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 html += `
                     <div class="list-group-item d-flex justify-content-between align-items-center">
                         <a href="/profile/${{a.username}}/" class="text-decoration-none">${{a.display_name}}</a>
-                        <button class="btn btn-outline-danger btn-sm" onclick="removeAdmin(${{a.user_id}}, this)">Remove</button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="removeAdmin('${{a.user_id}}', this)">Remove</button>
                     </div>
                 `;
             }});
@@ -22325,7 +23217,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         resultsEl.innerHTML = data.users.map(u => `
             <div class="d-flex justify-content-between align-items-center border-bottom py-2">
                 <span>${{u.display_name}} <small class="text-muted">@${{u.username}}</small></span>
-                <button class="btn btn-sm btn-primary" onclick="addAdmin(${{u.id}})">Add</button>
+                <button class="btn btn-sm btn-primary" onclick="addAdmin('${{u.id}}')">Add</button>
             </div>
         `).join('');
     }}
@@ -22626,7 +23518,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                                     <div class="card">
                                         <div class="card-body">
                                             <h5 class="card-title">Actions</h5>
-                                            ${{myEntry ? '<div class="mb-3"><span class="badge bg-success fs-6">Joined</span> <span class="text-muted">#' + myEntry.position + '</span><br><button class="btn btn-outline-danger btn-sm mt-2" onclick="leaveWaitlist(' + wl.id + ')">Leave</button></div>' : (canJoin ? '<button class="btn btn-primary w-100 mb-3" onclick="joinWaitlist(' + wl.id + ')">Join Waitlist</button>' : '<p class="text-muted">' + (started ? (closed ? 'Closed' : (full ? 'Full' : 'Login to join')) : 'Not started') + '</p>')}}
+                                            ${{myEntry ? '<div class="mb-3"><span class="badge bg-success fs-6">Joined</span> <span class="text-muted">#' + myEntry.position + '</span><br><button class="btn btn-outline-danger btn-sm mt-2" data-waitlist-id="' + (wl.id || '').replace(/"/g, '&quot;') + '" onclick="leaveWaitlist(this.dataset.waitlistId)">Leave</button></div>' : (canJoin ? '<button class="btn btn-primary w-100 mb-3" data-waitlist-id="' + (wl.id || '').replace(/"/g, '&quot;') + '" onclick="joinWaitlist(this.dataset.waitlistId)">Join Waitlist</button>' : '<p class="text-muted">' + (started ? (closed ? 'Closed' : (full ? 'Full' : 'Login to join')) : 'Not started') + '</p>')}}
                                             <p class="mb-2"><strong>On waitlist:</strong> ${{wl.count}}${{wl.max_number ? ' of ' + wl.max_number : ''}}</p>
                                             ${{wl.closing_date ? '<p class="mb-2"><strong>Closes:</strong> ' + new Date(wl.closing_date).toLocaleDateString() + '</p>' : ''}}
                                             ${{statusBadge}}
@@ -22955,6 +23847,8 @@ def _render_project_detail(project_slug, waitlist_id=None):
         document.getElementById('edit-project-image-upload-status').innerHTML = '';
         document.getElementById('edit-project-status').value = project.status || 'proposed';
         document.getElementById('edit-project-status-reason').value = project.status_reason || '';
+        document.getElementById('edit-project-meta-domain-inscription').value = project.meta_domain_inscription_id || '';
+        document.getElementById('edit-project-meta-domain-display').textContent = project.meta_domain ? 'Cached: ' + project.meta_domain : '';
         document.getElementById('edit-modal-add-admin-q').value = '';
         document.getElementById('edit-modal-add-admin-results').innerHTML = '';
         const alertEl = document.getElementById('edit-project-alert');
@@ -22993,7 +23887,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 html += `
                     <div class="list-group-item d-flex justify-content-between align-items-center py-2" id="edit-modal-admin-${{a.user_id}}">
                         <a href="/profile/${{a.username}}/" class="text-decoration-none small">${{a.display_name}}</a>
-                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAdminFromEditModal(${{a.user_id}})">Remove</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAdminFromEditModal('${{a.user_id}}')">Remove</button>
                     </div>
                 `;
             }});
@@ -23018,7 +23912,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 resultsEl.innerHTML = data.users.map(u => `
                     <div class="d-flex justify-content-between align-items-center border-bottom py-1 small">
                         <span>${{u.display_name}} <small class="text-muted">@${{u.username}}</small></span>
-                        <button type="button" class="btn btn-sm btn-primary" onclick="addAdminFromEditModal(${{u.id}})">Add</button>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="addAdminFromEditModal('${{u.id}}')">Add</button>
                     </div>
                 `).join('');
             }})
@@ -23074,6 +23968,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
         const image_url = document.getElementById('edit-project-image-url').value.trim();
         const status = document.getElementById('edit-project-status').value;
         const status_reason = document.getElementById('edit-project-status-reason').value.trim();
+        const meta_domain_inscription_id = document.getElementById('edit-project-meta-domain-inscription').value.trim();
         const alertEl = document.getElementById('edit-project-alert');
         const saveBtn = document.getElementById('edit-project-save-btn');
         
@@ -23091,7 +23986,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 method: 'PATCH',
                 headers: {{ 'Content-Type': 'application/json' }},
                 credentials: 'include',
-                body: JSON.stringify({{ name: name, mission: mission || null, description: description, image_url: image_url || null, status: status, status_reason: status_reason || null }})
+                body: JSON.stringify({{ name: name, mission: mission || null, description: description, image_url: image_url || null, status: status, status_reason: status_reason || null, meta_domain_inscription_id: meta_domain_inscription_id || null }})
             }});
             let data;
             try {{ data = await res.json(); }} catch (_) {{
@@ -23262,6 +24157,12 @@ def _render_project_detail(project_slug, waitlist_id=None):
                                         </label>
                                     </div>
                                     <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="role-requires-election">
+                                        <label class="form-check-label" for="role-requires-election">
+                                            Requires Election (role filled via vote)
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="role-badge-enabled" checked>
                                         <label class="form-check-label" for="role-badge-enabled">
                                             Badge Enabled
@@ -23339,6 +24240,7 @@ def _render_project_detail(project_slug, waitlist_id=None):
                 order: parseInt(document.getElementById('role-order').value) || 0,
                 public_visible: document.getElementById('role-public-visible').checked,
                 claim_requires_approval: document.getElementById('role-claim-approval').checked,
+                requires_election: document.getElementById('role-requires-election').checked,
                 badge_enabled: document.getElementById('role-badge-enabled').checked,
                 badge_requires_approval: document.getElementById('role-badge-approval').checked
             }};
@@ -23635,21 +24537,137 @@ def layer_detail(layer_slug):
     app.logger.info(f"[LAYER] layer_detail route hit: layer_slug={layer_slug!r}")
     return _render_project_detail(layer_slug)
 
-@app.route('/layers/<layer_slug>/waitlist/<int:waitlist_id>/')
+@app.route('/layers/<layer_slug>/waitlist/<waitlist_id>/')
 def layer_detail_waitlist(layer_slug, waitlist_id):
     """Layer detail with specific waitlist tab (for referral links)"""
     return _render_project_detail(layer_slug, waitlist_id=waitlist_id)
 
-@app.route('/layers/<layer_slug>/quests/<int:quest_id>/')
+@app.route('/layers/<layer_slug>/quests/<quest_id>/')
 def layer_quest_detail(layer_slug, quest_id):
-    """Quest detail: redirect to layer Opportunities tab (GOV-HUB-3 Phase 2.1)."""
+    """Quest detail page (GOV-HUB-3 Phase 2.1): show quest info, submissions, and submit form."""
+    import html as html_mod
+    user_menu = generate_user_menu()
+    current_user = get_current_user()
+    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     layer = Layer.query.filter_by(slug=layer_slug).first() or Layer.query.get(layer_slug)
     if not layer:
         return "Layer not found", 404
     quest = Quest.query.filter_by(id=quest_id, layer_id=layer.id).first()
     if not quest:
         return "Quest not found", 404
-    return redirect(url_for('layer_detail', layer_slug=layer_slug) + '#opportunities')
+    submissions = QuestSubmission.query.filter_by(quest_id=quest_id).order_by(QuestSubmission.created_at.desc()).all()
+    layer_name_esc = html_mod.escape(layer.name or layer_slug)
+    title_esc = html_mod.escape(quest.title or 'Untitled Quest')
+    desc_esc = html_mod.escape(quest.description or '') if quest.description else ''
+    criteria_esc = html_mod.escape(quest.acceptance_criteria or '') if quest.acceptance_criteria else ''
+    status_badge = 'success' if quest.status == 'open' else 'secondary' if quest.status == 'closed' else 'warning'
+    created_str = quest.created_at.strftime('%Y-%m-%d %H:%M') if quest.created_at else '—'
+    creator_name = None
+    if quest.creator_user_id:
+        u = User.query.get(quest.creator_user_id)
+        creator_name = (u.displayName or u.username or u.oauthName) if u else None
+    creator_block = f'<li>Created by: {html_mod.escape(creator_name)}</li>' if creator_name else ''
+    sub_rows = []
+    for qs in submissions:
+        art = Artifact.query.get(qs.artifact_id) if qs.artifact_id else None
+        sub = Submission.query.filter_by(artifact_id=qs.artifact_id).first() if qs.artifact_id else None
+        submitter_name = None
+        if qs.submitter_user_id:
+            su = User.query.get(qs.submitter_user_id)
+            submitter_name = (su.displayName or su.username or su.oauthName) if su else None
+        art_title = (art.title or art.id[:8]) if art else (qs.artifact_id[:8] + '...' if qs.artifact_id else '—')
+        art_link = f'<a href="/layers/{layer_slug}/artifacts/{qs.artifact_id}/">{html_mod.escape(art_title[:50])}</a>' if qs.artifact_id and art else (qs.artifact_id[:12] + '...' if qs.artifact_id else '—')
+        draft_link = f' <a href="/submit/status/{sub.id}/" class="badge bg-outline-primary text-decoration-none">Draft</a>' if sub else ''
+        status_cls = 'success' if qs.status == 'approved' else 'warning' if qs.status == 'pending_review' else 'secondary'
+        sub_rows.append(f'<tr><td>{art_link}{draft_link}</td><td>{html_mod.escape(submitter_name or "—")}</td><td><span class="badge bg-{status_cls}">{qs.status}</span></td><td>{qs.created_at.strftime("%Y-%m-%d") if qs.created_at else "—"}</td></tr>')
+    submissions_html = ''.join(sub_rows) if sub_rows else '<tr><td colspan="4" class="text-muted">No submissions yet.</td></tr>'
+    back_link = f'<a href="/layers/{layer_slug}/#opportunities" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Opportunities</a>'
+    submit_form_html = ''
+    if quest.status == 'open' and current_user:
+        sub_options = []
+        for s in Submission.query.filter(Submission.layer_id == layer.id, Submission.artifact_id.isnot(None)).order_by(Submission.submitted_at.desc()).limit(50):
+            lbl = (s.ml_number or s.draft_name or s.title or s.id)[:60]
+            sub_options.append(f'<option value="{html_mod.escape(s.artifact_id)}">{html_mod.escape(lbl)}</option>')
+        opts = ''.join(sub_options) if sub_options else '<option value="">No drafts in this layer</option>'
+        submit_form_html = f'''
+            <div class="card mt-3">
+                <div class="card-body">
+                    <h6 class="card-title"><i class="fas fa-paper-plane me-1"></i>Submit for this quest</h6>
+                    <p class="text-muted small mb-2">Link one of your drafts (artifacts) to this quest.</p>
+                    <div class="mb-2">
+                        <label for="quest-submit-artifact" class="form-label">Draft / Artifact</label>
+                        <select class="form-select" id="quest-submit-artifact"><option value="">Select a draft...</option>{opts}</select>
+                    </div>
+                    <div id="quest-submit-alert" class="alert d-none"></div>
+                    <button type="button" class="btn btn-primary btn-sm" id="quest-submit-btn"><i class="fas fa-check me-1"></i>Submit</button>
+                </div>
+            </div>
+            <script>
+            (function() {{
+                document.getElementById('quest-submit-btn').addEventListener('click', async function() {{
+                    const btn = this; const aid = document.getElementById('quest-submit-artifact').value;
+                    const alert = document.getElementById('quest-submit-alert');
+                    alert.classList.add('d-none');
+                    if (!aid) {{ alert.textContent = 'Select a draft.'; alert.className = 'alert alert-warning'; alert.classList.remove('d-none'); return; }}
+                    btn.disabled = true;
+                    try {{
+                        const r = await fetch('/api/quests/{quest_id}/submit/', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{ artifact_id: aid }}), credentials: 'same-origin' }});
+                        const d = await r.json().catch(() => ({{}}));
+                        if (r.ok) {{ location.reload(); }} else {{ alert.textContent = d.error || 'Failed'; alert.className = 'alert alert-danger'; alert.classList.remove('d-none'); }}
+                    }} catch (e) {{ alert.textContent = e.message; alert.className = 'alert alert-danger'; alert.classList.remove('d-none'); }}
+                    btn.disabled = false;
+                }});
+            }})();
+            </script>
+        '''
+    elif quest.status == 'open':
+        submit_form_html = '<p class="text-muted small mt-3"><a href="/login/">Sign in</a> to submit for this quest.</p>'
+    content = f'''
+<div class="container mt-4">
+    <nav aria-label="breadcrumb"><ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/layers/">Layers</a></li>
+        <li class="breadcrumb-item"><a href="/layers/{layer_slug}/">{layer_name_esc}</a></li>
+        <li class="breadcrumb-item"><a href="/layers/{layer_slug}/#opportunities">Opportunities</a></li>
+        <li class="breadcrumb-item active">{title_esc}</li>
+    </ol></nav>
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <h1>{title_esc}</h1>
+        {back_link}
+    </div>
+    <p class="text-muted"><span class="badge bg-secondary">{quest.quest_type}</span> <span class="badge bg-{status_badge}">{quest.status}</span> <span class="badge bg-secondary">{quest.difficulty}</span></p>
+    {f'<p class="lead">{desc_esc}</p>' if desc_esc else ''}
+    <div class="row mt-4">
+        <div class="col-lg-8">
+            <div class="mb-4">
+                <h5>Details</h5>
+                <ul class="list-unstyled">
+                    <li>Created: {created_str}</li>
+                    {creator_block}
+                    {f'<li>Acceptance criteria: {criteria_esc}</li>' if criteria_esc else ''}
+                </ul>
+            </div>
+            <div class="mb-4">
+                <h5>Submissions</h5>
+                <table class="table table-sm">
+                    <thead><tr><th>Artifact / Draft</th><th>Submitter</th><th>Status</th><th>Date</th></tr></thead>
+                    <tbody>{submissions_html}</tbody>
+                </table>
+            </div>
+            {submit_form_html}
+        </div>
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title">Quick links</h6>
+                    <a href="/layers/{layer_slug}/" class="d-block mb-2"><i class="fas fa-layer-group me-1"></i>Layer</a>
+                    <a href="/layers/{layer_slug}/#opportunities" class="d-block"><i class="fas fa-tasks me-1"></i>All opportunities</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+'''
+    return render_page(f"{title_esc} - Quest", content, theme=current_theme, user_menu=user_menu)
 
 @app.route('/layers/<layer_slug>/artifacts/<artifact_id>/')
 def artifact_detail(layer_slug, artifact_id):
@@ -26776,7 +27794,18 @@ def role_detail(role_slug):
             const hasClaimed = isAuthenticated && claimsData.some(c => Number(c.claimant_id) === Number(currentUserId));
             
             if (btnPlaceholder) {{
-                if (hasClaimed) {{
+                if (role.requires_election) {{
+                    if (hasClaimed) {{
+                        btnPlaceholder.innerHTML = '';
+                    }} else if (role.active_election && isAuthenticated) {{
+                        const voteUrl = '/votes/' + role.active_election.public_id + '/';
+                        btnPlaceholder.innerHTML = '<a href="' + voteUrl + '" class="btn btn-sm btn-primary"><i class="fas fa-user-plus me-2"></i>Run for this Role</a>';
+                    }} else if (role.active_election && !isAuthenticated) {{
+                        btnPlaceholder.innerHTML = '<a href="/login/" class="btn btn-sm btn-primary">Login to Run</a>';
+                    }} else {{
+                        btnPlaceholder.innerHTML = '<span class="text-muted small">This role is filled by election. No election is currently open.</span>';
+                    }}
+                }} else if (hasClaimed) {{
                     btnPlaceholder.innerHTML = '';
                 }} else if (isAuthenticated) {{
                     btnPlaceholder.innerHTML = '<button class="btn btn-sm btn-primary" onclick="claimRole()"><i class="fas fa-hand-paper me-2"></i>Claim This Role</button>';
