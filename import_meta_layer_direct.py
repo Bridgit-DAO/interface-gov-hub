@@ -6,7 +6,9 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from ietf_data_viewer_simple import db, Project, Cluster, Role, app
+from app import app
+from extensions import db
+from models import Layer, Cluster, Role
 from datetime import datetime
 import random
 import string
@@ -89,13 +91,13 @@ def main():
         print("=" * 60)
         
         # Debug: Show all projects
-        all_projects = Project.query.all()
+        all_projects = Layer.query.all()
         print(f"\nFound {len(all_projects)} projects in database:")
         for p in all_projects:
             print(f"  - {p.name} (slug: {p.slug}, id: {p.id})")
         
         # Find project
-        project = Project.query.filter_by(slug=PROJECT_SLUG).first()
+        project = Layer.query.filter_by(slug=PROJECT_SLUG).first()
         if not project:
             print(f"\n✗ Project '{PROJECT_SLUG}' not found!")
             sys.exit(1)
@@ -110,7 +112,7 @@ def main():
             cluster_slug = create_slug(cluster_data['name'])
             
             # Check if exists
-            existing = Cluster.query.filter_by(project_id=project.id, cluster_slug=cluster_slug).first()
+            existing = Cluster.query.filter_by(layer_id=project.id, cluster_slug=cluster_slug).first()
             if existing:
                 print(f"\n⚠ Cluster '{cluster_data['name']}' already exists, skipping")
                 cluster_map[cluster_data['name']] = existing.id
@@ -118,7 +120,7 @@ def main():
             
             cluster = Cluster(
                 id=generate_id('clus'),
-                project_id=project.id,
+                layer_id=project.id,
                 cluster_slug=cluster_slug,
                 name=cluster_data['name'],
                 description=cluster_data['description'],
@@ -144,7 +146,7 @@ def main():
             role_slug = create_slug(role_data['titleGuild'])
             
             # Check if exists
-            existing = Role.query.filter_by(project_id=project.id, role_slug=role_slug).first()
+            existing = Role.query.filter_by(layer_id=project.id, role_slug=role_slug).first()
             if existing:
                 print(f"\n⚠ Role '{role_data['titleGuild']}' already exists, skipping")
                 skipped_count += 1
@@ -154,7 +156,7 @@ def main():
             
             role = Role(
                 id=generate_id('role'),
-                project_id=project.id,
+                layer_id=project.id,
                 role_slug=role_slug,
                 title_guild=role_data['titleGuild'],
                 title_operational=role_data['titleOperational'],

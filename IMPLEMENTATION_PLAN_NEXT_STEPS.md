@@ -1,8 +1,11 @@
-# Implementation Plan: Next Steps for Projects/Workgroups/Guilds
+# Implementation Plan: Next Steps for Layers/Workgroups/Guilds
 
 **Created:** 2026-02-10  
+**Updated:** 2026-03-10 (Project→Layer migration complete)  
 **Current Completion:** ~40%  
 **Target:** Full MVP completion
+
+> **Note:** Project terminology has been migrated to Layer. Use `/api/layers/` and `layer_id`.
 
 ---
 
@@ -11,7 +14,7 @@
 ### ✅ Complete (40%)
 - All 10 database models
 - All helper functions
-- Projects API (5 endpoints)
+- Layers API (5 endpoints) — `/api/layers/`
 - Workgroups API (5 endpoints)
 - Guilds API (4 endpoints)
 - Role Images feature (11 endpoints + 2 pages)
@@ -32,8 +35,8 @@
 #### Step 1: Clusters API (1 hour)
 ```python
 # 6 endpoints to implement:
-GET    /api/projects/<id>/clusters/
-POST   /api/projects/<id>/clusters/
+GET    /api/layers/<id>/clusters/
+POST   /api/layers/<id>/clusters/
 GET    /api/clusters/<id>/
 PATCH  /api/clusters/<id>/
 DELETE /api/clusters/<id>/
@@ -43,9 +46,9 @@ GET    /api/clusters/<id>/roles/
 #### Step 2: Roles API (1.5 hours)
 ```python
 # 8 endpoints to implement:
-GET    /api/projects/<id>/roles/
-POST   /api/projects/<id>/roles/
-POST   /api/projects/<id>/roles/import/  # JSON import
+GET    /api/layers/<id>/roles/
+POST   /api/layers/<id>/roles/
+POST   /api/layers/<id>/roles/import/  # JSON import
 GET    /api/roles/<id>/
 PATCH  /api/roles/<id>/
 POST   /api/roles/<id>/approve/
@@ -56,7 +59,7 @@ GET    /api/roles/<id>/claims/
 #### Step 3: Claims API (1 hour)
 ```python
 # 6 endpoints to implement:
-GET    /api/projects/<id>/claims/
+GET    /api/layers/<id>/claims/
 POST   /api/roles/<id>/claims/
 GET    /api/claims/<id>/
 PATCH  /api/claims/<id>/
@@ -67,7 +70,7 @@ POST   /api/claims/<id>/status/
 #### Step 4: Badges API (1 hour)
 ```python
 # 6 endpoints to implement:
-GET    /api/projects/<id>/badges/
+GET    /api/layers/<id>/badges/
 GET    /api/claims/<id>/badges/
 POST   /api/claims/<id>/badges/
 GET    /api/badges/<id>/
@@ -83,17 +86,17 @@ POST   /api/badges/<id>/issue/
 
 **Priority: HIGH** - Users need to browse entities
 
-#### Step 1: Projects Directory (1 hour)
-- URL: `/projects/`
+#### Step 1: Layers Directory (1 hour)
+- URL: `/layers/`
 - Features:
-  - List all approved projects
+  - List all approved layers
   - Filter by status
   - Search by name
   - Card grid layout
-  - "Create Project" button (auth required)
+  - "Create Layer" button (auth required)
 
 #### Step 2: Workgroups Directory (1 hour)
-- URL: `/projects/<slug>/workgroups/`
+- URL: `/layers/<slug>/workgroups/`
 - Features:
   - List workgroups for project
   - Filter by status

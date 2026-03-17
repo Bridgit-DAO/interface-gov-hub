@@ -8,7 +8,7 @@ import sys
 
 # Configuration
 BASE_URL = "http://localhost:8001"
-PROJECT_ID = "proj_dfupe6bwkkul"
+LAYER_ID = "proj_dfupe6bwkkul"  # Layer ID (use /api/layers/ to list)
 
 # You need to provide a valid session cookie or auth token
 # Get this from your browser after logging in as admin
@@ -282,7 +282,7 @@ def import_clusters():
     for cluster in clusters_data['clusters']:
         print(f"\nCreating cluster: {cluster['name']}")
         response = session.post(
-            f"{BASE_URL}/api/projects/{PROJECT_ID}/clusters/",
+            f"{BASE_URL}/api/layers/{LAYER_ID}/clusters/",
             json=cluster,
             headers={'Content-Type': 'application/json'}
         )
@@ -318,7 +318,7 @@ def import_roles(cluster_map):
     
     print(f"\nImporting {len(api_roles)} roles...")
     response = session.post(
-        f"{BASE_URL}/api/projects/{PROJECT_ID}/roles/import/",
+        f"{BASE_URL}/api/layers/{LAYER_ID}/roles/import/",
         json={'roles': api_roles},
         headers={'Content-Type': 'application/json'}
     )

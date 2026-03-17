@@ -8,7 +8,9 @@ import os
 # Add the parent directory to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ietf_data_viewer_simple import app, db, RoleImage, RoleImageVote
+from app import app
+from extensions import db
+from models import RoleImage, RoleImageVote
 
 def create_tables():
     """Create the RoleImage and RoleImageVote tables"""

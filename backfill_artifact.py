@@ -15,8 +15,9 @@ import sys
 def run_backfill(dry_run=False):
     # Import inside function so we can set env before loading app
     os.environ.setdefault('FLASK_ENV', 'development')  # use instance_dev/datatracker_dev.db
-    from ietf_data_viewer_simple import app, db
-    from ietf_data_viewer_simple import Artifact, Submission, Vote
+    from app import app
+    from extensions import db
+    from models import Artifact, Submission, Vote
 
     with app.app_context():
         submissions = Submission.query.filter(Submission.artifact_id.is_(None)).all()

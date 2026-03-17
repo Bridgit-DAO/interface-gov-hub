@@ -8,7 +8,9 @@ import os
 env = sys.argv[1] if len(sys.argv) > 1 else 'production'
 os.environ['FLASK_ENV'] = env
 
-from ietf_data_viewer_simple import app, db, User
+from app import app
+from extensions import db
+from models import User
 from werkzeug.security import check_password_hash, generate_password_hash
 
 with app.app_context():

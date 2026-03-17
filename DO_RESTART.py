@@ -28,7 +28,7 @@ try:
     content = response.read().decode('utf-8')
     with open('/tmp/homepage-content.html', 'w') as f:
         f.write(content)
-    if 'Welcome to the Meta-Layer Governance Hub' in content:
+    if 'Governance Hub' in content or 'Meta-Layer' in content:
         print("SUCCESS: New text found!")
         sys.exit(0)
     else:

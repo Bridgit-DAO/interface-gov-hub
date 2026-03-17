@@ -49,9 +49,9 @@ fi
 # Run database migrations if needed
 echo "Initializing database..."
 FLASK_ENV="$ENV" python3 -c "
-from ietf_data_viewer_simple import init_db, app
-with app.app_context():
-    init_db()
+from app import app
+from database import init_db
+init_db(app)
 print('✓ Database initialized')
 "
 

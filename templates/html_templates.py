@@ -727,6 +727,7 @@ BASE_TEMPLATE = """
                     <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Recognition</a>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="/badges/">Badges</a></li>
+                        <li><a class="dropdown-item" href="/civic-mason/">Civic Mason</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
@@ -1083,6 +1084,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
                     <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Recognition</a>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="/badges/">Badges</a></li>
+                        <li><a class="dropdown-item" href="/civic-mason/">Civic Mason</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
@@ -1137,6 +1139,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
                     <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Recognition</a>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="/layer/{layer_slug}/badges/">Badges</a></li>
+                        <li><a class="dropdown-item" href="/civic-mason/">Civic Mason</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">

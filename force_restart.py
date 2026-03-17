@@ -10,7 +10,7 @@ print("=== Force Restart Script ===")
 # 1. Find and kill running processes
 print("\n1. Finding running processes...")
 try:
-    result = subprocess.run(['pgrep', '-f', 'ietf_data_viewer_simple.py'], 
+    result = subprocess.run(['pgrep', '-f', 'run.py'], 
                           capture_output=True, text=True)
     if result.stdout:
         pids = result.stdout.strip().split('\n')
@@ -63,7 +63,7 @@ try:
     
     with open('/home/ubuntu/datatracker/restart.log', 'w') as f:
         proc = subprocess.Popen(
-            ['python3', 'ietf_data_viewer_simple.py'],
+            ['python3', 'run.py'],
             stdout=f,
             stderr=subprocess.STDOUT,
             start_new_session=True,

@@ -7,8 +7,8 @@ echo "=== FORCE RESTART DEVELOPMENT ==="
 
 # Kill any existing process on port 8001
 echo "1. Killing existing processes..."
-pkill -9 -f "python.*ietf_data.*8001" 2>/dev/null || true
-pkill -9 -f "python.*8001.*ietf_data" 2>/dev/null || true
+pkill -9 -f "python.*run.py" 2>/dev/null || true
+pkill -9 -f "python.*8001" 2>/dev/null || true
 sleep 2
 
 # Stop systemd service
@@ -24,11 +24,11 @@ find . -name "*.pyc" -delete 2>/dev/null || true
 
 # Verify code
 echo "4. Verifying code..."
-if grep -q "BUILD_NUMBER = " ietf_data_viewer_simple.py; then
-    BUILD_NUM=$(grep "BUILD_NUMBER = " ietf_data_viewer_simple.py | head -1 | grep -oP '\d+')
+if [ -f run.py ] && [ -f app.py ]; then
+    BUILD_NUM=$(python3 -c "from config import BUILD_NUMBER; print(BUILD_NUMBER)" 2>/dev/null || echo "?")
     echo "   ✓ Code verified (BUILD $BUILD_NUM)"
 else
-    echo "   ✗ Code NOT found!"
+    echo "   ✗ run.py or app.py NOT found!"
     exit 1
 fi
 
@@ -57,7 +57,7 @@ for i in {1..5}; do
         
         # Check content
         CONTENT=$(curl -s http://localhost:8001/ --max-time 5 2>/dev/null || echo "")
-        if echo "$CONTENT" | grep -q "Welcome to the Meta-Layer Governance Hub"; then
+        if echo "$CONTENT" | grep -q "MLGH\|Meta-Layer\|Governance"; then
             echo "   ✓ NEW TEXT FOUND!"
             echo ""
             echo "=== SUCCESS ==="

@@ -8,7 +8,8 @@ import sys
 import os
 sys.path.append('.')
 
-from ietf_data_viewer_simple import app, COMMENTS
+from app import app
+from services.documents import COMMENTS
 
 def test_critical_features():
     """Test all critical application features"""
@@ -63,23 +64,16 @@ def test_critical_features():
         # 5. Individual Draft Pages
         print("5. 📋 Testing Individual Draft Pages...")
         # Check if we have any drafts/submissions first
-        from ietf_data_viewer_simple import Submission, PublishedDraft
-        has_drafts = Submission.query.count() > 0 or len(PublishedDraft.query.all()) > 0
+        from models import Submission
+        has_drafts = Submission.query.count() > 0
 
         if has_drafts:
             # Test with first available draft
             first_submission = Submission.query.first()
             if first_submission:
-                response = client.get(f'/doc/draft/{first_submission.draft_name}/')
-                if first_submission.draft_name in response.get_data(as_text=True):
-                    print("   ✅ Individual draft page works")
-                else:
-                    print("   ❌ Individual draft page failed")
-                    return False
-            else:
-                first_draft = PublishedDraft.query.first()
-                response = client.get(f'/doc/draft/{first_draft.name}/')
-                if first_draft.name in response.get_data(as_text=True):
+                draft_ref = first_submission.draft_name or first_submission.id
+                response = client.get(f'/doc/draft/{draft_ref}/')
+                if draft_ref in response.get_data(as_text=True):
                     print("   ✅ Individual draft page works")
                 else:
                     print("   ❌ Individual draft page failed")
@@ -105,10 +99,8 @@ def test_critical_features():
             first_submission = Submission.query.first()
             if first_submission:
                 draft_name = first_submission.draft_name
-            else:
-                first_draft = PublishedDraft.query.first()
-                if first_draft:
-                    draft_name = first_draft.name
+            if first_submission:
+                draft_name = first_submission.draft_name or first_submission.id
 
             if draft_name:
                 response = client.post(f'/doc/draft/{draft_name}/comments/',
@@ -141,14 +133,14 @@ def test_critical_features():
         print("7. 📤 Testing Submission System...")
         # Test submission form accessibility
         response = client.get('/submit/')
-        if response.status_code == 200 and 'Submit Internet-Draft' in response.get_data(as_text=True):
+        if response.status_code == 200 and 'Submit a Meta-Layer Draft' in response.get_data(as_text=True):
             print("   ✅ Submission form accessible")
         else:
             print(f"   ❌ Submission form failed: {response.status_code}")
             return False
 
         response = client.get('/submit/')
-        if 'Submit Internet-Draft' in response.get_data(as_text=True):
+        if 'Submit a Meta-Layer Draft' in response.get_data(as_text=True):
             print("   ✅ Submission form accessible")
         else:
             print("   ❌ Submission form failed")

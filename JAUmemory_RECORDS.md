@@ -292,6 +292,23 @@ app.run(use_reloader=use_reloader)
 
 ---
 
+## Refactor and Plan Position (2026-02-12)
+
+**Purpose**: Log refactor done and current position for JAUmemory / handoff.
+
+**Refactor completed**:
+1. **Git remote**: Changed from `Bridgit-SPC/datatracker` to **https://github.com/Bridgit-DAO/interface-gov-hub** for both `gov-hub-dev` and `gov-hub-prod`.
+2. **Pre-commit hook**: Duplicate Flask route check was using `cut -d: -f2`, which truncated routes with colons (e.g. `<int:waitlist_id>`) and caused false positives. Switched to `sed 's/^[0-9]*://'` to strip only the leading line number so the full route string is compared.
+3. **Commit and push**: Committed and pushed to `dev` (commit `9615cb9a1`): Votes UI/API, Create Vote modal, project submissions filter, timezone defaults, docs (DEPLOYMENT-CHECKLIST, SUBMISSION_PROJECT_LINK, nginx config), migration script; 9 files changed.
+
+**Where we are**:
+- **Repo layout**: `gov-hub-dev` (branch `dev`, port 8001), `gov-hub-prod` (branch `main`). Latest `dev` pushed to **interface-gov-hub**.
+- **In place**: `project_id` on Submission; project detail **Votes** tab with Create Vote button; Create Vote modal (submission dropdown, start/end times with timezone, quorum, threshold); submissions API filtered by `project_id`, `status=approved`, `doc_type=draft`; layer selector on submit form; default vote times (next hour + 7 days).
+- **Open issue**: Create Vote POST can return 500; client may show "body disturbed"; server `api_create_vote` may need debugging.
+- **Plan**: **PLANNING_SUMMARY.md** — Projects/Workgroups/Guilds RFC is in planning phase (branch `feature/projects-workgroups-guilds`); implementation not started. Current active work is **Votes** and project-detail flows on dev.
+
+---
+
 ## Current Work (2026-01-17)
 
 **Feature**: Agent Deployment System  
@@ -329,9 +346,60 @@ app.run(use_reloader=use_reloader)
 - **Service**: Always restart service after code changes
 - **Verification**: Always verify after deployment
 
+## Remaining Tasks (2026-03-12)
+
+**Purpose**: Consolidated list of planned work for Gov Hub. Logged to JAUmemory (project: gov-hub). Memory ID: `1c1c290d-474c-49bd-a120-1c4884a61da6`
+
+**Full list**: See `GOV_HUB_REMAINING_TASKS.md` — complete DONE vs REMAINING with progress.
+
+### Architecture & Refactor
+
+| Task | Source | Status | Notes |
+|------|--------|--------|-------|
+| **Modularization** | GOV-HUB-3 Phase 0.2 | Not started | Extract `ietf_data_viewer_simple.py` (~28k lines) into domain modules: `models/` (identity, artifact, coordination, events), `services/`, `routes/`, `events/`. Single file → modular structure. |
+| **New navigation** | GOV-HUB-2 | Not started | Restructure top nav to GOV-HUB-2 IA: Home \| Contribute \| Governance \| Community \| Recognition \| Learn. Current: Layers, Roles, Workgroups, Guilds, People, Waitlists, Badges, Docs, Submit, Immortalize. |
+| **Localization (i18n)** | PLANNING_FULL_PICTURE | Planned (last) | Interface strings, date/number formatting, RTL if needed. Add Flask-Babel or similar. |
+
+### Governance & Features
+
+| Task | Source | Status | Notes |
+|------|--------|--------|-------|
+| **Randomized ballot order** | Phase 2.4 | ✅ Done | `ballot_order_seed` on Vote; _election_candidates_ordered() deterministic shuffle. |
+| **Multi-seat clarity** | Phase 2.4 | ✅ Done | seats, "Elect up to N", "Winners (top N)"; close_vote excludes withdrawn from winners. |
+| **Candidate withdrawal** | Phase 2.4 | ✅ Done | POST .../candidates/<id>/withdraw/; "Your Candidacy" card with Withdraw button; close_vote excludes withdrawn. |
+| **Meta-domain for Layer** | PLANNING_FULL_PICTURE | ✅ Done | `Layer.meta_domain_inscription_id`, `Layer.meta_domain`; Edit Layer modal; fetch_meta_domain_from_inscription + get_last_inscription_for_sat. |
+| **Vote.artifact_id** | GOV-HUB-3 | Not done | Add `artifact_id` to Vote; keep `submission_id` during transition. |
+| **Layer resolution middleware** | GOV-HUB-3 Phase 1.1 | Not done | Host → Layer context; subdomain/path routing. |
+
+### Migration (Deferred)
+
+| Task | Source | Status | Notes |
+|------|--------|--------|-------|
+| **Full UUID PK migration** | Phase 6 | Deferred | User, Layer, Submission, etc. int/string → UUID. Large; schedule maintenance window. Skipped per user request for now. |
+
+### Recently Completed (2026-03-15)
+
+- **Modularization Phase A+B+C**: Models to models/; services/utils, ordinals, events; routes/deploy blueprint (_deploy/reload, status, health, test)
+- **Meta-domain for Layer**: Layer.meta_domain_inscription_id, meta_domain; Edit Layer modal; fetch_meta_domain_from_inscription + get_last_inscription_for_sat
+- **Randomized ballot order**: ballot_order_seed on Vote; _election_candidates_ordered() deterministic shuffle
+- **Multi-seat clarity**: seats, "Elect up to N", "Winners (top N)"; close_vote excludes withdrawn from winners
+- **Candidate withdrawal**: POST /api/votes/.../candidates/<id>/withdraw/; "Your Candidacy" card with Withdraw button; close_vote excludes withdrawn
+
+### Previously Completed (2026-03-12)
+
+- **Artifact spec**: public_ref, short ref resolution (ed3f6ea9io), lineage API + graph, status lifecycle badges, artifact_status_changed EventLog
+- **Artifacts nav**: Artifacts tab on layer page, GET /api/layers/<id>/artifacts/, loadArtifacts()
+- **Activity feed**: artifact_updated, artifact_status_changed, artifact_linked events link to Artifacts tab
+
+---
+
 ## References
 
+- `GOV_HUB_REMAINING_TASKS.md` - Full task list with progress (source for JAUmemory)
 - `SAFE_MIGRATION_PLAN.md` - Migration strategy
 - `IMPLEMENTATION_ROADMAP.md` - Detailed implementation plan
 - `AGENT_DEPLOYMENT_PLAN.md` - High-level architecture
 - `JAUmemory_INTEGRATION.md` - How to use JAUmemory
+- `PLANNING_FULL_PICTURE.md` - Consolidated planning, sequencing
+- `GOV-HUB-3.md` - Canonical architecture
+- `artifact_specification.md` - Artifact model spec

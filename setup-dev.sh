@@ -38,7 +38,7 @@ Type=simple
 WorkingDirectory=$SCRIPT_DIR
 Environment=FLASK_ENV=development
 Environment=FLASK_PORT=8001
-ExecStart=/home/ubuntu/.pyenv/versions/3.9.18/bin/python3 $SCRIPT_DIR/ietf_data_viewer_simple.py
+ExecStart=/home/ubuntu/.pyenv/versions/3.9.18/bin/python3 $SCRIPT_DIR/run.py
 Restart=always
 RestartSec=5
 Environment=PATH=/home/ubuntu/.pyenv/versions/3.9.18/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

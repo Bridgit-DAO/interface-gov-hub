@@ -6,7 +6,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from ietf_data_viewer_simple import db, app
+from app import app
+from extensions import db
 from datetime import datetime
 
 def migrate():

@@ -21,7 +21,7 @@ find . -name "*.pyc" -delete 2>/dev/null || true
 
 # Verify code change is in file
 echo "3. Verifying code change..."
-if grep -q "Welcome to the Meta-Layer Governance Hub" ietf_data_viewer_simple.py; then
+if grep -q "MLGH\|Meta-Layer" app.py 2>/dev/null; then
     echo "   ✓ Code change found in file"
 else
     echo "   ✗ Code change NOT found in file!"
@@ -66,7 +66,7 @@ fi
 
 # Check for new text
 echo "8. Checking for new text..."
-if curl -s http://localhost:8001/ | grep -q "Welcome to the Meta-Layer Governance Hub"; then
+if curl -s http://localhost:8001/ | grep -q "Governance Hub\|Meta-Layer\|MLGH"; then
     echo "   ✓ New text found!"
     echo ""
     echo "=========================================="

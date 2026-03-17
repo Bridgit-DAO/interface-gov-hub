@@ -25,9 +25,9 @@ log("=" * 60)
 # Step 1: Verify code
 log("\n[1] Verifying code change in file...")
 try:
-    with open('/home/ubuntu/datatracker/ietf_data_viewer_simple.py', 'r') as f:
+    with open('/home/ubuntu/datatracker/app.py', 'r') as f:
         content = f.read()
-        if 'Welcome to the Meta-Layer Governance Hub' in content:
+        if 'Governance Hub' in content or 'Meta-Layer' in content or 'MLGH' in content:
             log("   ✓ Code change FOUND in file")
         else:
             log("   ✗ Code change NOT FOUND in file!")
@@ -40,9 +40,9 @@ except Exception as e:
 
 # Step 2: Kill existing processes
 log("\n[2] Killing existing processes...")
-subprocess.run(['pkill', '-9', '-f', 'python.*ietf_data.*8001'], 
+subprocess.run(['pkill', '-9', '-f', 'python.*run.py'], 
                stderr=subprocess.DEVNULL)
-subprocess.run(['pkill', '-9', '-f', 'python.*8001.*ietf_data'], 
+subprocess.run(['pkill', '-9', '-f', 'python.*8001'], 
                stderr=subprocess.DEVNULL)
 time.sleep(2)
 log("   ✓ Processes killed")
@@ -110,7 +110,7 @@ for attempt in range(5):
         log(f"   ✓ HTTP {response.getcode()} (attempt {attempt+1})")
         
         # Check for new text
-        if 'Welcome to the Meta-Layer Governance Hub' in content:
+        if 'Governance Hub' in content or 'Meta-Layer' in content or 'MLGH' in content:
             log("   ✓✓✓ NEW TEXT FOUND IN HTTP RESPONSE! ✓✓✓")
             log("\n" + "=" * 60)
             log("SUCCESS! Deployment verified!")

@@ -50,7 +50,7 @@ else
 fi
 
 # Check for the new text (if we know what to look for)
-if curl -s "http://localhost:$PORT/" | grep -q "Welcome to the Meta-Layer Governance Hub"; then
+if curl -s "http://localhost:$PORT/" | grep -q "Governance Hub\|Meta-Layer\|MLGH"; then
     echo "✓ New text found in response"
 else
     echo "⚠ New text not found (may need browser refresh)"

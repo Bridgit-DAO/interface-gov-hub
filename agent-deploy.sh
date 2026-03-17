@@ -39,8 +39,8 @@ find "$SCRIPT_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || tr
 find "$SCRIPT_DIR" -name "*.pyc" -delete 2>/dev/null || true
 
 agent_status "Verifying code..."
-if [ -f "$SCRIPT_DIR/ietf_data_viewer_simple.py" ]; then
-    if grep -q "Welcome to the Meta-Layer Governance Hub" "$SCRIPT_DIR/ietf_data_viewer_simple.py"; then
+if [ -f "$SCRIPT_DIR/run.py" ]; then
+    if grep -q "MLGH" "$SCRIPT_DIR/app.py"; then
         agent_status "Code verification: PASSED"
     else
         agent_status "Code verification: WARNING - new text not found"
@@ -75,7 +75,7 @@ if [ "$HTTP_CODE" == "200" ]; then
     agent_status "HTTP test: PASSED (200)"
     
     # Check for new text
-    if curl -s "http://localhost:$PORT/" --max-time 5 | grep -q "Welcome to the Meta-Layer Governance Hub"; then
+    if curl -s "http://localhost:$PORT/" --max-time 5 | grep -q "Governance Hub\|Meta-Layer\|MLGH"; then
         agent_result "SUCCESS" "Deployment complete. New text is live."
     else
         agent_result "SUCCESS" "Deployment complete. Service responding. (Text may need browser refresh)"

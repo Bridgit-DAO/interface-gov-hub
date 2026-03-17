@@ -70,6 +70,9 @@ def run_migration(db_path, dry_run=False, phase='all'):
         cursor.execute(f"PRAGMA table_info({table})")
         return cursor.fetchall()
 
+    def pk_is_uuid(table):
+        return _pk_is_uuid(cursor, table)
+
     def get_create_sql(table):
         cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,))
         row = cursor.fetchone()
@@ -86,6 +89,8 @@ def run_migration(db_path, dry_run=False, phase='all'):
             print("\n--- Phase 1: User ---")
             if not table_exists('user'):
                 print("⏭️  user table does not exist")
+            elif pk_is_uuid('user'):
+                print("⏭️  user already has UUID PK, skipping")
             else:
                 cols = get_columns('user')
                 col_names = [c[1] for c in cols]
@@ -173,6 +178,8 @@ def run_migration(db_path, dry_run=False, phase='all'):
             print("\n--- Phase 2: Layer ---")
             if not table_exists('layer'):
                 print("⏭️  layer table does not exist")
+            elif pk_is_uuid('layer'):
+                print("⏭️  layer already has UUID PK, skipping")
             else:
                 cols = get_columns('layer')
                 col_defs = []
@@ -256,6 +263,8 @@ def run_migration(db_path, dry_run=False, phase='all'):
             print("\n--- Phase 3: Submission ---")
             if not table_exists('submission'):
                 print("⏭️  submission table does not exist")
+            elif pk_is_uuid('submission'):
+                print("⏭️  submission already has UUID PK, skipping")
             else:
                 cols = get_columns('submission')
                 col_defs = []
@@ -433,6 +442,16 @@ def run_migration(db_path, dry_run=False, phase='all'):
 
 SQL_RESERVED = frozenset({'group', 'order', 'index', 'table', 'select', 'from', 'where', 'key'})
 
+
+def _pk_is_uuid(cursor, table):
+    """Return True if table's id column is already TEXT (UUID)."""
+    cols = cursor.execute(f"PRAGMA table_info({table})").fetchall()
+    for c in cols:
+        if c[1] == 'id' and (c[5] if len(c) > 5 else 0) == 1:
+            return (c[2] or '').upper() == 'TEXT'
+    return False
+
+
 def _quote_col(name):
     """Quote column name if reserved word."""
     return f'"{name}"' if name.lower() in SQL_RESERVED else name
@@ -492,6 +511,9 @@ def _update_fk_column(cursor, conn, table, fk_col, id_map, old_type):
 
 def _migrate_string_pk_table(cursor, conn, table, map_name, id_map, fk_updates, parent_maps):
     """Migrate a string-PK table to UUID. parent_maps: {col: map} for FK columns to remap."""
+    if _pk_is_uuid(cursor, table):
+        print(f"   ⏭️  {table} already has UUID PK, skipping")
+        return
     cols = cursor.execute(f"PRAGMA table_info({table})").fetchall()
     col_defs = []
     for c in cols:
@@ -538,6 +560,9 @@ def _migrate_string_pk_table(cursor, conn, table, map_name, id_map, fk_updates, 
 
 def _migrate_int_pk_table(cursor, conn, table, map_name, id_map, fk_updates, parent_maps):
     """Migrate an int-PK table to UUID. id_map can be pre-populated (e.g. for self-ref FKs)."""
+    if _pk_is_uuid(cursor, table):
+        print(f"   ⏭️  {table} already has UUID PK, skipping")
+        return
     cols = cursor.execute(f"PRAGMA table_info({table})").fetchall()
     col_defs = []
     for c in cols:

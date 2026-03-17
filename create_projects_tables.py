@@ -8,8 +8,10 @@ import os
 # Add the parent directory to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ietf_data_viewer_simple import (
-    app, db, Project, Workgroup, Guild, GuildMembership, GuildInvitation,
+from app import app
+from extensions import db
+from models import (
+    Layer, Workgroup, Guild, GuildMembership, GuildInvitation,
     Cluster, Role, Claim, Badge, StatusChange
 )
 
@@ -29,7 +31,7 @@ def create_tables():
         tables = inspector.get_table_names()
         
         expected_tables = [
-            'project', 'workgroup', 'guild', 'guild_membership', 'guild_invitation',
+            'layer', 'working_group', 'guild', 'guild_membership', 'guild_invitation',
             'cluster', 'role', 'claim', 'badge', 'status_change'
         ]
         

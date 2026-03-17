@@ -1,12 +1,14 @@
-# Projects, Workgroups, and Guilds System - Implementation Status
+# Layers, Workgroups, and Guilds System - Implementation Status
 
 **Branch:** `feature/projects-workgroups-guilds`  
-**Last Updated:** 2026-02-10  
+**Last Updated:** 2026-03-10  
 **Overall Completion:** ~98% (All Core Features Complete - Ready for Testing)
+
+> **Migration Note (2026-03):** Project terminology has been migrated to Layer. Use `/api/layers/`, `layer_id`, and Layer model. Database tables: `layer`, `layer_member`, `layer_admin`.
 
 ## Executive Summary
 
-The Projects, Workgroups, and Guilds organizational system is essentially complete and ready for testing. All foundational infrastructure, database models, helper functions, and APIs are implemented. All directory pages, detail pages, creation forms, and admin dashboards are functional. Only minor enhancement pages and documentation remain.
+The Layers, Workgroups, and Guilds organizational system is essentially complete and ready for testing. All foundational infrastructure, database models, helper functions, and APIs are implemented. All directory pages, detail pages, creation forms, and admin dashboards are functional. Only minor enhancement pages and documentation remain.
 
 ---
 

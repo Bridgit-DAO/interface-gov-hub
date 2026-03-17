@@ -5,9 +5,11 @@
 **PM Agent:** RFC Project Manager (9e2eef24-6131-41f1-b110-742b5ba9f1f1)  
 **Date:** 2026-02-08
 
+> **Implementation Note (2026-03):** "Project" has been implemented as **Layer** per GOV-HUB-3. Use Layer model, `/api/layers/`, and `layer_id` in code.
+
 ## Executive Summary
 
-This RFC proposes adding three new organizational entities to the datatracker system: **Projects**, **Workgroups**, and **Guilds**. Projects will become the central organizing principle of the schema, with all submissions, documents, and workgroups required to be associated with a project. Guilds will provide cross-project collaboration structures.
+This RFC proposes adding three new organizational entities to the datatracker system: **Projects** (implemented as Layers), **Workgroups**, and **Guilds**. Layers are the central organizing principle of the schema, with all submissions, documents, and workgroups required to be associated with a layer. Guilds provide cross-layer collaboration structures.
 
 ## Requirements
 

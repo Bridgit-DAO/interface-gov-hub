@@ -29,7 +29,7 @@ def main():
     print("\n[1] KILLING EVERYTHING...")
     try:
         # Kill by process name
-        subprocess.run(['pkill', '-9', '-f', 'python.*ietf_data'], stderr=subprocess.DEVNULL)
+        subprocess.run(['pkill', '-9', '-f', 'python.*run.py'], stderr=subprocess.DEVNULL)
         subprocess.run(['pkill', '-9', '-f', 'python.*8001'], stderr=subprocess.DEVNULL)
 
         # Kill by port
@@ -73,11 +73,11 @@ def main():
     # Step 3: Verify code
     print("\n[3] VERIFYING CODE...")
     try:
-        with open('/home/ubuntu/datatracker/ietf_data_viewer_simple.py', 'r') as f:
+        with open('/home/ubuntu/datatracker/app.py', 'r') as f:
             content = f.read()
 
         checks = [
-            ('Welcome to the Meta-Layer Governance Hub', 'New homepage text'),
+            ('Governance Hub', 'Homepage text'),
             ('DEPLOYMENT TEST SUCCESSFUL', 'Red test box'),
             ('Version: 2026-01-17-final', 'Version marker')
         ]
@@ -153,7 +153,7 @@ def main():
 
     markers = [
         ('DEPLOYMENT TEST SUCCESSFUL', 'Red test box'),
-        ('Welcome to the Meta-Layer Governance Hub', 'New homepage text'),
+        ('Governance Hub', 'Homepage text'),
         ('Version: 2026-01-17-final', 'Version marker')
     ]
 

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Simple restart - dev only (gov-hub dev, port 8001)
 
+systemctl --user daemon-reload
 systemctl --user stop datatracker-dev.service
 sleep 3
 systemctl --user start datatracker-dev.service
