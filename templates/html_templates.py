@@ -752,7 +752,7 @@ BASE_TEMPLATE = """
 
     <div class="container-fluid mt-5 py-3" style="border-top: 1px solid var(--border-color); background-color: var(--bg-secondary);">
         <div class="text-center text-muted small">
-            Build {build_number} | MLGH Datatracker
+            Build {build_number} | Gov-Hub.
         </div>
     </div>
 

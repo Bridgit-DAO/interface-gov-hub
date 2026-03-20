@@ -1,5 +1,5 @@
 """Civic Mason page: global brick wall. Badge-gated placement."""
-from flask import Blueprint, session
+from flask import Blueprint, session, url_for
 from services.identity import get_current_user
 from services.rendering import generate_user_menu, render_page
 
@@ -17,84 +17,151 @@ def civic_mason_page():
     generate_user_menu, render_page = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+    mural_url = url_for('static', filename='images/civicmason-mural.png')
 
     content = """
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item"><a href="/badges/">Recognition</a></li>
-                <li class="breadcrumb-item active">Civic Mason</li>
-            </ol>
-        </nav>
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h1 class="mb-1"><i class="fas fa-th-large me-2"></i>Civic Mason</h1>
-                <p class="text-muted mb-0">A symbolic wall where contributors with Civic Mason–eligible badges place bricks. Drag a brick to a slot, then confirm.</p>
+    <div id="civic-mason-page" class="civic-mason-fullpage">
+        <div class="civic-mason-header">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-0">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/badges/">Recognition</a></li>
+                    <li class="breadcrumb-item active">Civic Mason</li>
+                </ol>
+            </nav>
+            <div class="d-flex align-items-center gap-2 mt-1">
+                <h1 class="mb-0 me-auto"><i class="fas fa-th-large me-2"></i>Civic Mason</h1>
+                <p class="mb-0 opacity-75 d-none d-md-block small">Contributors with Civic Mason badges leave a brick on the wall.</p>
             </div>
-            <div id="brick-drag-source" class="d-none" style="cursor:grab;">
-                <div class="border rounded d-inline-block p-2 text-center" style="width:48px;height:48px;background:var(--bs-primary);color:white;" draggable="true" title="Drag to grid">
-                    <i class="fas fa-th-large"></i>
+            <div id="cm-dev-mode-bar" class="d-none w-100 mt-2 py-2 px-3 rounded cm-dev-bar">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <span class="small mb-0"><i class="fas fa-flask me-1 text-warning"></i><strong>Dev only:</strong> Civic Mason rules</span>
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="cm-demo-toggle" role="switch" aria-label="Demo mode">
+                        <label class="form-check-label small" for="cm-demo-toggle">Demo mode — no badge required, unlimited placements</label>
+                    </div>
                 </div>
-                <small class="d-block text-muted mt-1">Drag to grid</small>
             </div>
-            <button type="button" class="btn btn-primary" id="place-brick-btn" style="display:none"><i class="fas fa-plus me-2"></i>Place Brick</button>
         </div>
 
-        <div id="civic-mason-grid" class="mb-4">
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+        <!-- Floating brick (eligible users only, shown via JS) -->
+        <div id="floating-brick" class="floating-brick" aria-hidden="true"></div>
+
+        <!-- Ineligible info card (shown via JS when user cannot place bricks) -->
+        <div id="ineligible-card" class="ineligible-card d-none">
+            <i class="fas fa-th-large fa-2x mb-3 opacity-50"></i>
+            <h6 class="mb-2" id="ineligible-title">Earn the Civic Mason Badge</h6>
+            <p class="small opacity-75 mb-3" id="ineligible-body">
+                Place a permanent brick on this wall by earning a Civic Mason&#8209;eligible badge
+                through civic participation.
+            </p>
+            <a href="/badges/" class="btn btn-outline-light btn-sm" id="ineligible-btn">View Badges &amp; How to Earn</a>
+        </div>
+
+        <div class="civic-mason-mural-wrap">
+            <div class="civic-mason-mural-inner">
+                <img src="MURAL_URL_PLACEHOLDER" class="civic-mason-mural-img" id="civic-mason-mural-img" alt="Civic Mason mural" />
+                <div id="civic-mason-grid" class="civic-mason-grid-container">
+                    <div class="text-center py-5 text-white-50">
+                        <div class="spinner-border" role="status"><span class="visually-hidden">Loading…</span></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <div class="modal fade" id="placeBrickConfirmModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="fas fa-th-large me-2"></i>Confirm Placement</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" id="confirm-cancel-close"></button>
+    <!-- Config modal: pre-placement color + message -->
+    <div class="modal fade" id="configBrickModal" tabindex="-1" aria-hidden="true" aria-labelledby="configModalLabel">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content bg-dark text-white border border-secondary">
+                <div class="modal-header border-0 pb-1">
+                    <h6 class="modal-title" id="configModalLabel"><i class="fas fa-paint-brush me-2 opacity-75"></i>Configure Brick</h6>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    <p class="mb-2">Place brick at (<span id="confirm-grid-pos">0, 0</span>)?</p>
-                    <div class="mb-3">
-                        <label for="confirm-brick-message" class="form-label">Message (optional, max 200)</label>
-                        <textarea class="form-control" id="confirm-brick-message" rows="2" maxlength="200" placeholder="Your message..."></textarea>
-                        <small class="text-muted"><span id="confirm-msg-count">0</span>/200</small>
-                    </div>
-                    <div class="countdown-overlay bg-light rounded p-3 text-center">
-                        <p class="mb-0">Confirming in <strong id="countdown-num">5</strong> seconds...</p>
-                        <p class="small text-muted mb-0 mt-1">Click Cancel to abort</p>
-                    </div>
+                <div class="modal-body pt-1">
+                    <p class="small text-white-50 mb-2">Choose a color — double-click to select &amp; close.</p>
+                    <div class="d-flex flex-wrap gap-2 mb-3" id="config-palette" role="group" aria-label="Brick color"></div>
+                    <label for="config-msg" class="form-label small mb-1">Message <span class="opacity-50">(optional)</span></label>
+                    <textarea class="form-control form-control-sm bg-dark text-white border-secondary" id="config-msg" rows="2" maxlength="200" placeholder="Leave a message…"></textarea>
+                    <div class="text-end mt-1"><small class="opacity-50"><span id="config-msg-count">0</span>/200</small></div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" id="confirm-cancel-btn-footer">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit modal: post-placement edit or cancel -->
+    <div class="modal fade" id="editBrickModal" tabindex="-1" aria-hidden="true" aria-labelledby="editModalLabel">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content bg-dark text-white border border-secondary">
+                <div class="modal-header border-0 pb-1">
+                    <h6 class="modal-title" id="editModalLabel"><i class="fas fa-edit me-2 opacity-75"></i>Edit Brick</h6>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body pt-1">
+                    <p class="small text-white-50 mb-2">Update color or message, then Accept — or cancel this placement.</p>
+                    <div class="d-flex flex-wrap gap-2 mb-3" id="edit-palette" role="group" aria-label="Brick color"></div>
+                    <label for="edit-msg" class="form-label small mb-1">Message <span class="opacity-50">(optional)</span></label>
+                    <textarea class="form-control form-control-sm bg-dark text-white border-secondary" id="edit-msg" rows="2" maxlength="200"></textarea>
+                    <div class="text-end mt-1"><small class="opacity-50"><span id="edit-msg-count">0</span>/200</small></div>
+                </div>
+                <div class="modal-footer border-0 pt-0 gap-2">
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="edit-cancel-placement-btn">Cancel Placement</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="edit-accept-btn">Accept</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-    (function() {
-        const gridEl = document.getElementById('civic-mason-grid');
-        const placeBtn = document.getElementById('place-brick-btn');
-        const dragSource = document.getElementById('brick-drag-source');
-        const dragBrick = dragSource ? dragSource.querySelector('[draggable="true"]') : null;
+    (function () {
+        'use strict';
 
-        const BRICK_SIZE = 40;
-        const GAP = 4;
-        const YEAR_COLORS = {
-            2024: '#e74c3c', 2025: '#3498db', 2026: '#2ecc71', 2027: '#f39c12',
-            2028: '#9b59b6', 2029: '#1abc9c', 2030: '#e67e22'
-        };
-        const DEFAULT_COLOR = '#34495e';
+        /* ── Constants ────────────────────────────────────────────────────── */
+        const GAP              = 3;
+        const BASE_BRICK_W     = 36;
+        const BASE_BRICK_H     = 18;
+        const MIN_COLS         = 25;
+        const MOVE_THRESH      = 6;   // px  – movement to trigger drag
+        const SNAP_DIST        = 320; // px  – generous snap radius
+        const MURAL_PALETTE    = ['#c4543d','#a84832','#8b3a28','#d4735a','#b85a42','#9d4830','#7a3620'];
+        const YEAR_COLORS      = {2024:'#e74c3c',2025:'#3498db',2026:'#2ecc71',2027:'#f39c12',2028:'#9b59b6',2029:'#1abc9c',2030:'#e67e22'};
+        const DEFAULT_COLOR    = '#c95a3d';
 
-        let bricks = [];
-        let occupied = {};
-        let xMin = 0, xMax = 6, yMin = 0, yMax = 6;
-        let countdownTimer = null;
-        let pendingDrop = null;
+        /* ── DOM refs ─────────────────────────────────────────────────────── */
+        const gridEl         = document.getElementById('civic-mason-grid');
+        const floatingBrick  = document.getElementById('floating-brick');
+        const ineligibleCard = document.getElementById('ineligible-card');
+        const ineligibleTitle = document.getElementById('ineligible-title');
+        const ineligibleBody  = document.getElementById('ineligible-body');
+        const ineligibleBtn   = document.getElementById('ineligible-btn');
+        const devModeBar      = document.getElementById('cm-dev-mode-bar');
+        const demoToggle      = document.getElementById('cm-demo-toggle');
 
+        /* ── Mutable state ────────────────────────────────────────────────── */
+        let bricks            = [];
+        let occupied          = {};
+        let cols              = MIN_COLS;
+        let brickW            = BASE_BRICK_W;
+        let brickH            = BASE_BRICK_H;
+        let yMax              = 5;
+
+        let eligible          = false;
+        let brickShown        = false;
+        let selectedColorIdx  = 0;
+        let brickMessage      = '';
+
+        // Drag state
+        let isDragging        = false;
+        let mdX = 0, mdY = 0; // mousedown position
+        let snapSlot          = null;
+
+        // Edit-window state
+        let ewTimer     = null;
+        let ewBrickId   = null;
+        let ewBrickEl   = null;
+        let ewBadgeEl   = null;
+
+        /* ── Helpers ──────────────────────────────────────────────────────── */
         function esc(s) {
             if (!s) return '';
             const d = document.createElement('div');
@@ -103,190 +170,764 @@ def civic_mason_page():
         }
 
         function getColor(year) {
+            if (year >= 2031 && year < 2031 + MURAL_PALETTE.length) return MURAL_PALETTE[year - 2031];
             return YEAR_COLORS[year] || DEFAULT_COLOR;
         }
 
+        function currentColor() { return MURAL_PALETTE[selectedColorIdx] || DEFAULT_COLOR; }
+
         function hasSupport(x, y) {
             if (y <= 0) return true;
-            const left = (x - 0.5).toFixed(1), right = (x + 0.5).toFixed(1);
-            const yBelow = (y - 1).toFixed(1);
-            return occupied[left + ',' + yBelow] || occupied[right + ',' + yBelow];
+            const l = (x - 0.5).toFixed(1), r = (x + 0.5).toFixed(1);
+            const yb = (y - 1).toFixed(1);
+            return !!(occupied[l + ',' + yb] || occupied[r + ',' + yb]);
         }
 
+        /* ── Grid dimensions ──────────────────────────────────────────────── */
+        function calcDimensions() {
+            const img = document.getElementById('civic-mason-mural-img');
+            const wrap = gridEl.closest('.civic-mason-mural-inner') || gridEl.parentElement;
+            const cw = (img && img.offsetWidth > 0 ? img.offsetWidth : (wrap && wrap.offsetWidth)) || 400;
+            cols   = Math.max(MIN_COLS, Math.floor(cw / (BASE_BRICK_W + GAP))) + 1;
+            brickW = Math.max(10, Math.floor((cw - (cols - 1) * GAP) / cols));
+            brickH = Math.max(8,  Math.floor(brickW / 2));
+            // Keep floating brick proportional to grid bricks (3× scale for ergonomics)
+            const fb = document.getElementById('floating-brick');
+            if (fb) {
+                const fw = Math.max(48, brickW * 3);
+                const fh = Math.max(24, brickH * 3);
+                fb.style.width  = fw + 'px';
+                fb.style.height = fh + 'px';
+                fb._fw = fw;
+                fb._fh = fh;
+            }
+        }
+
+        /* ── Grid render ──────────────────────────────────────────────────── */
         function renderGrid() {
+            calcDimensions();
             occupied = {};
             bricks.forEach(b => {
-                const k = parseFloat(b.grid_x).toFixed(1) + ',' + parseFloat(b.grid_y).toFixed(1);
-                occupied[k] = b;
+                occupied[parseFloat(b.grid_x).toFixed(1) + ',' + parseFloat(b.grid_y).toFixed(1)] = b;
             });
-            const w = (xMax - xMin + 2) * (BRICK_SIZE + GAP);
-            const h = (yMax - yMin + 2) * (BRICK_SIZE + GAP);
-            let html = '';
-            if (bricks.length === 0) {
-                html += '<p class="text-muted small mb-2">No bricks yet. Drag a brick from above to a slot below.</p>';
-            }
-            html += '<div class="civic-mason-wall" style="position:relative;width:' + w + 'px;height:' + h + 'px;">';
-            for (let y = yMin; y <= yMax; y++) {
-                const isHalfRow = (y % 2 === 1);
-                for (let xi = 0; xi <= xMax - xMin + 1; xi++) {
-                    const xVal = xMin + xi + (isHalfRow ? 0.5 : 0);
-                    const key = xVal.toFixed(1) + ',' + y;
-                    const b = occupied[key];
-                    const left = (xVal - xMin) * (BRICK_SIZE + GAP);
-                    const top = (y - yMin) * (BRICK_SIZE + GAP);
+            const wallW = cols * (brickW + GAP) - GAP;
+            const wallH = (yMax + 1) * (brickH + GAP) - GAP;
+
+            let html = '<div class="cm-wall" style="position:relative;width:' + wallW + 'px;height:' + wallH + 'px;">';
+
+            for (let y = 0; y <= yMax; y++) {
+                const half = (y % 2 === 1);
+                for (let xi = 0; xi < cols; xi++) {
+                    const xv  = xi + (half ? 0.5 : 0);
+                    const key = xv.toFixed(1) + ',' + y.toFixed(1);
+                    const b   = occupied[key];
+                    const lx  = Math.round(xv * (brickW + GAP));
+                    const ty  = Math.round((yMax - y) * (brickH + GAP));
+
                     if (b) {
                         const color = getColor(b.year);
-                        const msg = esc((b.message || '').slice(0, 200));
-                        const name = esc(b.user_display_name || 'Anonymous');
-                        html += '<div class="brick-cell border rounded" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:' + BRICK_SIZE + 'px;height:' + BRICK_SIZE + 'px;background:' + color + ';" title="' + name + (msg ? ': ' + msg : '') + '" data-bs-toggle="tooltip" data-x="' + xVal + '" data-y="' + y + '"></div>';
-                    } else if (hasSupport(xVal, y)) {
-                        html += '<div class="drop-zone border border-2 border-dashed rounded" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:' + BRICK_SIZE + 'px;height:' + BRICK_SIZE + 'px;background:rgba(0,0,0,0.05);" data-x="' + xVal + '" data-y="' + y + '" data-droppable="true"></div>';
+                        const msg   = esc((b.message || '').slice(0, 200));
+                        const name  = esc(b.user_display_name || 'Anonymous');
+                        const tip   = name + (msg ? ': ' + msg : '');
+                        html += '<div class="cm-brick" style="left:' + lx + 'px;top:' + ty + 'px;'
+                              + 'width:' + brickW + 'px;height:' + brickH + 'px;background-color:' + color + ';"'
+                              + ' title="' + tip + '" data-bs-toggle="tooltip" data-bs-placement="top"'
+                              + ' data-x="' + xv + '" data-y="' + y + '" data-bid="' + b.id + '"></div>';
+                    } else if (hasSupport(xv, y)) {
+                        const dzOp = eligible ? '0.40' : '0';
+                        html += '<div class="cm-dz" style="left:' + lx + 'px;top:' + ty + 'px;'
+                              + 'width:' + brickW + 'px;height:' + brickH + 'px;opacity:' + dzOp + ';"'
+                              + ' data-x="' + xv + '" data-y="' + y + '"></div>';
                     }
                 }
             }
             html += '</div>';
             gridEl.innerHTML = html;
-            [].forEach.call(gridEl.querySelectorAll('[data-bs-toggle="tooltip"]'), el => new bootstrap.Tooltip(el));
-            gridEl.querySelectorAll('.drop-zone').forEach(el => {
-                el.addEventListener('dragover', onDragOver);
-                el.addEventListener('drop', onDrop);
-                el.addEventListener('dragenter', function(e) { if (e.dataTransfer.types.indexOf('text/plain') >= 0) el.classList.add('drop-hover'); });
-                el.addEventListener('dragleave', function() { el.classList.remove('drop-hover'); });
-            });
-        }
 
-        function onDragOver(e) {
-            if (e.dataTransfer.types.indexOf('text/plain') >= 0) {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'copy';
+            gridEl.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+                try { new bootstrap.Tooltip(el); } catch (_) {}
+            });
+
+            // Reattach edit-window click if brick still on board
+            if (ewBrickId) {
+                ewBrickEl = gridEl.querySelector('[data-bid="' + ewBrickId + '"]');
+                if (ewBrickEl) {
+                    ewBrickEl.classList.add('cm-ew-pending');
+                    attachEwClick(ewBrickEl);
+                } else {
+                    clearEditWindow(); // brick gone
+                }
             }
         }
 
-        function onDrop(e) {
+        /* ── Floating brick ───────────────────────────────────────────────── */
+        function updateBrickColor() {
+            floatingBrick.style.setProperty('--fc', currentColor());
+        }
+
+        function showBrick() {
+            if (brickShown || !eligible || suppressFloatingBrick) return;
+            brickShown = true;
+            floatingBrick.classList.add('visible');
+            floatingBrick.style.left = '50%';
+            floatingBrick.style.top  = '50%';
+            floatingBrick.style.pointerEvents = 'auto';
+            updateBrickColor();
+        }
+
+        function hideBrick() {
+            if (isDragging) return;
+            hideFloatingBrickVisual();
+        }
+
+        /** Always hide floating brick (e.g. when a modal is open). Ignores drag state. */
+        function hideFloatingBrickVisual() {
+            brickShown = false;
+            floatingBrick.classList.remove('visible');
+            floatingBrick.style.setProperty('--glow', 0);
+            floatingBrick.style.pointerEvents = 'none';
+        }
+
+        /* True while any Civic Mason modal is open — keeps floating brick off and below modal stack */
+        let suppressFloatingBrick = false;
+
+        /* ── Mouse proximity + drag ───────────────────────────────────────── */
+        let hasMovedMouse = false;
+        document.addEventListener('mousemove', function onProximity(e) {
+            if (!eligible || suppressFloatingBrick) return;
+            hasMovedMouse = true;
+            if (!brickShown && !isDragging) showBrick();
+            if (isDragging) return; // handled by onDragMove
+
+            const r   = floatingBrick.getBoundingClientRect();
+            const cx  = r.left + r.width  / 2;
+            const cy  = r.top  + r.height / 2;
+            const d   = Math.hypot(e.clientX - cx, e.clientY - cy);
+            const g   = Math.max(0, Math.min(1, 1 - d / 280));
+            floatingBrick.style.setProperty('--glow', g);
+            floatingBrick.style.pointerEvents = d < 100 ? 'auto' : 'none';
+        });
+
+        document.addEventListener('mouseleave', function(e) {
+            if (!e.relatedTarget) hideBrick();
+        });
+
+        /* Drag detect and drag move ─────────────────────────────────────── */
+        function onDragDetect(e) {
+            if (Math.hypot(e.clientX - mdX, e.clientY - mdY) >= MOVE_THRESH) {
+                document.removeEventListener('mousemove', onDragDetect);
+                startDragMode(e);
+            }
+        }
+
+        function startDragMode(e) {
+            isDragging = true;
+            floatingBrick.style.pointerEvents = 'none';
+            floatingBrick.style.left = e.clientX + 'px';
+            floatingBrick.style.top  = e.clientY + 'px';
+            floatingBrick.classList.add('dragging');
+            // Make every drop zone clearly visible while dragging
+            gridEl.querySelectorAll('.cm-dz').forEach(z => { z.style.opacity = '0.75'; });
+            document.addEventListener('mousemove', onDragMove);
+        }
+
+        function onDragMove(e) {
+            const nearest = findNearestSlot(e.clientX, e.clientY);
+            if (nearest) {
+                // Visually snap the floating brick to the slot center
+                const r  = nearest.getBoundingClientRect();
+                const sx = r.left + r.width  / 2;
+                const sy = r.top  + r.height / 2;
+                floatingBrick.style.left = sx + 'px';
+                floatingBrick.style.top  = sy + 'px';
+                // Scale the floating brick to match the slot dimensions exactly
+                const fw = floatingBrick._fw || 64;
+                const fh = floatingBrick._fh || 32;
+                const scx = (r.width  / fw).toFixed(4);
+                const scy = (r.height / fh).toFixed(4);
+                floatingBrick.style.transform = 'translate(-50%,-50%) scale(' + scx + ',' + scy + ')';
+            } else {
+                floatingBrick.style.left = e.clientX + 'px';
+                floatingBrick.style.top  = e.clientY + 'px';
+                floatingBrick.style.transform = 'translate(-50%,-50%) scale(1.1)';
+            }
+            updateSnap(nearest);
+            snapSlot = nearest;
+        }
+
+        function findNearestSlot(cx, cy) {
+            let best = null, bestD = SNAP_DIST;
+            // ONLY search drop zones (.cm-dz), never bricks (.cm-brick)
+            gridEl.querySelectorAll('.cm-dz').forEach(z => {
+                const r = z.getBoundingClientRect();
+                // Distance to nearest edge of the slot rect
+                const closestX = Math.max(r.left, Math.min(cx, r.right));
+                const closestY = Math.max(r.top,  Math.min(cy, r.bottom));
+                const d = Math.hypot(cx - closestX, cy - closestY);
+                if (d < bestD) { bestD = d; best = z; }
+            });
+            return best;
+        }
+
+        function updateSnap(slot) {
+            gridEl.querySelectorAll('.cm-dz.snap').forEach(z => z.classList.remove('snap'));
+            if (slot) slot.classList.add('snap');
+        }
+
+        /* Mouse down on floating brick ──────────────────────────────────── */
+        floatingBrick.addEventListener('mousedown', function(e) {
+            if (!eligible) return;
             e.preventDefault();
-            e.currentTarget.classList.remove('drop-hover');
-            const x = parseFloat(e.currentTarget.dataset.x);
-            const y = parseFloat(e.currentTarget.dataset.y);
-            showConfirmModal(x, y);
-        }
+            e.stopPropagation();
+            mdX = e.clientX;
+            mdY = e.clientY;
+            document.addEventListener('mousemove', onDragDetect);
+            document.addEventListener('mouseup', onMouseUp, { once: true });
+        });
 
-        function showConfirmModal(gridX, gridY) {
-            pendingDrop = { grid_x: gridX, grid_y: gridY };
-            document.getElementById('confirm-grid-pos').textContent = gridX + ', ' + gridY;
-            document.getElementById('confirm-brick-message').value = '';
-            document.getElementById('confirm-msg-count').textContent = '0';
-            document.getElementById('countdown-num').textContent = '5';
-            const modal = document.getElementById('placeBrickConfirmModal');
-            bootstrap.Modal.getOrCreateInstance(modal).show();
-            let sec = 5;
-            if (countdownTimer) clearInterval(countdownTimer);
-            countdownTimer = setInterval(function() {
-                sec--;
-                document.getElementById('countdown-num').textContent = sec;
-                if (sec <= 0) {
-                    clearInterval(countdownTimer);
-                    countdownTimer = null;
-                    confirmPlacement();
+        function onMouseUp(e) {
+            document.removeEventListener('mousemove', onDragDetect);
+            document.removeEventListener('mousemove', onDragMove);
+
+            const moved = Math.hypot(e.clientX - mdX, e.clientY - mdY);
+
+            if (isDragging) {
+                isDragging = false;
+                // Restore drop zone base opacity
+                gridEl.querySelectorAll('.cm-dz').forEach(z => {
+                    z.style.opacity = eligible ? '0.40' : '0';
+                    z.classList.remove('snap');
+                });
+                
+                floatingBrick.classList.remove('dragging');
+                
+                if (snapSlot) {
+                    const gx = parseFloat(snapSlot.dataset.x);
+                    const gy = parseFloat(snapSlot.dataset.y);
+                    snapSlot = null;
+                    // Hide the floating brick immediately after placement
+                    hideBrick();
+                    placeBrickAt(gx, gy);
+                } else {
+                    // No snap — restore to center
+                    floatingBrick.style.left      = '50%';
+                    floatingBrick.style.top       = '50%';
+                    floatingBrick.style.transform = 'translate(-50%,-50%) scale(1)';
+                    floatingBrick.style.pointerEvents = 'none';
+                    snapSlot = null;
                 }
-            }, 1000);
+            } else if (moved < MOVE_THRESH) {
+                // Quick tap → open config modal
+                openConfigModal();
+            }
         }
 
-        function cancelConfirm() {
-            if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
-            pendingDrop = null;
-            bootstrap.Modal.getInstance(document.getElementById('placeBrickConfirmModal')).hide();
-        }
-
-        async function confirmPlacement() {
-            if (!pendingDrop) return;
-            const message = (document.getElementById('confirm-brick-message').value || '').trim().slice(0, 200);
-            cancelConfirm();
+        /* ── Placement ────────────────────────────────────────────────────── */
+        async function placeBrickAt(gx, gy) {
             try {
-                const res = await fetch('/api/civic-mason/bricks/', {
+                const res  = await fetch('/api/civic-mason/bricks/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
-                    body: JSON.stringify({ grid_x: pendingDrop.grid_x, grid_y: pendingDrop.grid_y, message: message })
+                    body: JSON.stringify({ grid_x: gx, grid_y: gy, message: brickMessage, color_index: selectedColorIdx })
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    loadBricks();
+                    await loadBricks(false); // no auto-scroll — we handle it below
+                    const el = gridEl.querySelector('[data-bid="' + data.brick.id + '"]');
+                    if (el) {
+                        // Scroll the new brick into view, then start the edit window
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        showToast('Brick placed! Click within 5 seconds to edit or cancel.', 'success');
+                        setTimeout(function () { startEditWindow(data.brick.id, el); }, 300);
+                    } else {
+                        // Fallback: just scroll to the grid
+                        gridEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                        showToast('Brick placed at (' + gx + ', ' + gy + ')', 'success');
+                    }
                 } else {
-                    alert(data.error || 'Failed to place brick');
+                    showToast(data.error || 'Failed to place brick', 'danger');
                 }
-            } catch (e) {
-                console.error(e);
-                alert('Failed to place brick');
+            } catch (err) {
+                console.error(err);
+                showToast('Failed to place brick', 'danger');
             }
         }
 
-        async function loadBricks() {
+        /* ── Edit window (5-second cancel) ───────────────────────────────── */
+        function startEditWindow(brickId, el) {
+            clearEditWindow();
+            ewBrickId = brickId;
+            ewBrickEl = el;
+
+            el.classList.add('cm-ew-pending');
+
+            const badge = document.createElement('span');
+            badge.className = 'cm-ew-badge';
+            badge.textContent = '5';
+            el.appendChild(badge);
+            ewBadgeEl = badge;
+
+            let n = 5;
+            ewTimer = setInterval(() => {
+                n--;
+                badge.textContent = n;
+                if (n <= 0) clearEditWindow(); // permanent, no action needed
+            }, 1000);
+
+            attachEwClick(el);
+        }
+
+        function attachEwClick(el) {
+            el._ewHandler = function onEwClick(e) {
+                e.stopPropagation();
+                const id = ewBrickId;
+                clearEditWindow();
+                openEditModal(id);
+            };
+            el.addEventListener('click', el._ewHandler, { once: true });
+        }
+
+        function clearEditWindow() {
+            if (ewTimer) { clearInterval(ewTimer); ewTimer = null; }
+            if (ewBadgeEl) { try { ewBadgeEl.remove(); } catch (_) {} ewBadgeEl = null; }
+            if (ewBrickEl) {
+                ewBrickEl.classList.remove('cm-ew-pending');
+                if (ewBrickEl._ewHandler) {
+                    ewBrickEl.removeEventListener('click', ewBrickEl._ewHandler);
+                    ewBrickEl._ewHandler = null;
+                }
+            }
+            ewBrickId = null;
+            ewBrickEl = null;
+        }
+
+        /* ── Config modal (pre-placement) ────────────────────────────────── */
+        function openConfigModal() {
+            suppressFloatingBrick = true;
+            hideFloatingBrickVisual();
+            buildPalette(document.getElementById('config-palette'), selectedColorIdx, false);
+            const msgEl = document.getElementById('config-msg');
+            msgEl.value = brickMessage;
+            document.getElementById('config-msg-count').textContent = brickMessage.length;
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('configBrickModal')).show();
+        }
+
+        document.getElementById('config-msg').addEventListener('input', function () {
+            brickMessage = this.value.slice(0, 200);
+            document.getElementById('config-msg-count').textContent = brickMessage.length;
+        });
+
+        /* ── Edit modal (post-placement) ─────────────────────────────────── */
+        function openEditModal(brickId) {
+            suppressFloatingBrick = true;
+            hideFloatingBrickVisual();
+            buildPalette(document.getElementById('edit-palette'), selectedColorIdx, false);
+            const msgEl = document.getElementById('edit-msg');
+            msgEl.value = brickMessage;
+            document.getElementById('edit-msg-count').textContent = brickMessage.length;
+
+            const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('editBrickModal'));
+            modal.show();
+
+            document.getElementById('edit-accept-btn').onclick = async () => {
+                const msg = document.getElementById('edit-msg').value.slice(0, 200);
+                brickMessage = msg;
+                modal.hide();
+                try {
+                    const res = await fetch('/api/civic-mason/bricks/' + brickId, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ color_index: selectedColorIdx, message: msg })
+                    });
+                    if (res.ok) {
+                        await loadBricks(false);
+                        showToast('Brick updated', 'success');
+                    }
+                } catch (err) { console.error(err); }
+            };
+
+            document.getElementById('edit-cancel-placement-btn').onclick = async () => {
+                modal.hide();
+                try {
+                    const res = await fetch('/api/civic-mason/bricks/' + brickId, { method: 'DELETE', credentials: 'same-origin' });
+                    if (res.ok) {
+                        await loadBricks(false);
+                        showToast('Brick removed', 'info');
+                    } else {
+                        const data = await res.json();
+                        console.error('DELETE failed:', data);
+                        showToast(data.error || 'Failed to remove brick', 'danger');
+                    }
+                } catch (err) { 
+                    console.error('DELETE error:', err);
+                    showToast('Error removing brick', 'danger');
+                }
+            };
+        }
+
+        document.getElementById('edit-msg').addEventListener('input', function () {
+            document.getElementById('edit-msg-count').textContent = (this.value || '').length;
+        });
+
+        ['configBrickModal', 'editBrickModal'].forEach(function (mid) {
+            var m = document.getElementById(mid);
+            if (!m) return;
+            m.addEventListener('show.bs.modal', function () {
+                suppressFloatingBrick = true;
+                hideFloatingBrickVisual();
+            });
+            m.addEventListener('hidden.bs.modal', function () {
+                suppressFloatingBrick = false;
+            });
+        });
+
+        /* ── Color palette builder ────────────────────────────────────────── */
+        function buildPalette(container, activeIdx, forEdit) {
+            container.innerHTML = '';
+            MURAL_PALETTE.forEach(function (c, i) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'cm-swatch' + (i === activeIdx ? ' active' : '');
+                btn.style.background = c;
+                btn.dataset.idx = i;
+                btn.setAttribute('aria-label', 'Color ' + (i + 1));
+
+                btn.addEventListener('click', function () {
+                    container.querySelectorAll('.cm-swatch').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    selectedColorIdx = i;
+                    updateBrickColor();
+                });
+
+                btn.addEventListener('dblclick', function () {
+                    container.querySelectorAll('.cm-swatch').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    selectedColorIdx = i;
+                    updateBrickColor();
+                    // Double-click closes the config modal only (not edit modal)
+                    const cfgModal = bootstrap.Modal.getInstance(document.getElementById('configBrickModal'));
+                    if (cfgModal) cfgModal.hide();
+                });
+
+                container.appendChild(btn);
+            });
+        }
+
+        /* ── Load bricks ──────────────────────────────────────────────────── */
+        async function loadBricks(scrollAfter) {
             try {
-                const res = await fetch('/api/civic-mason/bricks/', { credentials: 'same-origin' });
+                const res  = await fetch('/api/civic-mason/bricks/', { credentials: 'same-origin' });
                 const data = await res.json();
                 if (!res.ok) {
-                    gridEl.innerHTML = '<p class="text-muted">Unable to load bricks.</p>';
+                    gridEl.innerHTML = '<p class="text-white-50 text-center py-4">Unable to load bricks.</p>';
                     return;
                 }
                 bricks = data.bricks || [];
-                if (bricks.length === 0) {
-                    xMin = 0; xMax = 6; yMin = 0; yMax = 6;
-                } else {
-                    const xs = bricks.map(b => b.grid_x);
-                    const ys = bricks.map(b => b.grid_y);
-                    xMin = Math.min(0, ...xs) - 1;
-                    xMax = Math.max(6, ...xs) + 1;
-                    yMin = Math.min(0, ...ys) - 1;
-                    yMax = Math.max(6, ...ys) + 1;
-                }
+                calcDimensions();
+                yMax = bricks.length === 0 ? 5 : Math.max(5, Math.max(...bricks.map(b => b.grid_y)) + 1);
                 renderGrid();
+                if (scrollAfter) {
+                    // Scroll to the grid (bottom of mural) to show the active area
+                    setTimeout(function () {
+                        gridEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                    }, 120);
+                }
             } catch (err) {
                 console.error('loadBricks:', err);
-                gridEl.innerHTML = '<p class="text-muted">Unable to load bricks.</p>';
+                gridEl.innerHTML = '<p class="text-white-50 text-center py-4">Unable to load bricks.</p>';
             }
         }
 
+        /* ── Eligibility check ────────────────────────────────────────────── */
         async function checkEligible() {
             try {
-                const res = await fetch('/api/civic-mason/eligible/', { credentials: 'same-origin' });
-                const data = await res.json();
-                if (data.eligible) {
-                    if (placeBtn) placeBtn.style.display = 'inline-block';
-                    if (dragSource) { dragSource.classList.remove('d-none'); dragSource.classList.add('d-flex', 'flex-column', 'align-items-center'); }
+                const res  = await fetch('/api/civic-mason/eligible/', { credentials: 'same-origin' });
+                if (res.status === 401) {
+                    if (devModeBar) devModeBar.classList.add('d-none');
+                    ineligibleCard.classList.remove('d-none');
+                    return;
                 }
-            } catch (e) {}
+                const data = await res.json();
+                eligible = !!data.eligible;
+
+                if (data.dev_tools && devModeBar && demoToggle) {
+                    devModeBar.classList.remove('d-none');
+                    demoToggle.checked = !!data.demo_mode;
+                    if (!demoToggle._cmBound) {
+                        demoToggle._cmBound = true;
+                        demoToggle.addEventListener('change', async function () {
+                            try {
+                                await fetch('/api/civic-mason/demo-mode/', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'same-origin',
+                                    body: JSON.stringify({ enabled: demoToggle.checked })
+                                });
+                                await checkEligible();
+                                await loadBricks(false);
+                            } catch (e) { console.error(e); }
+                        });
+                    }
+                } else if (devModeBar) {
+                    devModeBar.classList.add('d-none');
+                }
+
+                ineligibleCard.classList.add('d-none');
+                if (!eligible) {
+                    if (data.reason === 'already_placed_this_year') {
+                        ineligibleTitle.textContent = 'One brick per year';
+                        ineligibleBody.textContent = 'You already placed a brick this calendar year. You can place another next year.';
+                        ineligibleBtn.classList.add('d-none');
+                    } else {
+                        ineligibleTitle.textContent = 'Earn the Civic Mason Badge';
+                        ineligibleBody.textContent = 'Place a permanent brick on this wall by earning a Civic Mason-eligible badge through civic participation.';
+                        ineligibleBtn.classList.remove('d-none');
+                    }
+                    ineligibleCard.classList.remove('d-none');
+                }
+            } catch (_) {
+                if (devModeBar) devModeBar.classList.add('d-none');
+                ineligibleCard.classList.remove('d-none');
+            }
         }
 
-        if (dragBrick) {
-            dragBrick.addEventListener('dragstart', function(e) {
-                e.dataTransfer.setData('text/plain', 'brick');
-                e.dataTransfer.effectAllowed = 'copy';
-                dragBrick.style.opacity = '0.5';
+        /* ── Toast ────────────────────────────────────────────────────────── */
+        function showToast(msg, type) {
+            const wrap = document.createElement('div');
+            wrap.className = 'position-fixed bottom-0 end-0 p-3';
+            wrap.style.zIndex = 9999;
+            wrap.innerHTML = '<div class="alert alert-' + type + ' alert-dismissible fade show mb-0 shadow" role="alert">'
+                           + esc(msg) + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+            document.body.appendChild(wrap);
+            setTimeout(() => wrap.remove(), 4500);
+        }
+
+        /* ── Init ─────────────────────────────────────────────────────────── */
+        (async function init() {
+            await checkEligible();
+            await loadBricks(false); // don't auto-scroll yet
+            // After a brief delay, scroll to the bottom where the bricks are
+            setTimeout(function() {
+                const wall = gridEl.querySelector('.cm-wall');
+                if (wall) {
+                    wall.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                }
+            }, 500);
+        })();
+
+        // Re-render on mural image load and resize
+        const muralImg = document.getElementById('civic-mason-mural-img');
+        if (muralImg) {
+            if (muralImg.complete && muralImg.naturalWidth > 0) {
+                calcDimensions();
+            }
+            muralImg.addEventListener('load', function () {
+                calcDimensions();
+                renderGrid();
             });
-            dragBrick.addEventListener('dragend', function() { dragBrick.style.opacity = '1'; });
         }
-
-        placeBtn.addEventListener('click', function() {
-            if (dragSource) dragSource.scrollIntoView({ behavior: 'smooth' });
-        });
-
-        document.getElementById('confirm-cancel-close').addEventListener('click', cancelConfirm);
-        document.getElementById('confirm-cancel-btn-footer').addEventListener('click', cancelConfirm);
-        document.getElementById('placeBrickConfirmModal').addEventListener('hidden.bs.modal', cancelConfirm);
-
-        document.getElementById('confirm-brick-message').addEventListener('input', function() {
-            document.getElementById('confirm-msg-count').textContent = (this.value || '').length;
-        });
-
-        loadBricks();
-        checkEligible();
+        if (window.ResizeObserver && muralImg) {
+            let roInit = true;
+            new ResizeObserver(function () {
+                calcDimensions();
+                renderGrid();
+                // On first fire (image just loaded/sized), scroll to grid
+                if (roInit && bricks.length === 0) {
+                    roInit = false;
+                    setTimeout(function () {
+                        gridEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                    }, 200);
+                } else {
+                    roInit = false;
+                }
+            }).observe(muralImg);
+        } else {
+            window.addEventListener('resize', function () { calcDimensions(); renderGrid(); });
+        }
     })();
     </script>
+
     <style>
-    .drop-zone.drop-hover { background: rgba(var(--bs-primary-rgb), 0.2) !important; }
+    /* ── Page layout ──────────────────────────────────────────────────────── */
+    .civic-mason-fullpage {
+        background: #1a1510;
+        min-height: 100vh;
+    }
+    .civic-mason-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        padding: 0.85rem 1.5rem;
+        background: rgba(20,15,10,0.92);
+        backdrop-filter: blur(10px);
+        color: #fff;
+        border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .civic-mason-header .breadcrumb-item a { color: rgba(255,255,255,0.85); }
+    .civic-mason-header .breadcrumb-item.active { color: rgba(255,255,255,0.55); }
+    .cm-dev-bar {
+        background: rgba(255,193,7,0.12);
+        border: 1px solid rgba(255,193,7,0.35);
+        color: #fff;
+    }
+    .cm-dev-bar .form-check-input { cursor: pointer; }
+
+    /* ── Mural area ───────────────────────────────────────────────────────── */
+    .civic-mason-mural-wrap {
+        display: flex;
+        justify-content: center;
+    }
+    .civic-mason-mural-inner {
+        position: relative;
+        display: block;
+        width: 100%;
+        max-width: 1400px;
+    }
+    .civic-mason-mural-img {
+        display: block;
+        width: 100%;
+        height: auto;
+        vertical-align: bottom;
+    }
+    .civic-mason-grid-container {
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        z-index: 2;
+        display: flex;
+        justify-content: center;
+        align-items: flex-end;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* ── Bricks and drop zones ────────────────────────────────────────────── */
+    .cm-wall  { background: transparent; margin: 0 auto; }
+    .cm-brick {
+        position: absolute;
+        border-radius: 1px;
+        box-sizing: border-box;
+        border: 1px solid rgba(0,0,0,0.4);
+        cursor: help;
+    }
+    .cm-dz {
+        position: absolute;
+        border: 2px dashed rgba(255,255,255,0.35);
+        border-radius: 2px;
+        box-sizing: border-box;
+        background: rgba(255,255,255,0.03);
+        transition: opacity 0.12s, background 0.1s, box-shadow 0.1s, transform 0.1s;
+    }
+    .cm-dz.snap {
+        opacity: 1 !important;
+        background: rgba(255,200,70,0.45) !important;
+        border: 2px solid rgba(255,225,90,1) !important;
+        box-shadow: 0 0 14px 5px rgba(255,190,50,0.60) !important;
+    }
+
+    /* ── Edit-window pending state ────────────────────────────────────────── */
+    .cm-brick.cm-ew-pending {
+        cursor: pointer;
+        animation: ew-pulse 0.85s ease-in-out infinite;
+        position: absolute; /* already set inline; needed for badge stacking context */
+        z-index: 3;
+    }
+    @keyframes ew-pulse {
+        0%,100% { box-shadow: 0 0 0 0 rgba(255,215,80,0); }
+        50%      { box-shadow: 0 0 0 5px rgba(255,215,80,0.6); }
+    }
+    .cm-ew-badge {
+        position: absolute;
+        top: -10px; right: -10px;
+        width: 20px; height: 20px;
+        border-radius: 50%;
+        background: rgba(255,215,60,0.95);
+        color: #222;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 20px;
+        text-align: center;
+        pointer-events: none;
+        z-index: 4;
+        box-shadow: 0 0 6px 2px rgba(255,200,50,0.6);
+    }
+
+    /* ── Floating brick ───────────────────────────────────────────────────── */
+    .floating-brick {
+        position: fixed;
+        left: 50%; top: 50%;
+        /* width/height set dynamically by calcDimensions() */
+        width: 64px; height: 32px;
+        border-radius: 3px;
+        background: var(--fc, #c95a3d);
+        box-shadow:
+            0 0 calc(var(--glow, 0) * 52px) calc(var(--glow, 0) * 18px) rgba(255,150,70,calc(var(--glow,0)*0.75)),
+            0 3px 12px rgba(0,0,0,0.55);
+        transform: translate(-50%, -50%) scale(0.6);
+        opacity: 0;
+        pointer-events: none;
+        /* Below Bootstrap modal (1055) and backdrop (1050) so modals always win */
+        z-index: 1030;
+        cursor: pointer;
+        /* two transitions: appearance vs drag (no transition during drag for tight tracking) */
+        transition: opacity 0.22s ease, transform 0.22s ease, box-shadow 0.08s ease;
+    }
+    .floating-brick::before {
+        content: '';
+        position: absolute;
+        inset: 20% 25%;
+        background: rgba(255,255,255,0.12);
+        border-radius: 1px;
+    }
+    .floating-brick::after {
+        content: '';
+        position: absolute;
+        left: 8%; right: 8%; top: 50%;
+        height: 1px;
+        background: rgba(0,0,0,0.22);
+    }
+    .floating-brick.visible {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    .floating-brick.dragging {
+        /* Remove CSS transitions so brick tracks cursor instantly */
+        transition: none;
+    }
+
+    /* ── Color swatches ───────────────────────────────────────────────────── */
+    .cm-swatch {
+        width: 34px; height: 34px;
+        border: 3px solid transparent;
+        border-radius: 5px;
+        padding: 0;
+        cursor: pointer;
+        transition: border-color 0.12s, transform 0.12s;
+    }
+    .cm-swatch:hover  { transform: scale(1.12); border-color: rgba(255,255,255,0.5); }
+    .cm-swatch.active { border-color: #fff; transform: scale(1.12); }
+
+    /* ── Ineligible card ──────────────────────────────────────────────────── */
+    .ineligible-card {
+        position: fixed;
+        bottom: 2rem; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(30,25,20,0.88);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 12px;
+        padding: 1.5rem 2rem;
+        max-width: 340px;
+        width: calc(100% - 2rem);
+        text-align: center;
+        color: #fff;
+        z-index: 100;
+    }
     </style>
     """
 
+    content = content.replace('MURAL_URL_PLACEHOLDER', mural_url)
     return render_page(
         title='Civic Mason',
         content=content,

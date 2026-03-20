@@ -1,13 +1,18 @@
 """Civic Mason: global brick wall. Badge-gated placement."""
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, session
 
 from extensions import db
 from models import Brick, BrickMessage, User
 from services.identity import get_current_user, require_auth
 from services.events import emit_event
-from services.civic_mason import user_has_civic_mason_eligibility, is_valid_placement
+from services.civic_mason import (
+    CIVIC_MASON_SESSION_DEMO,
+    civic_mason_can_place_brick,
+    civic_mason_eligibility_payload,
+    is_valid_placement,
+)
 
 bp = Blueprint('civic_mason', __name__, url_prefix='/api/civic-mason')
 
@@ -30,12 +35,26 @@ def list_bricks():
 @bp.route('/eligible/', methods=['GET'])
 @require_auth
 def check_eligible():
-    """Check if current user can place bricks (has Civic Mason-eligible badge)."""
+    """Check if current user can place bricks (badge + one per year; dev demo mode optional)."""
     current_user = get_current_user()
     if not current_user:
-        return jsonify({'eligible': False, 'reason': 'Authentication required'}), 401
-    eligible = user_has_civic_mason_eligibility(current_user['id'])
-    return jsonify({'eligible': eligible}), 200
+        return jsonify({'eligible': False, 'reason': 'authentication_required'}), 401
+    is_dev = bool(current_app.config.get('IS_DEVELOPMENT'))
+    payload = civic_mason_eligibility_payload(current_user['id'], session, is_dev)
+    return jsonify(payload), 200
+
+
+@bp.route('/demo-mode/', methods=['POST'])
+@require_auth
+def set_civic_mason_demo_mode():
+    """Dev only: toggle session flag for unlimited Civic Mason placements (no badge / no yearly cap)."""
+    if not current_app.config.get('IS_DEVELOPMENT'):
+        return jsonify({'error': 'Not available'}), 404
+    data = request.get_json() or {}
+    enabled = bool(data.get('enabled'))
+    session[CIVIC_MASON_SESSION_DEMO] = enabled
+    session.modified = True
+    return jsonify({'demo_mode': enabled}), 200
 
 
 @bp.route('/bricks/', methods=['POST'])
@@ -47,8 +66,10 @@ def place_brick():
         return jsonify({'error': 'Authentication required'}), 401
 
     user = User.query.get(current_user['id'])
-    if not user_has_civic_mason_eligibility(user.id):
-        return jsonify({'error': 'Earn a Civic Mason-eligible badge to place bricks'}), 403
+    is_dev = bool(current_app.config.get('IS_DEVELOPMENT'))
+    ok, err_msg = civic_mason_can_place_brick(user.id, session, is_dev)
+    if not ok:
+        return jsonify({'error': err_msg}), 403
 
     data = request.get_json() or {}
     grid_x = data.get('grid_x')
@@ -56,6 +77,7 @@ def place_brick():
     message = (data.get('message') or '')[:200]
     artifact_id = data.get('artifact_id') or None
     badge_id = data.get('badge_id') or None
+    color_index = data.get('color_index')
 
     if grid_x is None or grid_y is None:
         return jsonify({'error': 'grid_x and grid_y required'}), 400
@@ -71,7 +93,10 @@ def place_brick():
     if not valid:
         return jsonify({'error': err}), 400
 
-    year = datetime.utcnow().year
+    if color_index is not None and 0 <= int(color_index) < 8:
+        year = 2031 + int(color_index)
+    else:
+        year = datetime.utcnow().year
     brick = Brick(
         user_id=user.id,
         grid_x=grid_x,
@@ -95,6 +120,60 @@ def place_brick():
     d = brick.to_dict()
     d['user_display_name'] = user.displayName or user.username or user.name or 'Anonymous'
     return jsonify({'brick': d}), 201
+
+
+@bp.route('/bricks/<brick_id>', methods=['DELETE'])
+@require_auth
+def delete_brick(brick_id):
+    """Delete a brick (owner only, used during 5-second edit window)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    brick = Brick.query.get_or_404(brick_id)
+    if brick.user_id != current_user['id']:
+        return jsonify({'error': 'Only the brick owner can remove it'}), 403
+
+    db.session.delete(brick)
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+
+@bp.route('/bricks/<brick_id>', methods=['PATCH'])
+@require_auth
+def update_brick(brick_id):
+    """Update color / message of a brick (owner only)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    brick = Brick.query.get_or_404(brick_id)
+    if brick.user_id != current_user['id']:
+        return jsonify({'error': 'Only the brick owner can update it'}), 403
+
+    data = request.get_json() or {}
+    color_index = data.get('color_index')
+    message = (data.get('message') or '')[:200]
+
+    if color_index is not None:
+        try:
+            ci = int(color_index)
+            if 0 <= ci < 8:
+                brick.year = 2031 + ci
+        except (TypeError, ValueError):
+            pass
+
+    if 'message' in data and message:
+        msg = BrickMessage(brick_id=brick.id, user_id=current_user['id'], message=message)
+        db.session.add(msg)
+
+    db.session.commit()
+    d = brick.to_dict()
+    if brick.user:
+        d['user_display_name'] = brick.user.displayName or brick.user.username or brick.user.name or 'Anonymous'
+    else:
+        d['user_display_name'] = 'Unknown'
+    return jsonify({'brick': d}), 200
 
 
 @bp.route('/bricks/<brick_id>/messages/', methods=['POST'])

@@ -1155,6 +1155,7 @@ class Brick(db.Model):
     user = db.relationship('User', backref=db.backref('bricks', lazy='dynamic'))
     artifact = db.relationship('Artifact', backref=db.backref('bricks', lazy='dynamic'), foreign_keys=[artifact_id])
     badge = db.relationship('Badge', backref=db.backref('bricks', lazy='dynamic'), foreign_keys=[badge_id])
+    messages = db.relationship('BrickMessage', backref='brick', cascade='all, delete-orphan', lazy='dynamic', order_by='BrickMessage.created_at')
 
     def to_dict(self):
         latest = BrickMessage.query.filter_by(brick_id=self.id).order_by(BrickMessage.created_at.desc()).first()
@@ -1181,7 +1182,6 @@ class BrickMessage(db.Model):
     message = db.Column(db.String(200), nullable=False, default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-    brick = db.relationship('Brick', backref=db.backref('messages', lazy='dynamic', order_by='BrickMessage.created_at'))
     user = db.relationship('User', backref=db.backref('brick_messages', lazy='dynamic'))
 
 
