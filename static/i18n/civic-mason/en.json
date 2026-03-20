@@ -1,0 +1,81 @@
+{
+  "page": {
+    "breadcrumb": {
+      "home": "Home",
+      "recognition": "Recognition",
+      "active": "Civic Mason"
+    },
+    "title": "Civic Mason",
+    "tagline": "Contributors with Civic Mason badges leave a brick on the wall."
+  },
+  "dev": {
+    "label": "Dev only: Civic Mason rules",
+    "demoSwitch": "Demo mode — no badge required, unlimited placements"
+  },
+  "a11y": {
+    "demoMode": "Demo mode",
+    "close": "Close",
+    "loading": "Loading…",
+    "muralAlt": "Civic Mason mural",
+    "brickColors": "Brick color",
+    "configureBrick": "Configure Brick",
+    "editBrick": "Edit Brick"
+  },
+  "ineligible": {
+    "loginTitle": "Sign in",
+    "loginBody": "Sign in to view placement options on the Civic Mason wall.",
+    "badgeTitle": "Earn the Civic Mason Badge",
+    "badgeBody": "Place a permanent brick on this wall by earning a Civic Mason-eligible badge through civic participation.",
+    "badgeButton": "View Badges & How to Earn",
+    "yearTitle": "One brick per year",
+    "yearBody": "You already placed a brick in {{year}} (UTC). You can place another in {{nextYear}}."
+  },
+  "config": {
+    "title": "Configure Brick",
+    "hint": "Choose a color — double-click to select & close.",
+    "message": "Message",
+    "optional": "(optional)",
+    "placeholder": "Leave a message…"
+  },
+  "edit": {
+    "title": "Edit Brick",
+    "hint": "Update color or message, then Accept — or cancel this placement.",
+    "cancelPlacement": "Cancel Placement",
+    "accept": "Accept"
+  },
+  "palette": {
+    "colorN": "Color {{n}}"
+  },
+  "toast": {
+    "placed": "Brick placed! Click within 5 seconds to edit or cancel.",
+    "placedAt": "Brick placed at ({{x}}, {{y}})",
+    "failedPlace": "Failed to place brick",
+    "updated": "Brick updated",
+    "removed": "Brick removed",
+    "removeFailed": "Failed to remove brick",
+    "removeError": "Error removing brick"
+  },
+  "grid": {
+    "loadError": "Unable to load bricks."
+  },
+  "brick": {
+    "anonymous": "Anonymous",
+    "unknown": "Unknown"
+  },
+  "api": {
+    "errors": {
+      "AUTHENTICATION_REQUIRED": "Authentication required",
+      "BADGE_REQUIRED": "Earn a Civic Mason-eligible badge to place bricks",
+      "ALREADY_PLACED_THIS_YEAR": "You can only place one brick per calendar year",
+      "NOT_OWNER": "Only the brick owner can do that",
+      "GRID_REQUIRED": "grid_x and grid_y required",
+      "GRID_INVALID": "grid_x and grid_y must be numbers",
+      "POSITION_OCCUPIED": "Position already occupied",
+      "NO_SUPPORT_BELOW": "Must rest on at least one brick below",
+      "ROW_FULL": "Row is full (max 12 bricks per row)",
+      "NOT_AVAILABLE": "Not available",
+      "MESSAGE_REQUIRED": "message required",
+      "UNKNOWN": "Something went wrong"
+    }
+  }
+}

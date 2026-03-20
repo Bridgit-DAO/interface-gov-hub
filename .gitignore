@@ -24,7 +24,17 @@ datatracker.sublime-workspace
 /media
 /node_modules
 /release-coverage.json
-/static
+# Track Civic Mason i18n + loader; keep rest of /static untracked
+/static/*
+!/static/js/
+/static/js/*
+!/static/js/cm-i18n.js
+!/static/i18n/
+/static/i18n/*
+!/static/i18n/civic-mason/
+/static/i18n/civic-mason/*
+!/static/i18n/civic-mason/en.json
+!/static/i18n/civic-mason/ar.json
 /tmp-*
 /.testresult
 *.swp

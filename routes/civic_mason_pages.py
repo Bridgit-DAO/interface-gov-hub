@@ -1,9 +1,11 @@
 """Civic Mason page: global brick wall. Badge-gated placement."""
-from flask import Blueprint, session, url_for
+from flask import Blueprint, request, session, url_for
 from services.identity import get_current_user
 from services.rendering import generate_user_menu, render_page
 
 bp = Blueprint('civic_mason_pages', __name__, url_prefix='')
+
+_CM_LOCALES = frozenset({'en', 'ar'})
 
 
 def _get_imports():
@@ -19,26 +21,43 @@ def civic_mason_page():
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     mural_url = url_for('static', filename='images/civicmason-mural.png')
 
+    lang = (request.args.get('lang') or '').strip().lower()[:5]
+    if lang in _CM_LOCALES:
+        session['cm_locale'] = lang
+        session.modified = True
+    locale = session.get('cm_locale') or 'en'
+    if locale not in _CM_LOCALES:
+        locale = 'en'
+
+    cm_i18n_js = url_for('static', filename='js/cm-i18n.js')
+    _cm_json = url_for('static', filename='i18n/civic-mason/en.json')
+    cm_i18n_json_base = _cm_json.rsplit('/', 1)[0] + '/'
+
     content = """
+    <script src="CM_I18N_JS_PLACEHOLDER"></script>
+    <script>
+    window.__CM_LOCALE__ = "CM_LOCALE_PLACEHOLDER";
+    window.__CM_I18N_JSON_BASE__ = "CM_I18N_JSON_BASE_PLACEHOLDER";
+    </script>
     <div id="civic-mason-page" class="civic-mason-fullpage">
         <div class="civic-mason-header">
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb mb-0">
-                    <li class="breadcrumb-item"><a href="/">Home</a></li>
-                    <li class="breadcrumb-item"><a href="/badges/">Recognition</a></li>
-                    <li class="breadcrumb-item active">Civic Mason</li>
+                    <li class="breadcrumb-item"><a href="/" data-cm-i18n="page.breadcrumb.home">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/badges/" data-cm-i18n="page.breadcrumb.recognition">Recognition</a></li>
+                    <li class="breadcrumb-item active" data-cm-i18n="page.breadcrumb.active">Civic Mason</li>
                 </ol>
             </nav>
             <div class="d-flex align-items-center gap-2 mt-1">
-                <h1 class="mb-0 me-auto"><i class="fas fa-th-large me-2"></i>Civic Mason</h1>
-                <p class="mb-0 opacity-75 d-none d-md-block small">Contributors with Civic Mason badges leave a brick on the wall.</p>
+                <h1 class="mb-0 me-auto"><i class="fas fa-th-large me-2"></i><span data-cm-i18n="page.title">Civic Mason</span></h1>
+                <p class="mb-0 opacity-75 d-none d-md-block small" data-cm-i18n="page.tagline">Contributors with Civic Mason badges leave a brick on the wall.</p>
             </div>
             <div id="cm-dev-mode-bar" class="d-none w-100 mt-2 py-2 px-3 rounded cm-dev-bar">
                 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                    <span class="small mb-0"><i class="fas fa-flask me-1 text-warning"></i><strong>Dev only:</strong> Civic Mason rules</span>
+                    <span class="small mb-0"><i class="fas fa-flask me-1 text-warning"></i><span data-cm-i18n="dev.label">Dev only: Civic Mason rules</span></span>
                     <div class="form-check form-switch mb-0">
-                        <input class="form-check-input" type="checkbox" id="cm-demo-toggle" role="switch" aria-label="Demo mode">
-                        <label class="form-check-label small" for="cm-demo-toggle">Demo mode — no badge required, unlimited placements</label>
+                        <input class="form-check-input" type="checkbox" id="cm-demo-toggle" role="switch" data-cm-i18n-aria="a11y.demoMode">
+                        <label class="form-check-label small" for="cm-demo-toggle" data-cm-i18n="dev.demoSwitch">Demo mode — no badge required, unlimited placements</label>
                     </div>
                 </div>
             </div>
@@ -55,15 +74,15 @@ def civic_mason_page():
                 Place a permanent brick on this wall by earning a Civic Mason&#8209;eligible badge
                 through civic participation.
             </p>
-            <a href="/badges/" class="btn btn-outline-light btn-sm" id="ineligible-btn">View Badges &amp; How to Earn</a>
+            <a href="/badges/" class="btn btn-outline-light btn-sm" id="ineligible-btn" data-cm-i18n="ineligible.badgeButton">View Badges &amp; How to Earn</a>
         </div>
 
         <div class="civic-mason-mural-wrap">
             <div class="civic-mason-mural-inner">
-                <img src="MURAL_URL_PLACEHOLDER" class="civic-mason-mural-img" id="civic-mason-mural-img" alt="Civic Mason mural" />
+                <img src="MURAL_URL_PLACEHOLDER" class="civic-mason-mural-img" id="civic-mason-mural-img" alt="" />
                 <div id="civic-mason-grid" class="civic-mason-grid-container">
                     <div class="text-center py-5 text-white-50">
-                        <div class="spinner-border" role="status"><span class="visually-hidden">Loading…</span></div>
+                        <div class="spinner-border" role="status"><span class="visually-hidden" data-cm-i18n="a11y.loading">Loading…</span></div>
                     </div>
                 </div>
             </div>
@@ -75,15 +94,15 @@ def civic_mason_page():
         <div class="modal-dialog modal-sm">
             <div class="modal-content bg-dark text-white border border-secondary">
                 <div class="modal-header border-0 pb-1">
-                    <h6 class="modal-title" id="configModalLabel"><i class="fas fa-paint-brush me-2 opacity-75"></i>Configure Brick</h6>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h6 class="modal-title" id="configModalLabel"><i class="fas fa-paint-brush me-2 opacity-75"></i><span data-cm-i18n="config.title">Configure Brick</span></h6>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" data-cm-i18n-aria="a11y.close"></button>
                 </div>
                 <div class="modal-body pt-1">
-                    <p class="small text-white-50 mb-2">Choose a color — double-click to select &amp; close.</p>
-                    <div class="d-flex flex-wrap gap-2 mb-3" id="config-palette" role="group" aria-label="Brick color"></div>
-                    <label for="config-msg" class="form-label small mb-1">Message <span class="opacity-50">(optional)</span></label>
-                    <textarea class="form-control form-control-sm bg-dark text-white border-secondary" id="config-msg" rows="2" maxlength="200" placeholder="Leave a message…"></textarea>
-                    <div class="text-end mt-1"><small class="opacity-50"><span id="config-msg-count">0</span>/200</small></div>
+                    <p class="small text-white-50 mb-2" data-cm-i18n="config.hint">Choose a color — double-click to select &amp; close.</p>
+                    <div class="d-flex flex-wrap gap-2 mb-3" id="config-palette" role="group" data-cm-i18n-aria="a11y.brickColors"></div>
+                    <label for="config-msg" class="form-label small mb-1"><span data-cm-i18n="config.message">Message</span> <span class="opacity-50" data-cm-i18n="config.optional">(optional)</span></label>
+                    <textarea class="form-control form-control-sm bg-dark text-white border-secondary" id="config-msg" rows="2" maxlength="200" data-cm-i18n-placeholder="config.placeholder"></textarea>
+                    <div class="text-end mt-1"><small class="opacity-50"><span id="config-msg-count">0</span>/<span data-cm-max-label>200</span></small></div>
                 </div>
             </div>
         </div>
@@ -94,27 +113,34 @@ def civic_mason_page():
         <div class="modal-dialog modal-sm">
             <div class="modal-content bg-dark text-white border border-secondary">
                 <div class="modal-header border-0 pb-1">
-                    <h6 class="modal-title" id="editModalLabel"><i class="fas fa-edit me-2 opacity-75"></i>Edit Brick</h6>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h6 class="modal-title" id="editModalLabel"><i class="fas fa-edit me-2 opacity-75"></i><span data-cm-i18n="edit.title">Edit Brick</span></h6>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" data-cm-i18n-aria="a11y.close"></button>
                 </div>
                 <div class="modal-body pt-1">
-                    <p class="small text-white-50 mb-2">Update color or message, then Accept — or cancel this placement.</p>
-                    <div class="d-flex flex-wrap gap-2 mb-3" id="edit-palette" role="group" aria-label="Brick color"></div>
-                    <label for="edit-msg" class="form-label small mb-1">Message <span class="opacity-50">(optional)</span></label>
+                    <p class="small text-white-50 mb-2" data-cm-i18n="edit.hint">Update color or message, then Accept — or cancel this placement.</p>
+                    <div class="d-flex flex-wrap gap-2 mb-3" id="edit-palette" role="group" data-cm-i18n-aria="a11y.brickColors"></div>
+                    <label for="edit-msg" class="form-label small mb-1"><span data-cm-i18n="config.message">Message</span> <span class="opacity-50" data-cm-i18n="config.optional">(optional)</span></label>
                     <textarea class="form-control form-control-sm bg-dark text-white border-secondary" id="edit-msg" rows="2" maxlength="200"></textarea>
-                    <div class="text-end mt-1"><small class="opacity-50"><span id="edit-msg-count">0</span>/200</small></div>
+                    <div class="text-end mt-1"><small class="opacity-50"><span id="edit-msg-count">0</span>/<span data-cm-max-label>200</span></small></div>
                 </div>
                 <div class="modal-footer border-0 pt-0 gap-2">
-                    <button type="button" class="btn btn-outline-danger btn-sm" id="edit-cancel-placement-btn">Cancel Placement</button>
-                    <button type="button" class="btn btn-primary btn-sm" id="edit-accept-btn">Accept</button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="edit-cancel-placement-btn" data-cm-i18n="edit.cancelPlacement">Cancel Placement</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="edit-accept-btn" data-cm-i18n="edit.accept">Accept</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-    (function () {
+    (async function () {
         'use strict';
+
+        await CMI18n.init(window.__CM_LOCALE__ || 'en', window.__CM_I18N_JSON_BASE__ || '/static/i18n/civic-mason/');
+        document.querySelectorAll('[data-cm-max-label]').forEach(function (el) {
+            el.textContent = CMI18n.formatNumber(200);
+        });
+        var muralImgEl = document.getElementById('civic-mason-mural-img');
+        if (muralImgEl) muralImgEl.setAttribute('alt', CMI18n.t('a11y.muralAlt'));
 
         /* ── Constants ────────────────────────────────────────────────────── */
         const GAP              = 3;
@@ -227,7 +253,11 @@ def civic_mason_page():
                     if (b) {
                         const color = getColor(b.year);
                         const msg   = esc((b.message || '').slice(0, 200));
-                        const name  = esc(b.user_display_name || 'Anonymous');
+                        const rawN  = (b.user_display_name || '').trim();
+                        let dispN   = rawN;
+                        if (!rawN || rawN === 'Anonymous') dispN = CMI18n.t('brick.anonymous');
+                        else if (rawN === 'Unknown') dispN = CMI18n.t('brick.unknown');
+                        const name  = esc(dispN);
                         const tip   = name + (msg ? ': ' + msg : '');
                         html += '<div class="cm-brick" style="left:' + lx + 'px;top:' + ty + 'px;'
                               + 'width:' + brickW + 'px;height:' + brickH + 'px;background-color:' + color + ';"'
@@ -438,19 +468,19 @@ def civic_mason_page():
                     if (el) {
                         // Scroll the new brick into view, then start the edit window
                         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        showToast('Brick placed! Click within 5 seconds to edit or cancel.', 'success');
+                        showToast(CMI18n.t('toast.placed'), 'success');
                         setTimeout(function () { startEditWindow(data.brick.id, el); }, 300);
                     } else {
                         // Fallback: just scroll to the grid
                         gridEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
-                        showToast('Brick placed at (' + gx + ', ' + gy + ')', 'success');
+                        showToast(CMI18n.t('toast.placedAt', { x: CMI18n.formatNumber(gx), y: CMI18n.formatNumber(gy) }), 'success');
                     }
                 } else {
-                    showToast(data.error || 'Failed to place brick', 'danger');
+                    showToast(CMI18n.apiErrorMessage(data || {}), 'danger');
                 }
             } catch (err) {
                 console.error(err);
-                showToast('Failed to place brick', 'danger');
+                showToast(CMI18n.t('toast.failedPlace'), 'danger');
             }
         }
 
@@ -509,13 +539,13 @@ def civic_mason_page():
             buildPalette(document.getElementById('config-palette'), selectedColorIdx, false);
             const msgEl = document.getElementById('config-msg');
             msgEl.value = brickMessage;
-            document.getElementById('config-msg-count').textContent = brickMessage.length;
+            document.getElementById('config-msg-count').textContent = CMI18n.formatNumber(brickMessage.length);
             bootstrap.Modal.getOrCreateInstance(document.getElementById('configBrickModal')).show();
         }
 
         document.getElementById('config-msg').addEventListener('input', function () {
             brickMessage = this.value.slice(0, 200);
-            document.getElementById('config-msg-count').textContent = brickMessage.length;
+            document.getElementById('config-msg-count').textContent = CMI18n.formatNumber(brickMessage.length);
         });
 
         /* ── Edit modal (post-placement) ─────────────────────────────────── */
@@ -525,7 +555,7 @@ def civic_mason_page():
             buildPalette(document.getElementById('edit-palette'), selectedColorIdx, false);
             const msgEl = document.getElementById('edit-msg');
             msgEl.value = brickMessage;
-            document.getElementById('edit-msg-count').textContent = brickMessage.length;
+            document.getElementById('edit-msg-count').textContent = CMI18n.formatNumber(brickMessage.length);
 
             const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('editBrickModal'));
             modal.show();
@@ -543,7 +573,7 @@ def civic_mason_page():
                     });
                     if (res.ok) {
                         await loadBricks(false);
-                        showToast('Brick updated', 'success');
+                        showToast(CMI18n.t('toast.updated'), 'success');
                     }
                 } catch (err) { console.error(err); }
             };
@@ -554,21 +584,21 @@ def civic_mason_page():
                     const res = await fetch('/api/civic-mason/bricks/' + brickId, { method: 'DELETE', credentials: 'same-origin' });
                     if (res.ok) {
                         await loadBricks(false);
-                        showToast('Brick removed', 'info');
+                        showToast(CMI18n.t('toast.removed'), 'info');
                     } else {
-                        const data = await res.json();
-                        console.error('DELETE failed:', data);
-                        showToast(data.error || 'Failed to remove brick', 'danger');
+                        var delData = {};
+                        try { delData = await res.json(); } catch (_) {}
+                        showToast(CMI18n.apiErrorMessage(delData), 'danger');
                     }
                 } catch (err) { 
                     console.error('DELETE error:', err);
-                    showToast('Error removing brick', 'danger');
+                    showToast(CMI18n.t('toast.removeError'), 'danger');
                 }
             };
         }
 
         document.getElementById('edit-msg').addEventListener('input', function () {
-            document.getElementById('edit-msg-count').textContent = (this.value || '').length;
+            document.getElementById('edit-msg-count').textContent = CMI18n.formatNumber((this.value || '').length);
         });
 
         ['configBrickModal', 'editBrickModal'].forEach(function (mid) {
@@ -592,7 +622,7 @@ def civic_mason_page():
                 btn.className = 'cm-swatch' + (i === activeIdx ? ' active' : '');
                 btn.style.background = c;
                 btn.dataset.idx = i;
-                btn.setAttribute('aria-label', 'Color ' + (i + 1));
+                btn.setAttribute('aria-label', CMI18n.t('palette.colorN', { n: CMI18n.formatNumber(i + 1) }));
 
                 btn.addEventListener('click', function () {
                     container.querySelectorAll('.cm-swatch').forEach(b => b.classList.remove('active'));
@@ -621,7 +651,7 @@ def civic_mason_page():
                 const res  = await fetch('/api/civic-mason/bricks/', { credentials: 'same-origin' });
                 const data = await res.json();
                 if (!res.ok) {
-                    gridEl.innerHTML = '<p class="text-white-50 text-center py-4">Unable to load bricks.</p>';
+                    gridEl.innerHTML = '<p class="text-white-50 text-center py-4">' + esc(CMI18n.t('grid.loadError')) + '</p>';
                     return;
                 }
                 bricks = data.bricks || [];
@@ -636,7 +666,7 @@ def civic_mason_page():
                 }
             } catch (err) {
                 console.error('loadBricks:', err);
-                gridEl.innerHTML = '<p class="text-white-50 text-center py-4">Unable to load bricks.</p>';
+                gridEl.innerHTML = '<p class="text-white-50 text-center py-4">' + esc(CMI18n.t('grid.loadError')) + '</p>';
             }
         }
 
@@ -646,6 +676,9 @@ def civic_mason_page():
                 const res  = await fetch('/api/civic-mason/eligible/', { credentials: 'same-origin' });
                 if (res.status === 401) {
                     if (devModeBar) devModeBar.classList.add('d-none');
+                    ineligibleTitle.textContent = CMI18n.t('ineligible.loginTitle');
+                    ineligibleBody.textContent = CMI18n.t('ineligible.loginBody');
+                    ineligibleBtn.classList.add('d-none');
                     ineligibleCard.classList.remove('d-none');
                     return;
                 }
@@ -677,12 +710,16 @@ def civic_mason_page():
                 ineligibleCard.classList.add('d-none');
                 if (!eligible) {
                     if (data.reason === 'already_placed_this_year') {
-                        ineligibleTitle.textContent = 'One brick per year';
-                        ineligibleBody.textContent = 'You already placed a brick this calendar year. You can place another next year.';
+                        var uy = new Date().getUTCFullYear();
+                        ineligibleTitle.textContent = CMI18n.t('ineligible.yearTitle');
+                        ineligibleBody.textContent = CMI18n.t('ineligible.yearBody', {
+                            year: CMI18n.formatYearUtc(uy),
+                            nextYear: CMI18n.formatYearUtc(uy + 1)
+                        });
                         ineligibleBtn.classList.add('d-none');
                     } else {
-                        ineligibleTitle.textContent = 'Earn the Civic Mason Badge';
-                        ineligibleBody.textContent = 'Place a permanent brick on this wall by earning a Civic Mason-eligible badge through civic participation.';
+                        ineligibleTitle.textContent = CMI18n.t('ineligible.badgeTitle');
+                        ineligibleBody.textContent = CMI18n.t('ineligible.badgeBody');
                         ineligibleBtn.classList.remove('d-none');
                     }
                     ineligibleCard.classList.remove('d-none');
@@ -928,6 +965,9 @@ def civic_mason_page():
     """
 
     content = content.replace('MURAL_URL_PLACEHOLDER', mural_url)
+    content = content.replace('CM_I18N_JS_PLACEHOLDER', cm_i18n_js)
+    content = content.replace('CM_LOCALE_PLACEHOLDER', locale)
+    content = content.replace('CM_I18N_JSON_BASE_PLACEHOLDER', cm_i18n_json_base)
     return render_page(
         title='Civic Mason',
         content=content,

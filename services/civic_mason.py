@@ -37,19 +37,27 @@ def user_brick_count_calendar_year(user_id):
     ).count()
 
 
+# Stable API / UI codes (client translates via i18n)
+ERR_BADGE_REQUIRED = 'BADGE_REQUIRED'
+ERR_ALREADY_PLACED_THIS_YEAR = 'ALREADY_PLACED_THIS_YEAR'
+ERR_POSITION_OCCUPIED = 'POSITION_OCCUPIED'
+ERR_NO_SUPPORT_BELOW = 'NO_SUPPORT_BELOW'
+ERR_ROW_FULL = 'ROW_FULL'
+
+
 def civic_mason_can_place_brick(user_id, session_dict, is_development):
     """
     Whether this user may place a brick right now.
-    Returns (allowed: bool, error_message_or_none).
+    Returns (allowed: bool, error_code_or_none) — codes are SCREAMING_SNAKE for client i18n.
     """
     if civic_mason_demo_mode_active(session_dict, is_development):
         return True, None
 
     if not user_has_civic_mason_eligibility(user_id, is_development=is_development):
-        return False, 'Earn a Civic Mason-eligible badge to place bricks'
+        return False, ERR_BADGE_REQUIRED
 
     if user_brick_count_calendar_year(user_id) >= 1:
-        return False, 'You can only place one brick per calendar year'
+        return False, ERR_ALREADY_PLACED_THIS_YEAR
 
     return True, None
 
@@ -59,13 +67,13 @@ def civic_mason_eligibility_payload(user_id, session_dict, is_development):
     JSON-friendly dict for GET /api/civic-mason/eligible/
     """
     demo = civic_mason_demo_mode_active(session_dict, is_development)
-    allowed, err = civic_mason_can_place_brick(user_id, session_dict, is_development)
+    allowed, code = civic_mason_can_place_brick(user_id, session_dict, is_development)
 
     reason = None
-    if not allowed and err:
-        if 'badge' in err.lower() or 'earn' in err.lower():
+    if not allowed and code:
+        if code == ERR_BADGE_REQUIRED:
             reason = 'badge_required'
-        elif 'year' in err.lower():
+        elif code == ERR_ALREADY_PLACED_THIS_YEAR:
             reason = 'already_placed_this_year'
         else:
             reason = 'not_eligible'
@@ -75,6 +83,7 @@ def civic_mason_eligibility_payload(user_id, session_dict, is_development):
         'demo_mode': demo,
         'dev_tools': bool(is_development),
         'reason': reason,
+        'reason_code': code,
     }
 
 
@@ -101,7 +110,7 @@ def is_valid_placement(grid_x, grid_y, existing_bricks):
     pos = (float(grid_x), float(grid_y))
 
     if pos in occupied:
-        return False, "Position already occupied"
+        return False, ERR_POSITION_OCCUPIED
 
     y = float(grid_y)
     x = float(grid_x)
@@ -110,12 +119,12 @@ def is_valid_placement(grid_x, grid_y, existing_bricks):
         left = (x - 0.5, y - 1)
         right = (x + 0.5, y - 1)
         if left not in occupied and right not in occupied:
-            return False, "Must rest on at least one brick below"
+            return False, ERR_NO_SUPPORT_BELOW
 
     # 50% rule: at most 12 bricks per row (base row has 24 slots; 50% = 12)
     row_bricks = [b for b in existing_bricks if abs(float(b.grid_y) - y) < 0.01]
     max_per_row = 12
     if len(row_bricks) >= max_per_row:
-        return False, "Row is full (max 12 bricks per row)"
+        return False, ERR_ROW_FULL
 
     return True, None
