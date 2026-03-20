@@ -1,4 +1,8 @@
 {
+  "lang": {
+    "en": "English",
+    "ar": "العربية"
+  },
   "page": {
     "breadcrumb": {
       "home": "الرئيسية",

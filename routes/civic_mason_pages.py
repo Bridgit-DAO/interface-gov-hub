@@ -48,9 +48,14 @@ def civic_mason_page():
                     <li class="breadcrumb-item active" data-cm-i18n="page.breadcrumb.active">Civic Mason</li>
                 </ol>
             </nav>
-            <div class="d-flex align-items-center gap-2 mt-1">
+            <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
                 <h1 class="mb-0 me-auto"><i class="fas fa-th-large me-2"></i><span data-cm-i18n="page.title">Civic Mason</span></h1>
                 <p class="mb-0 opacity-75 d-none d-md-block small" data-cm-i18n="page.tagline">Contributors with Civic Mason badges leave a brick on the wall.</p>
+                <div class="mb-0 small ms-md-auto" id="cm-lang-switch" aria-label="Language">
+                    <a href="?lang=en" class="link-light text-decoration-none opacity-75" data-cm-i18n="lang.en">English</a>
+                    <span class="opacity-50 mx-1">·</span>
+                    <a href="?lang=ar" class="link-light text-decoration-none opacity-75" data-cm-i18n="lang.ar">العربية</a>
+                </div>
             </div>
             <div id="cm-dev-mode-bar" class="d-none w-100 mt-2 py-2 px-3 rounded cm-dev-bar">
                 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
