@@ -970,6 +970,10 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             case 'contribution_type_set': text = (p.source === 'moderation' ? who + ' set contribution type (moderation): ' : who + ' set contribution type: ') + (p.knowledge_form || ''); tabId = 'artifacts'; break;
             case 'contribution_type_cleared': text = (p.source === 'moderation' ? who + ' cleared contribution type (moderation)' : who + ' cleared contribution type'); tabId = 'artifacts'; break;
             case 'contribution_type_filter_applied': text = who + ' filtered artifacts by contribution' + (p.knowledge_form ? ': ' + p.knowledge_form : ' (all)'); tabId = 'artifacts'; break;
+            case 'guild_layer_linked': text = who + ' linked guild' + (p.guild_name ? ' "' + p.guild_name + '"' : '') + ' to this layer'; break;
+            case 'guild_layer_unlinked': text = who + ' unlinked guild' + (p.guild_name ? ' "' + p.guild_name + '"' : '') + ' from this layer'; break;
+            case 'guild_artifact_linked': text = who + ' linked a guild to an artifact as ' + (p.link_type || 'link'); tabId = 'artifacts'; break;
+            case 'guild_artifact_unlinked': text = who + ' removed a guild ' + (p.link_type || '') + ' link from an artifact'; tabId = 'artifacts'; break;
             case 'brick_placed': text = who + ' placed a brick on Civic Mason'; break;
             default: text = ev.event_type.replace(/_/g, ' ');
         }}

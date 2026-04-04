@@ -201,3 +201,16 @@ Keep them separate. **One** contribution type max. Scaffold never blocks publish
 | Layer artifact header | `routes/layers_pages.py` — second badge when `knowledge_form` is set |
 
 Env: `GOVHUB_KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED`, `GOVHUB_KNOWLEDGE_SCAFFOLD_ENABLED`, `GOVHUB_KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED`.
+
+### Unified Phase I — guild (separate from artifact ↔ artifact)
+
+| Area | Location |
+|------|-----------|
+| Models | `GuildLayerLink`, `GuildArtifactLink`, `GuildMembership.membership_state` in `models/coordination.py` |
+| Permissions | `services/guild_phase1.py` — layer admin **or** guild officer + active layer member for layer links; guild officer + (layer admin **or** layer member) for artifact links |
+| Layer API | `GET/POST /api/layers/<id>/guilds/`, `DELETE .../guilds/<guild_id>/` in `routes/layers.py` |
+| Guild API | `GET/POST /api/guilds/<id>/layers/`, `DELETE .../layers/<layer_id>/`, `GET/POST /api/guilds/<id>/artifact-links/`, `DELETE .../artifact-links/<artifact_id>/?link_type=` in `routes/guilds.py` |
+| Artifact read | `GET /api/artifacts/<id>/guild-links/` in `routes/artifacts.py` |
+| Migration | `migrate_guild_unified_phase1` in `migrations/__init__.py` (wired in `database/init_db`) |
+| Events | `guild_layer_linked`, `guild_layer_unlinked`, `guild_artifact_linked`, `guild_artifact_unlinked` |
+| Link types | `sponsor`, `co_author`, `review` (`GUILD_ARTIFACT_LINK_TYPES`) |

@@ -5,7 +5,15 @@ from flask import Blueprint, current_app, jsonify, request
 
 from extensions import db
 from models import (
-    Layer, LayerMember, Artifact, ArtifactRelation, Submission, Quest, QuestSubmission, Monument,
+    Layer,
+    LayerMember,
+    Artifact,
+    ArtifactRelation,
+    Submission,
+    Quest,
+    QuestSubmission,
+    Monument,
+    GuildArtifactLink,
 )
 from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin, is_site_moderation_staff
@@ -417,6 +425,30 @@ def get_artifact(artifact_id):
     """Get artifact for modal."""
     art = Artifact.query.get_or_404(artifact_id)
     return jsonify(art.to_dict())
+
+
+@bp.route('/artifacts/<artifact_id>/guild-links/', methods=['GET'])
+def list_artifact_guild_links(artifact_id):
+    """Guild sponsorship / co-author / review links for this artifact (Unified Phase I)."""
+    art = Artifact.query.get(artifact_id)
+    if not art:
+        art = Artifact.query.filter_by(public_id=artifact_id).first()
+    if not art:
+        return jsonify({'error': 'Artifact not found'}), 404
+    rows = GuildArtifactLink.query.filter_by(artifact_id=art.id).all()
+    out = []
+    for row in rows:
+        d = row.to_dict()
+        g = row.guild
+        if g:
+            d['guild'] = {
+                'id': g.id,
+                'name': g.name,
+                'slug': g.slug,
+                'image_url': g.image_url,
+            }
+        out.append(d)
+    return jsonify({'links': out, 'count': len(out)}), 200
 
 
 @bp.route('/artifacts/<artifact_id>/', methods=['PATCH'])

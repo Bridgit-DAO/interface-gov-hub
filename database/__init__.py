@@ -17,6 +17,7 @@ def init_db(app):
             migrate_vote_artifact_id,
             migrate_artifact_spec_fields,
             migrate_knowledge_layer_integration,
+            migrate_guild_unified_phase1,
             migrate_submission_draft_name_backfill,
             migrate_user_profile_columns,
             migrate_public_id,
@@ -37,6 +38,7 @@ def init_db(app):
         migrate_vote_artifact_id(app)
         migrate_artifact_spec_fields(app)
         migrate_knowledge_layer_integration(app)
+        migrate_guild_unified_phase1(app)
         migrate_submission_draft_name_backfill(app)
         migrate_user_profile_columns(app)
         migrate_public_id(app)

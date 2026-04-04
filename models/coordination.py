@@ -591,6 +591,8 @@ class GuildMembership(db.Model):
     
     # Role: initiator, admin, member
     role = db.Column(db.String(20), default='member', nullable=False)
+    # Unified Phase I: active | inactive (stepped back; history retained)
+    membership_state = db.Column(db.String(20), default='active', nullable=False)
     
     # Timestamps
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -638,6 +640,66 @@ class GuildInvitation(db.Model):
         db.Index('idx_guild_invitation_status', 'status'),
         db.Index('idx_guild_invitation_token', 'token'),
     )
+
+
+class GuildLayerLink(db.Model):
+    """Guild ↔ layer affiliation (Unified Phase I). Does not grant layer governance to guild roles."""
+    __tablename__ = 'guild_layer_link'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    guild_id = db.Column(db.String(36), db.ForeignKey('guild.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    created_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    guild = db.relationship('Guild', backref=db.backref('layer_links', lazy='dynamic'))
+    layer = db.relationship('Layer', backref=db.backref('guild_links', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('guild_id', 'layer_id', name='uq_guild_layer_link'),
+        db.Index('idx_guild_layer_link_layer', 'layer_id'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'guild_id': self.guild_id,
+            'layer_id': self.layer_id,
+            'created_by_user_id': self.created_by_user_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class GuildArtifactLink(db.Model):
+    """Guild ↔ artifact authorship/sponsorship/review (separate family from artifact ↔ artifact)."""
+    __tablename__ = 'guild_artifact_link'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    guild_id = db.Column(db.String(36), db.ForeignKey('guild.id'), nullable=False, index=True)
+    artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=False, index=True)
+    link_type = db.Column(db.String(30), nullable=False)  # sponsor | co_author | review
+    created_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    guild = db.relationship('Guild', backref=db.backref('artifact_links', lazy='dynamic'))
+    artifact = db.relationship(
+        'Artifact', backref=db.backref('guild_links', lazy='dynamic')
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('guild_id', 'artifact_id', 'link_type', name='uq_guild_artifact_link'),
+        db.Index('idx_guild_artifact_link_artifact', 'artifact_id'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'guild_id': self.guild_id,
+            'artifact_id': self.artifact_id,
+            'link_type': self.link_type,
+            'created_by_user_id': self.created_by_user_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 # ============================================================================

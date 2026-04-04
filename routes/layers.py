@@ -11,6 +11,7 @@ from models import (
     Layer, LayerMember, LayerAdmin, Workgroup, User, EventLog, StatusChange,
     Waitlist, WaitlistEntry, WaitlistEmailSignup, WorkingGroupMember,
     Claim, EmailUnsubscribe, Submission, Role, Quest, Artifact, ArtifactRelation,
+    Guild, GuildLayerLink,
 )
 from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin
@@ -642,6 +643,123 @@ def record_contribution_type_filter(layer_id):
         subject_id=str(project.id),
         layer_id=project.id,
         payload={'knowledge_form': kf, 'context': 'layer_artifacts_tab'},
+    )
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+
+def _resolve_layer_for_guild(layer_id):
+    project = Layer.query.get(layer_id)
+    if not project:
+        project = Layer.query.filter_by(slug=layer_id).first()
+    return project
+
+
+@bp.route('/<layer_id>/guilds/', methods=['GET'])
+def list_layer_guild_links(layer_id):
+    """Guilds linked to this layer (Unified Phase I)."""
+    project = _resolve_layer_for_guild(layer_id)
+    if not project:
+        abort(404)
+    links = GuildLayerLink.query.filter_by(layer_id=project.id).all()
+    out = []
+    for ln in links:
+        g = ln.guild
+        d = ln.to_dict()
+        if g:
+            d['guild'] = {
+                'id': g.id,
+                'name': g.name,
+                'slug': g.slug,
+                'image_url': g.image_url,
+            }
+        out.append(d)
+    return jsonify({'links': out, 'count': len(out)}), 200
+
+
+@bp.route('/<layer_id>/guilds/', methods=['POST'])
+@require_auth
+def attach_guild_to_layer(layer_id):
+    """Link a guild to a layer (layer admin or guild officer + layer member)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    project = _resolve_layer_for_guild(layer_id)
+    if not project:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    gid = data.get('guild_id')
+    if not gid:
+        return jsonify({'error': 'guild_id required'}), 400
+    guild = Guild.query.get(gid)
+    if not guild:
+        return jsonify({'error': 'Guild not found'}), 404
+    from services.guild_phase1 import can_manage_guild_layer_link
+
+    if not can_manage_guild_layer_link(user, guild, project):
+        return jsonify({'error': 'Forbidden'}), 403
+    if GuildLayerLink.query.filter_by(guild_id=guild.id, layer_id=project.id).first():
+        return jsonify({'error': 'Link already exists'}), 400
+    from uuid import uuid4
+
+    link = GuildLayerLink(
+        id=str(uuid4()),
+        guild_id=guild.id,
+        layer_id=project.id,
+        created_by_user_id=user['id'],
+    )
+    db.session.add(link)
+    emit_event(
+        'guild_layer_linked',
+        actor_type='user',
+        actor_id=user['id'],
+        subject_type='guild_layer_link',
+        subject_id=link.id,
+        layer_id=project.id,
+        payload={
+            'guild_id': guild.id,
+            'guild_name': guild.name,
+            'layer_id': project.id,
+            'layer_slug': project.slug,
+        },
+    )
+    db.session.commit()
+    return jsonify({'success': True, 'link': link.to_dict()}), 201
+
+
+@bp.route('/<layer_id>/guilds/<guild_id>/', methods=['DELETE'])
+@require_auth
+def detach_guild_from_layer(layer_id, guild_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    project = _resolve_layer_for_guild(layer_id)
+    if not project:
+        abort(404)
+    guild = Guild.query.get(guild_id)
+    if not guild:
+        return jsonify({'error': 'Guild not found'}), 404
+    from services.guild_phase1 import can_manage_guild_layer_link
+
+    if not can_manage_guild_layer_link(user, guild, project):
+        return jsonify({'error': 'Forbidden'}), 403
+    link = GuildLayerLink.query.filter_by(guild_id=guild.id, layer_id=project.id).first()
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
+    lid = link.id
+    db.session.delete(link)
+    emit_event(
+        'guild_layer_unlinked',
+        actor_type='user',
+        actor_id=user['id'],
+        subject_type='guild_layer_link',
+        subject_id=lid,
+        layer_id=project.id,
+        payload={
+            'guild_id': guild.id,
+            'guild_name': guild.name,
+            'layer_id': project.id,
+        },
     )
     db.session.commit()
     return jsonify({'success': True}), 200

@@ -3,8 +3,25 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 
+from uuid import uuid4
+
 from extensions import db
-from models import Guild, GuildMembership, GuildInvitation, User
+from models import (
+    Artifact,
+    Guild,
+    GuildArtifactLink,
+    GuildInvitation,
+    GuildLayerLink,
+    GuildMembership,
+    Layer,
+    User,
+)
+from services.events import emit_event
+from services.guild_phase1 import (
+    GUILD_ARTIFACT_LINK_TYPES,
+    can_manage_guild_artifact_link,
+    can_manage_guild_layer_link,
+)
 from services.identity import get_current_user, require_auth
 from services.avatar import get_avatar_url
 from services.utils import create_slug, generate_guild_id, generate_invitation_token
@@ -26,6 +43,7 @@ def _guild_detail(guild_id):
                 'name': m.user.displayName or m.user.username,
                 'profile_image': get_avatar_url(m.user, 32),
                 'role': m.role,
+                'membership_state': getattr(m, 'membership_state', 'active'),
                 'joined_at': m.joined_at.isoformat() if m.joined_at else None
             })
     guild_dict = guild.to_dict()
@@ -197,3 +215,210 @@ def invite_to_guild(guild_id):
         'invitation_link': invitation_link,
         'expires_at': invitation.expires_at.isoformat()
     }), 201
+
+
+def _resolve_layer(layer_id):
+    p = Layer.query.get(layer_id)
+    if not p:
+        p = Layer.query.filter_by(slug=layer_id).first()
+    return p
+
+
+@bp.route('/<guild_id>/layers/', methods=['GET'])
+def list_guild_layer_links(guild_id):
+    """Layers linked to this guild."""
+    guild = Guild.query.get_or_404(guild_id)
+    links = GuildLayerLink.query.filter_by(guild_id=guild.id).all()
+    out = []
+    for ln in links:
+        layer = ln.layer
+        d = ln.to_dict()
+        if layer:
+            d['layer'] = {
+                'id': layer.id,
+                'name': layer.name,
+                'slug': layer.slug,
+            }
+        out.append(d)
+    return jsonify({'links': out, 'count': len(out)}), 200
+
+
+@bp.route('/<guild_id>/layers/', methods=['POST'])
+@require_auth
+def guild_attach_layer(guild_id):
+    """Link guild to layer (same rules as POST /api/layers/.../guilds/)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    guild = Guild.query.get_or_404(guild_id)
+    data = request.get_json(silent=True) or {}
+    lid = data.get('layer_id')
+    if not lid:
+        return jsonify({'error': 'layer_id required'}), 400
+    project = _resolve_layer(lid)
+    if not project:
+        return jsonify({'error': 'Layer not found'}), 404
+    if not can_manage_guild_layer_link(user, guild, project):
+        return jsonify({'error': 'Forbidden'}), 403
+    if GuildLayerLink.query.filter_by(guild_id=guild.id, layer_id=project.id).first():
+        return jsonify({'error': 'Link already exists'}), 400
+    link = GuildLayerLink(
+        id=str(uuid4()),
+        guild_id=guild.id,
+        layer_id=project.id,
+        created_by_user_id=user['id'],
+    )
+    db.session.add(link)
+    emit_event(
+        'guild_layer_linked',
+        actor_type='user',
+        actor_id=user['id'],
+        subject_type='guild_layer_link',
+        subject_id=link.id,
+        layer_id=project.id,
+        payload={
+            'guild_id': guild.id,
+            'guild_name': guild.name,
+            'layer_id': project.id,
+            'layer_slug': project.slug,
+        },
+    )
+    db.session.commit()
+    return jsonify({'success': True, 'link': link.to_dict()}), 201
+
+
+@bp.route('/<guild_id>/layers/<layer_id>/', methods=['DELETE'])
+@require_auth
+def guild_detach_layer(guild_id, layer_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    guild = Guild.query.get_or_404(guild_id)
+    project = _resolve_layer(layer_id)
+    if not project:
+        return jsonify({'error': 'Layer not found'}), 404
+    if not can_manage_guild_layer_link(user, guild, project):
+        return jsonify({'error': 'Forbidden'}), 403
+    link = GuildLayerLink.query.filter_by(guild_id=guild.id, layer_id=project.id).first()
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
+    lid = link.id
+    db.session.delete(link)
+    emit_event(
+        'guild_layer_unlinked',
+        actor_type='user',
+        actor_id=user['id'],
+        subject_type='guild_layer_link',
+        subject_id=lid,
+        layer_id=project.id,
+        payload={'guild_id': guild.id, 'guild_name': guild.name, 'layer_id': project.id},
+    )
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+
+@bp.route('/<guild_id>/artifact-links/', methods=['GET'])
+def list_guild_artifact_links(guild_id):
+    guild = Guild.query.get_or_404(guild_id)
+    rows = GuildArtifactLink.query.filter_by(guild_id=guild.id).all()
+    out = []
+    for row in rows:
+        d = row.to_dict()
+        art = row.artifact
+        if art:
+            d['artifact'] = {
+                'id': art.id,
+                'public_ref': art.public_ref,
+                'title': art.title,
+                'layer_id': art.layer_id,
+            }
+        out.append(d)
+    return jsonify({'links': out, 'count': len(out)}), 200
+
+
+@bp.route('/<guild_id>/artifact-links/', methods=['POST'])
+@require_auth
+def guild_add_artifact_link(guild_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    guild = Guild.query.get_or_404(guild_id)
+    data = request.get_json(silent=True) or {}
+    aid = data.get('artifact_id')
+    link_type = (data.get('link_type') or '').strip().lower()
+    if not aid or not link_type:
+        return jsonify({'error': 'artifact_id and link_type required'}), 400
+    if link_type not in GUILD_ARTIFACT_LINK_TYPES:
+        return jsonify({'error': 'Invalid link_type', 'allowed': sorted(GUILD_ARTIFACT_LINK_TYPES)}), 400
+    art = Artifact.query.get(aid)
+    if not art:
+        return jsonify({'error': 'Artifact not found'}), 404
+    if not can_manage_guild_artifact_link(user, guild, art):
+        return jsonify({'error': 'Forbidden'}), 403
+    if GuildArtifactLink.query.filter_by(
+        guild_id=guild.id, artifact_id=art.id, link_type=link_type
+    ).first():
+        return jsonify({'error': 'Link already exists'}), 400
+    row = GuildArtifactLink(
+        id=str(uuid4()),
+        guild_id=guild.id,
+        artifact_id=art.id,
+        link_type=link_type,
+        created_by_user_id=user['id'],
+    )
+    db.session.add(row)
+    emit_event(
+        'guild_artifact_linked',
+        actor_type='user',
+        actor_id=user['id'],
+        subject_type='guild_artifact_link',
+        subject_id=row.id,
+        layer_id=art.layer_id,
+        payload={
+            'guild_id': guild.id,
+            'guild_name': guild.name,
+            'artifact_id': art.id,
+            'link_type': link_type,
+        },
+    )
+    db.session.commit()
+    return jsonify({'success': True, 'link': row.to_dict()}), 201
+
+
+@bp.route('/<guild_id>/artifact-links/<artifact_id>/', methods=['DELETE'])
+@require_auth
+def guild_remove_artifact_link(guild_id, artifact_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    guild = Guild.query.get_or_404(guild_id)
+    art = Artifact.query.get(artifact_id)
+    if not art:
+        return jsonify({'error': 'Artifact not found'}), 404
+    if not can_manage_guild_artifact_link(user, guild, art):
+        return jsonify({'error': 'Forbidden'}), 403
+    link_type = (request.args.get('link_type') or '').strip().lower()
+    if not link_type or link_type not in GUILD_ARTIFACT_LINK_TYPES:
+        return jsonify({'error': 'link_type query param required', 'allowed': sorted(GUILD_ARTIFACT_LINK_TYPES)}), 400
+    row = GuildArtifactLink.query.filter_by(
+        guild_id=guild.id, artifact_id=art.id, link_type=link_type
+    ).first()
+    if not row:
+        return jsonify({'error': 'Link not found'}), 404
+    rid = row.id
+    db.session.delete(row)
+    emit_event(
+        'guild_artifact_unlinked',
+        actor_type='user',
+        actor_id=user['id'],
+        subject_type='guild_artifact_link',
+        subject_id=rid,
+        layer_id=art.layer_id,
+        payload={
+            'guild_id': guild.id,
+            'artifact_id': art.id,
+            'link_type': link_type,
+        },
+    )
+    db.session.commit()
+    return jsonify({'success': True}), 200

@@ -825,6 +825,74 @@ def migrate_knowledge_layer_integration(app):
         print(f"⚠️  Error in migrate_knowledge_layer_integration: {e}")
 
 
+def migrate_guild_unified_phase1(app):
+    """Unified Phase I: guild_layer_link, guild_artifact_link, guild_membership.membership_state."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("PRAGMA table_info(guild_membership)")
+        gm_cols = [c[1] for c in cursor.fetchall()]
+        if gm_cols and 'membership_state' not in gm_cols:
+            cursor.execute(
+                "ALTER TABLE guild_membership ADD COLUMN membership_state VARCHAR(20) DEFAULT 'active'"
+            )
+            conn.commit()
+            print("✅ Added guild_membership.membership_state")
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='guild_layer_link'"
+        )
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE guild_layer_link (
+                    id VARCHAR(36) PRIMARY KEY,
+                    guild_id VARCHAR(36) NOT NULL REFERENCES guild(id),
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    created_by_user_id VARCHAR(36) REFERENCES user(id),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, layer_id)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guild_layer_link_guild ON guild_layer_link(guild_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guild_layer_link_layer ON guild_layer_link(layer_id)"
+            )
+            conn.commit()
+            print("✅ Created guild_layer_link table")
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='guild_artifact_link'"
+        )
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE guild_artifact_link (
+                    id VARCHAR(36) PRIMARY KEY,
+                    guild_id VARCHAR(36) NOT NULL REFERENCES guild(id),
+                    artifact_id VARCHAR(36) NOT NULL REFERENCES artifact(id),
+                    link_type VARCHAR(30) NOT NULL,
+                    created_by_user_id VARCHAR(36) REFERENCES user(id),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, artifact_id, link_type)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guild_artifact_link_guild ON guild_artifact_link(guild_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guild_artifact_link_artifact ON guild_artifact_link(artifact_id)"
+            )
+            conn.commit()
+            print("✅ Created guild_artifact_link table")
+
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_guild_unified_phase1: {e}")
+
+
 def migrate_hardcoded_users(app):
     """Migrate hardcoded users to database"""
     hardcoded_users = {
