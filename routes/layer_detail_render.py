@@ -814,6 +814,16 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
+    function reportContributionFilterApplied(kf) {{
+        if (!project || !project.id) return;
+        fetch('/api/layers/' + project.id + '/contribution-type-filter/', {{
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ knowledge_form: kf || null }})
+        }}).catch(function() {{}});
+    }}
+    
     function ensureArtifactFilterBar() {{
         const container = document.getElementById('artifacts-tab-container');
         if (!container || container.dataset.klFilterBar) return;
@@ -833,6 +843,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 wrap.querySelectorAll('.artifact-kf-btn').forEach(function(b) {{ b.classList.remove('active'); }});
                 btn.classList.add('active');
                 artifactKnowledgeFilter = btn.getAttribute('data-kf') || '';
+                reportContributionFilterApplied(artifactKnowledgeFilter);
                 loadArtifacts();
             }});
         }});
@@ -927,7 +938,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
     
     function formatActivityEvent(ev) {{
-        const who = ev.actor_display_name || (ev.actor_type === 'user' ? 'A member' : 'System');
+        const who = ev.actor_display_name || (ev.actor_type === 'user' ? 'A member' : ev.actor_type === 'anonymous' ? 'Someone' : 'System');
         const p = ev.payload || {{}};
         const timeAgo = (d) => {{
             const s = Math.floor((Date.now() - new Date(d)) / 1000);
@@ -958,6 +969,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             case 'artifact_linked': text = who + ' linked artifacts' + (p.relation_type ? ' (' + p.relation_type + ')' : ''); tabId = 'artifacts'; break;
             case 'contribution_type_set': text = (p.source === 'moderation' ? who + ' set contribution type (moderation): ' : who + ' set contribution type: ') + (p.knowledge_form || ''); tabId = 'artifacts'; break;
             case 'contribution_type_cleared': text = (p.source === 'moderation' ? who + ' cleared contribution type (moderation)' : who + ' cleared contribution type'); tabId = 'artifacts'; break;
+            case 'contribution_type_filter_applied': text = who + ' filtered artifacts by contribution' + (p.knowledge_form ? ': ' + p.knowledge_form : ' (all)'); tabId = 'artifacts'; break;
             case 'brick_placed': text = who + ' placed a brick on Civic Mason'; break;
             default: text = ev.event_type.replace(/_/g, ' ');
         }}

@@ -34,9 +34,9 @@ class Bridge(db.Model):
     target_selector = db.Column(db.String(500), nullable=True)
     target_video_timestamp = db.Column(db.Integer, nullable=True)
 
-    # Relationship
+    # Relationship (claim-centric: how target relates to source claim)
     relationship = db.Column(db.String(50), nullable=False, index=True)
-    # cites, contradicts, supports, extends, timeline, related (extensible)
+    # cites | contradicted_by | supported_by | related_to
     explanation = db.Column(db.Text, nullable=True)
 
     created_by = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)

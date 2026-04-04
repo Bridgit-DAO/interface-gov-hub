@@ -3,12 +3,16 @@ import { Web3Auth } from "@web3auth/modal";
 let web3auth: Web3Auth | null = null;
 
 export async function initWeb3Auth() {
-  if (web3auth) return web3auth;
-
-  web3auth = new Web3Auth({
-    clientId: process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID!, // Canopi's Client ID
-    web3AuthNetwork: "sapphire_mainnet",
-  });
+  // Do NOT cache the web3auth instance across logins — a fresh instance with
+  // storageType:'session' ensures init() always finds no cached session and
+  // connect() always shows the provider selection modal.
+  if (!web3auth) {
+    web3auth = new Web3Auth({
+      clientId: process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID!, // Canopi's Client ID
+      web3AuthNetwork: "sapphire_mainnet",
+      storageType: "session", // session-scoped: no auto-reconnect between page loads
+    });
+  }
 
   await web3auth.init();
   return web3auth;
@@ -72,8 +76,10 @@ export async function login() {
 }
 
 export async function logout() {
-  const web3auth = await initWeb3Auth();
-  await web3auth.logout();
+  if (web3auth) {
+    await web3auth.logout({ cleanup: true });
+    web3auth = null; // discard cached instance so next login() gets a fresh one
+  }
 
   // Clear RFC session
   await fetch('/api/auth/logout', { method: 'POST' });

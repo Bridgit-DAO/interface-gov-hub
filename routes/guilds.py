@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from extensions import db
 from models import Guild, GuildMembership, GuildInvitation, User
 from services.identity import get_current_user, require_auth
+from services.avatar import get_avatar_url
 from services.utils import create_slug, generate_guild_id, generate_invitation_token
 
 bp = Blueprint('guilds', __name__, url_prefix='/api/guilds')
@@ -23,7 +24,7 @@ def _guild_detail(guild_id):
                 'username': m.user.username,
                 'display_name': m.user.displayName or m.user.username,
                 'name': m.user.displayName or m.user.username,
-                'profile_image': m.user.profileImage,
+                'profile_image': get_avatar_url(m.user, 32),
                 'role': m.role,
                 'joined_at': m.joined_at.isoformat() if m.joined_at else None
             })

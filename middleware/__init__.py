@@ -33,6 +33,11 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
         reserved_subdomains = {"www", "dev", "api", "docs", "rfc", "app", "admin", "status", "static", "assets", "staging", "beta"}
 
     @app.before_request
+    def _resolve_site_locale():
+        from services.locale import resolve_request_locale
+        resolve_request_locale()
+
+    @app.before_request
     def set_script_name_from_proxy():
         """When served under /dev/ (layer subdomain path), set SCRIPT_NAME so url_for generates correct links."""
         prefix = request.headers.get('X-Forwarded-Prefix', '').rstrip('/')

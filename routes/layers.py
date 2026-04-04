@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, abort, current_app
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, not_
 
 from extensions import db
 from models import (
@@ -18,8 +18,12 @@ from services.events import emit_event
 from services.utils import create_slug
 from services.ordinals import fetch_meta_domain_from_inscription
 from services.email import make_unsubscribe_token
+from services.knowledge_layer import KNOWLEDGE_FORM_VALUES
 
 bp = Blueprint('layers', __name__, url_prefix='/api/layers')
+
+# Omit from default layer activity API (analytics / high-volume); include via ?event_type=...
+ACTIVITY_FEED_EXCLUDED_EVENT_TYPES = frozenset({'contribution_type_filter_applied'})
 
 
 def _resolve_project_email_recipients(layer_id, groups):
@@ -579,6 +583,8 @@ def layer_activity(layer_id):
     query = EventLog.query.filter_by(layer_id=resolved_id)
     if event_types:
         query = query.filter(EventLog.event_type.in_(event_types))
+    else:
+        query = query.filter(not_(EventLog.event_type.in_(ACTIVITY_FEED_EXCLUDED_EVENT_TYPES)))
     events = query.order_by(EventLog.created_at.desc()).offset(offset).limit(limit).all()
     actor_ids = {e.actor_id for e in events if e.actor_type == 'user' and e.actor_id}
     users = {}
@@ -605,6 +611,40 @@ def layer_activity(layer_id):
         'events': event_list,
         'count': len(events)
     }), 200
+
+
+@bp.route('/<layer_id>/contribution-type-filter/', methods=['POST'])
+def record_contribution_type_filter(layer_id):
+    """Log contribution-type facet use on layer artifact list (analytics)."""
+    if not current_app.config.get('KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED', True):
+        return jsonify({'success': True, 'ignored': True}), 200
+    project = Layer.query.get(layer_id)
+    if not project:
+        project = Layer.query.filter_by(slug=layer_id).first()
+    if not project:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    kf = data.get('knowledge_form')
+    if kf is not None and kf != '':
+        kf = str(kf).strip().lower()
+        if kf not in KNOWLEDGE_FORM_VALUES:
+            return jsonify({'error': 'Invalid knowledge_form'}), 400
+    else:
+        kf = None
+    user = get_current_user()
+    actor_type = 'user' if user else 'anonymous'
+    actor_id = user['id'] if user else None
+    emit_event(
+        'contribution_type_filter_applied',
+        actor_type=actor_type,
+        actor_id=actor_id,
+        subject_type='layer',
+        subject_id=str(project.id),
+        layer_id=project.id,
+        payload={'knowledge_form': kf, 'context': 'layer_artifacts_tab'},
+    )
+    db.session.commit()
+    return jsonify({'success': True}), 200
 
 
 @bp.route('/<layer_id>/members/', methods=['GET'])

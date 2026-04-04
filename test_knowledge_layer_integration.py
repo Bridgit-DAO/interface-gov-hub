@@ -80,6 +80,42 @@ def test_apply_knowledge_patch_clears_scaffold_when_form_cleared():
         db.session.commit()
 
 
+def test_contribution_type_filter_analytics():
+    from app import app
+    from models import Layer
+
+    with app.app_context():
+        layer = Layer.query.first()
+        if not layer:
+            print('⚠️  No layer — skip filter analytics test')
+            return
+
+    with app.test_client() as c:
+        r = c.post(
+            f'/api/layers/{layer.id}/contribution-type-filter/',
+            json={'knowledge_form': 'model'},
+        )
+        assert r.status_code == 200, r.get_data(as_text=True)
+        bad = c.post(
+            f'/api/layers/{layer.id}/contribution-type-filter/',
+            json={'knowledge_form': 'not_a_form'},
+        )
+        assert bad.status_code == 400
+
+    with app.test_client() as c:
+        r = c.get(f'/api/layers/{layer.id}/activity/?limit=50')
+        assert r.status_code == 200
+        evs = r.get_json()['events']
+        assert not any(e['event_type'] == 'contribution_type_filter_applied' for e in evs)
+
+        r2 = c.get(
+            f'/api/layers/{layer.id}/activity/?event_type=contribution_type_filter_applied&limit=5'
+        )
+        assert r2.status_code == 200
+        evs2 = r2.get_json()['events']
+        assert any(e['event_type'] == 'contribution_type_filter_applied' for e in evs2)
+
+
 if __name__ == '__main__':
     test_knowledge_schema_endpoint()
     print('✅ test_knowledge_schema_endpoint')
@@ -87,3 +123,5 @@ if __name__ == '__main__':
     print('✅ test_validate_knowledge_for_create')
     test_apply_knowledge_patch_clears_scaffold_when_form_cleared()
     print('✅ test_apply_knowledge_patch_clears_scaffold_when_form_cleared')
+    test_contribution_type_filter_analytics()
+    print('✅ test_contribution_type_filter_analytics')

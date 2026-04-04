@@ -6,9 +6,10 @@ from flask import Blueprint, redirect, request, session
 from sqlalchemy import text
 
 from extensions import db
-from models import User, Workgroup, Submission, Comment, LayerMember
+from models import User, Workgroup, Submission, Comment, LayerMember, UserLinkedAccount
 
 from services.identity import get_current_user, require_auth, get_or_create_referral_code
+from services.avatar import get_avatar_url
 
 bp = Blueprint('profile_pages', __name__, url_prefix='')
 
@@ -118,6 +119,12 @@ def user_profile(username):
             social_links = json.loads(profile_user.social_links)
         except Exception:
             social_links = []
+    linked_accounts = UserLinkedAccount.query.filter_by(user_id=profile_user.id).all()
+    _provider_icons = {'twitter': 'x-twitter'}
+    for acc in linked_accounts:
+        if acc.profile_url:
+            icon = _provider_icons.get(acc.provider, acc.provider)
+            social_links.append({'url': acc.profile_url, 'platform': acc.provider.title(), 'icon': icon})
 
     projects_count = db.session.execute(text("""
         SELECT COUNT(*) FROM layer WHERE initiator_id = :user_id
@@ -265,7 +272,7 @@ def user_profile(username):
             <div class="row">
                 <div class="col-md-8">
                     <img
-                        src="{profile_user.profileImage or '/static/images/default-avatar.png'}"
+                        src="{get_avatar_url(profile_user, 200)}"
                         alt="{profile_user.displayName or profile_user.username}"
                         class="profile-avatar"
                         onerror="this.src='/static/images/default-avatar.png'"
@@ -521,10 +528,41 @@ def profile_edit():
         except Exception:
             social_links = []
 
+    linked_accounts = {acc.provider: acc for acc in UserLinkedAccount.query.filter_by(user_id=user.id).all()}
+    oauth_providers = [
+        ('google', 'google', 'Google'),
+        ('github', 'github', 'GitHub'),
+        ('twitter', 'x-twitter', 'X (Twitter)'),
+        ('discord', 'discord', 'Discord'),
+    ]
+    connected_html = ''
+    for provider, icon, label in oauth_providers:
+        acc = linked_accounts.get(provider)
+        if acc:
+            connected_html += f'''
+            <div class="d-flex align-items-center justify-content-between p-2 rounded mb-2" style="background: var(--bs-secondary-bg);">
+                <div class="d-flex align-items-center">
+                    <i class="fab fa-{icon} fa-2x me-3" style="width:32px;text-align:center;"></i>
+                    <div>
+                        <strong>{label}</strong>
+                        <br><small class="text-muted">{acc.display_name or acc.provider_user_id}</small>
+                    </div>
+                </div>
+                <form method="POST" action="/profile/connect/{provider}/disconnect/" class="d-inline" onsubmit="return confirm('Disconnect {label}?');">
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Disconnect</button>
+                </form>
+            </div>'''
+        else:
+            connected_html += f'''
+            <div class="d-flex align-items-center justify-content-between p-2 rounded mb-2" style="background: var(--bs-secondary-bg);">
+                <div class="d-flex align-items-center">
+                    <i class="fab fa-{icon} fa-2x me-3" style="width:32px;text-align:center;"></i>
+                    <strong>{label}</strong>
+                </div>
+                <a href="/profile/connect/{provider}/" class="btn btn-primary btn-sm">Connect</a>
+            </div>'''
+
     platforms = [
-        {'name': 'Twitter', 'icon': 'twitter', 'placeholder': 'https://twitter.com/username'},
-        {'name': 'GitHub', 'icon': 'github', 'placeholder': 'https://github.com/username'},
-        {'name': 'LinkedIn', 'icon': 'linkedin', 'placeholder': 'https://linkedin.com/in/username'},
         {'name': 'Website', 'icon': 'globe', 'placeholder': 'https://yourwebsite.com'},
     ]
 
@@ -546,7 +584,7 @@ def profile_edit():
                                 <div class="text-center mb-3">
                                     <img
                                         id="profile-image-preview"
-                                        src="{user.profileImage or '/static/images/default-avatar.png'}"
+                                        src="{get_avatar_url(user, 150)}"
                                         class="img-thumbnail rounded-circle"
                                         style="width: 150px; height: 150px; object-fit: cover;"
                                         onerror="this.src='/static/images/default-avatar.png'"
@@ -581,7 +619,7 @@ def profile_edit():
                                     accept="image/*"
                                     onchange="previewBannerImage(this)"
                                 >
-                                <div class="form-text">Max 600×600px, 5MB. PNG, JPG, GIF, WebP, SVG</div>
+                                <div class="form-text">Max 5MB. PNG, JPG, GIF, WebP, SVG. Recommended: wide/landscape format.</div>
                                 <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadBannerImage()">
                                     <i class="fas fa-upload me-2"></i>Upload Banner
                                 </button>
@@ -625,9 +663,20 @@ def profile_edit():
 
                 <div class="card mb-4">
                     <div class="card-header">
+                        <h5 class="mb-0">Connected Accounts</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">Connect your accounts to show them on your profile. Use 32×32 or larger icons.</p>
+                        {connected_html}
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header">
                         <h5 class="mb-0">Social Links</h5>
                     </div>
                     <div class="card-body">
+                        <p class="text-muted small mb-3">Add links to your website or other profiles.</p>
                         <div id="social-links-container">
                             {_render_social_link_inputs(platforms, social_links)}
                         </div>

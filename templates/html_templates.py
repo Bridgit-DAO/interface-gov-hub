@@ -2,7 +2,7 @@
 
 BASE_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="en" data-theme="{theme}">
+<html lang="{html_lang}" data-theme="{theme}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,6 +11,7 @@ BASE_TEMPLATE = """
     <link rel="shortcut icon" type="image/png" href="/static/images/overweb_logo.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     {font_awesome_link}
+    <script src="{govhub_i18n_js}"></script>
     
     {hypothesis_config}
     
@@ -690,56 +691,72 @@ BASE_TEMPLATE = """
         }}
     </style>
 </head>
-<body>
+<body data-build-number="{build_number}" {body_attrs}>
+    <script>
+        (function () {{
+            var loc = {site_locale_json};
+            var b = document.body;
+            var extra = (b.getAttribute('data-i18n-extra-base') || '').trim();
+            window.__GH_I18N_READY__ = window.GovHubI18n
+                ? GovHubI18n.init(loc, extra || null)
+                : Promise.resolve();
+        }})();
+    </script>
     <nav class="navbar navbar-expand-lg">
         <div class="container">
             <a class="navbar-brand" href="/">
                 <img class="navbar-brand-logo-invert" src="/static/images/overweb_logo.png" alt="Overweb" />
                 MLGH
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" data-gh-i18n-aria="nav.toggleMenu">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav">
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Participate</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.participate">Participate</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/submit/">Submit Draft</a></li>
-                        <li><a class="dropdown-item" href="/immortalize/">Immortalize</a></li>
-                        <li><a class="dropdown-item" href="/waitlists/">Waitlists</a></li>
+                        <li><a class="dropdown-item" href="/submit/" data-gh-i18n="nav.submitDraft">Submit Draft</a></li>
+                        <li><a class="dropdown-item" href="/immortalize/" data-gh-i18n="nav.immortalize">Immortalize</a></li>
+                        <li><a class="dropdown-item" href="/waitlists/" data-gh-i18n="nav.waitlists">Waitlists</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Governance</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.governance">Governance</a>
                     <ul class="dropdown-menu">
                         {governance_nav}
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Community</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.community">Community</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/person/">People</a></li>
-                        <li><a class="dropdown-item" href="/guilds/">Guilds</a></li>
+                        <li><a class="dropdown-item" href="/person/" data-gh-i18n="nav.people">People</a></li>
+                        <li><a class="dropdown-item" href="/guilds/" data-gh-i18n="nav.guilds">Guilds</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Recognition</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.recognition">Recognition</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/badges/">Badges</a></li>
-                        <li><a class="dropdown-item" href="/civic-mason/">Civic Mason</a></li>
+                        <li><a class="dropdown-item" href="/badges/" data-gh-i18n="nav.badges">Badges</a></li>
+                        <li><a class="dropdown-item" href="/civic-mason/" data-gh-i18n="nav.civicMason">Civic Mason</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Learn</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.learn">Learn</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/doc/all/">Docs & Drafts</a></li>
+                        <li><a class="dropdown-item" href="/doc/all/" data-gh-i18n="nav.docsDrafts">Docs & Drafts</a></li>
                     </ul>
                 </li>
             </ul>
             <ul class="navbar-nav ms-auto">
                 {user_menu}
-                <li class="nav-item"><button class="theme-toggle nav-link border-0 bg-transparent" id="theme-toggle" title="Toggle theme">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="lang.menuLabel">Language</a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {lang_menu}
+                    </ul>
+                </li>
+                <li class="nav-item"><button type="button" class="theme-toggle nav-link border-0 bg-transparent" id="theme-toggle" data-gh-i18n-title="theme.toggle">
                     <i class="fas fa-moon"></i>
                 </button></li>
             </ul>
@@ -752,7 +769,7 @@ BASE_TEMPLATE = """
 
     <div class="container-fluid mt-5 py-3" style="border-top: 1px solid var(--border-color); background-color: var(--bg-secondary);">
         <div class="text-center text-muted small">
-            Build {build_number} | Gov-Hub.
+            <span id="gh-site-footer" data-footer-mode="global" data-layer-name=""></span>
         </div>
     </div>
 
@@ -761,7 +778,7 @@ BASE_TEMPLATE = """
         // Theme switching functionality
         const themeToggle = document.getElementById('theme-toggle');
         const html = document.documentElement;
-        const icon = themeToggle.querySelector('i');
+        const icon = themeToggle ? themeToggle.querySelector('i') : null;
 
         // Load saved theme - prefer user preference over localStorage
         const userTheme = html.getAttribute('data-theme') || 'dark';
@@ -771,6 +788,7 @@ BASE_TEMPLATE = """
         updateThemeIcon(savedTheme);
 
         function updateThemeIcon(theme) {{
+            if (!themeToggle || !icon) return;
             if (theme === 'dark') {{
                 icon.className = 'fas fa-sun';
                 themeToggle.title = 'Switch to light mode';
@@ -778,8 +796,12 @@ BASE_TEMPLATE = """
                 icon.className = 'fas fa-moon';
                 themeToggle.title = 'Switch to dark mode';
             }}
+            if (window.GovHubI18n && GovHubI18n.refreshThemeChrome) {{
+                GovHubI18n.refreshThemeChrome();
+            }}
         }}
 
+        if (themeToggle) {{
         themeToggle.addEventListener('click', () => {{
             const currentTheme = html.getAttribute('data-theme');
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
@@ -788,6 +810,7 @@ BASE_TEMPLATE = """
             localStorage.setItem('theme', newTheme);
             updateThemeIcon(newTheme);
         }});
+        }}
 
         // Flash message auto-hide
         setTimeout(() => {{
@@ -1054,49 +1077,55 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
                 <img class="navbar-brand-logo-invert" src="/static/images/overweb_logo.png" alt="Overweb" />
                 MLGH
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" data-gh-i18n-aria="nav.toggleMenu">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav">
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Participate</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.participate">Participate</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/submit/">Submit Draft</a></li>
-                        <li><a class="dropdown-item" href="/immortalize/">Immortalize</a></li>
-                        <li><a class="dropdown-item" href="/waitlists/">Waitlists</a></li>
+                        <li><a class="dropdown-item" href="/submit/" data-gh-i18n="nav.submitDraft">Submit Draft</a></li>
+                        <li><a class="dropdown-item" href="/immortalize/" data-gh-i18n="nav.immortalize">Immortalize</a></li>
+                        <li><a class="dropdown-item" href="/waitlists/" data-gh-i18n="nav.waitlists">Waitlists</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Governance</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.governance">Governance</a>
                     <ul class="dropdown-menu">
                         {governance_nav}
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Community</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.community">Community</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/person/">People</a></li>
-                        <li><a class="dropdown-item" href="/guilds/">Guilds</a></li>
+                        <li><a class="dropdown-item" href="/person/" data-gh-i18n="nav.people">People</a></li>
+                        <li><a class="dropdown-item" href="/guilds/" data-gh-i18n="nav.guilds">Guilds</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Recognition</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.recognition">Recognition</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/badges/">Badges</a></li>
-                        <li><a class="dropdown-item" href="/civic-mason/">Civic Mason</a></li>
+                        <li><a class="dropdown-item" href="/badges/" data-gh-i18n="nav.badges">Badges</a></li>
+                        <li><a class="dropdown-item" href="/civic-mason/" data-gh-i18n="nav.civicMason">Civic Mason</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Learn</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.learn">Learn</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/doc/all/">Docs & Drafts</a></li>
+                        <li><a class="dropdown-item" href="/doc/all/" data-gh-i18n="nav.docsDrafts">Docs & Drafts</a></li>
                     </ul>
                 </li>
             </ul>
             <ul class="navbar-nav ms-auto">
                 {user_menu}
-                <li class="nav-item"><button class="theme-toggle nav-link border-0 bg-transparent" id="theme-toggle" title="Toggle theme">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="lang.menuLabel">Language</a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {lang_menu}
+                    </ul>
+                </li>
+                <li class="nav-item"><button type="button" class="theme-toggle nav-link border-0 bg-transparent" id="theme-toggle" data-gh-i18n-title="theme.toggle">
                     <i class="fas fa-moon"></i>
                 </button></li>
             </ul>
@@ -1109,49 +1138,55 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
                 {layer_image_html}
                 {layer_name}
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" data-gh-i18n-aria="nav.toggleMenu">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav">
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Participate</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.participate">Participate</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/layer/{layer_slug}/submit/">Submit Draft</a></li>
-                        <li><a class="dropdown-item" href="/layer/{layer_slug}/submit/immortalize/">Immortalize</a></li>
-                        <li><a class="dropdown-item" href="/layer/{layer_slug}/waitlists/">Waitlists</a></li>
+                        <li><a class="dropdown-item" href="/layer/{layer_slug}/submit/" data-gh-i18n="nav.submitDraft">Submit Draft</a></li>
+                        <li><a class="dropdown-item" href="/layer/{layer_slug}/submit/immortalize/" data-gh-i18n="nav.immortalize">Immortalize</a></li>
+                        <li><a class="dropdown-item" href="/layer/{layer_slug}/waitlists/" data-gh-i18n="nav.waitlists">Waitlists</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Governance</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.governance">Governance</a>
                     <ul class="dropdown-menu">
                         {governance_nav}
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Community</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.community">Community</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/layer/{layer_slug}/person/">People</a></li>
-                        <li><a class="dropdown-item" href="/layer/{layer_slug}/guilds/">Guilds</a></li>
+                        <li><a class="dropdown-item" href="/layer/{layer_slug}/person/" data-gh-i18n="nav.people">People</a></li>
+                        <li><a class="dropdown-item" href="/layer/{layer_slug}/guilds/" data-gh-i18n="nav.guilds">Guilds</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Recognition</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.recognition">Recognition</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/layer/{layer_slug}/badges/">Badges</a></li>
-                        <li><a class="dropdown-item" href="/civic-mason/">Civic Mason</a></li>
+                        <li><a class="dropdown-item" href="/layer/{layer_slug}/badges/" data-gh-i18n="nav.badges">Badges</a></li>
+                        <li><a class="dropdown-item" href="/civic-mason/" data-gh-i18n="nav.civicMason">Civic Mason</a></li>
                     </ul>
                 </li>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Learn</a>
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="nav.learn">Learn</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/layer/{layer_slug}/doc/">Docs & Drafts</a></li>
+                        <li><a class="dropdown-item" href="/layer/{layer_slug}/doc/" data-gh-i18n="nav.docsDrafts">Docs & Drafts</a></li>
                     </ul>
                 </li>
             </ul>
             <ul class="navbar-nav ms-auto">
                 {user_menu}
-                <li class="nav-item"><button class="theme-toggle nav-link border-0 bg-transparent" id="theme-toggle" title="Toggle theme">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="lang.menuLabel">Language</a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {lang_menu}
+                    </ul>
+                </li>
+                <li class="nav-item"><button type="button" class="theme-toggle nav-link border-0 bg-transparent" id="theme-toggle" data-gh-i18n-title="theme.toggle">
                     <i class="fas fa-moon"></i>
                 </button></li>
             </ul>
@@ -1159,8 +1194,8 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
         </div>
     </nav>'''
 ).replace(
-    'Build {build_number} | MLGH Datatracker',
-    'Build {build_number} | {layer_name}'
+    '<span id="gh-site-footer" data-footer-mode="global" data-layer-name=""></span>',
+    '<span id="gh-site-footer" data-footer-mode="layer" data-layer-name="{layer_name_attr}"></span>',
 )
 
 

@@ -84,3 +84,4 @@ xym>=0.6,<1.0
 zxcvbn>=4.5.0
 types-zxcvbn~=4.5.0.20250223  # match zxcvbn version
 resend>=2.0.0  # Email for waitlist verification (MLGH)
+flask-dance[sqla]>=7.0.0  # OAuth for social account linking (gov-hub)

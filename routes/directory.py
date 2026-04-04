@@ -7,6 +7,7 @@ from models import (
     WorkingGroupChair, WorkingGroupMember, UserFollow,
 )
 from services.identity import get_current_user
+from services.avatar import get_avatar_url
 
 bp = Blueprint('directory', __name__, url_prefix='')
 
@@ -63,7 +64,8 @@ def people():
             actions_td = ''
         search_text = f"{display} {u.username}".lower()
         role_td = f'<td>{role_badge}</td>' if is_editor_or_admin else ''
-        avatar_html = f'<img src="{u.profileImage}" alt="" class="rounded-circle me-2" style="width:36px;height:36px;object-fit:cover">' if u.profileImage else f'<span class="rounded-circle me-2 d-inline-flex align-items-center justify-content-center bg-secondary text-white" style="width:36px;height:36px;font-size:0.9rem">{(display or "?")[0].upper()}</span>'
+        avatar_src = get_avatar_url(u, 36)
+        avatar_html = f'<img src="{avatar_src}" alt="" class="rounded-circle me-2" style="width:36px;height:36px;object-fit:cover" onerror="this.onerror=null;this.src=\'/static/images/default-avatar.png\'">'
         profile_link = f'/profile/{u.username}/'
         rows.append(f"""
         <tr data-search="{search_text}" data-groups="{all_groups}">

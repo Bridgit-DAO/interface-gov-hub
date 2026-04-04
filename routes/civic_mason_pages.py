@@ -1,11 +1,12 @@
 """Civic Mason page: global brick wall. Badge-gated placement."""
-from flask import Blueprint, request, session, url_for
+import html
+
+from flask import Blueprint, g, session, url_for
+
 from services.identity import get_current_user
 from services.rendering import generate_user_menu, render_page
 
 bp = Blueprint('civic_mason_pages', __name__, url_prefix='')
-
-_CM_LOCALES = frozenset({'en', 'ar'})
 
 
 def _get_imports():
@@ -21,24 +22,11 @@ def civic_mason_page():
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     mural_url = url_for('static', filename='images/civicmason-mural.png')
 
-    lang = (request.args.get('lang') or '').strip().lower()[:5]
-    if lang in _CM_LOCALES:
-        session['cm_locale'] = lang
-        session.modified = True
-    locale = session.get('cm_locale') or 'en'
-    if locale not in _CM_LOCALES:
-        locale = 'en'
-
-    cm_i18n_js = url_for('static', filename='js/cm-i18n.js')
     _cm_json = url_for('static', filename='i18n/civic-mason/en.json')
     cm_i18n_json_base = _cm_json.rsplit('/', 1)[0] + '/'
+    body_attrs = f'data-i18n-extra-base="{html.escape(cm_i18n_json_base, quote=True)}"'
 
     content = """
-    <script src="CM_I18N_JS_PLACEHOLDER"></script>
-    <script>
-    window.__CM_LOCALE__ = "CM_LOCALE_PLACEHOLDER";
-    window.__CM_I18N_JSON_BASE__ = "CM_I18N_JSON_BASE_PLACEHOLDER";
-    </script>
     <div id="civic-mason-page" class="civic-mason-fullpage">
         <div class="civic-mason-header">
             <nav aria-label="breadcrumb">
@@ -51,10 +39,20 @@ def civic_mason_page():
             <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
                 <h1 class="mb-0 me-auto"><i class="fas fa-th-large me-2"></i><span data-cm-i18n="page.title">Civic Mason</span></h1>
                 <p class="mb-0 opacity-75 d-none d-md-block small" data-cm-i18n="page.tagline">Contributors with Civic Mason badges leave a brick on the wall.</p>
-                <div class="mb-0 small ms-md-auto" id="cm-lang-switch" aria-label="Language">
-                    <a href="?lang=en" class="link-light text-decoration-none opacity-75" data-cm-i18n="lang.en">English</a>
+                <div class="mb-0 small ms-md-auto" id="cm-lang-switch" data-gh-i18n-aria="lang.menuLabel">
+                    <a href="?lang=en" class="link-light text-decoration-none opacity-75" data-gh-i18n="lang.names.en">English</a>
                     <span class="opacity-50 mx-1">·</span>
-                    <a href="?lang=ar" class="link-light text-decoration-none opacity-75" data-cm-i18n="lang.ar">العربية</a>
+                    <a href="?lang=ar" class="link-light text-decoration-none opacity-75" data-gh-i18n="lang.names.ar">العربية</a>
+                    <span class="opacity-50 mx-1">·</span>
+                    <a href="?lang=fr" class="link-light text-decoration-none opacity-75" data-gh-i18n="lang.names.fr">Français</a>
+                    <span class="opacity-50 mx-1">·</span>
+                    <a href="?lang=pt" class="link-light text-decoration-none opacity-75" data-gh-i18n="lang.names.pt">Português</a>
+                    <span class="opacity-50 mx-1">·</span>
+                    <a href="?lang=zh-Hans" class="link-light text-decoration-none opacity-75" data-gh-i18n="lang.names.zh_Hans">简体中文</a>
+                    <span class="opacity-50 mx-1">·</span>
+                    <a href="?lang=ja" class="link-light text-decoration-none opacity-75" data-gh-i18n="lang.names.ja">日本語</a>
+                    <span class="opacity-50 mx-1">·</span>
+                    <a href="?lang=ru" class="link-light text-decoration-none opacity-75" data-gh-i18n="lang.names.ru">Русский</a>
                 </div>
             </div>
             <div id="cm-dev-mode-bar" class="d-none w-100 mt-2 py-2 px-3 rounded cm-dev-bar">
@@ -140,7 +138,7 @@ def civic_mason_page():
     (async function () {
         'use strict';
 
-        await CMI18n.init(window.__CM_LOCALE__ || 'en', window.__CM_I18N_JSON_BASE__ || '/static/i18n/civic-mason/');
+        await (window.__GH_I18N_READY__ || Promise.resolve());
         document.querySelectorAll('[data-cm-max-label]').forEach(function (el) {
             el.textContent = CMI18n.formatNumber(200);
         });
@@ -970,12 +968,10 @@ def civic_mason_page():
     """
 
     content = content.replace('MURAL_URL_PLACEHOLDER', mural_url)
-    content = content.replace('CM_I18N_JS_PLACEHOLDER', cm_i18n_js)
-    content = content.replace('CM_LOCALE_PLACEHOLDER', locale)
-    content = content.replace('CM_I18N_JSON_BASE_PLACEHOLDER', cm_i18n_json_base)
     return render_page(
         title='Civic Mason',
         content=content,
         user_menu=user_menu,
         theme=current_theme,
+        body_attrs=body_attrs,
     )

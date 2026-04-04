@@ -1,7 +1,12 @@
 {
   "lang": {
     "en": "English",
-    "ar": "العربية"
+    "ar": "العربية",
+    "fr": "Français",
+    "pt": "Português",
+    "zh_Hans": "简体中文",
+    "ja": "日本語",
+    "ru": "Русский"
   },
   "page": {
     "breadcrumb": {

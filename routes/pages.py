@@ -192,7 +192,7 @@ def profile():
     _format_base_template, generate_user_menu, BUILD_NUMBER, _, _, PROFILE_TEMPLATE = _get_imports()
 
     if request.method == 'GET':
-        return redirect(url_for('profile_edit'))
+        return redirect(url_for('profile_pages.profile_edit'))
 
     current_user = get_current_user()
 

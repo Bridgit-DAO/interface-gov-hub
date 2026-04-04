@@ -77,3 +77,26 @@ class HypothesisAccount(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship('User', backref=db.backref('hypothesis_account', uselist=False))
+
+
+class UserLinkedAccount(db.Model):
+    """OAuth-linked social accounts for profile (Google, GitHub, Twitter, etc.)."""
+    __tablename__ = 'user_linked_account'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
+    provider = db.Column(db.String(50), nullable=False, index=True)
+    provider_user_id = db.Column(db.String(255), nullable=False, index=True)
+    profile_url = db.Column(db.String(500))
+    avatar_url = db.Column(db.String(500))
+    display_name = db.Column(db.String(200))
+    access_token = db.Column(db.Text)
+    token_expires_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('linked_accounts', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'provider', name='uq_user_provider'),
+        db.UniqueConstraint('provider', 'provider_user_id', name='uq_provider_user'),
+    )

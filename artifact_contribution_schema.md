@@ -157,7 +157,7 @@ Full spec: briefing **§5**.
 
 - **Filtering** by contribution type (facets on feeds / search; feature-flagged rollout).
 - **Feature flags:** e.g. `knowledge_contribution_type_enabled`, optional `knowledge_contribution_type_filters_enabled`.
-- **Analytics:** e.g. `contribution_type_set`, `contribution_type_cleared`, `contribution_type_filter_applied`.
+- **Analytics:** `contribution_type_set`, `contribution_type_cleared`; `contribution_type_filter_applied` is emitted when a user changes the contribution facet on the layer Artifacts tab (`POST /api/layers/<id>/contribution-type-filter/`) and is **omitted from the default layer activity API** (query with `?event_type=contribution_type_filter_applied` to include it).
 - **Indexes:** `knowledge_form` (+ scoped composite if queries are always by layer/tenant).
 
 **Localization:** after Unified Phase I is stable, localize Contribution type labels, help copy, and **scaffold** prompts.
@@ -193,7 +193,9 @@ Keep them separate. **One** contribution type max. Scaffold never blocks publish
 | API | `GET /api/knowledge-layer/schema/`, `PATCH/POST` artifacts in `routes/artifacts.py`, `?knowledge_form=` on layer artifact list |
 | Migration | `migrations.migrate_knowledge_layer_integration`, wired in `database/init_db` |
 | Feature flags | `config.py` → `app.config` (`KNOWLEDGE_CONTRIBUTION_*`) |
-| Events | `contribution_type_set`, `contribution_type_cleared`, `artifact_collection_*` via `emit_event` |
+| Events | `contribution_type_set`, `contribution_type_cleared`, `contribution_type_filter_applied`, `artifact_collection_*` via `emit_event`; default `GET .../activity/` excludes filter-applied (see `routes/layers.py`) |
+| Layer artifact tab | `routes/layer_detail_render.py` — filter chips + `reportContributionFilterApplied` |
+| Layer artifact editor | `routes/layer_artifact_ui.py` |
 | Smoke tests | `test_knowledge_layer_integration.py` |
 | Document artifact modal | `routes/documents.py` — fetches `/api/knowledge-layer/schema/`, contribution select + optional scaffold fields, PATCH includes `knowledge_form` / `knowledge_scaffold` |
 | Layer artifact header | `routes/layers_pages.py` — second badge when `knowledge_form` is set |

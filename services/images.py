@@ -10,9 +10,10 @@ IMAGE_MAX_DIMENSION = 600
 MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 
-def upload_image_600x600(file_storage, upload_folder, url_prefix, filename_prefix='img'):
+def upload_image(file_storage, upload_folder, url_prefix, filename_prefix='img', max_dimension=None):
     """
-    Validate and save an uploaded image with max dimensions 600x600.
+    Validate and save an uploaded image.
+    If max_dimension is set, rejects images exceeding that size in either dimension.
     Returns (image_url, None) on success, or (None, error_message) on failure.
     """
     if not file_storage or not file_storage.filename:
@@ -26,14 +27,14 @@ def upload_image_600x600(file_storage, upload_folder, url_prefix, filename_prefi
     file_storage.seek(0)
     if file_size > MAX_IMAGE_FILE_SIZE:
         return None, f'File too large. Maximum size is {MAX_IMAGE_FILE_SIZE // (1024*1024)}MB.'
-    if ext != 'svg':
+    if ext != 'svg' and max_dimension is not None:
         try:
             from PIL import Image
             img = Image.open(file_storage)
             img.load()
             w, h = img.size
-            if w > IMAGE_MAX_DIMENSION or h > IMAGE_MAX_DIMENSION:
-                return None, f'Image dimensions must be at most {IMAGE_MAX_DIMENSION}x{IMAGE_MAX_DIMENSION} pixels (got {w}x{h}).'
+            if w > max_dimension or h > max_dimension:
+                return None, f'Image dimensions must be at most {max_dimension}x{max_dimension} pixels (got {w}x{h}).'
             file_storage.seek(0)
         except Exception as e:
             file_storage.seek(0)
@@ -45,6 +46,12 @@ def upload_image_600x600(file_storage, upload_folder, url_prefix, filename_prefi
     except Exception as e:
         return None, f'Failed to save file: {e}'
     return f"{url_prefix}/{safe_name}", None
+
+
+def upload_image_600x600(file_storage, upload_folder, url_prefix, filename_prefix='img'):
+    """Wrapper preserving the 600x600 limit for profile/role images."""
+    return upload_image(file_storage, upload_folder, url_prefix,
+                        filename_prefix=filename_prefix, max_dimension=IMAGE_MAX_DIMENSION)
 
 
 def update_image_vote_counts(image_id):

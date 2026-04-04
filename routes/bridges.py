@@ -9,8 +9,27 @@ from services.identity import get_current_user, require_auth
 
 bp = Blueprint('bridges', __name__, url_prefix='/api/bridges')
 
-RELATIONSHIP_TYPES = frozenset({'cites', 'contradicts', 'supports', 'extends', 'timeline', 'related'})
+# Claim-centric: how other content relates to the claim (source → target).
+RELATIONSHIP_TYPES = frozenset({'cites', 'contradicted_by', 'supported_by', 'related_to'})
+DEFAULT_RELATIONSHIP = 'related_to'
 CONTENT_TYPES = frozenset({'text', 'image', 'video', 'audio'})
+
+
+def parse_bridge_relationship(raw, *, default_if_missing=False):
+    """
+    Validate relationship for API. Pre-launch: no legacy aliases — must be canonical.
+
+    If default_if_missing and raw is empty/whitespace, return DEFAULT_RELATIONSHIP.
+    Otherwise return (value, None) or (None, error_message).
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        if default_if_missing:
+            return DEFAULT_RELATIONSHIP, None
+        return None, f'relationship is required; must be one of: {sorted(RELATIONSHIP_TYPES)}'
+    r = raw.strip().lower()
+    if r not in RELATIONSHIP_TYPES:
+        return None, f'relationship must be one of: {sorted(RELATIONSHIP_TYPES)}'
+    return r, None
 
 
 def _require_user():
@@ -71,8 +90,11 @@ def list_bridges():
     """List bridges with optional filters: relationship, inscribed."""
     query = Bridge.query
     relationship = request.args.get('relationship', '').strip()
-    if relationship and relationship in RELATIONSHIP_TYPES:
-        query = query.filter_by(relationship=relationship)
+    if relationship:
+        rel, err = parse_bridge_relationship(relationship, default_if_missing=False)
+        if err:
+            return jsonify({'error': err}), 400
+        query = query.filter_by(relationship=rel)
     inscribed = request.args.get('inscribed')
     if inscribed == 'true' or inscribed == '1':
         query = query.filter(Bridge.inscription_id.isnot(None))
@@ -106,9 +128,11 @@ def create_bridge():
     if not target:
         return jsonify({'error': 'target with url is required'}), 400
 
-    relationship = (data.get('relationship') or 'related').strip().lower()
-    if relationship not in RELATIONSHIP_TYPES:
-        relationship = 'related'
+    relationship, rel_err = parse_bridge_relationship(
+        data.get('relationship'), default_if_missing=True
+    )
+    if rel_err:
+        return jsonify({'error': rel_err}), 400
     explanation = (data.get('explanation') or '').strip() or None
 
     bridge = Bridge(
@@ -152,9 +176,10 @@ def update_bridge(bridge_id):
     if 'name' in data:
         bridge.name = (data['name'] or '').strip() or bridge.name
     if 'relationship' in data:
-        r = (data['relationship'] or '').strip().lower()
-        if r in RELATIONSHIP_TYPES:
-            bridge.relationship = r
+        r, rel_err = parse_bridge_relationship(data['relationship'], default_if_missing=False)
+        if rel_err:
+            return jsonify({'error': rel_err}), 400
+        bridge.relationship = r
     if 'explanation' in data:
         bridge.explanation = (data['explanation'] or '').strip() or None
 

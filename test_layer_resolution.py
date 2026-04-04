@@ -53,17 +53,31 @@ def test_layer_resolution():
         assert _is_uuid_like('') is False
         print(f"   ✅ _is_uuid_like helper works")
         
-        # 5. Layers API
+        # 5. Gov Hub + dev vanity hosts (BASE_DOMAINS); before HTTP API checks (DB may lag migrations)
+        with app.test_request_context('/', headers={'Host': f'{slug}.govhub.live'}):
+            resolve_layer_from_host()
+            assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.govhub.live"
+        print(f"   ✅ Host {slug}.govhub.live resolves layer")
+        with app.test_request_context('/', headers={'Host': f'{slug}.dev.govhub.live'}):
+            resolve_layer_from_host()
+            assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.dev.govhub.live"
+        print(f"   ✅ Host {slug}.dev.govhub.live resolves layer")
+        with app.test_request_context('/', headers={'Host': 'dev.govhub.live'}):
+            resolve_layer_from_host()
+            assert getattr(g, 'layer', None) is None, "dev.govhub.live must not map to a layer slug"
+        print("   ✅ dev.govhub.live has no layer from host (reserved apex)")
+        
+        # 6. Layers API
         r = client.get('/api/layers/')
         assert r.status_code == 200, f"Layers API returned {r.status_code}"
         print(f"   ✅ /api/layers/ works")
         
-        # 6. Layer detail page
+        # 7. Layer detail page
         r = client.get(f'/layers/{slug}/')
         assert r.status_code == 200, f"Layer detail returned {r.status_code}"
         print(f"   ✅ /layers/{slug}/ page loads")
         
-        # 7. Activity feed (EventLog)
+        # 8. Activity feed (EventLog)
         r = client.get(f'/api/layers/{layer.id}/activity/')
         assert r.status_code == 200, f"Activity feed returned {r.status_code}"
         data = r.get_json()

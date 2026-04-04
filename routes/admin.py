@@ -9,6 +9,7 @@ from models import (
     WorkingGroupChair, CoordinatorRequest, WorkgroupMemberRequest, WorkingGroupMember,
 )
 from services.identity import get_current_user, require_auth, require_role
+from services.avatar import avatar_url
 from services.submissions import add_to_document_history
 
 bp = Blueprint('admin', __name__, url_prefix='')
@@ -1614,7 +1615,7 @@ def api_admin_get_chair_nominations():
             'layer_slug': row[10],
             'nominee_id': row[11],
             'nominee_username': row[12],
-            'nominee_profile_image': row[13],
+            'nominee_profile_image': avatar_url(row[13], 48) if row[13] else '/static/images/default-avatar.png',
             'nominator_id': row[14],
             'nominator_username': row[15],
             'nominator_name': row[16]

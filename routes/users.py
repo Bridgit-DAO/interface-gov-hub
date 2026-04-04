@@ -8,7 +8,8 @@ from sqlalchemy import or_
 from extensions import db
 from models import User, LayerMember
 from services.identity import get_current_user, require_auth, get_or_create_referral_code
-from services.images import upload_image_600x600
+from services.avatar import get_avatar_url
+from services.images import upload_image_600x600, upload_image
 
 bp = Blueprint('users', __name__, url_prefix='')
 
@@ -129,7 +130,7 @@ def api_get_user_profile(username):
         'username': user.username,
         'displayName': user.displayName,
         'handle': user.handle,
-        'profileImage': user.profileImage,
+        'profileImage': get_avatar_url(user, 200),
         'banner_image': user.banner_image,
         'headline': user.headline,
         'bio': user.bio,
@@ -201,9 +202,15 @@ def api_upload_profile_image():
         return jsonify({'error': 'No file selected'}), 400
 
     prefix = f"{image_type}_{user.id}"
-    image_url, err = upload_image_600x600(
-        file, _profile_image_folder(), '/uploads/profile_images', filename_prefix=prefix
-    )
+    if image_type == 'banner':
+        image_url, err = upload_image(
+            file, _profile_image_folder(), '/uploads/profile_images',
+            filename_prefix=prefix, max_dimension=None
+        )
+    else:
+        image_url, err = upload_image_600x600(
+            file, _profile_image_folder(), '/uploads/profile_images', filename_prefix=prefix
+        )
     if err:
         return jsonify({'error': err}), 400
 

@@ -38,12 +38,10 @@ def bridges_list():
                 <label for="relationship-filter" class="form-label">Relationship</label>
                 <select id="relationship-filter" class="form-select" onchange="loadBridges()">
                     <option value="">All</option>
-                    <option value="cites">cites</option>
-                    <option value="contradicts">contradicts</option>
-                    <option value="supports">supports</option>
-                    <option value="extends">extends</option>
-                    <option value="timeline">timeline</option>
-                    <option value="related">related</option>
+                    <option value="cites">Cites</option>
+                    <option value="contradicted_by">Contradicted by</option>
+                    <option value="supported_by">Supported by</option>
+                    <option value="related_to">Related to</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -66,6 +64,13 @@ def bridges_list():
     </div>
 
     <script>
+    const bridgeRelLabels = {
+        cites: 'Cites',
+        contradicted_by: 'Contradicted by',
+        supported_by: 'Supported by',
+        related_to: 'Related to',
+    };
+    function bridgeRelLabel(key) { return bridgeRelLabels[key] || key || ''; }
     async function loadBridges() {
         const rel = document.getElementById('relationship-filter').value;
         const inscribed = document.getElementById('inscribed-filter').value;
@@ -90,7 +95,7 @@ def bridges_list():
                 <div class="list-group-item list-group-item-action">
                     <div class="d-flex w-100 justify-content-between">
                         <h6 class="mb-1">${escapeHtml(b.name)} ${inscr}</h6>
-                        <small class="text-muted">${escapeHtml(b.relationship)}</small>
+                        <small class="text-muted">${escapeHtml(bridgeRelLabel(b.relationship))}</small>
                     </div>
                     <p class="mb-1 small">
                         <a href="${escapeAttr(b.source?.url || '#')}" target="_blank" rel="noopener">${escapeHtml((b.source?.name || b.source?.url || 'Source').substring(0, 60))}</a>
@@ -211,12 +216,10 @@ def bridges_create():
             <div class="mb-3">
                 <label for="relationship" class="form-label">Relationship *</label>
                 <select class="form-select" id="relationship" required>
-                    <option value="cites">cites</option>
-                    <option value="contradicts">contradicts</option>
-                    <option value="supports">supports</option>
-                    <option value="extends">extends</option>
-                    <option value="timeline">timeline</option>
-                    <option value="related" selected>related</option>
+                    <option value="cites">Cites</option>
+                    <option value="contradicted_by">Contradicted by</option>
+                    <option value="supported_by">Supported by</option>
+                    <option value="related_to" selected>Related to</option>
                 </select>
             </div>
 
