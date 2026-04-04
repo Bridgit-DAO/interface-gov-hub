@@ -2,7 +2,7 @@
 Gov Hub models. Import all models so db.create_all() registers them.
 Import order: identity -> coordination -> events -> artifact (Layer before EventLog).
 """
-from models.identity import User, UserFollow, HypothesisAccount
+from models.identity import User, UserFollow, HypothesisAccount, UserLinkedAccount
 from models.coordination import (
     Layer, LayerMember, LayerAdmin,
     Waitlist, WaitlistEntry, WaitlistMilestone, EmailUnsubscribe, WaitlistEmailSignup,
@@ -19,10 +19,11 @@ from models.artifact import (
     Comment, DocumentHistory,
     Artifact, ArtifactRelation,
 )
+from models.collection import ArtifactCollection, ArtifactCollectionItem
 from models.bridge import Bridge, BridgeSession
 
 __all__ = [
-    'User', 'UserFollow', 'HypothesisAccount',
+    'User', 'UserFollow', 'HypothesisAccount', 'UserLinkedAccount',
     'EventLog', 'StatusChange',
     'Layer', 'LayerMember', 'LayerAdmin',
     'Waitlist', 'WaitlistEntry', 'WaitlistMilestone', 'EmailUnsubscribe', 'WaitlistEmailSignup',
@@ -35,5 +36,6 @@ __all__ = [
     'Submission', 'SiteConfig', 'InscriptionOrder',
     'Comment', 'DocumentHistory',
     'Artifact', 'ArtifactRelation',
+    'ArtifactCollection', 'ArtifactCollectionItem',
     'Bridge', 'BridgeSession',
 ]

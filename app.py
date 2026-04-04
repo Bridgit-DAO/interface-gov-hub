@@ -17,8 +17,12 @@ from config import (
     ENV,
     PORT,
     RESERVED_SUBDOMAINS,
+    BASE_DOMAIN,
     BASE_DOMAINS,
     DEPLOYMENT_MODE,
+    KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED,
+    KNOWLEDGE_SCAFFOLD_ENABLED,
+    KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED,
 )
 
 # Ensure instance directory exists
@@ -48,6 +52,9 @@ def create_app():
     app.config['PORT'] = PORT
     app.config['DB_PATH'] = DB_PATH
     app.config['RESERVED_SUBDOMAINS'] = RESERVED_SUBDOMAINS
+    app.config['KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED'] = KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED
+    app.config['KNOWLEDGE_SCAFFOLD_ENABLED'] = KNOWLEDGE_SCAFFOLD_ENABLED
+    app.config['KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED'] = KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED
 
     # Session security
     app.config['SESSION_COOKIE_SECURE'] = not IS_DEVELOPMENT
@@ -73,6 +80,7 @@ def create_app():
         Submission, SiteConfig, InscriptionOrder,
         Comment, DocumentHistory,
         Artifact, ArtifactRelation,
+        ArtifactCollection, ArtifactCollectionItem,
         Bridge, BridgeSession,
     )
 
@@ -88,6 +96,7 @@ def create_app():
     from routes.waitlists import bp as waitlists_bp
     from routes.votes import bp as votes_bp, bp_pages as votes_pages_bp
     from routes.artifacts import bp as artifacts_bp
+    from routes.collections import bp as collections_bp
     from routes.roles import bp as roles_bp, bp_uploads as roles_uploads_bp
     from routes.roles_pages import bp as roles_pages_bp
     from routes.submissions import bp as submissions_bp
@@ -103,7 +112,29 @@ def create_app():
     from routes.bridges_pages import bp as bridges_pages_bp
     from routes.civic_mason import bp as civic_mason_bp
     from routes.civic_mason_pages import bp as civic_mason_pages_bp
-
+    from routes.soft_launch import bp as soft_launch_bp
+    from routes.soft_launch_pages import bp as soft_launch_pages_bp
+    try:
+        from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
+        # Register each OAuth blueprint independently so one failure doesn't break others
+        for name, oauth_bp, prefix in [
+            ('google', google_bp, '/auth/google'),
+            ('github', github_bp, '/auth/github'),
+            ('discord', discord_bp, '/auth/discord'),
+            ('twitter', twitter_bp, '/auth/twitter'),
+        ]:
+            if oauth_bp is None:
+                continue
+            try:
+                app.register_blueprint(oauth_bp, url_prefix=prefix)
+            except Exception as e:
+                print(f"⚠️  OAuth {name} disabled: {e}")
+        app.register_blueprint(social_connect_bp)
+    except ImportError as e:
+        if 'flask_dance' in str(e).lower():
+            print("⚠️  flask-dance not installed; social account linking disabled. pip install flask-dance[sqla]")
+        else:
+            raise
     app.register_blueprint(deploy_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(layers_bp)
@@ -116,6 +147,7 @@ def create_app():
     app.register_blueprint(votes_bp)
     app.register_blueprint(votes_pages_bp)
     app.register_blueprint(artifacts_bp)
+    app.register_blueprint(collections_bp)
     app.register_blueprint(roles_bp)
     app.register_blueprint(roles_uploads_bp)
     app.register_blueprint(roles_pages_bp)
@@ -133,6 +165,8 @@ def create_app():
     app.register_blueprint(bridges_pages_bp)
     app.register_blueprint(civic_mason_bp)
     app.register_blueprint(civic_mason_pages_bp)
+    app.register_blueprint(soft_launch_bp)
+    app.register_blueprint(soft_launch_pages_bp)
 
     # CLI
     from cli import register_cli
@@ -140,7 +174,7 @@ def create_app():
 
     # Middleware
     from middleware import register_request_handlers
-    register_request_handlers(app, deployment_mode=DEPLOYMENT_MODE, base_domain='themetalayer.org', reserved_subdomains=RESERVED_SUBDOMAINS, base_domains=BASE_DOMAINS)
+    register_request_handlers(app, deployment_mode=DEPLOYMENT_MODE, base_domain=BASE_DOMAIN, reserved_subdomains=RESERVED_SUBDOMAINS, base_domains=BASE_DOMAINS)
 
     # Upload config
     UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads'
@@ -162,6 +196,30 @@ def create_app():
     from services.rendering import configure_rendering
     FONT_AWESOME_LINK = '<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">'
     configure_rendering(BASE_TEMPLATE, FONT_AWESOME_LINK, BUILD_NUMBER)
+
+    # Log OAuth errors (token exchange failures, etc.) for debugging
+    import logging
+    import traceback
+    from flask import request
+
+    _oauth_log = logging.getLogger('oauth_debug')
+    _oauth_log.setLevel(logging.DEBUG)
+    _oauth_fh = logging.FileHandler(os.path.join(INSTANCE_DIR, 'oauth_debug.log'), encoding='utf-8')
+    _oauth_fh.setLevel(logging.DEBUG)
+    _oauth_fh.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    _oauth_log.addHandler(_oauth_fh)
+
+    @app.errorhandler(Exception)
+    def _log_oauth_exceptions(exc):
+        if request.path and '/auth/' in request.path and '/authorized' in request.path:
+            _oauth_log.error(
+                "OAuth callback error on %s: %s\nrequest.args=%s\ntraceback:\n%s",
+                request.path,
+                exc,
+                dict(request.args),
+                traceback.format_exc(),
+            )
+        raise exc
 
     return app
 

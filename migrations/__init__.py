@@ -642,6 +642,189 @@ def migrate_civic_mason(app):
         print(f"⚠️  Error in civic mason migration: {e}")
 
 
+def migrate_civic_mason_seed_daveed(app):
+    """Seed Civic Mason eligibility for daveed@bridgit.io: role + claim + issued badge."""
+    with app.app_context():
+        import sqlite3
+        from uuid import uuid4
+        from datetime import datetime
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT id FROM user WHERE email = ?", ('daveed@bridgit.io',))
+        user_row = cursor.fetchone()
+        if not user_row:
+            conn.close()
+            print("⚠️  migrate_civic_mason_seed_daveed: user daveed@bridgit.io not found")
+            return
+
+        user_id = user_row[0]
+
+        cursor.execute("SELECT id FROM layer LIMIT 1")
+        layer_row = cursor.fetchone()
+        if not layer_row:
+            cursor.execute("SELECT id FROM project LIMIT 1")
+            layer_row = cursor.fetchone()
+        if not layer_row:
+            conn.close()
+            print("⚠️  migrate_civic_mason_seed_daveed: no layer/project found")
+            return
+
+        layer_id = layer_row[0]
+
+        role_col = 'layer_id' if any(c[1] == 'layer_id' for c in cursor.execute("PRAGMA table_info(role)").fetchall()) else 'project_id'
+
+        cursor.execute(f"SELECT id FROM role WHERE {role_col} = ? AND (civic_mason_eligible = 1 OR civic_mason_eligible = ?)", (layer_id, True))
+        role_row = cursor.fetchone()
+        if role_row:
+            role_id = role_row[0]
+        else:
+            cursor.execute(f"SELECT id FROM role WHERE {role_col} = ? LIMIT 1", (layer_id,))
+            role_row = cursor.fetchone()
+            if role_row:
+                role_id = role_row[0]
+                cursor.execute("UPDATE role SET civic_mason_eligible = 1 WHERE id = ?", (role_id,))
+                conn.commit()
+                print("✅ Set civic_mason_eligible=True on existing role")
+            else:
+                role_id = str(uuid4())
+                cursor.execute(f"""
+                    INSERT INTO role (id, {role_col}, role_slug, title_guild, title_operational, description, civic_mason_eligible, created_by_id)
+                    VALUES (?, ?, 'civic-mason', 'Civic Mason', 'Civic Mason', 'Eligible to place bricks on the Civic Mason wall.', 1, ?)
+                """, (role_id, layer_id, user_id))
+                conn.commit()
+                print("✅ Created Civic Mason role")
+
+        claim_col = 'layer_id' if any(c[1] == 'layer_id' for c in cursor.execute("PRAGMA table_info(claim)").fetchall()) else 'project_id'
+        cursor.execute("SELECT id FROM claim WHERE claimant_id = ? AND role_id = ? AND status = 'active'", (user_id, role_id))
+        claim_row = cursor.fetchone()
+        if claim_row:
+            claim_id = claim_row[0]
+        else:
+            claim_id = str(uuid4())
+            cursor.execute(f"INSERT INTO claim (id, {claim_col}, role_id, claimant_id, status) VALUES (?, ?, ?, ?, 'active')",
+                           (claim_id, layer_id, role_id, user_id))
+            conn.commit()
+            print("✅ Created claim for daveed@bridgit.io")
+
+        badge_layer_col = 'layer_id' if any(c[1] == 'layer_id' for c in cursor.execute("PRAGMA table_info(badge)").fetchall()) else 'project_id'
+        cursor.execute("SELECT id FROM badge WHERE claimant_id = ? AND role_id = ? AND status = 'issued'", (user_id, role_id))
+        if cursor.fetchone():
+            print("✅ daveed@bridgit.io already has Civic Mason badge")
+        else:
+            badge_id = str(uuid4())
+            cursor.execute(f"""
+                INSERT INTO badge (id, {badge_layer_col}, claim_id, role_id, claimant_id, requested_by_id, status, approved_by_id, approved_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'issued', ?, ?)
+            """, (badge_id, layer_id, claim_id, role_id, user_id, user_id, user_id, datetime.utcnow().isoformat()))
+            conn.commit()
+            print("✅ Issued Civic Mason badge to daveed@bridgit.io")
+
+        conn.close()
+
+
+def migrate_user_linked_account(app):
+    """Create user_linked_account table for OAuth-connected social accounts."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_linked_account'")
+        if cursor.fetchone():
+            conn.close()
+            return
+        cursor.execute("""
+            CREATE TABLE user_linked_account (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL REFERENCES user(id),
+                provider VARCHAR(50) NOT NULL,
+                provider_user_id VARCHAR(255) NOT NULL,
+                profile_url VARCHAR(500),
+                avatar_url VARCHAR(500),
+                display_name VARCHAR(200),
+                access_token TEXT,
+                token_expires_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, provider),
+                UNIQUE(provider, provider_user_id)
+            )
+        """)
+        cursor.execute("CREATE INDEX idx_user_linked_account_user_id ON user_linked_account(user_id)")
+        cursor.execute("CREATE INDEX idx_user_linked_account_provider ON user_linked_account(provider)")
+        conn.commit()
+        conn.close()
+        print("✅ Created user_linked_account table")
+    except Exception as e:
+        print(f"⚠️  Error creating user_linked_account: {e}")
+
+
+def migrate_knowledge_layer_integration(app):
+    """Add knowledge_form, knowledge_scaffold on artifact; collection tables (briefing §5, collections)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(artifact)")
+        cols = [c[1] for c in cursor.fetchall()]
+        for col, col_type in [
+            ('knowledge_form', 'VARCHAR(30)'),
+            ('knowledge_scaffold', 'TEXT'),
+        ]:
+            if col not in cols:
+                cursor.execute(f"ALTER TABLE artifact ADD COLUMN {col} {col_type}")
+                conn.commit()
+                print(f"✅ Added {col} to artifact")
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_artifact_knowledge_form ON artifact(knowledge_form)")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_collection'")
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE artifact_collection (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    creator_user_id VARCHAR(36) REFERENCES user(id),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_artifact_collection_layer ON artifact_collection(layer_id)"
+            )
+            conn.commit()
+            print("✅ Created artifact_collection table")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_collection_item'")
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE artifact_collection_item (
+                    id VARCHAR(36) PRIMARY KEY,
+                    collection_id VARCHAR(36) NOT NULL REFERENCES artifact_collection(id),
+                    artifact_id VARCHAR(36) NOT NULL REFERENCES artifact(id),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(collection_id, artifact_id)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_aci_collection ON artifact_collection_item(collection_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_aci_artifact ON artifact_collection_item(artifact_id)"
+            )
+            conn.commit()
+            print("✅ Created artifact_collection_item table")
+
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_knowledge_layer_integration: {e}")
+
+
 def migrate_hardcoded_users(app):
     """Migrate hardcoded users to database"""
     hardcoded_users = {

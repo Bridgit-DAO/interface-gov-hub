@@ -89,6 +89,9 @@ class Artifact(db.Model):
     status = db.Column(db.String(20), default='draft', nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)
+    # Knowledge layer (contribution type + optional scaffold) — see services/knowledge_layer.py
+    knowledge_form = db.Column(db.String(30), nullable=True, index=True)
+    knowledge_scaffold = db.Column(db.JSON, nullable=True)
 
     layer = db.relationship('Layer', backref=db.backref('artifacts', lazy='dynamic'))
     creator = db.relationship('User', backref=db.backref('created_artifacts', lazy='dynamic'))
@@ -117,6 +120,8 @@ class Artifact(db.Model):
             'status': self.status,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if getattr(self, 'updated_at', None) else None,
+            'knowledge_form': getattr(self, 'knowledge_form', None),
+            'knowledge_scaffold': getattr(self, 'knowledge_scaffold', None),
         }
 
 

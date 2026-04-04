@@ -1,7 +1,7 @@
 """Artifacts API: artifacts, relations, support/opposition, opportunities, quests, monuments."""
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from extensions import db
 from models import (
@@ -11,6 +11,11 @@ from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin
 from services.artifact import get_artifact_by_ref, _ensure_artifact_for_submission
 from services.events import emit_event
+from services.knowledge_layer import (
+    apply_knowledge_patch,
+    public_schema_dict,
+    validate_knowledge_for_create,
+)
 
 bp = Blueprint('artifacts', __name__, url_prefix='/api')
 
@@ -398,6 +403,12 @@ def monument_link_artifact(monument_id):
     }), 201
 
 
+@bp.route('/knowledge-layer/schema/', methods=['GET'])
+def knowledge_layer_schema():
+    """Feature flags + contribution-type matrix for client pickers (artifact_contribution_schema.md)."""
+    return jsonify(public_schema_dict(current_app.config)), 200
+
+
 @bp.route('/artifacts/<artifact_id>/', methods=['GET'])
 def get_artifact(artifact_id):
     """Get artifact for modal."""
@@ -421,10 +432,40 @@ def update_artifact(artifact_id):
                 return jsonify({'error': 'Not a layer member'}), 403
     data = request.get_json() or {}
     old_status = art.status
+    old_kf = getattr(art, 'knowledge_form', None)
     for field in ('title', 'summary', 'body', 'uri', 'artifact_type', 'artifact_subtype', 'status', 'source_language', 'current_language'):
         if field in data:
             setattr(art, field, data[field] if data[field] is not None else None)
+    kerr = apply_knowledge_patch(art, data, current_app.config)
+    if kerr:
+        return jsonify({'error': '; '.join(kerr)}), 400
     art.updated_at = datetime.utcnow()
+    new_kf = getattr(art, 'knowledge_form', None)
+    if old_kf != new_kf:
+        if new_kf:
+            emit_event(
+                'contribution_type_set',
+                actor_type='user',
+                actor_id=current_user['id'],
+                subject_type='artifact',
+                subject_id=art.id,
+                layer_id=art.layer_id,
+                payload={
+                    'knowledge_form': new_kf,
+                    'source': 'edit',
+                    'previous': old_kf,
+                },
+            )
+        else:
+            emit_event(
+                'contribution_type_cleared',
+                actor_type='user',
+                actor_id=current_user['id'],
+                subject_type='artifact',
+                subject_id=art.id,
+                layer_id=art.layer_id,
+                payload={'previous': old_kf},
+            )
     emit_event('artifact_updated', actor_type='user', actor_id=current_user['id'],
                subject_type='artifact', subject_id=art.id, layer_id=art.layer_id,
                payload={'updated_fields': list(data.keys())})
@@ -438,9 +479,13 @@ def update_artifact(artifact_id):
 
 @bp.route('/layers/<layer_id>/artifacts/', methods=['GET'])
 def list_layer_artifacts(layer_id):
-    """List artifacts for a layer."""
+    """List artifacts for a layer. Optional ?knowledge_form= when filters enabled."""
     Layer.query.get_or_404(layer_id)
-    arts = Artifact.query.filter_by(layer_id=layer_id).order_by(Artifact.created_at.desc()).limit(100).all()
+    q = Artifact.query.filter_by(layer_id=layer_id)
+    kf = request.args.get('knowledge_form')
+    if kf and current_app.config.get('KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED', True):
+        q = q.filter(Artifact.knowledge_form == kf.strip().lower())
+    arts = q.order_by(Artifact.created_at.desc()).limit(100).all()
     return jsonify({'artifacts': [a.to_dict() for a in arts]}), 200
 
 
@@ -457,10 +502,19 @@ def create_artifact(layer_id):
         if not member:
             return jsonify({'error': 'Not a layer member'}), 403
     data = request.get_json() or {}
+    atype = data.get('artifact_type', 'proposal')
+    kform, kscaf, kerrs = validate_knowledge_for_create(
+        atype,
+        data.get('knowledge_form'),
+        data.get('knowledge_scaffold'),
+        current_app.config,
+    )
+    if kerrs:
+        return jsonify({'error': '; '.join(kerrs)}), 400
     art = Artifact(
         layer_id=layer_id,
         creator_user_id=current_user['id'],
-        artifact_type=data.get('artifact_type', 'proposal'),
+        artifact_type=atype,
         artifact_subtype=data.get('artifact_subtype'),
         title=data.get('title', '').strip() or None,
         summary=data.get('summary') or None,
@@ -469,12 +523,24 @@ def create_artifact(layer_id):
         status=data.get('status', 'draft'),
         source_language=data.get('source_language'),
         current_language=data.get('current_language'),
+        knowledge_form=kform,
+        knowledge_scaffold=kscaf,
     )
     db.session.add(art)
     db.session.flush()
     emit_event('artifact_created', actor_type='user', actor_id=current_user['id'],
                subject_type='artifact', subject_id=art.id, layer_id=layer_id,
                payload={'artifact_type': art.artifact_type})
+    if kform:
+        emit_event(
+            'contribution_type_set',
+            actor_type='user',
+            actor_id=current_user['id'],
+            subject_type='artifact',
+            subject_id=art.id,
+            layer_id=layer_id,
+            payload={'knowledge_form': kform, 'source': 'create', 'previous': None},
+        )
     db.session.commit()
     return jsonify({'success': True, 'artifact': art.to_dict()}), 201
 
