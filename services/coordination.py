@@ -13,6 +13,13 @@ from services.events import emit_event
 from services.utils import generate_claim_id
 
 
+def is_site_moderation_staff(user):
+    """Site roles allowed to perform narrowly scoped moderation (e.g. knowledge_form only), not full layer admin."""
+    if not user:
+        return False
+    return user.get('role') in ('admin', 'editor')
+
+
 def is_layer_admin(layer, user):
     """True if user is layer owner (initiator), an assigned layer admin, or site admin."""
     if not user:

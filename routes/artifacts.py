@@ -8,7 +8,7 @@ from models import (
     Layer, LayerMember, Artifact, ArtifactRelation, Submission, Quest, QuestSubmission, Monument,
 )
 from services.identity import get_current_user, require_auth
-from services.coordination import is_layer_admin
+from services.coordination import is_layer_admin, is_site_moderation_staff
 from services.artifact import get_artifact_by_ref, _ensure_artifact_for_submission
 from services.events import emit_event
 from services.knowledge_layer import (
@@ -22,6 +22,9 @@ bp = Blueprint('artifacts', __name__, url_prefix='/api')
 ARTIFACT_RELATION_TYPES = frozenset([
     'builds_on', 'references', 'supports', 'opposes', 'amends', 'implements', 'awarded_for'
 ])
+
+# Site moderation staff (admin/editor) may PATCH these keys without layer membership (see update_artifact).
+_STAFF_KNOWLEDGE_ONLY_PATCH_KEYS = frozenset({'knowledge_form', 'knowledge_scaffold'})
 
 
 def _artifact_lineage(artifact_id, depth=3):
@@ -424,13 +427,18 @@ def update_artifact(artifact_id):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     art = Artifact.query.get_or_404(artifact_id)
+    data = request.get_json(silent=True) or {}
     if art.layer_id:
         layer = Layer.query.get(art.layer_id)
         if layer and not is_layer_admin(layer, current_user):
             member = LayerMember.query.filter_by(layer_id=art.layer_id, user_id=current_user['id'], status='active').first()
             if not member:
-                return jsonify({'error': 'Not a layer member'}), 403
-    data = request.get_json() or {}
+                staff_knowledge_only = (
+                    is_site_moderation_staff(current_user)
+                    and set(data.keys()).issubset(_STAFF_KNOWLEDGE_ONLY_PATCH_KEYS)
+                )
+                if not staff_knowledge_only:
+                    return jsonify({'error': 'Not a layer member'}), 403
     old_status = art.status
     old_kf = getattr(art, 'knowledge_form', None)
     for field in ('title', 'summary', 'body', 'uri', 'artifact_type', 'artifact_subtype', 'status', 'source_language', 'current_language'):
@@ -445,8 +453,11 @@ def update_artifact(artifact_id):
         _layer = Layer.query.get(art.layer_id) if art.layer_id else None
         _others_artifact = (
             _layer
-            and is_layer_admin(_layer, current_user)
             and (not art.creator_user_id or art.creator_user_id != current_user['id'])
+            and (
+                is_layer_admin(_layer, current_user)
+                or is_site_moderation_staff(current_user)
+            )
         )
         _src = 'moderation' if _others_artifact else 'edit'
         if new_kf:
