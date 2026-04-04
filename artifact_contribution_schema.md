@@ -195,5 +195,7 @@ Keep them separate. **One** contribution type max. Scaffold never blocks publish
 | Feature flags | `config.py` → `app.config` (`KNOWLEDGE_CONTRIBUTION_*`) |
 | Events | `contribution_type_set`, `contribution_type_cleared`, `artifact_collection_*` via `emit_event` |
 | Smoke tests | `test_knowledge_layer_integration.py` |
+| Document artifact modal | `routes/documents.py` — fetches `/api/knowledge-layer/schema/`, contribution select + optional scaffold fields, PATCH includes `knowledge_form` / `knowledge_scaffold` |
+| Layer artifact header | `routes/layers_pages.py` — second badge when `knowledge_form` is set |
 
 Env: `GOVHUB_KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED`, `GOVHUB_KNOWLEDGE_SCAFFOLD_ENABLED`, `GOVHUB_KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED`.

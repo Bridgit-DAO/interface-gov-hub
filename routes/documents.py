@@ -591,6 +591,12 @@ Meta-Layer Initiative
                         <div class="mb-2"><label class="form-label">URI</label><input type="text" class="form-control" id="artifact-uri" placeholder="https://..."></div>
                         <div class="mb-2"><label class="form-label">Status</label><select class="form-select" id="artifact-status"><option value="draft">draft</option><option value="published">published</option><option value="archived">archived</option></select></div>
                         <div class="row"><div class="col-6"><label class="form-label">Source language</label><input type="text" class="form-control" id="artifact-source-lang" placeholder="en"></div><div class="col-6"><label class="form-label">Current language</label><input type="text" class="form-control" id="artifact-current-lang" placeholder="en"></div></div>
+                        <div class="mb-2 border-top pt-2 mt-2" id="kl-contribution-wrap" style="display:none;">
+                            <label class="form-label">Contribution type <span class="text-muted">(optional)</span></label>
+                            <select class="form-select" id="kl-contribution-type"><option value="">— Not set</option></select>
+                            <p class="small text-muted mb-0">Helps others understand how to engage with this contribution.</p>
+                        </div>
+                        <div class="mb-2" id="kl-scaffold-wrap" style="display:none;"></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -611,18 +617,127 @@ Meta-Layer Initiative
             const alertEl = document.getElementById('artifact-alert');
             const fields = ['artifact_type','artifact_subtype','title','summary','body','uri','status','source_language','current_language'];
             const ids = {{artifact_type:'artifact-type',artifact_subtype:'artifact-subtype',title:'artifact-title',summary:'artifact-summary',body:'artifact-body',uri:'artifact-uri',status:'artifact-status',source_language:'artifact-source-lang',current_language:'artifact-current-lang'}};
+            const KL_SCAFFOLD = {{
+                inquiry: [{{k:'what_is_unclear',l:'What is unclear?',t:'ta'}},{{k:'status',l:'Status',t:'sel',o:['open','closed']}}],
+                principle: [{{k:'why_matters',l:'Why does this matter?',t:'ta'}}],
+                model: [{{k:'key_assumptions',l:'Key assumptions',t:'ta'}}],
+                conviction: [{{k:'why_believe',l:'Why do you believe this?',t:'ta'}}],
+                decision: [{{k:'what_resolves',l:'What does this resolve?',t:'ta'}},{{k:'status',l:'Status',t:'sel',o:['draft','final']}}],
+                gloss: [{{k:'definition',l:'Definition',t:'ta'}}],
+                scenario: [{{k:'actors_context',l:'Actors / context',t:'ta'}}]
+            }};
+            let klSchema = null;
+            async function ensureKlSchema() {{
+                if (klSchema) return klSchema;
+                try {{
+                    const r = await fetch('/api/knowledge-layer/schema/', {{credentials:'same-origin'}});
+                    klSchema = await r.json();
+                }} catch (e) {{ klSchema = null; }}
+                return klSchema;
+            }}
             function showAlert(msg,type){{
                 alertEl.textContent=msg; alertEl.className='alert alert-'+type; alertEl.classList.remove('d-none');
+            }}
+            function rebuildKlContribution() {{
+                const wrap = document.getElementById('kl-contribution-wrap');
+                const sel = document.getElementById('kl-contribution-type');
+                const atEl = document.getElementById('artifact-type');
+                if (!wrap || !sel || !atEl) return;
+                if (!klSchema || !klSchema.feature_flags || !klSchema.feature_flags.knowledge_contribution_type_enabled) {{
+                    wrap.style.display = 'none';
+                    return;
+                }}
+                wrap.style.display = 'block';
+                const at = (atEl.value || '').trim();
+                const spec = klSchema.artifact_types && klSchema.artifact_types[at];
+                const prev = sel.value;
+                sel.innerHTML = '<option value="">— Not set</option>';
+                if (spec && spec.allowed) {{
+                    spec.allowed.forEach(function(v) {{ sel.add(new Option(v, v)); }});
+                    if (prev && [...sel.options].some(function(o) {{ return o.value === prev; }})) sel.value = prev;
+                }}
+            }}
+            function renderKlScaffold() {{
+                const sw = document.getElementById('kl-scaffold-wrap');
+                const kls = document.getElementById('kl-contribution-type');
+                if (!sw || !kls) return;
+                if (!klSchema || !klSchema.feature_flags || !klSchema.feature_flags.knowledge_scaffold_enabled) {{
+                    sw.style.display = 'none';
+                    sw.innerHTML = '';
+                    return;
+                }}
+                const form = kls.value;
+                const rows = form && KL_SCAFFOLD[form];
+                if (!rows) {{ sw.style.display = 'none'; sw.innerHTML = ''; return; }}
+                sw.style.display = 'block';
+                const data = window.__klScaffoldData || {{}};
+                let html = '<div class="border rounded p-2 bg-light"><div class="small fw-bold mb-2">Optional details</div>';
+                rows.forEach(function(row) {{
+                    const id = 'kl-sc-' + row.k;
+                    const v = data[row.k] != null ? String(data[row.k]) : '';
+                    if (row.t === 'sel') {{
+                        html += '<div class="mb-2"><label class="form-label small">' + row.l + '</label><select class="form-select form-select-sm" id="'+id+'" data-kl-scaffold="'+row.k+'"><option value=""></option>';
+                        (row.o || []).forEach(function(o) {{ html += '<option value="'+o+'"'+(v===o?' selected':'')+'>'+o+'</option>'; }});
+                        html += '</select></div>';
+                    }} else {{
+                        html += '<div class="mb-2"><label class="form-label small">'+row.l+'</label><textarea class="form-control form-control-sm" id="'+id+'" rows="2" data-kl-scaffold="'+row.k+'"></textarea></div>';
+                    }}
+                }});
+                html += '</div>';
+                sw.innerHTML = html;
+                rows.forEach(function(row) {{
+                    const el = document.getElementById('kl-sc-' + row.k);
+                    if (el && row.t !== 'sel' && data[row.k] != null) el.value = data[row.k];
+                }});
+            }}
+            function collectKlScaffold(form) {{
+                if (!form || !KL_SCAFFOLD[form]) return null;
+                const out = {{}};
+                document.querySelectorAll('[data-kl-scaffold]').forEach(function(el) {{
+                    const k = el.getAttribute('data-kl-scaffold');
+                    if (el.tagName === 'SELECT') {{
+                        if (el.value) out[k] = el.value;
+                    }} else {{
+                        const t = el.value.trim();
+                        if (t) out[k] = t;
+                    }}
+                }});
+                return Object.keys(out).length ? out : null;
             }}
             function getPayload(){{
                 const p={{}};
                 for (const f of fields){{ const el=document.getElementById(ids[f]); if(el) p[f]=el.value===''?null:el.value; }}
+                if (klSchema && klSchema.feature_flags && klSchema.feature_flags.knowledge_contribution_type_enabled) {{
+                    const kls = document.getElementById('kl-contribution-type');
+                    const vf = kls && kls.value ? kls.value : null;
+                    p.knowledge_form = vf;
+                    if (klSchema.feature_flags.knowledge_scaffold_enabled && vf) {{
+                        const sc = collectKlScaffold(vf);
+                        p.knowledge_scaffold = sc;
+                    }}
+                }}
                 return p;
             }}
             function setFields(art){{
                 for (const f of fields){{ const el=document.getElementById(ids[f]); if(el&&art[f]!==undefined) el.value=art[f]||''; }}
+                window.__klScaffoldData = art.knowledge_scaffold || null;
+                rebuildKlContribution();
+                const kls = document.getElementById('kl-contribution-type');
+                if (kls && art.knowledge_form && [...kls.options].some(function(o){{return o.value===art.knowledge_form;}})) kls.value = art.knowledge_form;
+                else if (kls) kls.value = '';
+                renderKlScaffold();
             }}
+            document.getElementById('artifact-type').addEventListener('change', function() {{
+                rebuildKlContribution();
+                document.getElementById('kl-contribution-type').value = '';
+                window.__klScaffoldData = null;
+                renderKlScaffold();
+            }});
+            document.addEventListener('change', function(e) {{
+                if (e.target && e.target.id === 'kl-contribution-type') renderKlScaffold();
+            }});
             btn.addEventListener('click', async function(){{
+                await ensureKlSchema();
                 modalTitle.textContent = aid ? 'Edit Artifact' : 'Create Artifact';
                 if (aid) {{
                     try {{
@@ -632,6 +747,8 @@ Meta-Layer Initiative
                     }} catch(e) {{ showAlert(e.message,'danger'); }}
                 }} else {{
                     setFields({{}});
+                    rebuildKlContribution();
+                    renderKlScaffold();
                 }}
                 modal.show();
             }});

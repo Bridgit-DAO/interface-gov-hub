@@ -266,6 +266,10 @@ def artifact_detail(layer_slug, artifact_id):
         'open_for_comment': 'info', 'vote_scheduled': 'warning', 'vote_open': 'primary', 'adopted': 'success',
         'approved': 'success', 'rejected': 'danger', 'implemented': 'success', 'superseded': 'secondary', 'archived': 'secondary'}
     status_badge = status_badge_map.get((artifact.status or '').lower(), 'secondary')
+    kf = getattr(artifact, 'knowledge_form', None) or ''
+    contrib_badge = (
+        f' <span class="badge text-bg-info">{html_mod.escape(kf)}</span>' if kf else ''
+    )
     created_str = artifact.created_at.strftime('%Y-%m-%d %H:%M') if artifact.created_at else '—'
     if current_user:
         add_support_oppose_forms = f'''
@@ -340,7 +344,7 @@ def artifact_detail(layer_slug, artifact_id):
     <div class="row">
         <div class="col-lg-8">
             <h1>{title_esc}{public_ref_block}</h1>
-            <p class="text-muted"><span class="badge bg-secondary">{artifact.artifact_type}</span> <span class="badge bg-{status_badge}">{artifact.status or "draft"}</span></p>
+            <p class="text-muted"><span class="badge bg-secondary">{artifact.artifact_type}</span>{contrib_badge} <span class="badge bg-{status_badge}">{artifact.status or "draft"}</span></p>
             {summary_block}
             <div class="mb-4">
                 <h5>Provenance</h5>

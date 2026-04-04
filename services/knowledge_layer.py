@@ -25,6 +25,11 @@ ARTIFACT_TYPE_DEFAULT_FORM: Dict[str, str] = {
     'submission': 'model',
     'support': 'conviction',
     'opposition': 'conviction',
+    # Document / layer UI artifact picker (routes/documents.py)
+    'monument': 'scenario',
+    'insight': 'model',
+    'reflection': 'conviction',
+    'implementation': 'decision',
 }
 
 # Allowed picker values per artifact_type (includes default)
@@ -44,6 +49,10 @@ ARTIFACT_TYPE_ALLOWED_FORMS: Dict[str, frozenset] = {
     'submission': frozenset({'model', 'principle', 'scenario', 'decision'}),
     'support': frozenset({'conviction', 'principle', 'model'}),
     'opposition': frozenset({'conviction', 'principle', 'model'}),
+    'monument': frozenset({'scenario', 'principle', 'gloss', 'model'}),
+    'insight': frozenset({'model', 'principle', 'inquiry', 'scenario'}),
+    'reflection': frozenset({'conviction', 'inquiry', 'principle', 'model'}),
+    'implementation': frozenset({'decision', 'principle', 'model', 'scenario'}),
 }
 
 SCAFFOLD_MAX_STRING_LEN = 2000
