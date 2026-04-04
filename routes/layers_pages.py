@@ -4,11 +4,14 @@ import html as html_mod
 from flask import Blueprint, session
 
 from models import (
-    Layer, User, Submission, Artifact, ArtifactRelation,
+    Layer, LayerMember, User, Submission, Artifact, ArtifactRelation,
     Quest, QuestSubmission,
 )
 from services.identity import get_current_user, require_auth
 from services.artifact import get_artifact_by_ref
+from services.coordination import is_layer_admin
+from services.knowledge_layer import ARTIFACT_TYPE_ALLOWED_FORMS
+from routes.layer_artifact_ui import render_layer_artifact_editor_and_collections
 
 bp = Blueprint('layers_pages', __name__, url_prefix='')
 
@@ -227,6 +230,16 @@ def artifact_detail(layer_slug, artifact_id):
     other_incoming = [r for r in incoming if r.relation_type not in ('supports', 'opposes')]
     submission = Submission.query.filter_by(artifact_id=artifact_id).first()
     current_user = get_current_user()
+    can_edit_artifact = False
+    if current_user and artifact.layer_id:
+        if is_layer_admin(layer, current_user):
+            can_edit_artifact = True
+        else:
+            can_edit_artifact = bool(
+                LayerMember.query.filter_by(
+                    layer_id=layer.id, user_id=current_user['id'], status='active'
+                ).first()
+            )
     def _support_oppose_row(r):
         a = Artifact.query.get(r.from_object_id)
         t = (a.title or (a.public_ref if a else None) or (a.id[:8] if a else r.from_object_id[:8]))
@@ -271,6 +284,33 @@ def artifact_detail(layer_slug, artifact_id):
         f' <span class="badge text-bg-info">{html_mod.escape(kf)}</span>' if kf else ''
     )
     created_str = artifact.created_at.strftime('%Y-%m-%d %H:%M') if artifact.created_at else '—'
+    body_raw = (getattr(artifact, 'body', None) or '').strip()
+    body_block = (
+        f'<div class="mb-4"><h5>Body</h5><div class="border rounded p-3" style="white-space:pre-wrap;">'
+        f'{html_mod.escape(getattr(artifact, "body", None) or "")}</div></div>'
+        if body_raw
+        else ''
+    )
+    _sc = getattr(artifact, 'knowledge_scaffold', None)
+    scaffold_block = ''
+    if isinstance(_sc, dict) and _sc:
+        _rows = ''.join(
+            f'<dt class="col-sm-4">{html_mod.escape(str(k))}</dt>'
+            f'<dd class="col-sm-8">{html_mod.escape(str(v))}</dd>'
+            for k, v in _sc.items()
+        )
+        scaffold_block = (
+            f'<div class="mb-4"><h5>Contribution details</h5>'
+            f'<dl class="row small mb-0">{_rows}</dl></div>'
+        )
+    atype_opts = sorted(ARTIFACT_TYPE_ALLOWED_FORMS.keys())
+    editor_collections_html = (
+        render_layer_artifact_editor_and_collections(
+            artifact_id, layer.id, layer_slug, tuple(atype_opts)
+        )
+        if can_edit_artifact
+        else ''
+    )
     if current_user:
         add_support_oppose_forms = f'''
                 <div class="card mt-3">
@@ -346,6 +386,8 @@ def artifact_detail(layer_slug, artifact_id):
             <h1>{title_esc}{public_ref_block}</h1>
             <p class="text-muted"><span class="badge bg-secondary">{artifact.artifact_type}</span>{contrib_badge} <span class="badge bg-{status_badge}">{artifact.status or "draft"}</span></p>
             {summary_block}
+            {body_block}
+            {scaffold_block}
             <div class="mb-4">
                 <h5>Provenance</h5>
                 <ul class="list-unstyled">
@@ -390,6 +432,7 @@ def artifact_detail(layer_slug, artifact_id):
                     <a href="/api/artifacts/{artifact_id}/relations/" class="btn btn-outline-secondary btn-sm mt-2">API: Relations</a>
                     <a href="/api/artifacts/{artifact_id}/lineage/" class="btn btn-outline-secondary btn-sm mt-2">API: Lineage</a>
                     <button type="button" class="btn btn-outline-primary btn-sm mt-2 d-block" data-bs-toggle="modal" data-bs-target="#lineageModal"><i class="fas fa-project-diagram me-1"></i>Lineage Graph</button>
+                    {editor_collections_html}
                 </div>
             </div>
         </div>

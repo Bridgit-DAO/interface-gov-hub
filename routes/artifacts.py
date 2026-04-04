@@ -442,6 +442,13 @@ def update_artifact(artifact_id):
     art.updated_at = datetime.utcnow()
     new_kf = getattr(art, 'knowledge_form', None)
     if old_kf != new_kf:
+        _layer = Layer.query.get(art.layer_id) if art.layer_id else None
+        _others_artifact = (
+            _layer
+            and is_layer_admin(_layer, current_user)
+            and (not art.creator_user_id or art.creator_user_id != current_user['id'])
+        )
+        _src = 'moderation' if _others_artifact else 'edit'
         if new_kf:
             emit_event(
                 'contribution_type_set',
@@ -452,7 +459,7 @@ def update_artifact(artifact_id):
                 layer_id=art.layer_id,
                 payload={
                     'knowledge_form': new_kf,
-                    'source': 'edit',
+                    'source': _src,
                     'previous': old_kf,
                 },
             )
@@ -464,7 +471,7 @@ def update_artifact(artifact_id):
                 subject_type='artifact',
                 subject_id=art.id,
                 layer_id=art.layer_id,
-                payload={'previous': old_kf},
+                payload={'previous': old_kf, 'source': _src},
             )
     emit_event('artifact_updated', actor_type='user', actor_id=current_user['id'],
                subject_type='artifact', subject_id=art.id, layer_id=art.layer_id,

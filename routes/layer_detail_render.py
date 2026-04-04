@@ -505,6 +505,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     const isProjectAdmin = {'true' if show_admin_tab else 'false'};
     const showCarousel = {json.dumps(standalone)};
     const layerBase = showCarousel ? '/layer/' + projectSlug + '/' : '/layers/' + projectSlug + '/';
+    let artifactKnowledgeFilter = '';
     
     const referralRef = {json.dumps(request.args.get('ref') or '')};
     
@@ -813,11 +814,38 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
+    function ensureArtifactFilterBar() {{
+        const container = document.getElementById('artifacts-tab-container');
+        if (!container || container.dataset.klFilterBar) return;
+        container.dataset.klFilterBar = '1';
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-3 d-flex flex-wrap gap-1 align-items-center';
+        const forms = ['', 'inquiry', 'principle', 'model', 'conviction', 'decision', 'gloss', 'scenario'];
+        let btns = '<span class="small text-muted me-2">Contribution:</span>';
+        forms.forEach(function(kf, i) {{
+            const label = kf || 'All';
+            btns += '<button type="button" class="btn btn-sm btn-outline-secondary artifact-kf-btn' + (i === 0 ? ' active' : '') + '" data-kf="' + kf + '">' + label + '</button>';
+        }});
+        wrap.innerHTML = btns;
+        container.parentNode.insertBefore(wrap, container);
+        wrap.querySelectorAll('.artifact-kf-btn').forEach(function(btn) {{
+            btn.addEventListener('click', function() {{
+                wrap.querySelectorAll('.artifact-kf-btn').forEach(function(b) {{ b.classList.remove('active'); }});
+                btn.classList.add('active');
+                artifactKnowledgeFilter = btn.getAttribute('data-kf') || '';
+                loadArtifacts();
+            }});
+        }});
+    }}
+    
     async function loadArtifacts() {{
         const container = document.getElementById('artifacts-tab-container');
         if (!container || !project) return;
+        ensureArtifactFilterBar();
         try {{
-            const res = await fetch('/api/layers/' + project.id + '/artifacts/');
+            let url = '/api/layers/' + project.id + '/artifacts/';
+            if (artifactKnowledgeFilter) url += '?knowledge_form=' + encodeURIComponent(artifactKnowledgeFilter);
+            const res = await fetch(url, {{ credentials: 'same-origin' }});
             const data = await res.json();
             if (!res.ok) {{
                 container.innerHTML = '<p class="text-muted small">Unable to load artifacts.</p>';
@@ -825,15 +853,20 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }}
             const arts = data.artifacts || [];
             if (arts.length === 0) {{
-                container.innerHTML = '<p class="text-muted small mb-0">No artifacts yet. Submissions and quest outputs create artifacts.</p>';
+                const msg = artifactKnowledgeFilter
+                    ? 'No artifacts with this contribution type.'
+                    : 'No artifacts yet. Submissions and quest outputs create artifacts.';
+                container.innerHTML = '<p class="text-muted small mb-0">' + msg + '</p>';
                 return;
             }}
             let html = '<ul class="list-group list-group-flush">';
             arts.forEach(a => {{
                 const ref = a.public_ref || a.id;
                 const title = escapeHtmlBasic((a.title || a.public_ref || 'Untitled').slice(0, 60));
+                const kf = a.knowledge_form;
+                const kfBadge = kf ? '<span class="badge text-bg-info ms-1">' + escapeHtmlBasic(kf) + '</span>' : '';
                 const statusCls = (a.status === 'approved' || a.status === 'adopted') ? 'success' : (a.status === 'submitted' ? 'info' : 'secondary');
-                html += '<li class="list-group-item d-flex justify-content-between align-items-center"><a href="' + layerBase + 'artifacts/' + ref + '/" class="text-decoration-none">' + title + '</a><span class="badge bg-' + statusCls + '">' + (a.status || 'draft') + '</span></li>';
+                html += '<li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1"><span><a href="' + layerBase + 'artifacts/' + ref + '/" class="text-decoration-none">' + title + '</a>' + kfBadge + '</span><span class="badge bg-' + statusCls + '">' + (a.status || 'draft') + '</span></li>';
             }});
             html += '</ul>';
             container.innerHTML = html;
@@ -923,6 +956,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             case 'artifact_updated': text = who + ' updated an artifact'; tabId = 'artifacts'; break;
             case 'artifact_status_changed': text = who + ' changed artifact status: ' + (p.old_status || '') + ' → ' + (p.new_status || ''); tabId = 'artifacts'; break;
             case 'artifact_linked': text = who + ' linked artifacts' + (p.relation_type ? ' (' + p.relation_type + ')' : ''); tabId = 'artifacts'; break;
+            case 'contribution_type_set': text = (p.source === 'moderation' ? who + ' set contribution type (moderation): ' : who + ' set contribution type: ') + (p.knowledge_form || ''); tabId = 'artifacts'; break;
+            case 'contribution_type_cleared': text = (p.source === 'moderation' ? who + ' cleared contribution type (moderation)' : who + ' cleared contribution type'); tabId = 'artifacts'; break;
             case 'brick_placed': text = who + ' placed a brick on Civic Mason'; break;
             default: text = ev.event_type.replace(/_/g, ' ');
         }}
