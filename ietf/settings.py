@@ -1494,18 +1494,3 @@ if SERVER_MODE != 'production':
 
 
 YOUTUBE_DOMAINS = ['www.youtube.com', 'youtube.com', 'youtu.be', 'm.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com']
-
-# Hypothesis Annotation Configuration
-HYPOTHESIS_ENABLED = True  # Set to False to disable annotations globally
-HYPOTHESIS_CONFIG = {
-    'EMBED_URL': 'https://hypothes.is/embed.js',
-    'DEFAULT_VISIBILITY': 'user',  # 'user' means off by default, user can enable
-    'BRANDING': {
-        'appBackgroundColor': '#f8f9fa',
-        'ctaBackgroundColor': '#0d6efd',
-        'ctaTextColor': '#ffffff',
-        'selectionFontFamily': 'Inter, sans-serif',
-    },
-    'ENABLE_EXPERIMENTAL_NEW_NOTE_BUTTON': True,
-    'SHOW_HIGHLIGHTS': 'whenSidebarOpen',  # or 'always', 'never'
-}

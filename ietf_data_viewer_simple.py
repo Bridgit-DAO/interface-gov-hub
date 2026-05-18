@@ -12,210 +12,7 @@ Last Updated: 2026-01-23 (Ordinals integration with markdown detection)
 """
 
 # Build number for cache busting and version tracking
-BUILD_NUMBER = 74
-
-def create_hypothesis_account(user):
-    """Create a Hypothesis account for a Meta-Layer user via API"""
-    import requests
-    
-    # Check if user already has a Hypothesis account
-    existing = HypothesisAccount.query.filter_by(user_id=user['id']).first()
-    if existing:
-        return existing
-    
-    if not HYPOTHESIS_CONFIG.get('API_TOKEN'):
-        app.logger.error("No Hypothesis API token configured")
-        return None
-    
-    # Generate unique username
-    base_username = user.get('displayName', user.get('username', f'user{user["id"]}'))
-    # Clean username (Hypothesis requirements: alphanumeric + hyphens + underscores)
-    clean_username = ''.join(c for c in base_username if c.isalnum() or c in '-_').lower()
-    if not clean_username:
-        clean_username = f'mluser{user["id"]}'
-    
-    # Ensure uniqueness by adding timestamp
-    import time
-    username = f"{clean_username}_{int(time.time())}"
-    
-    try:
-        # Create user via Hypothesis API
-        headers = {
-            'Authorization': f'Bearer {HYPOTHESIS_CONFIG["API_TOKEN"]}',
-            'Content-Type': 'application/json'
-        }
-        
-        # Use the standard hypothes.is authority
-        hypothesis_userid = f"acct:{username}@hypothes.is"
-        
-        # Create user payload
-        user_data = {
-            'authority': 'hypothes.is',
-            'username': username,
-            'email': user.get('email', f'{username}@rfc.themetalayer.org'),
-            'display_name': user.get('displayName', username)
-        }
-        
-        # Note: The Hypothesis API doesn't have a direct user creation endpoint
-        # We'll store the mapping and let users authenticate normally
-        
-        # Store the account link
-        hypothesis_account = HypothesisAccount(
-            user_id=user['id'],
-            hypothesis_username=username,
-            hypothesis_userid=hypothesis_userid
-        )
-        db.session.add(hypothesis_account)
-        db.session.commit()
-        
-        app.logger.info(f"Created Hypothesis account mapping for user {user['id']}: {username}")
-        return hypothesis_account
-        
-    except Exception as e:
-        app.logger.error(f"Failed to create Hypothesis account for user {user['id']}: {e}")
-        return None
-
-def get_document_annotations(document_name, document_type='draft'):
-    """Fetch existing annotations for a document using Hypothesis API"""
-    import requests
-    
-    if not HYPOTHESIS_CONFIG.get('API_TOKEN'):
-        return []
-    
-    try:
-        headers = {
-            'Authorization': f'Bearer {HYPOTHESIS_CONFIG["API_TOKEN"]}',
-            'Content-Type': 'application/json'
-        }
-        
-        # Search for annotations with document-specific tags
-        tag = f"{document_type}:{document_name}"
-        url = f"{HYPOTHESIS_CONFIG['API_URL']}/search"
-        params = {
-            'tag': tag,
-            'limit': 200  # Maximum per request
-        }
-        
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('rows', [])
-        else:
-            app.logger.warning(f"Failed to fetch annotations: {response.status_code}")
-            return []
-            
-    except Exception as e:
-        app.logger.error(f"Error fetching annotations: {e}")
-        return []
-
-def create_annotation_via_api(document_name, document_type, text, quote, user):
-    """Create annotation via Hypothesis API.
-    WARNING: Uses the server's API token, so the annotation would be attributed to the
-    token owner (you), NOT the end user. Do NOT use for user-created content.
-    Only use for system/bot annotations if ever needed. User annotations are created
-    by the Hypothesis client in the browser under each user's own account.
-    """
-    import requests
-    
-    if not HYPOTHESIS_CONFIG.get('API_TOKEN'):
-        return None
-    
-    try:
-        headers = {
-            'Authorization': f'Bearer {HYPOTHESIS_CONFIG["API_TOKEN"]}',
-            'Content-Type': 'application/json'
-        }
-        
-        # Create annotation payload
-        annotation_data = {
-            'uri': f'https://dev.rfc.themetalayer.org/doc/{document_type}/{document_name}/',
-            'text': text,
-            'tags': [f'{document_type}:{document_name}', f'meta-layer:{document_type}'],
-            'target': [{
-                'source': f'https://dev.rfc.themetalayer.org/doc/{document_type}/{document_name}/',
-                'selector': [{
-                    'type': 'TextQuoteSelector',
-                    'exact': quote
-                }]
-            }],
-            'permissions': {
-                'read': ['group:__world__'],
-                'update': [f'acct:{user.get("username", "anonymous")}@hypothes.is'],
-                'delete': [f'acct:{user.get("username", "anonymous")}@hypothes.is'],
-                'admin': [f'acct:{user.get("username", "anonymous")}@hypothes.is']
-            }
-        }
-        
-        response = requests.post(
-            f"{HYPOTHESIS_CONFIG['API_URL']}/annotations",
-            headers=headers,
-            json=annotation_data,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            app.logger.warning(f"Failed to create annotation: {response.status_code}")
-            return None
-            
-    except Exception as e:
-        app.logger.error(f"Error creating annotation: {e}")
-        return None
-
-def generate_hypothesis_config(document_name=None, document_type='draft'):
-    """Generate Hypothesis configuration HTML for document pages"""
-    if not HYPOTHESIS_ENABLED:
-        return ""
-    
-    # Check if user has annotations enabled (via cookie)
-    annotations_enabled = request.cookies.get('annotations', 'off') == 'on'
-    if not annotations_enabled:
-        return ""
-    
-    # Get current user
-    current_user = get_current_user()
-    
-    # Generate document-specific tags
-    if document_type == 'draft':
-        # For drafts, include document name for revision-specific annotations
-        tags = f'["draft:{document_name}", "meta-layer:draft"]'
-    else:
-        # For other document types
-        tags = f'["{document_type}:{document_name}", "meta-layer:{document_type}"]'
-    
-    # For now, use standard Hypothesis (users create their own accounts)
-    # TODO: Implement full API integration when we get Hypothesis approval
-    auth_config = ""
-    
-    return f"""
-    <script>
-    window.hypothesisConfig = function () {{
-      return {{
-        branding: {{
-          appBackgroundColor: '{HYPOTHESIS_CONFIG['BRANDING']['appBackgroundColor']}',
-          ctaBackgroundColor: '{HYPOTHESIS_CONFIG['BRANDING']['ctaBackgroundColor']}',
-          ctaTextColor: '{HYPOTHESIS_CONFIG['BRANDING']['ctaTextColor']}',
-          selectionFontFamily: '{HYPOTHESIS_CONFIG['BRANDING']['selectionFontFamily']}'
-        }},
-        enableExperimentalNewNoteButton: {str(HYPOTHESIS_CONFIG['ENABLE_EXPERIMENTAL_NEW_NOTE_BUTTON']).lower()},
-        showHighlights: '{HYPOTHESIS_CONFIG['SHOW_HIGHLIGHTS']}',
-        openSidebar: false,{auth_config}
-        // Focus on document-specific annotations
-        focus: {{
-          user: {{
-            filter: {{
-              any: {{
-                tag: {tags}
-              }}
-            }}
-          }}
-        }}
-      }};
-    }};
-    </script>
-    <script async src="{HYPOTHESIS_CONFIG['EMBED_URL']}"></script>
-    """
+BUILD_NUMBER = 78
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -226,22 +23,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv('/home/ubuntu/xowlz/burned/.env')
 
-# Hypothesis Annotation Configuration
-HYPOTHESIS_ENABLED = True  # Set to False to disable annotations globally
-HYPOTHESIS_CONFIG = {
-    'EMBED_URL': 'https://hypothes.is/embed.js',
-    'API_URL': 'https://hypothes.is/api',
-    'API_TOKEN': os.getenv('HYPOTHESIS_API_TOKEN'),  # Server-only: read/count; never sent to client
-    'AUTHORITY': 'hypothes.is',  # Use hypothes.is authority for now
-    'BRANDING': {
-        'appBackgroundColor': '#16181c',  # Dark theme background
-        'ctaBackgroundColor': '#1d9bf0',  # Meta-Layer accent color
-        'ctaTextColor': '#ffffff',
-        'selectionFontFamily': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    },
-    'ENABLE_EXPERIMENTAL_NEW_NOTE_BUTTON': True,
-    'SHOW_HIGHLIGHTS': 'whenSidebarOpen',
-}
 import json
 import uuid
 import requests
@@ -271,6 +52,77 @@ try:
 except ImportError:
     MARKDOWN_SUPPORT = False
 
+
+def _markdown_preview_html(markdown_text: str):
+    """Markdown → sanitized HTML for submission preview. Tries markdown2, then `markdown` package."""
+    if not (markdown_text or '').strip():
+        return None
+    html_raw = None
+    try:
+        import markdown2 as _md2
+        html_raw = _md2.markdown(
+            markdown_text,
+            extras=['fenced-code-blocks', 'tables', 'break-on-newline'],
+        )
+    except Exception:
+        try:
+            import markdown as md_lib
+            html_raw = md_lib.markdown(
+                markdown_text,
+                extensions=['extra', 'nl2br', 'sane_lists'],
+            )
+        except Exception:
+            return None
+    if not html_raw or not str(html_raw).strip():
+        return None
+    try:
+        import bleach
+        allowed_tags = [
+            'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+            'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
+            'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span',
+        ]
+        allowed_attrs = {
+            'a': ['href', 'title', 'target'],
+            'img': ['src', 'alt', 'title', 'width', 'height'],
+        }
+        cleaned = bleach.clean(
+            html_raw, tags=allowed_tags, attributes=allowed_attrs, strip=True
+        )
+        return re.sub(
+            r'src="(/content/[^"]+)"',
+            r'src="https://ordinals.com\1"',
+            cleaned,
+        )
+    except Exception:
+        return None
+
+
+def _text_looks_like_markdown_for_preview(text: str) -> bool:
+    if not text or not text.strip():
+        return False
+    patterns = [
+        r'^#{1,6}\s+.+$',
+        r'\*\*.+\*\*',
+        r'^\s*[-*+]\s+',
+        r'^\s*\d+\.\s+',
+        r'\[.+\]\(.+\)',
+        r'!\[.*\]\(.+\)',
+        r'(?<!\*)\*(?!\*)([^*]+)\*(?!\*)',
+    ]
+    for pattern in patterns:
+        if re.search(pattern, text, re.MULTILINE):
+            return True
+    return False
+
+
+def _draft_ml_number_sort_tuple(draft):
+    """Higher ML draft/RFC numbers first when sorting with reverse=True."""
+    ml = (draft.get('ml_number') or '').strip()
+    found = re.findall(r'\d+', ml)
+    num = int(found[-1]) if found else -1
+    return (num, draft.get('name') or '')
+
 # Rate limiting for security
 rate_limit_store = defaultdict(list)
 
@@ -299,16 +151,6 @@ def init_db():
 
         # Run database migrations for ordinals support
         migrate_ordinals_support()
-        
-        # Check if we need to migrate for Hypothesis accounts
-        try:
-            # Test if HypothesisAccount table exists
-            db.session.execute(db.text("SELECT 1 FROM hypothesis_account LIMIT 1"))
-            print("✅ HypothesisAccount table exists")
-        except:
-            print("🔄 Creating HypothesisAccount table...")
-            db.create_all()
-            print("✅ HypothesisAccount table created")
 
         # Migrate hardcoded users to database if not already done
         if User.query.count() == 0:
@@ -629,25 +471,6 @@ class UserFollow(db.Model):
 
     __table_args__ = (db.UniqueConstraint('user_id', 'draft_name', name='unique_user_draft_follow'),)
 
-class HypothesisAccount(db.Model):
-    """Links Meta-Layer users to their Hypothesis accounts"""
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
-    hypothesis_username = db.Column(db.String(100), nullable=False, unique=True)
-    hypothesis_userid = db.Column(db.String(100), nullable=False, unique=True)  # acct:username@authority
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # Relationship
-    user = db.relationship('User', backref=db.backref('hypothesis_account', uselist=False))
-
-    NOTIFICATION_LEVELS = {
-        'all': 'All changes and comments',
-        'significant': 'Only significant changes (state changes, new revisions)',
-        'major': 'Only major changes (IESG actions, RFC publication)',
-        'comments': 'Only comments',
-        'none': 'No notifications (just tracking)'
-    }
-
 class CoordinatorRequest(db.Model):
     """User-requested coordinator role; requires approval. Ties coordinator to user id."""
     id = db.Column(db.Integer, primary_key=True)
@@ -818,7 +641,6 @@ def render_page(title, content, theme=None, user_menu=None):
         user_menu=user_menu,
         content=content,
         build_number=BUILD_NUMBER,
-        hypothesis_config=""
     )
 
 def process_ordinal_markdown(markdown_text):
@@ -1372,8 +1194,6 @@ BASE_TEMPLATE = """
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
-    {hypothesis_config}
-    
     <style>
         :root {{
             /* Light theme (default) */
@@ -1450,7 +1270,7 @@ BASE_TEMPLATE = """
             box-shadow: var(--shadow);
             padding: 0;
             height: 53px;
-            z-index: 1030 !important; /* Below Hypothesis sidebar/panels (~10000) so collapse & dropdown are visible */
+            z-index: 1030 !important; /* Keep collapse & dropdown usable above page chrome */
             position: relative !important;
             overflow: visible !important;
         }}
@@ -1886,7 +1706,7 @@ BASE_TEMPLATE = """
             background: var(--border-hover);
         }}
 
-        /* Dropdown menu above navbar but below Hypothesis UI */
+        /* Dropdown menu stacking relative to navbar */
         .dropdown-menu {{
             z-index: 1050 !important;
             border-radius: 12px;
@@ -2191,76 +2011,6 @@ BASE_TEMPLATE = """
 
         // Make loginWithWeb3Auth available globally
         window.loginWithWeb3Auth = loginWithWeb3Auth;
-        
-        // Hypothesis Annotation Toggle
-        function toggleAnnotations() {{
-            const button = document.getElementById('toggle-annotations');
-            const text = document.getElementById('annotations-text');
-            const currentState = getCookie('annotations') || 'off';
-            
-            if (currentState === 'off') {{
-                setCookie('annotations', 'on', 365);
-                button.className = 'btn btn-success w-100 mb-2';
-                text.textContent = 'Disable Annotations';
-                // Reload page to load Hypothesis
-                window.location.reload();
-            }} else {{
-                setCookie('annotations', 'off', 365);
-                button.className = 'btn btn-outline-info w-100 mb-2';
-                text.textContent = 'Enable Annotations';
-                // Reload page to remove Hypothesis
-                window.location.reload();
-            }}
-        }}
-        
-        // Cookie helper functions
-        function setCookie(name, value, days) {{
-            const expires = new Date();
-            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
-            document.cookie = name + '=' + value + ';expires=' + expires.toUTCString() + ';path=/';
-        }}
-        
-        function getCookie(name) {{
-            const nameEQ = name + "=";
-            const ca = document.cookie.split(';');
-            for(let i = 0; i < ca.length; i++) {{
-                let c = ca[i];
-                while (c.charAt(0) == ' ') c = c.substring(1, c.length);
-                if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
-            }}
-            return null;
-        }}
-        
-        // Update button state on page load
-        document.addEventListener('DOMContentLoaded', function() {{
-            const button = document.getElementById('toggle-annotations');
-            const text = document.getElementById('annotations-text');
-            if (button && text) {{
-                const currentState = getCookie('annotations') || 'off';
-                if (currentState === 'on') {{
-                    button.className = 'btn btn-success w-100 mb-2';
-                    text.textContent = 'Disable Annotations';
-                }} else {{
-                    button.className = 'btn btn-outline-info w-100 mb-2';
-                    text.textContent = 'Enable Annotations';
-                }}
-            }}
-            
-            // Load annotation count
-            const countElement = document.getElementById('annotation-count');
-            if (countElement) {{
-                const documentName = window.location.pathname.split('/').pop().replace('/', '');
-                fetch(`/api/annotations/${{documentName}}/count`)
-                    .then(response => response.json())
-                    .then(data => {{
-                        const count = data.count || 0;
-                        countElement.innerHTML = `<i class="fas fa-comment-dots me-1"></i>${{count}} annotation${{count !== 1 ? 's' : ''}}`;
-                    }})
-                    .catch(error => {{
-                        countElement.textContent = '';
-                    }});
-            }}
-        }});
     </script>
 </body>
 </html>
@@ -2704,10 +2454,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         previewContent.innerHTML = `<div class="border p-3" style="max-height: 400px; overflow-y: auto;">${html}</div>`;
                     }
                 });
-        } else if (contentType.includes('text/html')) {
-            console.log('→ RENDERING AS HTML');
-            // Display HTML in sandboxed iframe
-            previewContent.innerHTML = `<iframe src="${contentUrl}" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: 1px solid var(--card-border);"></iframe>`;
+        } else if (contentType.includes('text/html') || contentType.includes('text/htm')) {
+            console.log('→ RENDERING AS HTML IFRAME');
+            // Display HTML in iframe - wrapper with light bg for dark mode compatibility
+            previewContent.innerHTML = `<div style="background: white; padding: 1rem; border-radius: 8px;">
+                <iframe src="${contentUrl}" 
+                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms" 
+                        referrerpolicy="no-referrer" 
+                        title="HTML Ordinal Inscription"
+                        style="width: 100%; min-height: 800px; height: 800px; border: 1px solid #ddd; border-radius: 4px; background: white;"></iframe>
+            </div>`;
         } else {
             console.log('→ UNSUPPORTED TYPE');
             previewContent.innerHTML = `<div class="alert alert-info">Content type: ${contentType}<br>Cannot preview this content type.</div>`;
@@ -2758,12 +2514,13 @@ def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_secon
     Calculate pages and words from a file.
     Returns: (pages, words) tuple
     Defaults to (1, 0) if calculation fails
-    
-    Security features:
-    - File size limit (default 50MB)
-    - Processing timeout (default 30s)
-    - Safe error handling
+
+    Security: file size limit (default 50MB).
+
+    Note: No SIGALRM timeout — Flask serves requests on worker threads; signals only
+    work in the main thread and caused (1, 0) for all files under threaded servers.
     """
+    del timeout_seconds  # call-site compatibility
     try:
         # Check file size (security: prevent memory exhaustion)
         file_size = os.path.getsize(file_path)
@@ -2776,57 +2533,118 @@ def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_secon
         words = 0
         pages = 1
         
-        # Use signal for timeout (Unix-like systems only)
-        import signal
-        
-        def timeout_handler(signum, frame):
-            raise TimeoutError("File processing timeout")
-        
-        # Set timeout alarm (if supported)
-        if hasattr(signal, 'SIGALRM'):
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(timeout_seconds)
-        
-        try:
-            if ext in ['.txt', '.xml']:
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-                words = len(content.split())
-                pages = max(1, (words + 499) // 500)  # ~500 words per page
-                
-            elif ext == '.docx' and DOCX_SUPPORT:
-                doc = docx.Document(file_path)
-                content_parts = []
-                for paragraph in doc.paragraphs:
-                    if paragraph.text.strip():
-                        content_parts.append(paragraph.text)
-                content = '\n\n'.join(content_parts)
-                words = len(content.split())
-                pages = max(1, (words + 499) // 500)
-                
-            elif ext == '.pdf' and PDF_SUPPORT:
-                reader = PyPDF2.PdfReader(file_path)
-                content_parts = []
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text.strip():
-                        content_parts.append(text)
-                content = '\n\n'.join(content_parts)
-                words = len(content.split())
-                pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
-        finally:
-            # Cancel timeout alarm
-            if hasattr(signal, 'SIGALRM'):
-                signal.alarm(0)
+        if ext in ['.txt', '.xml', '.md', '.markdown']:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+            words = len(content.split())
+            pages = max(1, (words + 499) // 500)  # ~500 words per page
+            
+        elif ext == '.docx' and DOCX_SUPPORT:
+            doc = docx.Document(file_path)
+            content_parts = []
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    content_parts.append(paragraph.text)
+            content = '\n\n'.join(content_parts)
+            words = len(content.split())
+            pages = max(1, (words + 499) // 500)
+            
+        elif ext == '.pdf' and PDF_SUPPORT:
+            reader = PyPDF2.PdfReader(file_path)
+            content_parts = []
+            for page in reader.pages:
+                text = page.extract_text()
+                if text.strip():
+                    content_parts.append(text)
+            content = '\n\n'.join(content_parts)
+            words = len(content.split())
+            pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
         
         return (pages, words)
         
-    except TimeoutError:
-        print(f"[WARNING] File processing timeout for {filename}")
-        return (1, 0)
     except Exception as e:
         print(f"[WARNING] Failed to calculate pages/words for {filename}: {e}")
         return (1, 0)  # Default fallback
+
+def _resolve_submission_disk_path(file_path, filename, upload_folder):
+    """Use stored path if present; else try upload dir + basename (path drift on deploy)."""
+    if file_path and os.path.isfile(file_path):
+        return file_path
+    if upload_folder and filename:
+        cand = os.path.join(upload_folder, os.path.basename(filename))
+        if os.path.isfile(cand):
+            return cand
+    if upload_folder and file_path:
+        cand = os.path.join(upload_folder, os.path.basename(file_path))
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+def _ordinal_text_word_page_count(submission):
+    """(pages, words) from ordinal URL for text/json inscriptions; None if not applicable or fetch fails."""
+    url = getattr(submission, 'ordinalContentUrl', None)
+    ctype = (getattr(submission, 'ordinalContentType', None) or '').lower()
+    if not url or not ('text/' in ctype or 'application/json' in ctype):
+        return None
+    try:
+        import requests
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        r = requests.get(url, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return None
+        wc = len(r.text.split())
+        pc = max(1, (wc + 499) // 500)
+        return (pc, wc)
+    except Exception:
+        return None
+
+def submission_file_pages_words(submission):
+    """
+    Pages/word count for UI: prefer calculating from upload file when possible;
+    for text ordinals with 0 words in DB, fetch inscription body (listing/detail).
+    """
+    if submission is None:
+        return 1, 0
+    st = (getattr(submission, 'sourceType', None) or 'file').strip().lower()
+    fp = getattr(submission, 'file_path', None) or None
+    fn = getattr(submission, 'filename', None) or None
+    fallback_pages = max(1, submission.pages or 1)
+    fallback_words = int(submission.words or 0)
+
+    if st == 'file' and fn:
+        resolved = _resolve_submission_disk_path(fp, fn, UPLOAD_FOLDER)
+        if resolved:
+            pages, words = calculate_pages_and_words(resolved, fn)
+            return pages, words
+
+    if st == 'ordinal' and fallback_words == 0:
+        got = _ordinal_text_word_page_count(submission)
+        if got:
+            return got
+
+    return fallback_pages, fallback_words
+
+def revision_notes_to_safe_html(text):
+    """Plain-text revision notes → safe HTML: blank lines → paragraphs; single newlines → <br />."""
+    from html import escape
+    if text is None:
+        return ''
+    raw = str(text).strip()
+    if not raw:
+        return ''
+    normalized = raw.replace('\r\n', '\n').replace('\r', '\n')
+    blocks = [b.strip() for b in re.split(r'\n\s*\n', normalized) if b.strip()]
+    if not blocks:
+        return ''
+    parts = []
+    n = len(blocks)
+    for i, block in enumerate(blocks):
+        inner = escape(block).replace('\n', '<br />\n')
+        margin = 'mb-2' if i < n - 1 else 'mb-0'
+        parts.append(f'<p class="{margin}">{inner}</p>')
+    return ''.join(parts)
 
 @app.route('/submit/', methods=['GET', 'POST'])
 @require_auth
@@ -2882,11 +2700,11 @@ def submit_draft():
             # Validation
             if not title or not authors or not ordinal_id:
                 flash('Title, authors, and inscription ID are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             if not ordinal_content_url:
                 flash('Please preview the ordinal before submitting', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Fetch ordinal content and calculate pages/words
             try:
@@ -2947,7 +2765,7 @@ def submit_draft():
             # Validation
             if not title or not authors or not file:
                 flash('Title, authors, and file are required', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Security: Check file size (max 50MB)
             file.seek(0, os.SEEK_END)
@@ -2956,7 +2774,7 @@ def submit_draft():
             max_size = 50 * 1024 * 1024  # 50MB
             if file_size > max_size:
                 flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
-                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             
             # Save file
             filename = f"{submission_id}-{file.filename}"
@@ -2995,7 +2813,7 @@ def submit_draft():
         flash('Draft submitted successfully!', 'success')
         return redirect(f'/submit/status/{submission_id}/')
 
-    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title="Submit Internet-Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
 @app.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
 @require_auth
@@ -3414,7 +3232,7 @@ def submit_revision(draft_name):
     </script>
     """
     
-    return BASE_TEMPLATE.format(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER)
 
 SUBMISSION_STATUS_TEMPLATE = """
 <div class="container mt-4">
@@ -3426,7 +3244,7 @@ SUBMISSION_STATUS_TEMPLATE = """
         </ol>
     </nav>
     
-    <h1>Submission Status</h1>
+    <h1>{{ status_page_heading }}</h1>
     <p class="lead">Track your Internet-Draft submission</p>
 
     <div id="flash-messages"></div>
@@ -3465,13 +3283,13 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <a href="/doc/draft/{{ parent_draft_name }}/">{{ parent_draft_name }}</a>
                     </div>
                     {% endif %}
-                    {% if what_changed %}
+                    {% if what_changed_html %}
                     <div class="card mb-3">
                         <div class="card-header">
                             <strong>What changed (submitter's explanation)</strong>
                         </div>
-                        <div class="card-body">
-                            <p class="mb-0">{{ what_changed }}</p>
+                        <div class="card-body revision-notes">
+                            {{ what_changed_html | safe }}
                         </div>
                     </div>
                     {% endif %}
@@ -3813,7 +3631,7 @@ def submission_status():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/submit/status/<submission_id>/')
 @require_auth
@@ -3858,13 +3676,22 @@ def submission_detail(submission_id):
         if ordinal_content_type.startswith('image/'):
             print("→ Rendering as image")
             content_preview_html = f'<img src="{ordinal_content_url}" class="img-fluid" style="max-height: 400px;" alt="Ordinal content">'
+        elif 'text/html' in ordinal_content_type:
+            print("→ Rendering as HTML iframe (PRIORITY CHECK)")
+            # HTML must be checked BEFORE text/plain to avoid markdown detection on HTML source
+            # Wrapper with light background for dark mode compatibility
+            content_preview_html = f'''<div style="background: white; padding: 1rem; border-radius: 8px;">
+                <iframe src="{ordinal_content_url}" 
+                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms" 
+                        referrerpolicy="no-referrer" 
+                        title="HTML Ordinal Inscription"
+                        style="width: 100%; min-height: 800px; height: 800px; border: 1px solid #ddd; border-radius: 4px; background: white;"></iframe>
+            </div>'''
+            file_content = ""
         elif 'text/plain' in ordinal_content_type or 'text/javascript' in ordinal_content_type or 'application/json' in ordinal_content_type or 'application/javascript' in ordinal_content_type:
             print("→ Rendering as text/plain or text/javascript or application/json")
             # Fetch and display text-based content (handles charset parameters)
             try:
-                import markdown2
-                import bleach
-                import re
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
@@ -3873,45 +3700,26 @@ def submission_detail(submission_id):
                 print(f"Text content length: {len(text_content)}")
                 print(f"First 100 chars: {text_content[:100]}")
                 
-                # Check if content is markdown
-                is_markdown = False
-                if 'text/plain' in ordinal_content_type:
-                    # Detect markdown patterns
-                    markdown_patterns = [
-                        r'^#{1,6}\s+.+$',  # Headers
-                        r'\*\*.+\*\*',      # Bold
-                        r'\*.+\*',          # Italic
-                        r'^\s*[-*+]\s+',    # Lists
-                        r'^\s*\d+\.\s+',    # Numbered lists
-                        r'\[.+\]\(.+\)',    # Links
-                        r'!\[.*\]\(.+\)'    # Images
-                    ]
-                    for pattern in markdown_patterns:
-                        if re.search(pattern, text_content, re.MULTILINE):
-                            is_markdown = True
-                            print(f"→ DETECTED MARKDOWN (pattern: {pattern})")
-                            break
+                if 'text/plain' in ordinal_content_type and _text_looks_like_markdown_for_preview(
+                    text_content
+                ):
+                    is_markdown = True
+                else:
+                    is_markdown = False
                 
                 if is_markdown:
-                    # Convert markdown to HTML
-                    html_content = markdown2.markdown(text_content, extras=['fenced-code-blocks', 'tables', 'break-on-newline'])
-                    
-                    # Sanitize HTML
-                    allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                                  'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
-                                  'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span']
-                    allowed_attrs = {'a': ['href', 'title', 'target'], 'img': ['src', 'alt', 'title', 'width', 'height']}
-                    html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
-                    
-                    # Fix relative image URLs to point to ordinals.com
-                    html_content = re.sub(
-                        r'src="(/content/[^"]+)"',
-                        r'src="https://ordinals.com\1"',
-                        html_content
-                    )
-                    
-                    content_preview_html = f'<div class="border p-3" style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
-                    file_content = ""  # Clear file_content since we're using content_preview_html
+                    html_content = _markdown_preview_html(text_content)
+                    if html_content:
+                        content_preview_html = (
+                            f'<div class="border p-3 markdown-body" style="max-height: 400px; overflow-y: auto;">'
+                            f'{html_content}</div>'
+                        )
+                        file_content = ""
+                    else:
+                        if len(text_content) > 2000:
+                            file_content = text_content[:2000] + "..."
+                        else:
+                            file_content = text_content
                 else:
                     # Display as plain text
                     if len(text_content) > 2000:
@@ -3922,7 +3730,9 @@ def submission_detail(submission_id):
             except Exception as e:
                 print(f"ERROR fetching text content: {e}")
                 file_content = "Error loading ordinal text content"
-        elif 'text/markdown' in ordinal_content_type:
+        elif 'text/markdown' in ordinal_content_type or (
+            ordinal_content_type and 'markdown' in ordinal_content_type.lower()
+        ):
             # Fetch, convert, and display markdown
             try:
                 headers = {
@@ -3930,20 +3740,18 @@ def submission_detail(submission_id):
                 }
                 response = requests.get(ordinal_content_url, headers=headers, timeout=10)
                 markdown_text = response.text
-                if MARKDOWN_SUPPORT:
-                    html_content = markdown2.markdown(
-                        markdown_text,
-                        extras=['fenced-code-blocks', 'tables', 'break-on-newline']
+                html_content = _markdown_preview_html(markdown_text)
+                if html_content:
+                    content_preview_html = (
+                        f'<div class="border p-3 markdown-body" style="max-height: 400px; overflow-y: auto;">'
+                        f'{html_content}</div>'
                     )
-                    content_preview_html = f'<div class="border p-3" style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
                 else:
-                    file_content = markdown_text[:2000] + ("..." if len(markdown_text) > 2000 else "")
-            except:
+                    file_content = markdown_text[:2000] + (
+                        "..." if len(markdown_text) > 2000 else ""
+                    )
+            except Exception:
                 file_content = "Error loading ordinal markdown content"
-        elif 'text/html' in ordinal_content_type:
-            print("→ Rendering as HTML iframe")
-            # Display HTML in iframe (handles charset parameters)
-            content_preview_html = f'<iframe src="{ordinal_content_url}" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: 1px solid var(--card-border);"></iframe>'
         else:
             print(f"→ UNSUPPORTED content type")
             file_content = f"Ordinal content type: {ordinal_content_type}\\nPreview not available for this content type."
@@ -3957,12 +3765,40 @@ def submission_detail(submission_id):
                 # Text-based files can be previewed directly
                 with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
                     content = f.read()
-                    # Limit preview to first 2000 characters
+                if ext == '.txt' and _text_looks_like_markdown_for_preview(content):
+                    html_content = _markdown_preview_html(content)
+                    if html_content:
+                        content_preview_html = (
+                            f'<div class="border p-3 markdown-body" style="max-height: 400px; overflow-y: auto;">'
+                            f'{html_content}</div>'
+                        )
+                        file_content = ""
+                    else:
+                        if len(content) > 2000:
+                            file_content = content[:2000] + "..."
+                        else:
+                            file_content = content
+                else:
                     if len(content) > 2000:
                         file_content = content[:2000] + "..."
                     else:
                         file_content = content
 
+            elif ext in ('.md', '.markdown'):
+                with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                html_content = _markdown_preview_html(content)
+                if html_content:
+                    content_preview_html = (
+                        f'<div class="border p-3 markdown-body" style="max-height: 400px; overflow-y: auto;">'
+                        f'{html_content}</div>'
+                    )
+                    file_content = ""
+                else:
+                    if len(content) > 2000:
+                        file_content = content[:2000] + "..."
+                    else:
+                        file_content = content
             elif ext == '.docx':
                 # Extract text from DOCX files
                 from docx import Document
@@ -4028,13 +3864,18 @@ def submission_detail(submission_id):
             file_size_kb = file_size / 1024
             file_content = f"Error extracting text from {ext[1:].upper()} file ({file_size_kb:.1f} KB): {str(e)}"
 
-    # Use Flask's Jinja2 render_template_string properly - BEST PRACTICE
     # Prepare template variables
+    _tt = (submission.title or '').strip()
+    _dd = (getattr(submission, 'draft_name', None) or '').strip()
+    status_page_heading = _tt or _dd or 'Submission Status'
+    status_doc_title = _tt or _dd or f'Submission {submission.id}'
+
     template_vars = {
         'submission': submission,
         'current_user': current_user,
         'file_content': file_content,
         'content_preview_html': content_preview_html,
+        'status_page_heading': status_page_heading,
         'submission_id': submission.id,
         'submission_status': submission.status,
         'submission_status_title': submission.status.title(),
@@ -4068,7 +3909,9 @@ def submission_detail(submission_id):
         'is_revision': getattr(submission, 'is_revision', False),
         'parent_draft_name': getattr(submission, 'parent_draft_name', ''),
         'revision_number': getattr(submission, 'revision_number', ''),
-        'what_changed': getattr(submission, 'what_changed', '')
+        'what_changed_html': revision_notes_to_safe_html(
+            getattr(submission, 'what_changed', '') or ''
+        )
     }
     
     # Render the submission status template using Flask's Jinja2 engine
@@ -4076,7 +3919,7 @@ def submission_detail(submission_id):
     rendered_content = render_template_string(SUBMISSION_STATUS_TEMPLATE, **template_vars)
     
     # Now use the rendered content in BASE_TEMPLATE (which uses Python .format())
-    return BASE_TEMPLATE.format(title=f"Submission {submission.id} - MLGH", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title=f"{status_doc_title} - MLGH", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER)
 
 LOGIN_TEMPLATE = """
 <div class="container mt-4">
@@ -4498,7 +4341,7 @@ def register():
         <a class="nav-link" href="/login/">Sign In</a>
     </div>
     """
-    return render_template_string(BASE_TEMPLATE.format(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER, hypothesis_config=""))
+    return render_template_string(BASE_TEMPLATE.format(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER))
 
 # Ordinals API routes
 @app.route('/api/ordinal/preview', methods=['POST'])
@@ -4972,7 +4815,7 @@ def profile():
         auto_selected=auto_selected,
         session_user=session['user']
     )
-    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLGH", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER, hypothesis_config=""))
+    return render_template_string(BASE_TEMPLATE.format(title="Profile - MLGH", theme=current_theme, user_menu=user_menu, content=profile_content, build_number=BUILD_NUMBER))
 
 @app.route('/admin/')
 @require_role('admin')
@@ -5220,7 +5063,7 @@ def admin_dashboard():
         title="Admin Dashboard - MLGH",
         theme=get_current_user().get('theme', 'dark'),
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 @app.route('/admin/users/')
 @require_role('admin')
@@ -5449,7 +5292,7 @@ def admin_users():
         title="User Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/users/<username>/role', methods=['POST'])
 @require_role('admin')
@@ -5759,7 +5602,7 @@ def admin_submissions():
         title="Submission Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/submissions/<submission_id>/status', methods=['POST'])
 @require_role('admin')
@@ -6388,7 +6231,7 @@ def admin_analytics():
         title="Analytics - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/chairs/')
 @require_auth
@@ -6550,7 +6393,7 @@ def admin_chairs():
         title="Coordinator Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+        content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/users/<int:user_id>/add-coordinator', methods=['GET', 'POST'])
 @require_role('admin')
@@ -6751,7 +6594,7 @@ def admin_member_requests():
         </div>
     </div>
     """
-    return BASE_TEMPLATE.format(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/admin/member_requests/<int:req_id>/approve')
 @require_role('admin')
@@ -6873,7 +6716,7 @@ def home():
             </div>
         </div>
     </div>
-    """, build_number=BUILD_NUMBER, hypothesis_config="")
+    """, build_number=BUILD_NUMBER)
 
 @app.route('/doc/active/')
 def active_documents():
@@ -6910,9 +6753,8 @@ def all_documents():
         # Use the latest approved revision if it exists, otherwise use the original
         display_submission = latest_revision if latest_revision else submission
         
-        # Use stored pages and words values (calculated on submission)
-        pages = display_submission.pages if display_submission.pages else 1
-        words = display_submission.words if display_submission.words else 0
+        # Prefer live counts from file (fixes .md etc. when DB still has 0 words)
+        pages, words = submission_file_pages_words(display_submission)
         
         # Get revision info for display
         is_revision = getattr(display_submission, 'is_revision', False)
@@ -6934,6 +6776,8 @@ def all_documents():
             'revision_number': revision_number
         })
     
+    all_docs = sorted(all_docs, key=_draft_ml_number_sort_tuple, reverse=True)
+
     docs_html = ""
     for draft in all_docs:
         display_id = draft.get('ml_number') or draft['name']
@@ -6984,7 +6828,7 @@ def all_documents():
     </div>
     """
 
-    return BASE_TEMPLATE.format(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<path:draft_name>.txt')
 def draft_text(draft_name):
@@ -7149,6 +6993,9 @@ def draft_detail(draft_name):
                         # Keep defaults
                         pass
             
+            else:
+                pages_count, words_count = submission_file_pages_words(submission)
+
             # Create a draft-like object from the submission
             draft = {
                 'name': submission.id,
@@ -7183,6 +7030,7 @@ def draft_detail(draft_name):
     document_content = "Document content not available."
     calculated_pages = draft.get('pages', 1)
     calculated_words = draft.get('words', 0)
+    render_document_as_html = False
 
     # Try to get content from ordinal first
     if submission and draft.get('sourceType') == 'ordinal':
@@ -7230,6 +7078,7 @@ def draft_detail(draft_name):
                     if is_markdown:
                         # Use shared markdown processing function for consistency
                         document_content = process_ordinal_markdown(raw_content)
+                        render_document_as_html = True
                     else:
                         # Display as plain text
                         document_content = raw_content
@@ -7238,6 +7087,7 @@ def draft_detail(draft_name):
                 document_content = f"Error loading ordinal content: {str(e)}"
         elif ordinal_content_url and ordinal_content_type.startswith('image/'):
             document_content = f'<img src="{ordinal_content_url}" class="img-fluid" style="max-width: 100%;" alt="Ordinal image content">'
+            render_document_as_html = True
         else:
             document_content = f"Ordinal content type: {ordinal_content_type}\nPreview not available for this content type."
     
@@ -7245,14 +7095,32 @@ def draft_detail(draft_name):
     elif submission and submission.file_path and os.path.exists(submission.file_path):
         _, ext = os.path.splitext(submission.filename.lower())
         try:
-            if ext in ['.txt', '.xml']:
+            if ext in ['.txt', '.xml', '.md', '.markdown']:
                 with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    document_content = f.read()
+                    raw_text = f.read()
+                words = len(raw_text.split())
                 # Calculate words and pages from text
-                words = len(document_content.split())
-                # Estimate pages (assuming ~500 words per page)
                 calculated_pages = max(1, (words + 499) // 500)
                 calculated_words = words
+                if ext in ('.md', '.markdown'):
+                    md_html = _markdown_preview_html(raw_text)
+                    if md_html:
+                        document_content = md_html
+                        render_document_as_html = True
+                    else:
+                        document_content = raw_text
+                elif ext == '.txt':
+                    if _text_looks_like_markdown_for_preview(raw_text):
+                        md_html = _markdown_preview_html(raw_text)
+                        if md_html:
+                            document_content = md_html
+                            render_document_as_html = True
+                        else:
+                            document_content = raw_text
+                    else:
+                        document_content = raw_text
+                else:
+                    document_content = raw_text
             elif ext == '.docx':
                 from docx import Document
                 doc = Document(submission.file_path)
@@ -7282,6 +7150,7 @@ def draft_detail(draft_name):
                 # Create embedded PDF viewer for display
                 file_size = os.path.getsize(submission.file_path)
                 file_size_kb = file_size / 1024
+                render_document_as_html = True
                 document_content = f'''
 <div class="pdf-viewer-container">
     <div class="alert alert-info mb-3">
@@ -7371,7 +7240,7 @@ Meta-Layer Initiative
     revision_badge = f'<span class="badge bg-success ms-2">Revision {revision_number}</span>' if is_revision and revision_number else ''
     
     # Determine content styling based on source type
-    if draft.get('sourceType') == 'ordinal':
+    if draft.get('sourceType') == 'ordinal' or render_document_as_html:
         content_style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6;"
     else:
         content_style = "font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4; white-space: pre-wrap;"
@@ -7444,22 +7313,8 @@ Meta-Layer Initiative
                     </div>
                     <div class="card-body">
                         {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>' if draft.get('status') == 'approved' else ''}
-                        {f'<div class="small text-muted mb-2" id="annotation-count">Loading annotation count...</div>' if HYPOTHESIS_ENABLED else ''}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
                         <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
-                        
-                        {f'''<div class="border-top pt-2 mt-2">
-                            <h6 class="text-muted mb-2">Annotations</h6>
-                            <button id="toggle-annotations" class="btn btn-outline-info w-100 mb-2" onclick="toggleAnnotations()">
-                                <i class="fas fa-comment-dots me-1"></i>
-                                <span id="annotations-text">Enable Annotations</span>
-                            </button>
-                            {'<div class="alert alert-info small mt-2" role="alert"><i class="fas fa-user-plus me-1"></i><strong>First time?</strong> <a href="https://hypothes.is/signup" target="_blank" class="alert-link">Create free Hypothesis account</a> (30 seconds) to annotate and highlight text.</div>' if not current_user or not current_user.get('hypothesis_account') else ''}
-                            <small class="text-muted d-block">
-                                Powered by <a href="https://hypothes.is" target="_blank" class="text-decoration-none">Hypothesis</a>. 
-                                Public annotations visible to everyone.
-                            </small>
-                        </div>''' if HYPOTHESIS_ENABLED else ''}
                         {f'<a href="/submit/revision/{draft["name"]}/" class="btn btn-success w-100 mb-2"><i class="fas fa-plus me-1"></i>Submit New Revision</a>' if current_user and draft.get('status') == 'approved' else ''}
                         {'' if draft.get('sourceType') == 'ordinal' else f'<a href="/download/{draft["name"]}" class="btn btn-outline-primary w-100 mb-2">Download Document</a>'}
                         {'<form method="post" action="/doc/draft/' + draft['name'] + '/follow/" style="display: inline;" class="mb-2"><select name="notification_level" class="form-select form-select-sm mb-1"><option value="all">All changes & comments</option><option value="significant">Significant changes only</option><option value="major">Major changes only</option><option value="comments">Comments only</option><option value="none">No notifications</option></select><button type="submit" class="btn btn-success w-100"><i class="fas fa-bell me-1"></i>Follow Document</button></form>' if current_user and draft.get('status') == 'approved' and not is_user_following_draft(draft_name, current_user) else ''}
@@ -7505,16 +7360,12 @@ Meta-Layer Initiative
     else:
         title_id = draft['name']
     
-    # Generate Hypothesis configuration for this document
-    hypothesis_config = generate_hypothesis_config(document_name=draft['name'], document_type='draft')
-    
     return BASE_TEMPLATE.format(
         title=f"{title_id} - MLGH", 
         theme=current_theme, 
         user_menu=user_menu, 
         content=content, 
         build_number=BUILD_NUMBER,
-        hypothesis_config=hypothesis_config
     )
 
 @app.route('/doc/draft/<draft_name>/comments/', methods=['GET', 'POST'])
@@ -7830,7 +7681,7 @@ def draft_comments(draft_name):
     </script>
 """
 
-    return BASE_TEMPLATE.format(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<draft_name>/history/')
 def draft_history(draft_name):
@@ -7913,7 +7764,7 @@ def draft_history(draft_name):
             </div>
     """
 
-    return BASE_TEMPLATE.format(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/doc/draft/<draft_name>/follow/', methods=['POST'])
 def follow_draft(draft_name):
@@ -8001,6 +7852,7 @@ def draft_revisions(draft_name):
             else:
                 original_submission_id = submission.id
             
+            sub_p, sub_w = submission_file_pages_words(submission)
             # For the revisions page, just show the requested draft as-is
             # Don't try to find the "latest" - show what was requested
             draft = {
@@ -8011,8 +7863,8 @@ def draft_revisions(draft_name):
                 'group': submission.group,
                 'date': submission.submitted_at.strftime('%Y-%m-%d') if submission.submitted_at else '',
                 'rev': getattr(submission, 'revision_number', '00') or '00',
-                'pages': submission.pages or 1,
-                'words': submission.words or 0,
+                'pages': sub_p,
+                'words': sub_w,
                 'is_revision': getattr(submission, 'is_revision', False),
                 'parent_draft_name': getattr(submission, 'parent_draft_name', ''),
                 'original_submission_id': original_submission_id,  # Always the true original
@@ -8025,62 +7877,10 @@ def draft_revisions(draft_name):
     # Determine display ID (ML-Draft-XXX or internal ID)
     display_id = draft.get('ml_number', draft_name) or draft_name
 
-    # Calculate pages and words from document content if it's a submission
-    calculated_pages = draft.get('pages', 1)
-    calculated_words = draft.get('words', 0)
-    
-    if submission and submission.file_path and os.path.exists(submission.file_path):
-        _, ext = os.path.splitext(submission.filename.lower())
-        try:
-            if ext in ['.txt', '.xml']:
-                with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    document_content = f.read()
-                # Calculate words and pages from text
-                words = len(document_content.split())
-                # Estimate pages (assuming ~500 words per page)
-                calculated_pages = max(1, (words + 499) // 500)
-                calculated_words = words
-            elif ext == '.docx':
-                from docx import Document
-                doc = Document(submission.file_path)
-                content_parts = []
-                for paragraph in doc.paragraphs:
-                    if paragraph.text.strip():
-                        content_parts.append(paragraph.text)
-                for table in doc.tables:
-                    for row in table.rows:
-                        for cell in row.cells:
-                            if cell.text.strip():
-                                content_parts.append(cell.text)
-                document_content = '\n\n'.join(content_parts)
-                # Calculate words and pages
-                words = len(document_content.split())
-                calculated_pages = max(1, (words + 499) // 500)
-                calculated_words = words
-            elif ext == '.pdf':
-                from PyPDF2 import PdfReader
-                reader = PdfReader(submission.file_path)
-                content_parts = []
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text.strip():
-                        content_parts.append(text)
-                document_content = '\n\n'.join(content_parts)
-                # Clean up PDF text
-                import re
-                document_content = re.sub(r'\n+', '\n', document_content)
-                document_content = re.sub(r' +', ' ', document_content)
-                # Calculate words and pages
-                words = len(document_content.split())
-                calculated_pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
-                calculated_words = words
-        except Exception as e:
-            # If calculation fails, keep default values
-            pass
-        
-        # Update draft with calculated values
-        draft['pages'] = calculated_pages
-        draft['words'] = calculated_words
+    if submission:
+        cp, cw = submission_file_pages_words(submission)
+        draft['pages'] = cp
+        draft['words'] = cw
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
@@ -8090,6 +7890,9 @@ def draft_revisions(draft_name):
     
     # Get the original submission for display
     original_submission = Submission.query.filter_by(id=original_id).first()
+    orig_pages, orig_words = (
+        submission_file_pages_words(original_submission) if original_submission else (1, 0)
+    )
     
     # Find all approved/published revisions for this draft
     all_revisions = Submission.query.filter(
@@ -8108,12 +7911,17 @@ def draft_revisions(draft_name):
             'published': 'bg-info'
         }.get(rev.status, 'bg-secondary')
         
-        what_changed = getattr(rev, 'what_changed', '')
-        what_changed_html = f'<p class="mb-2"><strong>What changed:</strong> {what_changed}</p>' if what_changed else ''
+        wc_block = revision_notes_to_safe_html(getattr(rev, 'what_changed', '') or '')
+        what_changed_html = (
+            f'<div class="what-changed-notes"><p class="mb-2"><strong>What changed:</strong></p>{wc_block}</div>'
+            if wc_block else ''
+        )
         
         # Check if this is the current revision
         is_current = (rev.id == draft['name'])
         current_badge = '<span class="badge bg-primary ms-2">Current</span>' if is_current else ''
+
+        rev_pages, rev_words = submission_file_pages_words(rev)
         
         revisions_list_html += f"""
         <div class="card mb-3">
@@ -8126,7 +7934,7 @@ def draft_revisions(draft_name):
             </div>
             <div class="card-body">
                 <p class="mb-2"><strong>Published:</strong> {rev.approved_at.strftime('%Y-%m-%d') if rev.approved_at and rev.status == 'approved' else (rev.submitted_at.strftime('%Y-%m-%d') if rev.submitted_at else 'N/A')}</p>
-                <p class="mb-2"><strong>Pages:</strong> {rev.pages or 1} | <strong>Words:</strong> {rev.words or 0}</p>
+                <p class="mb-2"><strong>Pages:</strong> {rev_pages} | <strong>Words:</strong> {rev_words}</p>
                 {what_changed_html}
             </div>
         </div>
@@ -8146,7 +7954,7 @@ def draft_revisions(draft_name):
                     </div>
                     <div class="card-body">
                         <p class="mb-2"><strong>Published:</strong> {original_submission.approved_at.strftime('%Y-%m-%d') if original_submission and original_submission.approved_at else (original_submission.submitted_at.strftime('%Y-%m-%d') if original_submission and original_submission.submitted_at else draft['date'])}</p>
-                        <p class="mb-0"><strong>Pages:</strong> {original_submission.pages if original_submission else 1} | <strong>Words:</strong> {original_submission.words if original_submission else 0}</p>
+                        <p class="mb-0"><strong>Pages:</strong> {orig_pages} | <strong>Words:</strong> {orig_words}</p>
                     </div>
                 </div>
 
@@ -8183,7 +7991,7 @@ def draft_revisions(draft_name):
     </div>
     """
 
-    return BASE_TEMPLATE.format(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return BASE_TEMPLATE.format(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 @app.route('/group/')
 def groups():
@@ -8249,7 +8057,7 @@ def groups():
         title="Workgroups - MLGH",
         theme=current_theme,
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 @app.route('/group/<acronym>/')
 def group_detail(acronym):
     """Display individual workgroup details"""
@@ -8554,7 +8362,7 @@ def group_detail(acronym):
         title=f"{group['name']} - MLGH",
         theme=current_theme,
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 @app.route('/group/<acronym>/join', methods=['POST'])
 @require_auth
@@ -8808,7 +8616,7 @@ def people():
         submissions_count = Submission.query.filter(Submission.submitted_by.in_(name_variants)).count() if name_variants else 0
         # Documents followed count
         follows_count = UserFollow.query.filter_by(user_id=u.id).count()
-        # Comments count (site document comments, not Hypothesis)
+        # Comments count (site document comments)
         comments_count = Comment.query.filter(Comment.author.in_(name_variants)).count() if name_variants else 0
         if is_admin:
             actions_td = f'<td><a href="/admin/users/{u.id}/add-coordinator" class="btn btn-outline-primary btn-sm">Add as coordinator</a></td>'
@@ -9068,15 +8876,6 @@ def health_check():
         'service': 'active' if service_healthy else 'inactive',
         'timestamp': datetime.now().isoformat()
     }), 200 if overall_healthy else 503
-
-@app.route('/api/annotations/<document_name>/count')
-def annotation_count(document_name):
-    """Get annotation count for a document"""
-    annotations = get_document_annotations(document_name, 'draft')
-    return jsonify({
-        'count': len(annotations),
-        'document': document_name
-    })
 
 @app.route('/_deploy/test', methods=['GET'])
 def deployment_test():

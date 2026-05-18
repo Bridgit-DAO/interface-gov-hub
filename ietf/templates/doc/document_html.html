@@ -45,51 +45,6 @@
         {% include "doc/opengraph.html" %}
         {% analytical_head_bottom %}
         
-        {# Hypothesis Annotation Support #}
-        {% if settings.HYPOTHESIS_ENABLED and request.COOKIES.annotations != 'off' %}
-        <script>
-        window.hypothesisConfig = function () {
-          return {
-            branding: {
-              appBackgroundColor: '{{ settings.HYPOTHESIS_CONFIG.BRANDING.appBackgroundColor }}',
-              ctaBackgroundColor: '{{ settings.HYPOTHESIS_CONFIG.BRANDING.ctaBackgroundColor }}',
-              ctaTextColor: '{{ settings.HYPOTHESIS_CONFIG.BRANDING.ctaTextColor }}',
-              selectionFontFamily: '{{ settings.HYPOTHESIS_CONFIG.BRANDING.selectionFontFamily }}'
-            },
-            enableExperimentalNewNoteButton: {{ settings.HYPOTHESIS_CONFIG.ENABLE_EXPERIMENTAL_NEW_NOTE_BUTTON|yesno:"true,false" }},
-            showHighlights: '{{ settings.HYPOTHESIS_CONFIG.SHOW_HIGHLIGHTS }}',
-            openSidebar: false,  // Don't auto-open sidebar
-            // Document-specific configuration for revision tracking
-            // Each revision gets its own annotation space
-            {% if doc.type_id == "rfc" %}
-            // RFCs are immutable - use RFC number as identifier
-            focus: {
-              user: {
-                filter: {
-                  any: {
-                    tag: ['rfc:{{ doc.rfc_number }}', 'ietf:rfc']
-                  }
-                }
-              }
-            }
-            {% else %}
-            // Internet-Drafts have revisions - include revision in identifier
-            focus: {
-              user: {
-                filter: {
-                  any: {
-                    tag: ['draft:{{ doc.name }}-{{ doc.rev }}', 'ietf:draft']
-                  }
-                }
-              }
-            }
-            {% endif %}
-          };
-        };
-        </script>
-        <script async src="{{ settings.HYPOTHESIS_CONFIG.EMBED_URL }}"></script>
-        {% endif %}
-        
         <style>
             {# Force "text-overflow: ellipsis" to hide the beginning of a doc name #}
             .diff-form .select2-selection__rendered {
@@ -370,24 +325,6 @@
                                         <i class="bi bi-link-45deg me-1"></i>Go to linked document
                                     </label>
                                 </div>
-                                {% if settings.HYPOTHESIS_ENABLED %}
-                                <label class="form-label fw-bold mt-4 mb-2">Annotations</label>
-                                <div class="btn-group-vertical btn-group-sm d-flex" role="group">
-                                    <input type="radio" class="btn-check" name="annotations" id="annotations-on-radio">
-                                    <label class="btn btn-outline-primary" for="annotations-on-radio" title="Enable collaborative annotations powered by Hypothesis.">
-                                        <i class="bi bi-chat-text me-1"></i>Show annotations
-                                    </label>
-                                    <input type="radio" class="btn-check" name="annotations" id="annotations-off-radio">
-                                    <label class="btn btn-outline-primary" for="annotations-off-radio" title="Disable annotations for a cleaner reading experience.">
-                                        <i class="bi bi-chat-text-fill me-1"></i>Hide annotations
-                                    </label>
-                                </div>
-                                <div class="alert alert-info small mt-2" role="alert">
-                                    <i class="bi bi-info-circle me-1"></i>
-                                    Annotations are powered by <a href="https://hypothes.is" target="_blank" class="alert-link">Hypothesis</a>. 
-                                    You can annotate anonymously or <a href="https://hypothes.is/signup" target="_blank" class="alert-link">create an account</a> for more features.
-                                </div>
-                                {% endif %}
                             </div>
                         </div>
                     </div>
