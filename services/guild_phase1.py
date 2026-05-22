@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from models import Artifact, Guild, GuildMembership, Layer, LayerMember
+from models import Artifact, Guild, GuildMembership, Layer, LayerMember, Quest
 
 GUILD_ARTIFACT_LINK_TYPES = frozenset({'sponsor', 'co_author', 'review'})
+GUILD_QUEST_LINK_TYPES = frozenset({'sponsor', 'steward', 'review'})
 
 
 def is_guild_officer(guild_id: str, user_id: str) -> bool:
@@ -46,6 +47,26 @@ def can_manage_guild_artifact_link(
     if not user or not artifact.layer_id:
         return False
     layer = Layer.query.get(artifact.layer_id)
+    if not layer:
+        return False
+    if not is_guild_officer(guild.id, user['id']):
+        return False
+    from services.coordination import is_layer_admin
+
+    if is_layer_admin(layer, user):
+        return True
+    if active_layer_member(layer.id, user['id']):
+        return True
+    return False
+
+
+def can_manage_guild_quest_link(
+    user: Optional[Dict[str, Any]], guild: Guild, quest: Quest
+) -> bool:
+    """Guild officer plus layer admin or active layer member (quest's layer)."""
+    if not user or not quest or not quest.layer_id:
+        return False
+    layer = Layer.query.get(quest.layer_id)
     if not layer:
         return False
     if not is_guild_officer(guild.id, user['id']):

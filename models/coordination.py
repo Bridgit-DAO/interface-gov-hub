@@ -702,6 +702,38 @@ class GuildArtifactLink(db.Model):
         }
 
 
+class GuildQuestLink(db.Model):
+    """Guild ↔ quest (same relation family as guild ↔ artifact; not artifact bridges)."""
+    __tablename__ = 'guild_quest_link'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    guild_id = db.Column(db.String(36), db.ForeignKey('guild.id'), nullable=False, index=True)
+    quest_id = db.Column(db.String(36), db.ForeignKey('quest.id'), nullable=False, index=True)
+    link_type = db.Column(db.String(30), nullable=False)  # sponsor | steward | review
+    created_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    guild = db.relationship('Guild', backref=db.backref('quest_links', lazy='dynamic'))
+    quest = db.relationship(
+        'Quest', backref=db.backref('guild_quest_links', lazy='dynamic')
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('guild_id', 'quest_id', 'link_type', name='uq_guild_quest_link'),
+        db.Index('idx_guild_quest_link_quest', 'quest_id'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'guild_id': self.guild_id,
+            'quest_id': self.quest_id,
+            'link_type': self.link_type,
+            'created_by_user_id': self.created_by_user_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 # ============================================================================
 # Roles, Claims, and Badges Models
 # ============================================================================

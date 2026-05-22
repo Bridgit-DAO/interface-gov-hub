@@ -4,8 +4,16 @@ import html as html_mod
 from flask import Blueprint, session
 
 from models import (
-    Layer, LayerMember, User, Submission, Artifact, ArtifactRelation,
-    Quest, QuestSubmission,
+    Layer,
+    LayerMember,
+    User,
+    Submission,
+    Artifact,
+    ArtifactRelation,
+    Quest,
+    QuestSubmission,
+    Guild,
+    GuildArtifactLink,
 )
 from services.identity import get_current_user, require_auth
 from services.artifact import get_artifact_by_ref
@@ -283,6 +291,23 @@ def artifact_detail(layer_slug, artifact_id):
     contrib_badge = (
         f' <span class="badge text-bg-info">{html_mod.escape(kf)}</span>' if kf else ''
     )
+    guild_badges_block = ''
+    _grows = GuildArtifactLink.query.filter_by(artifact_id=artifact_id).all()
+    if _grows:
+        _parts = []
+        for gl in _grows:
+            g = gl.guild
+            if not g:
+                continue
+            gn = html_mod.escape((g.name or g.slug or g.id[:8])[:48])
+            gslug = html_mod.escape(g.slug or '')
+            lt = html_mod.escape((gl.link_type or '').replace('_', ' '))
+            _parts.append(
+                f'<a href="/guilds/{gslug}/" class="badge rounded-pill text-bg-secondary '
+                f'text-decoration-none" title="{lt}">{gn}</a>'
+            )
+        if _parts:
+            guild_badges_block = '<span class="ms-1">' + ' '.join(_parts) + '</span>'
     created_str = artifact.created_at.strftime('%Y-%m-%d %H:%M') if artifact.created_at else '—'
     body_raw = (getattr(artifact, 'body', None) or '').strip()
     body_block = (
@@ -384,7 +409,7 @@ def artifact_detail(layer_slug, artifact_id):
     <div class="row">
         <div class="col-lg-8">
             <h1>{title_esc}{public_ref_block}</h1>
-            <p class="text-muted"><span class="badge bg-secondary">{artifact.artifact_type}</span>{contrib_badge} <span class="badge bg-{status_badge}">{artifact.status or "draft"}</span></p>
+            <p class="text-muted"><span class="badge bg-secondary">{artifact.artifact_type}</span>{contrib_badge}{guild_badges_block} <span class="badge bg-{status_badge}">{artifact.status or "draft"}</span></p>
             {summary_block}
             {body_block}
             {scaffold_block}

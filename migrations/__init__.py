@@ -888,6 +888,30 @@ def migrate_guild_unified_phase1(app):
             conn.commit()
             print("✅ Created guild_artifact_link table")
 
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='guild_quest_link'"
+        )
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE guild_quest_link (
+                    id VARCHAR(36) PRIMARY KEY,
+                    guild_id VARCHAR(36) NOT NULL REFERENCES guild(id),
+                    quest_id VARCHAR(36) NOT NULL REFERENCES quest(id),
+                    link_type VARCHAR(30) NOT NULL,
+                    created_by_user_id VARCHAR(36) REFERENCES user(id),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, quest_id, link_type)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guild_quest_link_guild ON guild_quest_link(guild_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guild_quest_link_quest ON guild_quest_link(quest_id)"
+            )
+            conn.commit()
+            print("✅ Created guild_quest_link table")
+
         conn.close()
     except Exception as e:
         print(f"⚠️  Error in migrate_guild_unified_phase1: {e}")

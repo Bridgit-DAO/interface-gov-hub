@@ -14,6 +14,8 @@ from models import (
     QuestSubmission,
     Monument,
     GuildArtifactLink,
+    GuildQuestLink,
+    Quest,
 )
 from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin, is_site_moderation_staff
@@ -436,6 +438,28 @@ def list_artifact_guild_links(artifact_id):
     if not art:
         return jsonify({'error': 'Artifact not found'}), 404
     rows = GuildArtifactLink.query.filter_by(artifact_id=art.id).all()
+    out = []
+    for row in rows:
+        d = row.to_dict()
+        g = row.guild
+        if g:
+            d['guild'] = {
+                'id': g.id,
+                'name': g.name,
+                'slug': g.slug,
+                'image_url': g.image_url,
+            }
+        out.append(d)
+    return jsonify({'links': out, 'count': len(out)}), 200
+
+
+@bp.route('/quests/<quest_id>/guild-links/', methods=['GET'])
+def list_quest_guild_links(quest_id):
+    """Guild links for a quest (Unified Phase I)."""
+    quest = Quest.query.get(quest_id)
+    if not quest:
+        return jsonify({'error': 'Quest not found'}), 404
+    rows = GuildQuestLink.query.filter_by(quest_id=quest.id).all()
     out = []
     for row in rows:
         d = row.to_dict()

@@ -49,6 +49,9 @@ datatracker.sublime-workspace
 !/static/i18n/shell/
 /static/i18n/shell/*
 !/static/i18n/shell/*.json
+!/static/css/
+/static/css/*
+!/static/css/govhub-design.css
 /tmp-*
 /.testresult
 *.swp

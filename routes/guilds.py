@@ -13,14 +13,19 @@ from models import (
     GuildInvitation,
     GuildLayerLink,
     GuildMembership,
+    GuildQuestLink,
     Layer,
+    Quest,
     User,
 )
 from services.events import emit_event
 from services.guild_phase1 import (
     GUILD_ARTIFACT_LINK_TYPES,
+    GUILD_QUEST_LINK_TYPES,
     can_manage_guild_artifact_link,
     can_manage_guild_layer_link,
+    can_manage_guild_quest_link,
+    is_guild_officer,
 )
 from services.identity import get_current_user, require_auth
 from services.avatar import get_avatar_url
@@ -32,7 +37,9 @@ bp = Blueprint('guilds', __name__, url_prefix='/api/guilds')
 def _guild_detail(guild_id):
     """Shared implementation for guild detail with members."""
     guild = Guild.query.get_or_404(guild_id)
-    memberships = GuildMembership.query.filter_by(guild_id=guild_id).all()
+    mq = GuildMembership.query.filter_by(guild_id=guild_id)
+    mq = mq.filter(GuildMembership.membership_state == 'active')
+    memberships = mq.all()
     members = []
     for m in memberships:
         if m.user:
@@ -62,7 +69,9 @@ def list_guilds():
     result = []
     for g in guilds:
         d = g.to_dict()
-        d['members_count'] = GuildMembership.query.filter_by(guild_id=g.id).count()
+        d['members_count'] = GuildMembership.query.filter_by(
+            guild_id=g.id, membership_state='active'
+        ).count()
         result.append(d)
     return jsonify({'guilds': result, 'count': len(result)})
 
@@ -105,7 +114,8 @@ def create_guild():
     membership = GuildMembership(
         guild_id=guild_id,
         user_id=current_user['id'],
-        role='initiator'
+        role='initiator',
+        membership_state='active',
     )
     db.session.add(guild)
     db.session.add(membership)
@@ -121,6 +131,68 @@ def get_guild_by_slug(slug):
     if not guild:
         return jsonify({'error': 'Guild not found'}), 404
     return _guild_detail(guild.id)
+
+
+@bp.route('/invitations/by-token/<token>/', methods=['GET'])
+def guild_invitation_preview(token):
+    """Public preview for invite acceptance page."""
+    inv = GuildInvitation.query.filter_by(token=token).first()
+    if not inv or inv.status != 'pending':
+        return jsonify({'error': 'Invalid or expired invitation'}), 404
+    if inv.expires_at and inv.expires_at < datetime.utcnow():
+        return jsonify({'error': 'Invitation expired'}), 410
+    g = Guild.query.get(inv.guild_id)
+    if not g:
+        return jsonify({'error': 'Guild not found'}), 404
+    email = inv.invitee_email or ''
+    masked = email[:2] + '***' + email[email.index('@') :] if '@' in email else '***'
+    return jsonify({
+        'valid': True,
+        'guild': {'id': g.id, 'name': g.name, 'slug': g.slug},
+        'invitee_email_masked': masked,
+    }), 200
+
+
+@bp.route('/invitations/by-token/<token>/accept/', methods=['POST'])
+@require_auth
+def guild_invitation_accept(token):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    inv = GuildInvitation.query.filter_by(token=token).first()
+    if not inv or inv.status != 'pending':
+        return jsonify({'error': 'Invalid or expired invitation'}), 404
+    if inv.expires_at and inv.expires_at < datetime.utcnow():
+        inv.status = 'expired'
+        db.session.commit()
+        return jsonify({'error': 'Invitation expired'}), 410
+    user = User.query.get(current_user['id'])
+    if not user or not user.email:
+        return jsonify({'error': 'Account has no email'}), 400
+    ok = (
+        (inv.invitee_id and inv.invitee_id == user.id)
+        or (inv.invitee_email and inv.invitee_email.strip().lower() == (user.email or '').strip().lower())
+    )
+    if not ok:
+        return jsonify({'error': 'This invitation was sent to a different email'}), 403
+    if GuildMembership.query.filter_by(guild_id=inv.guild_id, user_id=user.id).first():
+        inv.status = 'accepted'
+        inv.responded_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify({'success': True, 'already_member': True}), 200
+    m = GuildMembership(
+        id=str(uuid4()),
+        guild_id=inv.guild_id,
+        user_id=user.id,
+        role='member',
+        membership_state='active',
+    )
+    db.session.add(m)
+    inv.status = 'accepted'
+    inv.responded_at = datetime.utcnow()
+    inv.invitee_id = user.id
+    db.session.commit()
+    return jsonify({'success': True, 'guild_id': inv.guild_id}), 200
 
 
 @bp.route('/<guild_id>/', methods=['GET'])
@@ -207,7 +279,7 @@ def invite_to_guild(guild_id):
     db.session.add(invitation)
     db.session.commit()
 
-    invitation_link = f"https://rfc.themetalayer.org/guilds/invite/{token}/"
+    invitation_link = f"/guilds/invite/{token}/"
 
     return jsonify({
         'success': True,
@@ -419,6 +491,140 @@ def guild_remove_artifact_link(guild_id, artifact_id):
             'artifact_id': art.id,
             'link_type': link_type,
         },
+    )
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+
+@bp.route('/<guild_id>/members/<member_user_id>/', methods=['PATCH'])
+@require_auth
+def patch_guild_member_state(guild_id, member_user_id):
+    """membership_state: self may set inactive only; officers may set any member (not initiator to inactive)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    Guild.query.get_or_404(guild_id)
+    data = request.get_json(silent=True) or {}
+    state = (data.get('membership_state') or '').strip().lower()
+    if state not in ('active', 'inactive'):
+        return jsonify({'error': 'membership_state must be active or inactive'}), 400
+    m = GuildMembership.query.filter_by(guild_id=guild_id, user_id=member_user_id).first()
+    if not m:
+        return jsonify({'error': 'Member not found'}), 404
+    if m.role == 'initiator' and state == 'inactive':
+        return jsonify({'error': 'Cannot deactivate guild initiator'}), 400
+    if member_user_id == user['id']:
+        if state != 'inactive':
+            return jsonify({'error': 'You can only set your own membership to inactive'}), 400
+    elif not is_guild_officer(guild_id, user['id']):
+        return jsonify({'error': 'Forbidden'}), 403
+    m.membership_state = state
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'member': {'user_id': m.user_id, 'membership_state': m.membership_state},
+    }), 200
+
+
+@bp.route('/<guild_id>/quest-links/', methods=['GET'])
+def list_guild_quest_links(guild_id):
+    guild = Guild.query.get_or_404(guild_id)
+    rows = GuildQuestLink.query.filter_by(guild_id=guild.id).all()
+    out = []
+    for row in rows:
+        d = row.to_dict()
+        q = row.quest
+        if q:
+            d['quest'] = {
+                'id': q.id,
+                'title': q.title,
+                'layer_id': q.layer_id,
+                'status': q.status,
+            }
+        out.append(d)
+    return jsonify({'links': out, 'count': len(out)}), 200
+
+
+@bp.route('/<guild_id>/quest-links/', methods=['POST'])
+@require_auth
+def guild_add_quest_link(guild_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    guild = Guild.query.get_or_404(guild_id)
+    data = request.get_json(silent=True) or {}
+    qid = data.get('quest_id')
+    link_type = (data.get('link_type') or '').strip().lower()
+    if not qid or not link_type:
+        return jsonify({'error': 'quest_id and link_type required'}), 400
+    if link_type not in GUILD_QUEST_LINK_TYPES:
+        return jsonify({'error': 'Invalid link_type', 'allowed': sorted(GUILD_QUEST_LINK_TYPES)}), 400
+    quest = Quest.query.get(qid)
+    if not quest:
+        return jsonify({'error': 'Quest not found'}), 404
+    if not can_manage_guild_quest_link(user, guild, quest):
+        return jsonify({'error': 'Forbidden'}), 403
+    if GuildQuestLink.query.filter_by(
+        guild_id=guild.id, quest_id=quest.id, link_type=link_type
+    ).first():
+        return jsonify({'error': 'Link already exists'}), 400
+    row = GuildQuestLink(
+        id=str(uuid4()),
+        guild_id=guild.id,
+        quest_id=quest.id,
+        link_type=link_type,
+        created_by_user_id=user['id'],
+    )
+    db.session.add(row)
+    emit_event(
+        'guild_quest_linked',
+        actor_type='user',
+        actor_id=user['id'],
+        subject_type='guild_quest_link',
+        subject_id=row.id,
+        layer_id=quest.layer_id,
+        payload={
+            'guild_id': guild.id,
+            'guild_name': guild.name,
+            'quest_id': quest.id,
+            'link_type': link_type,
+        },
+    )
+    db.session.commit()
+    return jsonify({'success': True, 'link': row.to_dict()}), 201
+
+
+@bp.route('/<guild_id>/quest-links/<quest_id>/', methods=['DELETE'])
+@require_auth
+def guild_remove_quest_link(guild_id, quest_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    guild = Guild.query.get_or_404(guild_id)
+    quest = Quest.query.get(quest_id)
+    if not quest:
+        return jsonify({'error': 'Quest not found'}), 404
+    if not can_manage_guild_quest_link(user, guild, quest):
+        return jsonify({'error': 'Forbidden'}), 403
+    link_type = (request.args.get('link_type') or '').strip().lower()
+    if not link_type or link_type not in GUILD_QUEST_LINK_TYPES:
+        return jsonify({'error': 'link_type query param required', 'allowed': sorted(GUILD_QUEST_LINK_TYPES)}), 400
+    row = GuildQuestLink.query.filter_by(
+        guild_id=guild.id, quest_id=quest.id, link_type=link_type
+    ).first()
+    if not row:
+        return jsonify({'error': 'Link not found'}), 404
+    rid = row.id
+    lid = quest.layer_id
+    db.session.delete(row)
+    emit_event(
+        'guild_quest_unlinked',
+        actor_type='user',
+        actor_id=user['id'],
+        subject_type='guild_quest_link',
+        subject_id=rid,
+        layer_id=lid,
+        payload={'guild_id': guild.id, 'quest_id': quest.id, 'link_type': link_type},
     )
     db.session.commit()
     return jsonify({'success': True}), 200

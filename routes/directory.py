@@ -4,10 +4,11 @@ from flask import Blueprint, redirect, request, session
 
 from models import (
     User, Submission, Comment, Layer,
-    WorkingGroupChair, WorkingGroupMember, UserFollow,
+    WorkingGroupChair, WorkingGroupMember,
 )
 from services.identity import get_current_user
 from services.avatar import get_avatar_url
+from services.event_subscriptions import count_distinct_drafts_followed
 
 bp = Blueprint('directory', __name__, url_prefix='')
 
@@ -56,7 +57,7 @@ def people():
             last_active = '<span class="text-muted">Never</span>'
         name_variants = [x for x in (u.name, u.displayName, u.oauthName, u.username) if x]
         submissions_count = Submission.query.filter(Submission.submitted_by.in_(name_variants)).count() if name_variants else 0
-        follows_count = UserFollow.query.filter_by(user_id=u.id).count()
+        follows_count = count_distinct_drafts_followed(u.id)
         comments_count = Comment.query.filter(Comment.author.in_(name_variants)).count() if name_variants else 0
         if is_admin:
             actions_td = f'<td><a href="/admin/users/{u.id}/add-coordinator" class="btn btn-outline-primary btn-sm">Add as coordinator</a></td>'
@@ -196,8 +197,8 @@ def projects_directory():
     <div class="container-fluid container-lg mt-3 mt-md-4 px-3 px-md-4">
         <div class="row mb-3 mb-md-4 align-items-center">
             <div class="col-12 col-md-8 mb-2 mb-md-0">
-                <h1 class="h4 h2-md mb-1">Layers Directory</h1>
-                <p class="lead mb-0 small text-muted">Browse and discover MLTF layers</p>
+                <h1 class="h4 h2-md mb-1">Layers Map</h1>
+                <p class="lead mb-0 small text-muted">Discover layers — status, activity, and community at a glance</p>
             </div>
             <div class="col-12 col-md-4 text-md-end">
                 {'<a href="/layers/create/" class="btn btn-primary w-100 w-md-auto"><i class="fas fa-plus me-2"></i>Create Layer</a>' if current_user else '<a href="/login/" class="btn btn-primary w-100 w-md-auto"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
@@ -231,7 +232,7 @@ def projects_directory():
                 <input type="text" id="search-input" class="form-control" placeholder="Search layers..." onkeyup="filterProjects()">
             </div>
         </div>
-        <div id="projects-container" class="row">
+        <div id="projects-container" class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
             <div class="col-12 text-center py-5">
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>
@@ -261,18 +262,17 @@ def projects_directory():
     }}
     function filterProjects() {{
         const searchTerm = document.getElementById('search-input').value.toLowerCase();
-        const filtered = allProjects.filter(p =>
-            p.name.toLowerCase().includes(searchTerm) ||
-            (p.description && p.description.toLowerCase().includes(searchTerm))
-        );
+        const filtered = allProjects.filter(p => {{
+            const blob = (p.name + ' ' + (p.description || '') + ' ' + (p.mission || '')).toLowerCase();
+            return blob.includes(searchTerm);
+        }});
         displayProjects(filtered);
     }}
-    function truncateToSentences(text, maxSentences) {{
-        if (!text) return 'No description';
-        const plain = String(text).replace(/<br\\s*\\/?>/gi, ' ').replace(/<[^>]+>/g, '').trim();
-        const sentences = plain.split(/(?<=[.!?])\\s+/);
-        const taken = sentences.slice(0, maxSentences || 2).join(' ');
-        return taken + (sentences.length > (maxSentences || 2) ? '…' : '');
+    function layerCardImageUrl(project) {{
+        if (!project || !project.image_url) return '';
+        const v = project.updated_at || project.id || '';
+        const sep = project.image_url.indexOf('?') >= 0 ? '&' : '?';
+        return project.image_url + sep + 'v=' + encodeURIComponent(String(v));
     }}
     function displayProjects(projects) {{
         const container = document.getElementById('projects-container');
@@ -286,10 +286,25 @@ def projects_directory():
             const approvalMap = {{'pending':'<span class="badge bg-warning">Pending Approval</span>','approved':'<span class="badge bg-success">Approved</span>','rejected':'<span class="badge bg-danger">Rejected</span>'}};
             const statusBadge = (project.approval_status === 'approved' && project.status === 'proposed') ? '' : (statusMap[project.status] || '');
             const approvalBadge = approvalMap[project.approval_status] || '';
-            const desc = truncateToSentences(project.description || 'No description', 2);
-            const descEsc = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const projectImgHtml = project.image_url ? `<div class="card-img-top overflow-hidden" style="background: var(--bg-secondary, #f8f9fa);"><img src="${{project.image_url}}" alt="${{project.name}}" class="w-100" style="display: block; vertical-align: top; object-fit: cover;"></div>` : '';
-            html += `<div class="col-12 col-sm-6 col-md-4 col-lg-3 col-xl-2 mb-4"><div class="card h-100">${{projectImgHtml}}<div class="card-body d-flex flex-column"><h6 class="card-title"><a href="/layers/${{project.slug}}/">${{(project.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}}</a></h6><div class="mb-2 small">${{statusBadge}}${{approvalBadge}}</div><p class="card-text text-muted small layer-card-text flex-grow-1" style="font-size: 0.8rem; line-height: 1.3; -webkit-line-clamp: 3; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;">${{descEsc}}</p><div class="mt-auto"><small class="text-muted"><i class="fas fa-users me-1"></i> ${{project.workgroups_count || 0}} workgroups</small></div></div><div class="card-footer py-2"><small class="text-muted">${{new Date(project.created_at).toLocaleDateString()}}</small></div></div></div>`;
+            const nameEsc = (project.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const descRaw = (project.mission || project.description || '').trim();
+            const descEsc = descRaw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const imgSrc = layerCardImageUrl(project);
+            const pulseLabel = project.status === 'active' ? 'Active' : (project.last_activity_at ? 'Recent' : 'Layer');
+            const visualHtml = imgSrc
+                ? `<div class="layer-map-tile-visual"><img src="${{imgSrc}}" alt="${{nameEsc}}"><span class="layer-map-tile-pulse">${{pulseLabel}}</span></div>`
+                : `<div class="layer-map-tile-visual"><span class="layer-map-placeholder"><i class="fas fa-layer-group"></i></span><span class="layer-map-tile-pulse">${{pulseLabel}}</span></div>`;
+            const wgCount = project.workgroups_count || 0;
+            const wgLabel = wgCount === 1 ? '1 workgroup' : wgCount + ' workgroups';
+            const descBlock = descEsc ? `<p class="layer-map-tile-desc">${{descEsc}}</p>` : '';
+            html += `<div class="col d-flex"><div class="layer-map-tile">${{visualHtml}}` +
+                `<div class="layer-map-tile-body">` +
+                `<h6 class="layer-map-tile-title"><a href="/layers/${{project.slug}}/">${{nameEsc}}</a></h6>` +
+                descBlock +
+                `<div class="layer-map-tile-footer">` +
+                `<div class="layer-map-tile-badges">${{statusBadge}}${{approvalBadge}}</div>` +
+                `<span class="layer-map-tile-meta"><i class="fas fa-users me-1"></i>${{wgLabel}}</span>` +
+                `</div></div></div></div>`;
         }});
         container.innerHTML = html;
     }}
@@ -902,6 +917,12 @@ def build_waitlists_content(layer_slug=None):
 @bp.route('/waitlists/')
 def waitlists_directory():
     """Waitlists directory page. When ?layer=slug, redirect to /layer/<slug>/waitlists/ for layer-centric nav."""
+    from services.product_rollout import is_feature_enabled
+
+    if not is_feature_enabled('waitlists'):
+        from flask import abort
+        abort(404)
+
     layer_slug = (request.args.get('layer') or '').strip()
     if layer_slug and Layer.query.filter_by(slug=layer_slug).first():
         return redirect(f"/layer/{layer_slug}/waitlists/")

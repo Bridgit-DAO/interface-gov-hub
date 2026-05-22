@@ -213,4 +213,7 @@ Env: `GOVHUB_KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED`, `GOVHUB_KNOWLEDGE_SCAFFOLD_EN
 | Artifact read | `GET /api/artifacts/<id>/guild-links/` in `routes/artifacts.py` |
 | Migration | `migrate_guild_unified_phase1` in `migrations/__init__.py` (wired in `database/init_db`) |
 | Events | `guild_layer_linked`, `guild_layer_unlinked`, `guild_artifact_linked`, `guild_artifact_unlinked` |
-| Link types | `sponsor`, `co_author`, `review` (`GUILD_ARTIFACT_LINK_TYPES`) |
+| Link types | Artifacts: `sponsor`, `co_author`, `review` (`GUILD_ARTIFACT_LINK_TYPES`). Quests: `sponsor`, `steward`, `review` (`GUILD_QUEST_LINK_TYPES`) |
+| Quest API | `GET /api/quests/<id>/guild-links/`; `GET/POST /api/guilds/<id>/quest-links/`, `DELETE .../quest-links/<quest_id>/?link_type=` |
+| Invitations | `GET /api/guilds/invitations/by-token/<token>/`, `POST .../accept/`; UI `/guilds/invite/<token>/` |
+| Membership | `PATCH /api/guilds/<id>/members/<user_id>/` body `{ "membership_state": "active"|"inactive" }` |

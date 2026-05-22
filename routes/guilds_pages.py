@@ -1,4 +1,6 @@
 """Guild page routes: /guilds/<guild_slug>/, /guilds/create/."""
+import json
+
 from flask import Blueprint, session
 
 from services.identity import get_current_user, require_auth
@@ -39,9 +41,30 @@ def guild_detail(guild_slug):
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card mb-4">
                     <div class="card-header"><h5>Members</h5></div>
                     <div class="card-body" id="guild-members">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header"><h5>Linked layers</h5></div>
+                    <div class="card-body" id="guild-layer-links">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header"><h5>Linked quests</h5></div>
+                    <div class="card-body" id="guild-quest-links">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header"><h5>Linked artifacts</h5></div>
+                    <div class="card-body" id="guild-artifact-links">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
@@ -85,6 +108,7 @@ def guild_detail(guild_slug):
             displayGuildMembers();
             displayGuildActions();
             displayGuildStats();
+            loadGuildAffiliations();
         }} catch (error) {{
             console.error('Error loading guild:', error);
             document.getElementById('guild-header').innerHTML = '<div class="alert alert-danger">Error loading guild</div>';
@@ -129,6 +153,8 @@ def guild_detail(guild_slug):
         let html = '<div class="list-group">';
         guild.members.forEach(member => {{
             const roleClass = member.role === 'initiator' ? 'primary' : member.role === 'admin' ? 'success' : 'secondary';
+            const mstate = member.membership_state || 'active';
+            const stateBadge = mstate !== 'active' ? '<span class="badge bg-secondary ms-1">inactive</span>' : '';
             const displayName = member.display_name || member.name || member.username;
             const avatarHtml = member.profile_image
                 ? `<img src="${{member.profile_image}}" alt="" class="rounded-circle me-2" style="width:32px;height:32px;object-fit:cover">`
@@ -143,7 +169,7 @@ def guild_detail(guild_slug):
                             ${{displayName !== member.username ? `<br><small class="text-muted">@${{member.username}}</small>` : ''}}
                         </div>
                     </div>
-                    <span class="badge bg-${{roleClass}}">${{member.role}}</span>
+                    <span class="badge bg-${{roleClass}}">${{member.role}}</span>${{stateBadge}}
                 </div>
             `;
         }});
@@ -172,7 +198,12 @@ def guild_detail(guild_slug):
                 html += '<button class="btn btn-primary w-100 mb-2" onclick="inviteMember()"><i class="fas fa-user-plus me-2"></i>Invite Member</button>';
                 html += '<button class="btn btn-secondary w-100 mb-2" onclick="manageGuild()"><i class="fas fa-cog me-2"></i>Manage Guild</button>';
             }}
-            html += `<p class="text-muted mt-2">Your role: <strong>${{userMembership.role}}</strong></p>`;
+            const ms = userMembership.membership_state || 'active';
+            if (ms === 'active' && userMembership.role !== 'initiator') {{
+                html += '<button type="button" class="btn btn-outline-warning w-100 mb-2" onclick="guildSetMyMembershipInactive()"><i class="fas fa-user-minus me-2"></i>Step back (mark inactive)</button>';
+            }}
+            html += '<p class="text-muted mt-2">Your role: <strong>' + userMembership.role + '</strong>' +
+                (ms !== 'active' ? ' · <span class="badge bg-secondary">inactive</span>' : '') + '</p>';
         }}
 
         document.getElementById('guild-actions').innerHTML = html;
@@ -189,6 +220,185 @@ def guild_detail(guild_slug):
         `;
     }}
 
+    function guildIsOfficerFn() {{
+        const um = guild.members ? guild.members.find(m => m.user_id === currentUserId) : null;
+        return um && (um.role === 'initiator' || um.role === 'admin');
+    }}
+
+    async function loadGuildAffiliations() {{
+        const elL = document.getElementById('guild-layer-links');
+        const elQ = document.getElementById('guild-quest-links');
+        const elA = document.getElementById('guild-artifact-links');
+        if (!guild || !elL) return;
+        const officer = guildIsOfficerFn();
+        try {{
+            const [lr, qr, ar] = await Promise.all([
+                fetch('/api/guilds/' + guild.id + '/layers/', {{ credentials: 'same-origin' }}),
+                fetch('/api/guilds/' + guild.id + '/quest-links/', {{ credentials: 'same-origin' }}),
+                fetch('/api/guilds/' + guild.id + '/artifact-links/', {{ credentials: 'same-origin' }})
+            ]);
+            const ld = lr.ok ? await lr.json() : {{ links: [] }};
+            const qd = qr.ok ? await qr.json() : {{ links: [] }};
+            const ad = ar.ok ? await ar.json() : {{ links: [] }};
+
+            let hL = '';
+            if ((ld.links || []).length === 0) hL += '<p class="text-muted small mb-2">No layers linked.</p>';
+            else {{
+                hL += '<ul class="list-group list-group-flush mb-2">';
+                ld.links.forEach(lnk => {{
+                    const L = lnk.layer || {{}};
+                    const lid = L.id || lnk.layer_id;
+                    const slug = L.slug || '';
+                    const name = (L.name || lid || '').replace(/</g, '');
+                    hL += '<li class="list-group-item d-flex justify-content-between align-items-center"><span>' +
+                        (slug ? '<a href="/layers/' + slug + '/">' + name + '</a>' : name) + '</span>' +
+                        (officer ? '<button type="button" class="btn btn-sm btn-outline-danger" onclick="guildDetachLayer(\\'' + String(lid).replace(/'/g, '') + '\\')">Remove</button>' : '') + '</li>';
+                }});
+                hL += '</ul>';
+            }}
+            if (officer) {{
+                hL += '<div class="border-top pt-2"><label class="form-label small mb-1">Attach layer (UUID)</label><div class="input-group input-group-sm">' +
+                    '<input type="text" class="form-control" id="guild-attach-layer-id" placeholder="layer id">' +
+                    '<button class="btn btn-primary" type="button" onclick="guildAttachLayer()">Attach</button></div>' +
+                    '<p class="small mb-0 mt-1" id="guild-attach-layer-msg"></p></div>';
+            }}
+            elL.innerHTML = hL;
+
+            let hQ = '';
+            if ((qd.links || []).length === 0) hQ += '<p class="text-muted small mb-2">No quest links.</p>';
+            else {{
+                hQ += '<ul class="list-group list-group-flush mb-2">';
+                qd.links.forEach(lnk => {{
+                    const q = lnk.quest || {{}};
+                    const qid = q.id || lnk.quest_id;
+                    const title = (q.title || qid || '').replace(/</g, '');
+                    const lt = (lnk.link_type || '').replace(/_/g, ' ');
+                    hQ += '<li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>' + lt + '</strong> · ' + title + '</span>' +
+                        (officer ? '<button type="button" class="btn btn-sm btn-outline-danger" onclick="guildDetachQuest(\\'' + String(qid).replace(/'/g, '') + '\\', \\'' + (lnk.link_type || '').replace(/'/g, '') + '\\')">Remove</button>' : '') + '</li>';
+                }});
+                hQ += '</ul>';
+            }}
+            if (officer) {{
+                hQ += '<div class="border-top pt-2"><label class="form-label small mb-1">Quest id</label><input type="text" class="form-control form-control-sm mb-1" id="guild-attach-quest-id" placeholder="quest UUID">' +
+                    '<label class="form-label small mb-1">Link type</label><select class="form-select form-select-sm mb-1" id="guild-attach-quest-type"><option value="sponsor">sponsor</option><option value="steward">steward</option><option value="review">review</option></select>' +
+                    '<button class="btn btn-primary btn-sm" type="button" onclick="guildAttachQuest()">Attach quest</button><p class="small mb-0 mt-1" id="guild-attach-quest-msg"></p></div>';
+            }}
+            elQ.innerHTML = hQ;
+
+            let hA = '';
+            if ((ad.links || []).length === 0) hA += '<p class="text-muted small mb-2">No artifact links.</p>';
+            else {{
+                hA += '<ul class="list-group list-group-flush mb-2">';
+                ad.links.forEach(lnk => {{
+                    const a = lnk.artifact || {{}};
+                    const aid = a.id || lnk.artifact_id;
+                    const ref = a.public_ref || aid || '';
+                    const title = (a.title || ref || '').replace(/</g, '');
+                    const lt = (lnk.link_type || '').replace(/_/g, ' ');
+                    hA += '<li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>' + lt + '</strong> · ' + title + '</span>' +
+                        (officer ? '<button type="button" class="btn btn-sm btn-outline-danger" onclick="guildDetachArtifact(\\'' + String(aid).replace(/'/g, '') + '\\', \\'' + (lnk.link_type || '').replace(/'/g, '') + '\\')">Remove</button>' : '') + '</li>';
+                }});
+                hA += '</ul>';
+            }}
+            if (officer) {{
+                hA += '<div class="border-top pt-2"><label class="form-label small mb-1">Artifact id</label><input type="text" class="form-control form-control-sm mb-1" id="guild-attach-artifact-id" placeholder="artifact UUID">' +
+                    '<label class="form-label small mb-1">Link type</label><select class="form-select form-select-sm mb-1" id="guild-attach-artifact-type"><option value="sponsor">sponsor</option><option value="co_author">co_author</option><option value="review">review</option></select>' +
+                    '<button class="btn btn-primary btn-sm" type="button" onclick="guildAttachArtifact()">Attach artifact</button><p class="small mb-0 mt-1" id="guild-attach-artifact-msg"></p></div>';
+            }}
+            elA.innerHTML = hA;
+        }} catch (e) {{
+            elL.innerHTML = '<p class="text-danger small">Failed to load affiliations</p>';
+            elQ.innerHTML = '';
+            elA.innerHTML = '';
+        }}
+    }}
+
+    async function guildAttachLayer() {{
+        const inp = document.getElementById('guild-attach-layer-id');
+        const msg = document.getElementById('guild-attach-layer-msg');
+        if (!inp || !guild) return;
+        const lid = inp.value.trim();
+        if (!lid) {{ if (msg) msg.textContent = 'Enter layer id'; return; }}
+        try {{
+            const r = await fetch('/api/guilds/' + guild.id + '/layers/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'same-origin',
+                body: JSON.stringify({{ layer_id: lid }})
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (r.ok) {{ inp.value = ''; if (msg) msg.textContent = ''; loadGuildAffiliations(); }}
+            else {{ if (msg) {{ msg.textContent = d.error || 'Failed'; msg.className = 'small text-danger mb-0 mt-1'; }} }}
+        }} catch (e) {{ if (msg) msg.textContent = e.message; }}
+    }}
+
+    async function guildDetachLayer(layerId) {{
+        if (!guild || !layerId || !confirm('Remove layer link?')) return;
+        const r = await fetch('/api/guilds/' + guild.id + '/layers/' + encodeURIComponent(layerId) + '/', {{ method: 'DELETE', credentials: 'same-origin' }});
+        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
+    }}
+
+    async function guildAttachQuest() {{
+        const qid = (document.getElementById('guild-attach-quest-id') || {{}}).value.trim();
+        const lt = (document.getElementById('guild-attach-quest-type') || {{}}).value;
+        const msg = document.getElementById('guild-attach-quest-msg');
+        if (!qid || !guild) return;
+        try {{
+            const r = await fetch('/api/guilds/' + guild.id + '/quest-links/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'same-origin',
+                body: JSON.stringify({{ quest_id: qid, link_type: lt }})
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (r.ok) {{ loadGuildAffiliations(); if (msg) msg.textContent = ''; }}
+            else {{ if (msg) msg.textContent = d.error || 'Failed'; }}
+        }} catch (e) {{ if (msg) msg.textContent = e.message; }}
+    }}
+
+    async function guildDetachQuest(questId, linkType) {{
+        if (!guild || !questId || !confirm('Remove quest link?')) return;
+        const r = await fetch('/api/guilds/' + guild.id + '/quest-links/' + encodeURIComponent(questId) + '/?link_type=' + encodeURIComponent(linkType), {{ method: 'DELETE', credentials: 'same-origin' }});
+        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
+    }}
+
+    async function guildAttachArtifact() {{
+        const aid = (document.getElementById('guild-attach-artifact-id') || {{}}).value.trim();
+        const lt = (document.getElementById('guild-attach-artifact-type') || {{}}).value;
+        const msg = document.getElementById('guild-attach-artifact-msg');
+        if (!aid || !guild) return;
+        try {{
+            const r = await fetch('/api/guilds/' + guild.id + '/artifact-links/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'same-origin',
+                body: JSON.stringify({{ artifact_id: aid, link_type: lt }})
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (r.ok) {{ loadGuildAffiliations(); if (msg) msg.textContent = ''; }}
+            else {{ if (msg) msg.textContent = d.error || 'Failed'; }}
+        }} catch (e) {{ if (msg) msg.textContent = e.message; }}
+    }}
+
+    async function guildDetachArtifact(artifactId, linkType) {{
+        if (!guild || !artifactId || !confirm('Remove artifact link?')) return;
+        const r = await fetch('/api/guilds/' + guild.id + '/artifact-links/' + encodeURIComponent(artifactId) + '/?link_type=' + encodeURIComponent(linkType), {{ method: 'DELETE', credentials: 'same-origin' }});
+        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
+    }}
+
+    async function guildSetMyMembershipInactive() {{
+        if (!guild || !currentUserId || !confirm('Step back from this guild? You can ask an admin to reactivate you.')) return;
+        const r = await fetch('/api/guilds/' + guild.id + '/members/' + encodeURIComponent(currentUserId) + '/', {{
+            method: 'PATCH',
+            headers: {{ 'Content-Type': 'application/json' }},
+            credentials: 'same-origin',
+            body: JSON.stringify({{ membership_state: 'inactive' }})
+        }});
+        const d = await r.json().catch(() => ({{}}));
+        if (r.ok) location.reload();
+        else alert(d.error || 'Failed');
+    }}
+
     function inviteMember() {{
         const email = prompt('Enter email address to invite:');
         if (!email) return;
@@ -196,6 +406,7 @@ def guild_detail(guild_slug):
         fetch(`/api/guilds/${{guild.id}}/invite/`, {{
             method: 'POST',
             headers: {{'Content-Type': 'application/json'}},
+            credentials: 'same-origin',
             body: JSON.stringify({{email: email}})
         }})
         .then(response => response.json())
@@ -373,6 +584,85 @@ def guild_detail(guild_slug):
     """
 
     return render_page(f"Guild: {guild_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+
+@bp.route('/guilds/invite/<path:invite_token>/')
+def guild_invite_landing(invite_token):
+    """Accept a guild invitation (token from email/link)."""
+    render_page, generate_user_menu = _get_imports()
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    tok = invite_token.strip('/')
+    content = f"""
+    <div class="container mt-4">
+        <div class="col-md-8 mx-auto">
+            <h1 class="h3 mb-3">Guild invitation</h1>
+            <div id="invite-status" class="mb-3"><div class="spinner-border spinner-border-sm"></div> Loading…</div>
+            <div id="invite-actions" class="d-none">
+                <a href="/login/" class="btn btn-primary me-2" id="invite-login-btn">Log in to accept</a>
+                <button type="button" class="btn btn-success d-none" id="invite-accept-btn">Accept invitation</button>
+                <a href="/guilds/" class="btn btn-outline-secondary">Guild directory</a>
+            </div>
+        </div>
+    </div>
+    <script>
+    const inviteToken = {json.dumps(tok)};
+    const isAuthenticated = {'true' if current_user else 'false'};
+    (async function() {{
+        const st = document.getElementById('invite-status');
+        const act = document.getElementById('invite-actions');
+        const loginBtn = document.getElementById('invite-login-btn');
+        const acceptBtn = document.getElementById('invite-accept-btn');
+        try {{
+            const r = await fetch('/api/guilds/invitations/by-token/' + encodeURIComponent(inviteToken) + '/');
+            const d = await r.json();
+            if (!r.ok) {{
+                st.innerHTML = '<div class="alert alert-warning">' + (d.error || 'Invalid invitation') + '</div>';
+                act.classList.remove('d-none');
+                loginBtn.classList.add('d-none');
+                return;
+            }}
+            const g = d.guild || {{}};
+            st.innerHTML = '<p>You have been invited to join <strong>' + (g.name || 'a guild') + '</strong>.</p>' +
+                '<p class="text-muted small">Sent to: ' + (d.invitee_email_masked || '') + '</p>';
+            act.classList.remove('d-none');
+            if (isAuthenticated) {{
+                loginBtn.classList.add('d-none');
+                acceptBtn.classList.remove('d-none');
+            }} else {{
+                loginBtn.href = '/login/?next=' + encodeURIComponent('/guilds/invite/' + inviteToken + '/');
+            }}
+            acceptBtn.addEventListener('click', async function() {{
+                acceptBtn.disabled = true;
+                try {{
+                    const ar = await fetch('/api/guilds/invitations/by-token/' + encodeURIComponent(inviteToken) + '/accept/', {{
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: '{{}}'
+                    }});
+                    const ad = await ar.json();
+                    if (ar.ok) {{
+                        st.innerHTML = '<div class="alert alert-success">You are now a member. <a href="/guilds/' + (g.slug || '') + '/">Open guild</a></div>';
+                        act.classList.add('d-none');
+                    }} else {{
+                        st.innerHTML = '<div class="alert alert-danger">' + (ad.error || 'Failed') + '</div>';
+                        acceptBtn.disabled = false;
+                    }}
+                }} catch (e) {{
+                    st.innerHTML = '<div class="alert alert-danger">' + e.message + '</div>';
+                    acceptBtn.disabled = false;
+                }}
+            }});
+        }} catch (e) {{
+            st.innerHTML = '<div class="alert alert-danger">Could not load invitation.</div>';
+            act.classList.remove('d-none');
+        }}
+    }})();
+    </script>
+    """
+    return render_page("Guild invitation - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/guilds/create/')

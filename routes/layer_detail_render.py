@@ -5,6 +5,112 @@ from flask import session, current_app, make_response, request
 from models import Layer
 from services.identity import get_current_user
 from services.coordination import is_layer_admin
+from services.layer_features import (
+    LAYER_FEATURE_LABELS,
+    LAYER_FEATURE_ORDER,
+    get_effective_features,
+    is_layer_tab_enabled,
+)
+
+
+_LAYER_TAB_GROUP_LABELS = {
+    'home': 'Home',
+    'core': 'Core',
+    'decision': 'Decisions',
+    'community': 'Community',
+    'admin': 'Admin',
+}
+
+
+def _layer_tab_button(tab_id, label, icon_class, active=False):
+    act = ' active' if active else ''
+    return (
+        f'<li class="nav-item" role="presentation">'
+        f'<button class="nav-link{act}" id="{tab_id}-tab" data-bs-toggle="tab" '
+        f'data-bs-target="#{tab_id}" type="button">'
+        f'<i class="fas {icon_class}" aria-hidden="true"></i><span>{label}</span></button></li>'
+    )
+
+
+def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html=''):
+    """Return (nav_groups_html, tab_panes_html, enabled_tab_ids) from effective feature flags."""
+    tab_defs = [
+        (
+            'overview', 'Overview', None, True, 'fa-compass', 'home',
+            '<div id="project-header" class="mb-4"></div><div id="overview-content"></div>',
+        ),
+        ('workgroups', 'Workgroups', 'workgroups', False, 'fa-users-cog', 'core', '<div id="workgroups-content"></div>'),
+        ('clusters', 'Clusters', 'clusters', False, 'fa-project-diagram', 'core', '<div id="clusters-content"></div>'),
+        ('roles', 'Roles', 'roles', False, 'fa-user-tag', 'core', '<div id="roles-content"></div>'),
+        ('claims', 'Claims', 'claims', False, 'fa-hand-paper', 'core', '<div id="claims-content"></div>'),
+        ('votes', 'Votes', 'votes', False, 'fa-vote-yea', 'decision', '<div id="votes-content"></div>'),
+        (
+            'artifacts', 'Artifacts', 'artifacts', False, 'fa-cube', 'decision',
+            '<div class="living-module mb-4"><div class="living-module-header">'
+            '<div class="living-module-icon"><i class="fas fa-cube"></i></div>'
+            '<h5 class="living-module-title">Artifacts</h5></div>'
+            '<div class="living-module-body"><p class="text-muted small">Knowledge objects: proposals, evidence, submissions.</p>'
+            '<div id="artifacts-tab-container"><div class="text-center py-4">'
+            '<div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>'
+            '</div></div>',
+        ),
+        (
+            'opportunities', 'Opportunities', 'opportunities', False, 'fa-bullseye', 'decision',
+            '<div class="living-module mb-4"><div class="living-module-header">'
+            '<div class="living-module-icon"><i class="fas fa-bullseye"></i></div>'
+            '<h5 class="living-module-title">Opportunities</h5></div>'
+            '<div class="living-module-body"><p class="text-muted small">Drafts, quests, and ways to contribute.</p>'
+            '<div id="opportunities-tab-container"><div class="text-center py-4">'
+            '<div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>'
+            '</div></div>',
+        ),
+    ]
+    groups_nav = {}
+    pane_parts = []
+    enabled_ids = []
+    first = True
+    for tab_id, label, feat_key, is_overview, icon, group, pane_inner in tab_defs:
+        if feat_key and not is_layer_tab_enabled(feat_key, effective):
+            continue
+        active = first and is_overview
+        show = ' show active' if active else ''
+        first = False
+        enabled_ids.append(f'{tab_id}-tab')
+        groups_nav.setdefault(group, []).append(_layer_tab_button(tab_id, label, icon, active=active))
+        pane_parts.append(f'<div class="tab-pane fade{show}" id="{tab_id}">{pane_inner}</div>')
+
+    nav_blocks = []
+    for group_key in ('home', 'core', 'decision'):
+        items = groups_nav.get(group_key)
+        if not items:
+            continue
+        label = _LAYER_TAB_GROUP_LABELS[group_key]
+        pills = '\n'.join(items)
+        nav_blocks.append(
+            f'<div class="layer-tab-group" data-tab-group="{group_key}">'
+            f'<div class="layer-tab-group-label">{label}</div>'
+            f'<ul class="nav layer-feature-pills" role="tablist">{pills}</ul></div>'
+        )
+
+    show_waitlists = effective.get('waitlists', True)
+    community_hidden = '' if show_waitlists else ' d-none'
+    nav_blocks.append(
+        f'<div class="layer-tab-group{community_hidden}" id="layer-tab-group-community" data-tab-group="community">'
+        f'<div class="layer-tab-group-label">{_LAYER_TAB_GROUP_LABELS["community"]}</div>'
+        f'<ul class="nav layer-feature-pills" id="layer-waitlist-tabs" role="tablist">'
+        f'<li id="waitlist-tabs-marker" class="nav-item d-none" role="presentation"></li></ul></div>'
+    )
+
+    if admin_tab_html.strip():
+        nav_blocks.append(
+            f'<div class="layer-tab-group" data-tab-group="admin">'
+            f'<div class="layer-tab-group-label">{_LAYER_TAB_GROUP_LABELS["admin"]}</div>'
+            f'<ul class="nav layer-feature-pills" role="tablist">{admin_tab_html}</ul></div>'
+        )
+
+    nav_html = '\n'.join(nav_blocks)
+    panes_html = '\n'.join(pane_parts) + '\n' + admin_tab_pane_html
+    return nav_html, panes_html, enabled_ids
 
 
 def _render_layer_standalone(project_slug, waitlist_id=None):
@@ -23,19 +129,23 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     current_user = get_current_user()
     
     project_obj = Layer.query.filter_by(slug=project_slug).first()
+    effective_features = get_effective_features(project_obj)
     show_admin_tab = bool(project_obj and current_user and is_layer_admin(project_obj, current_user))
     initial_waitlist_id = str(waitlist_id) if waitlist_id else None
+    layer_features_json = json.dumps({k: effective_features.get(k, True) for k in LAYER_FEATURE_ORDER})
+    layer_feat_keys_json = json.dumps(LAYER_FEATURE_ORDER)
+    layer_feat_labels_json = json.dumps(LAYER_FEATURE_LABELS)
     
     admin_tab_html = ''
     admin_tab_pane_html = ''
     admin_tab_listener = ''
     # Layer-centric view: no Admin tab (admin via /layers/<slug>/#admin). No About|Admin row (About in Governance nav).
     if show_admin_tab and not standalone:
-        admin_tab_html = '''
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin" type="button">Admin</button>
-            </li>
-        '''
+        admin_tab_html = (
+            '<li class="nav-item" role="presentation">'
+            '<button class="nav-link" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin" type="button">'
+            '<i class="fas fa-cog" aria-hidden="true"></i><span>Admin</span></button></li>'
+        )
         admin_tab_pane_html = '''
             <div class="tab-pane fade" id="admin">
                 <div id="admin-content"></div>
@@ -43,6 +153,15 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         '''
         admin_tab_listener = "document.getElementById('admin-tab').addEventListener('shown.bs.tab', loadAdmins);"
     
+    tabs_nav_html = ''
+    tabs_panes_html = ''
+    enabled_layer_tab_ids_json = '[]'
+    if not standalone:
+        tabs_nav_html, tabs_panes_html, enabled_tab_ids = _build_layer_tabs_markup(
+            effective_features, admin_tab_html, admin_tab_pane_html
+        )
+        enabled_layer_tab_ids_json = json.dumps(enabled_tab_ids + (['admin-tab'] if show_admin_tab else []))
+
     tabs_hidden_class = ' d-none' if standalone else ''
     if standalone:
         container_html = """
@@ -69,82 +188,17 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             </div>
         </div>
         
-        <ul class="nav nav-tabs mb-4{tabs_hidden_class}" id="projectTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button">Overview</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="workgroups-tab" data-bs-toggle="tab" data-bs-target="#workgroups" type="button">Workgroups</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="clusters-tab" data-bs-toggle="tab" data-bs-target="#clusters" type="button">Clusters</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="roles-tab" data-bs-toggle="tab" data-bs-target="#roles" type="button">Roles</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="claims-tab" data-bs-toggle="tab" data-bs-target="#claims" type="button">Claims</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="votes-tab" data-bs-toggle="tab" data-bs-target="#votes" type="button">Votes</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="artifacts-tab" data-bs-toggle="tab" data-bs-target="#artifacts" type="button">Artifacts</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="opportunities-tab" data-bs-toggle="tab" data-bs-target="#opportunities" type="button">Opportunities</button>
-            </li>
-            {admin_tab_html}
-            <li id="waitlist-tabs-marker" class="nav-item d-none"></li>
-        </ul>
+        <div class="layer-feature-tabs-wrap mb-4{tabs_hidden_class}" id="projectTabsWrap" role="tablist">
+            {tabs_nav_html}
+        </div>
         
         <div class="tab-content" id="projectTabContent">
-            <div class="tab-pane fade show active" id="overview">
-                <div id="project-header" class="mb-4"></div>
-                <div id="overview-content"></div>
-            </div>
-            <div class="tab-pane fade" id="workgroups">
-                <div id="workgroups-content"></div>
-            </div>
-            <div class="tab-pane fade" id="clusters">
-                <div id="clusters-content"></div>
-            </div>
-            <div class="tab-pane fade" id="roles">
-                <div id="roles-content"></div>
-            </div>
-            <div class="tab-pane fade" id="claims">
-                <div id="claims-content"></div>
-            </div>
-            <div class="tab-pane fade" id="votes">
-                <div id="votes-content"></div>
-            </div>
-            <div class="tab-pane fade" id="artifacts">
-                <div class="card mb-4">
-                    <div class="card-header"><h5 class="mb-0"><i class="fas fa-cube me-2"></i>Artifacts</h5></div>
-                    <div class="card-body">
-                        <p class="text-muted">Knowledge objects: proposals, evidence, submissions, and their relations.</p>
-                        <div id="artifacts-tab-container"><div class="text-center py-4"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>
-                    </div>
-                </div>
-            </div>
-            <div class="tab-pane fade" id="opportunities">
-                <div class="card mb-4">
-                    <div class="card-header"><h5 class="mb-0"><i class="fas fa-bullseye me-2"></i>Opportunities</h5></div>
-                    <div class="card-body">
-                        <p class="text-muted">Drafts needing support or opposition, open quests, and ways to contribute.</p>
-                        <div id="opportunities-tab-container"><div class="text-center py-4"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>
-                    </div>
-                </div>
-            </div>
-            {admin_tab_pane_html}
+            {tabs_panes_html}
             <div id="waitlist-panes-marker" class="d-none"></div>
         </div>
     </div>
 """
     content = f"""
-    <style>
-    #projectTabs .nav-link {{ padding-top: 0.3rem; padding-bottom: 0.3rem; font-size: 0.875rem; line-height: 1.2; }}
-    </style>
     {container_html}
     
     <div class="modal fade" id="joinProjectModal" tabindex="-1">
@@ -463,6 +517,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                             </div>
                             <div class="form-text">Layer logo or banner image. Max 600×600px, 5MB. Upload or paste URL above.</div>
                             <div id="edit-project-image-upload-status" class="mt-1"></div>
+                            <div class="mt-2 text-center">
+                                <img id="edit-project-image-preview" src="" alt="Layer image preview" class="img-fluid rounded layer-hero-image d-none" style="max-height: 120px; object-fit: contain;">
+                            </div>
                         </div>
                         <div class="mb-3">
                             <label for="edit-project-status" class="form-label">Status</label>
@@ -504,8 +561,76 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     const isAdmin = {('true' if current_user and current_user.get('is_admin') else 'false')};
     const isProjectAdmin = {'true' if show_admin_tab else 'false'};
     const showCarousel = {json.dumps(standalone)};
+    const layerEffectiveFeatures = {layer_features_json};
+    const layerFeatKeys = {layer_feat_keys_json};
+    const layerFeatLabels = {layer_feat_labels_json};
+    const enabledLayerTabIds = {enabled_layer_tab_ids_json};
     const layerBase = showCarousel ? '/layer/' + projectSlug + '/' : '/layers/' + projectSlug + '/';
+
+    function isLayerFeatureOn(key) {{
+        return layerEffectiveFeatures[key] !== false;
+    }}
+
+    function layerImageUrl(url, p) {{
+        if (!url) return '';
+        const bust = (p && p._imgBust) ? String(p._imgBust) : ((p && (p.updated_at || p.id)) ? String(p.updated_at || p.id) : String(Date.now()));
+        const sep = url.indexOf('?') >= 0 ? '&' : '?';
+        return url + sep + 'v=' + encodeURIComponent(bust);
+    }}
+
+    function syncLayerBrandImages() {{
+        if (!project) return;
+        const url = project.image_url ? layerImageUrl(project.image_url, project) : '';
+        const navImg = document.getElementById('layer-navbar-brand-img');
+        if (navImg) {{
+            navImg.src = url || '/static/images/overweb_logo.png';
+            navImg.alt = project.name || '';
+        }}
+        document.querySelectorAll('.layer-hero-image, .layer-display-image').forEach(function(img) {{
+            if (url) {{
+                img.src = url;
+                img.style.display = '';
+            }} else {{
+                img.style.display = 'none';
+            }}
+        }});
+        const editPreview = document.getElementById('edit-project-image-preview');
+        if (editPreview) {{
+            if (url) {{
+                editPreview.src = url;
+                editPreview.classList.remove('d-none');
+            }} else {{
+                editPreview.classList.add('d-none');
+            }}
+        }}
+    }}
+
+    async function refreshProjectFromApi() {{
+        if (!projectSlug) return false;
+        try {{
+            const resp = await fetch('/api/layers/by-slug/' + encodeURIComponent(projectSlug) + '/', {{ credentials: 'include' }});
+            if (!resp.ok) return false;
+            const detail = await resp.json();
+            project = detail;
+            project.is_member = detail.is_member === true;
+            project.member_role = detail.member_role || null;
+            if (detail.effective_features) {{
+                Object.keys(detail.effective_features).forEach(function(k) {{
+                    layerEffectiveFeatures[k] = detail.effective_features[k];
+                }});
+            }}
+            displayProjectHeader();
+            syncLayerBrandImages();
+            if (showCarousel) loadCarousel();
+            return true;
+        }} catch (e) {{
+            console.error('refreshProjectFromApi:', e);
+            return false;
+        }}
+    }}
+
     let artifactKnowledgeFilter = '';
+    let artifactTagFilters = [];
     
     const referralRef = {json.dumps(request.args.get('ref') or '')};
     
@@ -610,13 +735,21 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             project = detail;
             project.is_member = detail.is_member === true;
             project.member_role = detail.member_role || null;
+            if (detail.effective_features) {{
+                Object.keys(detail.effective_features).forEach(function(k) {{
+                    layerEffectiveFeatures[k] = detail.effective_features[k];
+                }});
+            }}
             
             displayProjectHeader();
+            syncLayerBrandImages();
             loadOverview();
-            const wlResp = await fetch('/api/layers/' + project.id + '/waitlists/');
-            const wlData = await wlResp.json().catch(() => ({{ waitlists: [], count: 0 }}));
-            const enabledWaitlists = (wlData.waitlists || []).filter(w => w.active !== false);
-            buildWaitlistTabs(enabledWaitlists);
+            if (isLayerFeatureOn('waitlists')) {{
+                const wlResp = await fetch('/api/layers/' + project.id + '/waitlists/');
+                const wlData = await wlResp.json().catch(() => ({{ waitlists: [], count: 0 }}));
+                const enabledWaitlists = (wlData.waitlists || []).filter(w => w.active !== false);
+                buildWaitlistTabs(enabledWaitlists);
+            }}
             if (initialWaitlistId) {{
                 const wl = enabledWaitlists.find(w => w.id === initialWaitlistId);
                 if (wl) {{
@@ -681,9 +814,6 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const showTags = !showCarousel;
         const isJoined = project.is_member || isProjectAdmin;
         let actionsHtml = '';
-        if (project.mission) {{
-            actionsHtml += '<div class="mb-3"><strong>Mission</strong><p class="mb-0 small">' + escapeHtml(project.mission || '') + '</p></div>';
-        }}
         if (isAuthenticated) {{
             if (isJoined) {{
                 actionsHtml += '<div class="mb-3"><span class="badge bg-success">Joined</span></div>';
@@ -701,62 +831,151 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         if (isProjectAdmin) {{
             actionsHtml += '<button class="btn btn-secondary btn-sm w-100" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>';
         }}
-        const imageHtml = project.image_url ? '<div class="card mb-3"><div class="card-body p-2 text-center"><img src="' + project.image_url + '" alt="' + escapeHtmlBasic(project.name) + '" class="img-fluid rounded" style="max-height: 200px; max-width: 100%;"></div></div>' : '';
-        document.getElementById('project-title').innerHTML = '<div class="d-flex align-items-center flex-wrap gap-2"><h1 class="mb-0 me-2">' + escapeHtml(project.name) + '</h1>' + (showTags ? (statusBadge + approvalBadge) : '') + '</div>';
+        const layerImgSrc = project.image_url ? layerImageUrl(project.image_url, project) : '';
+        const mediaHtml = layerImgSrc
+            ? '<div class="living-layer-hero-media"><img src="' + layerImgSrc + '" alt="' + escapeHtmlBasic(project.name) + '" class="layer-hero-image layer-display-image"></div>'
+            : '<div class="living-layer-hero-media"><i class="fas fa-layer-group fa-3x text-muted opacity-50"></i></div>';
+        const missionHtml = project.mission
+            ? '<p class="living-layer-hero-mission">' + escapeHtml(project.mission) + '</p>'
+            : '';
+        const descHtml = (!showCarousel && project.description)
+            ? '<p class="living-layer-hero-desc">' + escapeHtml(project.description) + '</p>'
+            : '';
+        const pulseHtml = buildLayerPulseStrip();
+        const titleEl = document.getElementById('project-title');
+        if (titleEl) titleEl.innerHTML = '';
+        const heroCore =
+            '<div class="living-layer-hero">' +
+            '<div class="living-layer-hero-inner">' +
+            mediaHtml +
+            '<div class="living-layer-hero-body">' +
+            '<h1>' + escapeHtml(project.name) + '</h1>' +
+            (showTags ? '<div class="mb-2">' + statusBadge + approvalBadge + '</div>' : '') +
+            missionHtml + descHtml + pulseHtml +
+            '</div>' +
+            '<div class="living-layer-hero-actions">' + actionsHtml + '</div>' +
+            '</div></div>';
         if (showCarousel) {{
             document.getElementById('project-header').innerHTML =
-                '<div class="row">' +
-                    '<div class="col-lg-8">' +
-                        '<div id="carousel-container"></div>' +
-                    '</div>' +
-                    '<div class="col-lg-4">' +
-                        '<div class="card">' +
-                            '<div class="card-header py-2"><strong>Actions</strong></div>' +
-                            '<div class="card-body py-3">' + actionsHtml + '</div>' +
-                        '</div>' +
-                    '</div>' +
-                '</div>';
+                heroCore +
+                '<div class="row mt-3"><div class="col-12"><div id="carousel-container"></div></div></div>';
         }} else {{
-            document.getElementById('project-header').innerHTML =
-                '<div class="row">' +
-                    '<div class="col-md-8">' +
-                        '<p class="lead">' + escapeHtml(project.description || 'No description') + '</p>' +
-                    '</div>' +
-                    '<div class="col-md-4">' +
-                        imageHtml +
-                        '<div class="card">' +
-                            '<div class="card-header py-2"><strong>Actions</strong></div>' +
-                            '<div class="card-body py-3">' + actionsHtml + '</div>' +
-                        '</div>' +
-                    '</div>' +
-                '</div>';
+            document.getElementById('project-header').innerHTML = heroCore;
         }}
     }}
+
+    function buildLayerPulseStrip() {{
+        const chips = [];
+        if (isLayerFeatureOn('workgroups')) chips.push('<span class="living-layer-pulse-chip is-live">Workgroups</span>');
+        if (isLayerFeatureOn('roles')) chips.push('<span class="living-layer-pulse-chip is-live">Roles</span>');
+        if (isLayerFeatureOn('guilds')) chips.push('<span class="living-layer-pulse-chip is-live">Guilds</span>');
+        if (isLayerFeatureOn('waitlists')) chips.push('<span class="living-layer-pulse-chip is-live">Waitlists</span>');
+        if (isLayerFeatureOn('docs')) chips.push('<span class="living-layer-pulse-chip is-live">Docs</span>');
+        if (isLayerFeatureOn('votes')) chips.push('<span class="living-layer-pulse-chip">Votes</span>');
+        if (isLayerFeatureOn('artifacts')) chips.push('<span class="living-layer-pulse-chip">Artifacts</span>');
+        if (isLayerFeatureOn('badges')) chips.push('<span class="living-layer-pulse-chip">Badges</span>');
+        if (!chips.length) return '';
+        return '<div class="living-layer-pulse-strip">' + chips.join('') + '</div>';
+    }}
     
+    function livingModule(icon, title, bodyHtml, spanFull) {{
+        const spanCls = spanFull ? ' living-module-span-2' : '';
+        return '<div class="living-module' + spanCls + '">' +
+            '<div class="living-module-header"><div class="living-module-icon"><i class="fas ' + icon + '"></i></div>' +
+            '<h5 class="living-module-title">' + title + '</h5></div>' +
+            '<div class="living-module-body">' + bodyHtml + '</div></div>';
+    }}
+
     function loadOverview() {{
         const statusEsc = escapeHtml(String(project.status || ''));
         const approvalEsc = escapeHtml(String(project.approval_status || ''));
         const createdStr = project.created_at ? new Date(project.created_at).toLocaleDateString() : '—';
         const lastActivityStr = project.last_activity_at ? new Date(project.last_activity_at).toLocaleDateString() : 'Never';
         const wgCount = project.workgroups_count || 0;
-        const layerInfoHtml = '<div class="row"><div class="col-md-6"><div class="card mb-4"><div class="card-header"><h5>Layer Information</h5></div><div class="card-body">' +
-            '<p><strong>Status:</strong> ' + statusEsc + '</p>' +
-            '<p><strong>Approval:</strong> ' + approvalEsc + '</p>' +
-            '<p><strong>Created:</strong> ' + createdStr + '</p>' +
-            '<p><strong>Last Activity:</strong> ' + lastActivityStr + '</p>' +
-            '</div></div></div>' +
-            '<div class="col-md-6"><div class="card mb-4"><div class="card-header"><h5>Quick Stats</h5></div><div class="card-body">' +
-            '<p><strong>Workgroups:</strong> ' + wgCount + '</p>' +
-            '<p><strong>Roles:</strong> <span id="roles-count">Loading...</span></p>' +
-            '<p><strong>Active Claims:</strong> <span id="claims-count">Loading...</span></p>' +
-            '</div></div></div></div>' +
-            '<div class="row"><div class="col-12"><div class="card mb-4"><div class="card-header"><h5 class="mb-0"><i class="fas fa-stream me-2"></i>Recent Activity</h5></div><div class="card-body">' +
-            '<div id="activity-feed-container"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>' +
-            '</div></div></div></div>';
-        document.getElementById('overview-content').innerHTML = layerInfoHtml;
+        const modules = [];
+        let pulseBody = '';
+        if (isLayerFeatureOn('workgroups')) {{
+            pulseBody += '<div class="living-module-stat">' + wgCount + '</div><div class="living-module-stat-label">Workgroups</div>';
+        }}
+        if (isLayerFeatureOn('roles')) {{
+            pulseBody += '<div class="mt-2"><span class="living-module-stat-label">Roles</span> <span id="roles-count" class="living-module-stat" style="font-size:1.1rem">…</span></div>';
+            pulseBody += '<div><span class="living-module-stat-label">Active claims</span> <span id="claims-count" class="living-module-stat" style="font-size:1.1rem">…</span></div>';
+        }}
+        if (pulseBody) modules.push(livingModule('fa-heartbeat', 'Layer pulse', pulseBody, false));
+        modules.push(livingModule('fa-info-circle', 'Layer info',
+            '<p class="small mb-1"><strong>Status:</strong> ' + statusEsc + '</p>' +
+            '<p class="small mb-1"><strong>Approval:</strong> ' + approvalEsc + '</p>' +
+            '<p class="small mb-1"><strong>Created:</strong> ' + createdStr + '</p>' +
+            '<p class="small mb-0"><strong>Last activity:</strong> ' + lastActivityStr + '</p>', false));
+        if (isLayerFeatureOn('guilds')) {{
+            modules.push(livingModule('fa-users', 'Affiliated guilds',
+                '<div id="overview-guilds-body"><div class="text-center py-2"><div class="spinner-border spinner-border-sm text-secondary"></div></div></div>', false));
+        }}
+        if (isLayerFeatureOn('waitlists')) {{
+            modules.push(livingModule('fa-list-alt', 'Waitlists',
+                '<div id="overview-waitlists-body"><div class="text-center py-2"><div class="spinner-border spinner-border-sm text-secondary"></div></div></div>', false));
+        }}
+        modules.push(livingModule('fa-stream', 'Recent activity',
+            '<div id="activity-feed-container" class="living-module-activity"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div></div></div>', true));
+        const gridCls = modules.length > 3 ? ' living-modules-grid--wide' : '';
+        document.getElementById('overview-content').innerHTML =
+            '<div class="living-modules-grid' + gridCls + '">' + modules.join('') + '</div>';
         if (showCarousel) loadCarousel();
-        loadRolesCounts();
+        if (isLayerFeatureOn('roles')) loadRolesCounts();
         loadActivityFeed();
+        if (isLayerFeatureOn('guilds')) loadOverviewGuilds();
+        if (isLayerFeatureOn('waitlists')) loadOverviewWaitlists();
+    }}
+
+    async function loadOverviewWaitlists() {{
+        const el = document.getElementById('overview-waitlists-body');
+        if (!el || !project) return;
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/waitlists/', {{ credentials: 'same-origin' }});
+            const d = await r.json();
+            const list = d.waitlists || [];
+            if (!list.length) {{
+                el.innerHTML = '<p class="text-muted small mb-0">No waitlists yet.</p>';
+                return;
+            }}
+            let html = '<ul class="list-unstyled small mb-0">';
+            list.slice(0, 4).forEach(function(w) {{
+                html += '<li class="mb-2"><a href="#" class="text-decoration-none" onclick="document.getElementById(\\'waitlist-tab-' + w.id + '\\')?.click(); return false;">' +
+                    escapeHtmlBasic(w.name || 'Waitlist') + '</a>';
+                if (w.active) html += ' <span class="badge bg-success">Active</span>';
+                html += '</li>';
+            }});
+            if (list.length > 4) html += '<li class="text-muted">+' + (list.length - 4) + ' more</li>';
+            html += '</ul>';
+            el.innerHTML = html;
+        }} catch (e) {{
+            el.innerHTML = '<p class="text-muted small mb-0">Could not load waitlists.</p>';
+        }}
+    }}
+    
+    async function loadOverviewGuilds() {{
+        const el = document.getElementById('overview-guilds-body');
+        if (!el || !project) return;
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/guilds/', {{ credentials: 'same-origin' }});
+            const d = await r.json();
+            const links = d.links || [];
+            if (links.length === 0) {{
+                el.innerHTML = '<p class="text-muted small mb-0">No affiliated guilds yet.</p>';
+                return;
+            }}
+            let h = '<ul class="list-unstyled mb-0">';
+            links.forEach(lnk => {{
+                const g = lnk.guild || {{}};
+                const name = escapeHtmlBasic(g.name || 'Guild');
+                const slug = escapeHtmlBasic(g.slug || '');
+                h += '<li class="mb-1"><a href="/guilds/' + slug + '/">' + name + '</a></li>';
+            }});
+            h += '</ul>';
+            el.innerHTML = h;
+        }} catch (e) {{
+            el.innerHTML = '<p class="text-muted small mb-0">Unable to load guilds.</p>';
+        }}
     }}
     
     async function loadCarousel() {{
@@ -767,6 +986,10 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             const data = await res.json();
             const items = data.items || [];
             if (items.length === 0) {{
+                if (project.image_url) {{
+                    container.innerHTML = '';
+                    return;
+                }}
                 container.innerHTML = '<div class="rounded p-4 text-center text-muted" style="background: var(--bg-secondary);"><p class="mb-0">No featured items yet. Drafts, roles, and opportunities will appear here.</p></div>';
                 return;
             }}
@@ -829,14 +1052,23 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         if (!container || container.dataset.klFilterBar) return;
         container.dataset.klFilterBar = '1';
         const wrap = document.createElement('div');
-        wrap.className = 'mb-3 d-flex flex-wrap gap-1 align-items-center';
-        const forms = ['', 'inquiry', 'principle', 'model', 'conviction', 'decision', 'gloss', 'scenario'];
+        wrap.id = 'artifact-filter-bar';
+        wrap.className = 'mb-3';
+        const kfRow = document.createElement('div');
+        kfRow.className = 'd-flex flex-wrap gap-1 align-items-center mb-2';
+        const forms = ['', 'inquiry', 'principle', 'model', 'claim', 'decision', 'gloss', 'scenario'];
         let btns = '<span class="small text-muted me-2">Contribution:</span>';
         forms.forEach(function(kf, i) {{
             const label = kf || 'All';
             btns += '<button type="button" class="btn btn-sm btn-outline-secondary artifact-kf-btn' + (i === 0 ? ' active' : '') + '" data-kf="' + kf + '">' + label + '</button>';
         }});
-        wrap.innerHTML = btns;
+        kfRow.innerHTML = btns;
+        wrap.appendChild(kfRow);
+        const tagRow = document.createElement('div');
+        tagRow.id = 'artifact-tag-filter-row';
+        tagRow.className = 'd-flex flex-wrap gap-1 align-items-center';
+        tagRow.innerHTML = '<span class="small text-muted me-2">Tags:</span><span class="small text-muted">Loading…</span>';
+        wrap.appendChild(tagRow);
         container.parentNode.insertBefore(wrap, container);
         wrap.querySelectorAll('.artifact-kf-btn').forEach(function(btn) {{
             btn.addEventListener('click', function() {{
@@ -847,6 +1079,51 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 loadArtifacts();
             }});
         }});
+        loadArtifactTagFilterChips();
+    }}
+
+    async function loadArtifactTagFilterChips() {{
+        const row = document.getElementById('artifact-tag-filter-row');
+        if (!row || !project) return;
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/artifact-tags/', {{ credentials: 'same-origin' }});
+            const data = await res.json();
+            if (!res.ok || !data.enabled) {{
+                row.style.display = 'none';
+                return;
+            }}
+            const tags = data.tags || [];
+            if (tags.length === 0) {{
+                row.innerHTML = '<span class="small text-muted">Tags: none yet</span>';
+                return;
+            }}
+            let html = '<span class="small text-muted me-2">Tags:</span>';
+            html += '<button type="button" class="btn btn-sm btn-outline-secondary artifact-tag-btn' + (artifactTagFilters.length === 0 ? ' active' : '') + '" data-tag="">All</button>';
+            tags.forEach(function(t) {{
+                const slug = t.slug || '';
+                const active = artifactTagFilters.indexOf(slug) >= 0 ? ' active' : '';
+                const label = escapeHtmlBasic(t.label || slug);
+                const count = t.artifact_count != null ? ' (' + t.artifact_count + ')' : '';
+                html += '<button type="button" class="btn btn-sm btn-outline-secondary artifact-tag-btn' + active + '" data-tag="' + escapeHtmlBasic(slug) + '">' + label + count + '</button>';
+            }});
+            row.innerHTML = html;
+            row.querySelectorAll('.artifact-tag-btn').forEach(function(btn) {{
+                btn.addEventListener('click', function() {{
+                    const slug = btn.getAttribute('data-tag') || '';
+                    if (!slug) {{
+                        artifactTagFilters = [];
+                    }} else {{
+                        const idx = artifactTagFilters.indexOf(slug);
+                        if (idx >= 0) artifactTagFilters.splice(idx, 1);
+                        else artifactTagFilters.push(slug);
+                    }}
+                    loadArtifactTagFilterChips();
+                    loadArtifacts();
+                }});
+            }});
+        }} catch (e) {{
+            row.innerHTML = '<span class="small text-muted">Tags unavailable</span>';
+        }}
     }}
     
     async function loadArtifacts() {{
@@ -855,7 +1132,10 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         ensureArtifactFilterBar();
         try {{
             let url = '/api/layers/' + project.id + '/artifacts/';
-            if (artifactKnowledgeFilter) url += '?knowledge_form=' + encodeURIComponent(artifactKnowledgeFilter);
+            const params = [];
+            if (artifactKnowledgeFilter) params.push('knowledge_form=' + encodeURIComponent(artifactKnowledgeFilter));
+            if (artifactTagFilters.length) params.push('tags=' + encodeURIComponent(artifactTagFilters.join(',')));
+            if (params.length) url += '?' + params.join('&');
             const res = await fetch(url, {{ credentials: 'same-origin' }});
             const data = await res.json();
             if (!res.ok) {{
@@ -864,20 +1144,32 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }}
             const arts = data.artifacts || [];
             if (arts.length === 0) {{
-                const msg = artifactKnowledgeFilter
-                    ? 'No artifacts with this contribution type.'
-                    : 'No artifacts yet. Submissions and quest outputs create artifacts.';
+                let msg = 'No artifacts yet. Submissions and quest outputs create artifacts.';
+                if (artifactKnowledgeFilter) msg = 'No artifacts with this contribution type.';
+                else if (artifactTagFilters.length) msg = 'No artifacts match the selected tags.';
                 container.innerHTML = '<p class="text-muted small mb-0">' + msg + '</p>';
                 return;
             }}
-            let html = '<ul class="list-group list-group-flush">';
+            let html = '<ul class="list-group list-group-flush artifact-list-rows">';
             arts.forEach(a => {{
                 const ref = a.public_ref || a.id;
-                const title = escapeHtmlBasic((a.title || a.public_ref || 'Untitled').slice(0, 60));
+                const fullTitle = a.title || a.public_ref || 'Untitled';
+                const title = escapeHtmlBasic(fullTitle);
                 const kf = a.knowledge_form;
-                const kfBadge = kf ? '<span class="badge text-bg-info ms-1">' + escapeHtmlBasic(kf) + '</span>' : '';
+                const kfBadge = kf ? '<span class="badge text-bg-info flex-shrink-0">' + escapeHtmlBasic(kf) + '</span>' : '';
+                const tags = a.tags || [];
+                let tagHtml = '';
+                tags.forEach(function(t) {{
+                    const slug = t.slug || '';
+                    tagHtml += '<span class="badge bg-light text-dark border flex-shrink-0 me-1">' + escapeHtmlBasic(t.label || slug) + '</span>';
+                }});
                 const statusCls = (a.status === 'approved' || a.status === 'adopted') ? 'success' : (a.status === 'submitted' ? 'info' : 'secondary');
-                html += '<li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1"><span><a href="' + layerBase + 'artifacts/' + ref + '/" class="text-decoration-none">' + title + '</a>' + kfBadge + '</span><span class="badge bg-' + statusCls + '">' + (a.status || 'draft') + '</span></li>';
+                html += '<li class="list-group-item px-0 py-2 border-bottom"><div class="d-flex align-items-center gap-2 text-nowrap" style="min-width:0">';
+                html += kfBadge;
+                html += '<a href="' + layerBase + 'artifacts/' + ref + '/" class="text-decoration-none text-truncate flex-grow-1" style="min-width:0" title="' + title + '">' + title + '</a>';
+                html += tagHtml;
+                html += '<span class="badge bg-' + statusCls + ' flex-shrink-0">' + (a.status || 'draft') + '</span>';
+                html += '</div></li>';
             }});
             html += '</ul>';
             container.innerHTML = html;
@@ -974,6 +1266,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             case 'guild_layer_unlinked': text = who + ' unlinked guild' + (p.guild_name ? ' "' + p.guild_name + '"' : '') + ' from this layer'; break;
             case 'guild_artifact_linked': text = who + ' linked a guild to an artifact as ' + (p.link_type || 'link'); tabId = 'artifacts'; break;
             case 'guild_artifact_unlinked': text = who + ' removed a guild ' + (p.link_type || '') + ' link from an artifact'; tabId = 'artifacts'; break;
+            case 'guild_quest_linked': text = who + ' linked a guild to a quest as ' + (p.link_type || 'link'); tabId = 'opportunities'; break;
+            case 'guild_quest_unlinked': text = who + ' removed a guild quest link (' + (p.link_type || '') + ')'; tabId = 'opportunities'; break;
             case 'brick_placed': text = who + ' placed a brick on Civic Mason'; break;
             default: text = ev.event_type.replace(/_/g, ' ');
         }}
@@ -1404,23 +1698,29 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     
     // Tab event listeners (skip when standalone - no tabs in DOM)
     if (!showCarousel) {{
-        document.getElementById('workgroups-tab').addEventListener('shown.bs.tab', loadWorkgroups);
-        document.getElementById('clusters-tab').addEventListener('shown.bs.tab', loadClusters);
-        document.getElementById('roles-tab').addEventListener('shown.bs.tab', loadRoles);
-        document.getElementById('claims-tab').addEventListener('shown.bs.tab', loadClaims);
-        document.getElementById('votes-tab').addEventListener('shown.bs.tab', loadVotes);
-        document.getElementById('artifacts-tab').addEventListener('shown.bs.tab', loadArtifacts);
-        document.getElementById('opportunities-tab').addEventListener('shown.bs.tab', loadOpportunities);
+        const tabLoaders = [
+            ['workgroups-tab', loadWorkgroups],
+            ['clusters-tab', loadClusters],
+            ['roles-tab', loadRoles],
+            ['claims-tab', loadClaims],
+            ['votes-tab', loadVotes],
+            ['artifacts-tab', loadArtifacts],
+            ['opportunities-tab', loadOpportunities],
+        ];
+        tabLoaders.forEach(function(pair) {{
+            const el = document.getElementById(pair[0]);
+            if (el) el.addEventListener('shown.bs.tab', pair[1]);
+        }});
         {admin_tab_listener}
         
-        ['overview-tab','workgroups-tab','clusters-tab','roles-tab','claims-tab','votes-tab','artifacts-tab','opportunities-tab'].forEach(function(id) {{
+        enabledLayerTabIds.forEach(function(id) {{
             const el = document.getElementById(id);
             if (el) el.addEventListener('click', function() {{ clearHashIfNeeded(getProjectTabKey(id)); }}, true);
         }});
         
-        const projectTabs = document.getElementById('projectTabs');
-        if (projectTabs) {{
-            projectTabs.addEventListener('shown.bs.tab', function(e) {{
+        const projectTabsWrap = document.getElementById('projectTabsWrap');
+        if (projectTabsWrap) {{
+            projectTabsWrap.addEventListener('shown.bs.tab', function(e) {{
                 const tabKey = getProjectTabKey(e.target.id);
                 if (tabKey) {{
                     const prevKey = localStorage.getItem('projectDetailTab_' + projectSlug + '_current');
@@ -1428,7 +1728,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                     clearHashIfNeeded(tabKey);
                 }}
             }});
-            projectTabs.addEventListener('click', function(e) {{
+            projectTabsWrap.addEventListener('click', function(e) {{
                 const btn = e.target.closest('[id^="waitlist-tab-"]');
                 if (btn && btn.id && btn.id.match(/^waitlist-tab-(\\d+)$/)) {{
                     clearHashIfNeeded('waitlist-' + btn.id.match(/^waitlist-tab-(\\d+)$/)[1]);
@@ -1453,6 +1753,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
     
     function buildWaitlistTabs(waitlists) {{
+        if (!isLayerFeatureOn('waitlists')) return;
         const marker = document.getElementById('waitlist-tabs-marker');
         const paneMarker = document.getElementById('waitlist-panes-marker');
         if (!marker || !paneMarker) return;
@@ -1460,12 +1761,17 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             marker.previousElementSibling.remove();
         }}
         document.querySelectorAll('[id^="waitlist-pane-"]').forEach(el => el.remove());
-        if (waitlists.length === 0) return;
+        const commGroup = document.getElementById('layer-tab-group-community');
+        if (commGroup) commGroup.classList.remove('d-none');
+        if (waitlists.length === 0) {{
+            if (commGroup) commGroup.classList.add('d-none');
+            return;
+        }}
         waitlists.forEach((w, idx) => {{
             const li = document.createElement('li');
             li.className = 'nav-item';
             li.id = 'waitlist-tab-li-' + w.id;
-            li.innerHTML = '<button class="nav-link" id="waitlist-tab-' + w.id + '" data-bs-toggle="tab" data-bs-target="#waitlist-pane-' + w.id + '" type="button" data-waitlist-id="' + w.id + '">' + escapeHtmlBasic(w.name || '') + '</button>';
+            li.innerHTML = '<button class="nav-link waitlist-tab-flair" id="waitlist-tab-' + w.id + '" data-bs-toggle="tab" data-bs-target="#waitlist-pane-' + w.id + '" type="button" data-waitlist-id="' + w.id + '"><i class="fas fa-list-alt" aria-hidden="true"></i><span>' + escapeHtmlBasic(w.name || '') + '</span></button>';
             marker.parentNode.insertBefore(li, marker);
             const pane = document.createElement('div');
             pane.className = 'tab-pane fade' + (idx === 0 ? '' : '');
@@ -1596,6 +1902,38 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }} catch (e) {{ alert('Failed to leave'); }}
     }}
     
+    async function attachGuildToLayer() {{
+        const inp = document.getElementById('layer-attach-guild-id');
+        const msg = document.getElementById('layer-attach-guild-msg');
+        if (!inp || !project) return;
+        const gid = inp.value.trim();
+        if (!gid) {{ if (msg) msg.textContent = 'Enter a guild id'; return; }}
+        if (msg) {{ msg.textContent = ''; msg.className = 'small mt-1 mb-0 text-muted'; }}
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/guilds/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'same-origin',
+                body: JSON.stringify({{ guild_id: gid }})
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (r.ok) {{ inp.value = ''; loadAdmins(); loadOverviewGuilds(); }}
+            else {{ if (msg) {{ msg.textContent = d.error || 'Failed'; msg.className = 'small mt-1 mb-0 text-danger'; }} }}
+        }} catch (e) {{ if (msg) {{ msg.textContent = e.message; msg.className = 'small mt-1 mb-0 text-danger'; }} }}
+    }}
+    
+    async function detachGuildFromLayer(guildId) {{
+        if (!project || !guildId || !confirm('Remove this guild link from the layer?')) return;
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/guilds/' + encodeURIComponent(guildId) + '/', {{
+                method: 'DELETE',
+                credentials: 'same-origin'
+            }});
+            if (r.ok) {{ loadAdmins(); loadOverviewGuilds(); }}
+            else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
+        }} catch (e) {{ alert(e.message); }}
+    }}
+    
     async function loadAdmins() {{
         const container = document.getElementById('admin-content');
         if (!container) return;
@@ -1611,53 +1949,85 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             
             const ownerUserEsc = escapeHtmlBasic(data.owner.username || '');
             const ownerNameEsc = escapeHtml(data.owner.display_name || '');
-            let html = '<div class="d-flex justify-content-between align-items-center mb-3"><h4>Layer admins</h4><button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button></div><p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p><div class="list-group"><div class="list-group-item d-flex justify-content-between align-items-center"><div><a href="/profile/' + ownerUserEsc + '/" class="fw-bold text-decoration-none">' + ownerNameEsc + '</a><span class="badge bg-primary ms-2">Owner</span></div><span class="text-muted">—</span></div>';
+            let html = '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Product features</h5></div><div class="card-body">';
+            html += '<p class="text-muted small mb-3">Turn off capabilities for this layer only. Disabled areas are removed from navigation, tabs, and admin sections. Site-wide rollout must also allow the feature.</p>';
+            html += '<div class="row g-2">';
+            layerFeatKeys.forEach(function(k) {{
+                const on = layerEffectiveFeatures[k] !== false;
+                html += '<div class="col-md-6 col-lg-4"><div class="form-check"><input class="form-check-input" type="checkbox" id="layer-feat-' + k + '" ' + (on ? 'checked' : '') + '><label class="form-check-label" for="layer-feat-' + k + '">' + (layerFeatLabels[k] || k) + '</label></div></div>';
+            }});
+            html += '</div><button type="button" class="btn btn-primary btn-sm mt-2" onclick="saveLayerFeatures()"><i class="fas fa-save me-1"></i>Save features</button>';
+            html += '<p class="small text-muted mt-2 mb-0" id="layer-feat-save-msg"></p></div></div>';
+            html += '<div class="d-flex justify-content-between align-items-center mb-3"><h4>Layer admins</h4><button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button></div><p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p><div class="list-group"><div class="list-group-item d-flex justify-content-between align-items-center"><div><a href="/profile/' + ownerUserEsc + '/" class="fw-bold text-decoration-none">' + ownerNameEsc + '</a><span class="badge bg-primary ms-2">Owner</span></div><span class="text-muted">—</span></div>';
             (data.admins || []).forEach(a => {{
                 html += '<div class="list-group-item d-flex justify-content-between align-items-center"><a href="/profile/' + escapeHtmlBasic(a.username || '') + '/" class="text-decoration-none">' + escapeHtml(a.display_name || '') + '</a><button class="btn btn-outline-danger btn-sm" onclick="removeAdmin(\\'' + (a.user_id || '') + '\\', this)">Remove</button></div>';
             }});
             html += '</div>';
             
-            // Add pending workgroups section for approval
-            html += '<hr class="my-4"><h4 class="mb-3">Pending workgroups</h4>';
-            const wgResponse = await fetch('/api/layers/' + project.id + '/workgroups/?approval_status=pending');
-            const wgData = await wgResponse.json();
-            if (wgData.workgroups && wgData.workgroups.length > 0) {{
-                html += '<div class="list-group">';
-                wgData.workgroups.forEach(wg => {{
-                    const wgNameEsc = escapeHtml(wg.name || '');
-                    const wgDescEsc = escapeHtml(wg.description || 'No description');
-                    const wgIdEsc = escapeForJsAttr(String(wg.id || ''));
-                    html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start"><div><h6 class="mb-1">' + wgNameEsc + '</h6><p class="mb-1 text-muted small">' + wgDescEsc + '</p></div><div class="btn-group btn-group-sm"><button class="btn btn-success" onclick="approveWorkgroup(\\'' + wgIdEsc + '\\')"><i class="fas fa-check me-1"></i>Approve</button><button class="btn btn-danger" onclick="rejectWorkgroup(\\'' + wgIdEsc + '\\')"><i class="fas fa-times me-1"></i>Reject</button></div></div></div>';
-                }});
-                html += '</div>';
-            }} else {{
-                html += '<p class="text-muted">No pending workgroups</p>';
+            if (isLayerFeatureOn('workgroups')) {{
+                html += '<hr class="my-4"><h4 class="mb-3">Pending workgroups</h4>';
+                const wgResponse = await fetch('/api/layers/' + project.id + '/workgroups/?approval_status=pending');
+                const wgData = await wgResponse.json();
+                if (wgData.workgroups && wgData.workgroups.length > 0) {{
+                    html += '<div class="list-group">';
+                    wgData.workgroups.forEach(wg => {{
+                        const wgNameEsc = escapeHtml(wg.name || '');
+                        const wgDescEsc = escapeHtml(wg.description || 'No description');
+                        const wgIdEsc = escapeForJsAttr(String(wg.id || ''));
+                        html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start"><div><h6 class="mb-1">' + wgNameEsc + '</h6><p class="mb-1 text-muted small">' + wgDescEsc + '</p></div><div class="btn-group btn-group-sm"><button class="btn btn-success" onclick="approveWorkgroup(\\'' + wgIdEsc + '\\')"><i class="fas fa-check me-1"></i>Approve</button><button class="btn btn-danger" onclick="rejectWorkgroup(\\'' + wgIdEsc + '\\')"><i class="fas fa-times me-1"></i>Reject</button></div></div></div>';
+                    }});
+                    html += '</div>';
+                }} else {{
+                    html += '<p class="text-muted">No pending workgroups</p>';
+                }}
             }}
-            
-            // Add waitlist management section
-            html += '<hr class="my-4"><div class="d-flex justify-content-between align-items-center mb-3"><h4>Waitlists</h4><button class="btn btn-primary btn-sm" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
-            const wlResponse = await fetch('/api/layers/' + project.id + '/waitlists/');
-            const wlData = await wlResponse.json();
-            if (wlData.waitlists && wlData.waitlists.length > 0) {{
-                html += '<div class="list-group">';
-                wlData.waitlists.forEach(wl => {{
-                    const statusBadge = wl.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>';
-                    const wlNameEsc = escapeHtmlBasic(wl.name || '');
-                    const wlDescEsc = escapeHtmlBasic(wl.description || 'No description');
-                    const wlNameAttr = (wl.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-                    html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start">' +
-                        '<div class="flex-grow-1">' +
-                        '<h6 class="mb-1"><a href="/waitlists/' + wl.id + '/" class="text-decoration-none">' + wlNameEsc + '</a> ' + statusBadge + '</h6>' +
-                        '<p class="mb-1 text-muted small">' + wlDescEsc + '</p>' +
-                        '<p class="mb-0 small text-muted">Members: ' + wl.count + (wl.max_number ? ' / ' + wl.max_number : '') + '</p>' +
-                        '</div><div class="btn-group btn-group-sm">' +
-                        '<button class="btn btn-outline-primary" onclick="showEmbedCodeFromEl(this)" data-waitlist-id="' + wl.id + '" data-waitlist-name="' + wlNameAttr + '"><i class="fas fa-code"></i></button>' +
-                        '<a href="/waitlists/' + wl.id + '/" class="btn btn-outline-secondary"><i class="fas fa-external-link-alt"></i></a>' +
-                        '</div></div></div>';
-                }});
-                html += '</div>';
-            }} else {{
-                html += '<p class="text-muted">No waitlists yet. Create one to start collecting signups.</p>';
+
+            if (isLayerFeatureOn('waitlists')) {{
+                html += '<hr class="my-4"><div class="d-flex justify-content-between align-items-center mb-3"><h4>Waitlists</h4><button class="btn btn-primary btn-sm" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
+                const wlResponse = await fetch('/api/layers/' + project.id + '/waitlists/');
+                const wlData = await wlResponse.json();
+                if (wlData.waitlists && wlData.waitlists.length > 0) {{
+                    html += '<div class="list-group">';
+                    wlData.waitlists.forEach(wl => {{
+                        const statusBadge = wl.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>';
+                        const wlNameEsc = escapeHtmlBasic(wl.name || '');
+                        const wlDescEsc = escapeHtmlBasic(wl.description || 'No description');
+                        const wlNameAttr = (wl.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+                        html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start">' +
+                            '<div class="flex-grow-1">' +
+                            '<h6 class="mb-1"><a href="/waitlists/' + wl.id + '/" class="text-decoration-none">' + wlNameEsc + '</a> ' + statusBadge + '</h6>' +
+                            '<p class="mb-1 text-muted small">' + wlDescEsc + '</p>' +
+                            '<p class="mb-0 small text-muted">Members: ' + wl.count + (wl.max_number ? ' / ' + wl.max_number : '') + '</p>' +
+                            '</div><div class="btn-group btn-group-sm">' +
+                            '<button class="btn btn-outline-primary" onclick="showEmbedCodeFromEl(this)" data-waitlist-id="' + wl.id + '" data-waitlist-name="' + wlNameAttr + '"><i class="fas fa-code"></i></button>' +
+                            '<a href="/waitlists/' + wl.id + '/" class="btn btn-outline-secondary"><i class="fas fa-external-link-alt"></i></a>' +
+                            '</div></div></div>';
+                    }});
+                    html += '</div>';
+                }} else {{
+                    html += '<p class="text-muted">No waitlists yet. Create one to start collecting signups.</p>';
+                }}
+            }}
+
+            if (isLayerFeatureOn('guilds')) {{
+                const guildRes = await fetch('/api/layers/' + project.id + '/guilds/', {{ credentials: 'same-origin' }});
+                const guildData = guildRes.ok ? await guildRes.json() : {{ links: [] }};
+                html += '<hr class="my-4"><h4 class="mb-3">Affiliated guilds</h4>';
+                html += '<p class="text-muted small mb-2">Unified Phase I: link guilds to this layer. Layer admins may attach any guild; guild officers who are also active layer members may attach.</p>';
+                if (guildData.links && guildData.links.length > 0) {{
+                    html += '<ul class="list-group list-group-flush mb-3">';
+                    guildData.links.forEach(lnk => {{
+                        const g = lnk.guild || {{}};
+                        const gname = escapeHtmlBasic(g.name || lnk.guild_id || '');
+                        const gslug = escapeHtmlBasic(g.slug || '');
+                        const gid = escapeForJsAttr(String(lnk.guild_id || ''));
+                        html += '<li class="list-group-item d-flex justify-content-between align-items-center"><span><a href="/guilds/' + gslug + '/">' + gname + '</a></span><button type="button" class="btn btn-sm btn-outline-danger" onclick="detachGuildFromLayer(\\'' + gid + '\\')">Remove</button></li>';
+                    }});
+                    html += '</ul>';
+                }} else {{
+                    html += '<p class="text-muted small mb-3">No guilds linked yet.</p>';
+                }}
+                html += '<div class="card card-body py-2 bg-light mb-2"><label class="form-label small mb-1">Attach guild (UUID from guild API or URL)</label><div class="input-group input-group-sm"><input type="text" class="form-control" id="layer-attach-guild-id" placeholder="Guild id"><button class="btn btn-primary" type="button" onclick="attachGuildToLayer()">Attach</button></div><p class="small mt-1 mb-0 text-muted" id="layer-attach-guild-msg"></p></div>';
             }}
             
             // About page section
@@ -1689,6 +2059,41 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
+    async function saveLayerFeatures() {{
+        if (!project) return;
+        const payload = {{}};
+        (layerFeatKeys || []).forEach(function(k) {{
+            const el = document.getElementById('layer-feat-' + k);
+            payload[k] = el ? el.checked : true;
+        }});
+        const msgEl = document.getElementById('layer-feat-save-msg');
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/', {{
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ enabled_features: payload }})
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (!r.ok) {{
+                if (msgEl) msgEl.textContent = d.error || 'Save failed';
+                return;
+            }}
+            if (d.project && d.project.effective_features) {{
+                Object.keys(d.project.effective_features).forEach(function(k) {{
+                    layerEffectiveFeatures[k] = d.project.effective_features[k];
+                }});
+            }}
+            if (msgEl) {{
+                msgEl.textContent = 'Saved. Updating tabs…';
+                msgEl.className = 'small text-success mt-2 mb-0';
+            }}
+            setTimeout(function() {{ window.location.reload(); }}, 600);
+        }} catch (e) {{
+            if (msgEl) msgEl.textContent = e.message || 'Save failed';
+        }}
+    }}
+
     async function saveAboutContent() {{
         const textarea = document.getElementById('about-content-edit');
         if (!textarea || !project) return;
@@ -2373,7 +2778,27 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             
             if (response.ok && data.image_url) {{
                 urlInput.value = data.image_url;
-                statusEl.innerHTML = '<small class="text-success"><i class="fas fa-check"></i> Uploaded successfully</small>';
+                try {{
+                    const patchRes = await fetch('/api/layers/' + project.id + '/', {{
+                        method: 'PATCH',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        credentials: 'include',
+                        body: JSON.stringify({{ image_url: data.image_url }})
+                    }});
+                    const patchData = await patchRes.json();
+                    if (patchRes.ok && patchData.project) {{
+                        project = patchData.project;
+                        project._imgBust = Date.now();
+                        await refreshProjectFromApi();
+                        syncLayerBrandImages();
+                        statusEl.innerHTML = '<small class="text-success"><i class="fas fa-check"></i> Image uploaded and saved</small>';
+                    }} else {{
+                        const err = (patchData && patchData.error) ? patchData.error : ('HTTP ' + patchRes.status);
+                        statusEl.innerHTML = '<small class="text-danger"><i class="fas fa-exclamation-triangle"></i> Upload OK but save failed: ' + escapeHtmlBasic(err) + '</small>';
+                    }}
+                }} catch (_) {{
+                    statusEl.innerHTML = '<small class="text-warning"><i class="fas fa-check"></i> Uploaded — click Save to apply</small>';
+                }}
                 fileInput.value = '';
             }} else {{
                 statusEl.innerHTML = '<small class="text-danger">' + escapeHtml(data.error || 'Upload failed') + '</small>';
@@ -2392,6 +2817,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         document.getElementById('edit-project-image-url').value = project.image_url || '';
         document.getElementById('edit-project-image-file').value = '';
         document.getElementById('edit-project-image-upload-status').innerHTML = '';
+        syncLayerBrandImages();
         document.getElementById('edit-project-status').value = project.status || 'proposed';
         document.getElementById('edit-project-status-reason').value = project.status_reason || '';
         document.getElementById('edit-project-meta-domain-inscription').value = project.meta_domain_inscription_id || '';
@@ -2538,11 +2964,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (res.ok) {{
                 bootstrap.Modal.getInstance(document.getElementById('editProjectModal')).hide();
                 project = data.project;
+                project._imgBust = Date.now();
                 if (project.slug !== projectSlug) {{
                     window.location.href = (showCarousel ? '/layer/' : '/layers/') + project.slug + '/';
                     return;
                 }}
-                displayProjectHeader();
+                await refreshProjectFromApi();
+                syncLayerBrandImages();
                 loadOverview();
             }} else {{
                 alertEl.textContent = data.error || 'Failed to update project';
