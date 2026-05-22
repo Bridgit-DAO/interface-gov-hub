@@ -3,6 +3,8 @@
  */
 
 :root {
+  --gh-content-max: 960px;
+  --gh-content-max-wide: 1080px;
   --gh-radius-sm: 8px;
   --gh-radius-md: 12px;
   --gh-radius-lg: 16px;
@@ -18,6 +20,15 @@
   --gh-gradient-hero: linear-gradient(160deg, var(--bg-secondary) 0%, var(--bg-color) 55%, var(--bg-secondary) 100%);
   --gh-tab-group-color: var(--text-muted);
   --gh-pulse-dot: #667eea;
+}
+
+/* Main page content width (navbar uses same .container) */
+.container {
+  max-width: var(--gh-content-max);
+}
+
+.gh-content-wide.container {
+  max-width: var(--gh-content-max-wide);
 }
 
 [data-theme="dark"] {
@@ -156,8 +167,37 @@
 
 @media (min-width: 768px) {
   .living-layer-hero-inner {
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto 1fr;
     align-items: start;
+  }
+
+  .living-layer-hero-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .living-layer-hero-actions .btn {
+    flex: 1 1 auto;
+    min-width: 140px;
+  }
+}
+
+@media (min-width: 992px) {
+  .living-layer-hero-inner {
+    grid-template-columns: auto 1fr minmax(200px, 240px);
+    align-items: start;
+  }
+
+  .living-layer-hero-actions {
+    grid-column: auto;
+    flex-direction: column;
+  }
+
+  .living-layer-hero-actions .btn {
+    width: 100%;
+    min-width: 0;
   }
 }
 
@@ -254,9 +294,10 @@
   }
 }
 
+/* Stay at 2 columns max — avoids ultra-wide module rows */
 @media (min-width: 1200px) {
   .living-modules-grid--wide {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 

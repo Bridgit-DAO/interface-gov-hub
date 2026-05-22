@@ -194,7 +194,7 @@ def projects_directory():
     current_user = get_current_user()
 
     content = f"""
-    <div class="container-fluid container-lg mt-3 mt-md-4 px-3 px-md-4">
+    <div class="container mt-3 mt-md-4">
         <div class="row mb-3 mb-md-4 align-items-center">
             <div class="col-12 col-md-8 mb-2 mb-md-0">
                 <h1 class="h4 h2-md mb-1">Layers Map</h1>
@@ -232,7 +232,7 @@ def projects_directory():
                 <input type="text" id="search-input" class="form-control" placeholder="Search layers..." onkeyup="filterProjects()">
             </div>
         </div>
-        <div id="projects-container" class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
+        <div id="projects-container" class="row row-cols-2 row-cols-sm-3 row-cols-md-3 row-cols-lg-4 g-3">
             <div class="col-12 text-center py-5">
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>

@@ -10,7 +10,6 @@ BASE_TEMPLATE = """
     <link rel="icon" type="image/png" href="/static/images/overweb_logo.png">
     <link rel="shortcut icon" type="image/png" href="/static/images/overweb_logo.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/css/govhub-design.css" rel="stylesheet">
     {font_awesome_link}
     <script src="{govhub_i18n_js}"></script>
     
@@ -588,12 +587,12 @@ BASE_TEMPLATE = """
             object-fit: cover;
         }}
 
-        /* Wider content layout for better readability */
+        /* Centered content — moderate width for readability */
         .container {{
-            max-width: 1200px;
+            max-width: 960px;
             margin: 0 auto;
-            padding-left: 24px;
-            padding-right: 24px;
+            padding-left: 20px;
+            padding-right: 20px;
         }}
 
         /* Responsive adjustments */
@@ -626,10 +625,10 @@ BASE_TEMPLATE = """
             }}
         }}
 
-        @media (min-width: 1200px) {{
+        @media (min-width: 992px) {{
             .container {{
-                padding-left: 40px;
-                padding-right: 40px;
+                padding-left: 24px;
+                padding-right: 24px;
             }}
         }}
 
@@ -715,6 +714,7 @@ BASE_TEMPLATE = """
             box-shadow: 0 0 0 3px rgba(29, 155, 240, 0.1);
         }}
     </style>
+    <link href="/static/css/govhub-design.css" rel="stylesheet">
 </head>
 <body data-build-number="{build_number}" {body_attrs}>
     <script>
