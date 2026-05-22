@@ -1,5 +1,5 @@
 """Coordination models: coordinators, workgroups, layers, badges, votes, etc."""
-from extensions import db
+from extensions import db, StorageBoolean
 from datetime import datetime
 from uuid import uuid4
 
@@ -163,6 +163,13 @@ class Layer(db.Model):
     # Meta-domain: ordinal-sourced domain for layer identity (e.g. example.com.meta)
     meta_domain_inscription_id = db.Column(db.String(255), nullable=True, index=True)
     meta_domain = db.Column(db.Text, nullable=True)  # Cached domain string from ordinal content
+
+    # Discovery + membership (see services/access_policy.py)
+    listing_visibility = db.Column(db.String(20), nullable=False, default='public')
+    join_policy = db.Column(db.String(30), nullable=False, default='open')
+
+    # Per-layer product features (JSON object); null = all layer-overridable features on
+    enabled_features = db.Column(db.Text, nullable=True)
     
     # Relationships
     initiator = db.relationship('User', foreign_keys=[initiator_id], backref='initiated_layers')
@@ -190,7 +197,17 @@ class Layer(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'meta_domain_inscription_id': getattr(self, 'meta_domain_inscription_id', None),
             'meta_domain': getattr(self, 'meta_domain', None),
+            'listing_visibility': getattr(self, 'listing_visibility', 'public'),
+            'join_policy': getattr(self, 'join_policy', 'open'),
+            'enabled_features': _layer_enabled_features_dict(self),
         }
+
+
+def _layer_enabled_features_dict(layer):
+    from services.layer_features import parse_layer_enabled_features
+
+    overrides = parse_layer_enabled_features(layer)
+    return overrides if overrides else None
 
 
 class LayerMember(db.Model):
@@ -328,18 +345,18 @@ class Waitlist(db.Model):
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     
-    public = db.Column(db.Boolean, default=True)  # False = only project members or link-holders see it
-    referrals = db.Column(db.Boolean, default=False)  # If True, joiners get referral link; referrer gets credit
-    active = db.Column(db.Boolean, default=True)  # If False, tab not shown
+    public = db.Column(StorageBoolean, default=True)  # False = only project members or link-holders see it
+    referrals = db.Column(StorageBoolean, default=False)  # If True, joiners get referral link; referrer gets credit
+    active = db.Column(StorageBoolean, default=True)  # If False, tab not shown
     start_date = db.Column(db.DateTime, nullable=False)  # Join disabled until start
     closing_date = db.Column(db.DateTime, nullable=True)
     max_number = db.Column(db.Integer, nullable=True)  # "Full" when reached
-    archived = db.Column(db.Boolean, default=False)  # Soft delete / archive
+    archived = db.Column(StorageBoolean, default=False)  # Soft delete / archive
     
     # Image
     image_url = db.Column(db.String(500), nullable=True)
     
-    milestones = db.Column(db.Boolean, default=False)
+    milestones = db.Column(StorageBoolean, default=False)
     show_milestones = db.Column(db.String(20), default='all')  # 'all', 'next', 'future'
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -355,25 +372,31 @@ class Waitlist(db.Model):
             max_val = int(self.max_number) if self.max_number not in (None, '') else None
         except (ValueError, TypeError):
             max_val = None
+        active = bool(self.active)
+        archived = bool(self.archived)
+        now = datetime.utcnow()
+        started = self.start_date is not None and now >= self.start_date
+        closed_by_date = self.closing_date is not None and now >= self.closing_date
+        is_full = max_val is not None and count >= max_val
         return {
             'id': self.id,
             'layer_id': self.layer_id,
             'name': self.name,
             'description': self.description,
-            'public': self.public,
-            'referrals': self.referrals,
-            'active': self.active,
+            'public': bool(self.public),
+            'referrals': bool(self.referrals),
+            'active': active,
             'start_date': self.start_date.isoformat() if self.start_date else None,
             'closing_date': self.closing_date.isoformat() if self.closing_date else None,
             'max_number': self.max_number,
-            'archived': self.archived,
+            'archived': archived,
             'image_url': self.image_url,
-            'milestones': self.milestones,
+            'milestones': bool(self.milestones),
             'show_milestones': self.show_milestones,
             'count': count,
-            'full': max_val is not None and count >= max_val,
-            'closed': self.closing_date is not None and datetime.utcnow() >= self.closing_date,
-            'started': self.start_date is not None and datetime.utcnow() >= self.start_date,
+            'full': is_full,
+            'closed': archived or not active or closed_by_date or is_full,
+            'started': started,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -558,6 +581,9 @@ class Guild(db.Model):
     # Status (guilds don't require approval - instant registration)
     status = db.Column(db.String(20), default='active', index=True)
     # active, archived
+
+    listing_visibility = db.Column(db.String(20), nullable=False, default='public')
+    join_policy = db.Column(db.String(30), nullable=False, default='open')
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -576,6 +602,8 @@ class Guild(db.Model):
             'description': self.description,
             'image_url': self.image_url,
             'status': self.status,
+            'listing_visibility': getattr(self, 'listing_visibility', 'public'),
+            'join_policy': getattr(self, 'join_policy', 'open'),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -1171,11 +1199,32 @@ class Quest(db.Model):
     status = db.Column(db.String(20), default='open', nullable=False, index=True)
     acceptance_criteria = db.Column(db.Text, nullable=True)
     due_date = db.Column(db.DateTime, nullable=True)
+    listing_visibility = db.Column(db.String(20), nullable=False, default='public')
+    join_policy = db.Column(db.String(30), nullable=False, default='open')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)
 
     layer = db.relationship('Layer', backref=db.backref('quests', lazy='dynamic'))
     creator = db.relationship('User', backref=db.backref('created_quests', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'public_id': self.public_id,
+            'layer_id': self.layer_id,
+            'creator_user_id': self.creator_user_id,
+            'title': self.title,
+            'description': self.description,
+            'quest_type': self.quest_type,
+            'difficulty': self.difficulty,
+            'status': self.status,
+            'acceptance_criteria': self.acceptance_criteria,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'listing_visibility': getattr(self, 'listing_visibility', 'public'),
+            'join_policy': getattr(self, 'join_policy', 'open'),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 class QuestSubmission(db.Model):

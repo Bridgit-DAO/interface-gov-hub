@@ -10,6 +10,22 @@ from collections import defaultdict
 _rate_limit_store = defaultdict(list)
 
 
+def coerce_storage_bool(value, default=False):
+    """SQLite often stores booleans as TEXT '0'/'1'; bool('0') is True in Python."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return int(value) != 0
+    s = str(value).strip().lower()
+    if s in ('0', 'false', 'no', 'off', '', 'none', 'null'):
+        return False
+    if s in ('1', 'true', 'yes', 'on'):
+        return True
+    return default
+
+
 def check_rate_limit(identifier, max_requests=5, window_seconds=300):
     """Simple in-memory rate limiting. Returns True if under limit, False if exceeded."""
     now = time.time()

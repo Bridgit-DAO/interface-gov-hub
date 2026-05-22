@@ -802,14 +802,14 @@ def build_waitlists_content(layer_slug=None):
                 allWaitlists = allWaitlists.filter(wl => {{
                     const startDate = new Date(wl.start_date);
                     const closingDate = wl.closing_date ? new Date(wl.closing_date) : null;
-                    const isFull = wl.max_number && wl.entry_count >= wl.max_number;
+                    const isFull = wl.full === true || (wl.max_number && wl.count >= wl.max_number);
                     
                     if (statusFilter === 'active') {{
-                        return wl.active && !wl.archived && now >= startDate && (!closingDate || now <= closingDate) && !isFull;
+                        return wl.active && !wl.archived && wl.started !== false && wl.closed !== true && !isFull;
                     }} else if (statusFilter === 'upcoming') {{
-                        return wl.active && !wl.archived && now < startDate;
+                        return wl.active && !wl.archived && wl.started === false;
                     }} else if (statusFilter === 'closed') {{
-                        return wl.archived || !wl.active || (closingDate && now > closingDate) || isFull;
+                        return wl.closed === true || wl.archived || !wl.active;
                     }}
                     return true;
                 }});
@@ -845,32 +845,30 @@ def build_waitlists_content(layer_slug=None):
         let html = '';
         waitlists.forEach(wl => {{
             const project = allProjects.find(p => p.id === wl.layer_id) || (layerScopedId ? allProjects[0] : null);
-            const now = new Date();
-            const startDate = new Date(wl.start_date);
+            const startDate = wl.start_date ? new Date(wl.start_date) : null;
             const closingDate = wl.closing_date ? new Date(wl.closing_date) : null;
-            const isFull = wl.max_number && wl.count >= wl.max_number;
+            const isFull = wl.full === true;
+            const isUpcoming = wl.started === false;
+            const isClosed = wl.closed === true || wl.archived || !wl.active;
             
             let statusBadge = '';
             let statusText = '';
             
-            if (!wl.active || wl.archived) {{
+            if (isClosed && !isFull) {{
                 statusBadge = '<span class="badge bg-secondary">Closed</span>';
-                statusText = 'This waitlist is closed';
-            }} else if (now < startDate) {{
+                statusText = wl.archived ? 'Archived' : (!wl.active ? 'Inactive' : (closingDate ? 'Closed ' + closingDate.toLocaleDateString() : 'This waitlist is closed'));
+            }} else if (isUpcoming) {{
                 statusBadge = '<span class="badge bg-info">Upcoming</span>';
-                statusText = `Opens ${{startDate.toLocaleDateString()}}`;
+                statusText = startDate ? ('Opens ' + startDate.toLocaleDateString()) : 'Not open yet';
             }} else if (isFull) {{
                 statusBadge = '<span class="badge bg-warning">Full</span>';
-                statusText = `${{wl.count}} / ${{wl.max_number}} spots filled`;
-            }} else if (closingDate && now > closingDate) {{
-                statusBadge = '<span class="badge bg-secondary">Closed</span>';
-                statusText = `Closed ${{closingDate.toLocaleDateString()}}`;
+                statusText = wl.max_number ? (wl.count + ' / ' + wl.max_number + ' spots filled') : (wl.count + ' members');
             }} else {{
                 statusBadge = '<span class="badge bg-success">Active</span>';
                 if (wl.max_number) {{
-                    statusText = `${{wl.count}} / ${{wl.max_number}} spots filled`;
+                    statusText = wl.count + ' / ' + wl.max_number + ' spots filled';
                 }} else {{
-                    statusText = `${{wl.count}} member${{wl.count !== 1 ? 's' : ''}}`;
+                    statusText = wl.count + ' member' + (wl.count !== 1 ? 's' : '');
                 }}
             }}
             
