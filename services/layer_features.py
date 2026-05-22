@@ -20,6 +20,7 @@ LAYER_FEATURE_LABELS: Dict[str, str] = {
     'guilds': 'Guilds (affiliation, directory)',
     'badges': 'Badges',
     'waitlists': 'Waitlists (tabs, admin, embed)',
+    'immortalize': 'Immortalize (Bitcoin inscription, submit tab, /immortalize/)',
     'votes': 'Votes',
     'artifacts': 'Artifacts, quests, monuments',
     'opportunities': 'Opportunities',

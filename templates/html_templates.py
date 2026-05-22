@@ -1117,12 +1117,14 @@ SUBMIT_TEMPLATE = """
                                 <i class="bi bi-coin"></i> From Ordinal
                             </button>
                         </li>
+                        <!-- GH_IMMORTALIZE_NAV -->
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="immortalize-tab" data-bs-toggle="tab" 
                                     data-bs-target="#immortalize" type="button" role="tab">
                                 <i class="bi bi-pencil-square"></i> Immortalize
                             </button>
                         </li>
+                        <!-- /GH_IMMORTALIZE_NAV -->
                     </ul>
                     
                     <div class="tab-content" id="submissionTabContent">
@@ -1289,6 +1291,7 @@ SUBMIT_TEMPLATE = """
                             </form>
                         </div>
                         
+                        <!-- GH_IMMORTALIZE_PANE -->
                         <!-- Immortalize Tab -->
                         <div class="tab-pane fade" id="immortalize" role="tabpanel">
                             <!-- Choice screen (shown by default when tier pricing offered) -->
@@ -1501,6 +1504,7 @@ SUBMIT_TEMPLATE = """
                             </div>
                             </div>
                         </div>
+                        <!-- /GH_IMMORTALIZE_PANE -->
                     </div>
                 </div>
             </div>

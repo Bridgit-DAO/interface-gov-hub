@@ -1,6 +1,7 @@
 """Submissions API and actions: list, approve, reject, view, download, admin/submissions."""
 import os
 import random
+import re
 import string
 from datetime import datetime
 
@@ -11,10 +12,31 @@ from extensions import db
 from models import Submission, Layer
 from services.identity import get_current_user, require_auth, require_role
 from services.submissions import get_submission_by_ref, add_to_document_history, get_next_ml_number
-from services.documents import load_draft_data
-from services.ordinals import shorten_inscription_id
+from services.documents import load_draft_data, revision_notes_to_safe_html
+from services.ordinals import (
+    shorten_inscription_id,
+    looks_like_html_inscription,
+    format_ordinal_html_iframe_preview,
+)
 
 bp = Blueprint('submissions', __name__, url_prefix='')
+
+
+def _strip_immortalize_from_submit_template(template: str) -> str:
+    """Remove Immortalize tab nav and pane when product rollout has immortalize off."""
+    template = re.sub(
+        r'<!-- GH_IMMORTALIZE_NAV -->.*?<!-- /GH_IMMORTALIZE_NAV -->',
+        '',
+        template,
+        flags=re.DOTALL,
+    )
+    template = re.sub(
+        r'<!-- GH_IMMORTALIZE_PANE -->.*?<!-- /GH_IMMORTALIZE_PANE -->',
+        '',
+        template,
+        flags=re.DOTALL,
+    )
+    return template
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +53,7 @@ SUBMISSION_STATUS_TEMPLATE = """
         </ol>
     </nav>
 
-    <h1>Submission Status</h1>
+    <h1>{{ status_page_heading }}</h1>
     <p class="lead">Track your Internet-Draft submission</p>
 
     <div id="flash-messages"></div>
@@ -70,13 +92,13 @@ SUBMISSION_STATUS_TEMPLATE = """
                         <a href="{{ parent_draft_url }}">{{ parent_draft_name }}</a>
                     </div>
                     {% endif %}
-                    {% if what_changed %}
+                    {% if what_changed_html %}
                     <div class="card mb-3">
                         <div class="card-header">
                             <strong>What changed (submitter's explanation)</strong>
                         </div>
-                        <div class="card-body">
-                            <p class="mb-0">{{ what_changed }}</p>
+                        <div class="card-body revision-notes">
+                            {{ what_changed_html | safe }}
                         </div>
                     </div>
                     {% endif %}
@@ -396,6 +418,11 @@ def submit_draft():
     submit_template = submit_template.replace('{{OFFER_TIER_PRICING}}', 'true' if offer_tier else 'false')
     submit_template = submit_template.replace('{build_number}', str(BUILD_NUMBER))
 
+    from services.product_rollout import is_feature_enabled
+
+    if not is_feature_enabled('immortalize', layer=effective_layer):
+        submit_template = _strip_immortalize_from_submit_template(submit_template)
+
     if request.method == 'POST':
         # Get common fields
         title = request.form.get('title', '').strip()
@@ -409,7 +436,7 @@ def submit_draft():
         # Validate layer_id when layers exist
         if not layer_id and layers:
             flash('Please select a layer for this submission.', 'error')
-            return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+            return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
         # Process authors (comma-separated)
         authors_list = [a.strip() for a in authors.split(',') if a.strip()]
@@ -430,11 +457,11 @@ def submit_draft():
             # Validation
             if not title or not authors or not ordinal_id:
                 flash('Title, authors, and inscription ID are required', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             if not ordinal_content_url:
                 flash('Please preview the ordinal before submitting', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             # Fetch ordinal content and calculate pages/words
             try:
@@ -494,7 +521,7 @@ def submit_draft():
             # Validation
             if not title or not authors or not file:
                 flash('Title, authors, and file are required', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             # Security: Check file size (max 50MB)
             file.seek(0, os.SEEK_END)
@@ -503,7 +530,7 @@ def submit_draft():
             max_size = 50 * 1024 * 1024  # 50MB
             if file_size > max_size:
                 flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             # Save file
             filename = f"{submission_id}-{file.filename}"
@@ -540,7 +567,7 @@ def submit_draft():
         flash('Draft submitted successfully!', 'success')
         return redirect(url_for('submissions.submission_detail', submission_id=submission.draft_name or submission.id))
 
-    return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
 
 @bp.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
@@ -949,7 +976,7 @@ def submit_revision(draft_name):
     </script>
     """
 
-    return _format_base_template(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER)
 
 
 @bp.route('/submit/status/')
@@ -1064,7 +1091,7 @@ def submission_status():
     </div>
     """
 
-    return _format_base_template(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/submit/status/<submission_id>/')
@@ -1073,7 +1100,7 @@ def submission_detail(submission_id):
     from services.rendering import _format_base_template, generate_user_menu
     from services.identity import get_current_user
     from config import BUILD_NUMBER
-    from services.documents import MARKDOWN_SUPPORT
+    from services.submission_preview_md import markdown_to_safe_preview_html, text_looks_like_markdown
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
@@ -1093,70 +1120,85 @@ def submission_detail(submission_id):
     source_type = getattr(submission, 'sourceType', 'file')
 
     if source_type == 'ordinal':
-        # Ordinal content - generate preview HTML
-        ordinal_content_type = getattr(submission, 'ordinalContentType', '')
-        ordinal_content_url = getattr(submission, 'ordinalContentUrl', '')
+        # Ordinal content - generate preview HTML (HTML inscriptions need script-capable iframe + sniff if MIME wrong)
+        import html as html_lib
+
+        ordinal_content_type = getattr(submission, 'ordinalContentType', '') or ''
+        ordinal_content_url = getattr(submission, 'ordinalContentUrl', '') or ''
 
         if ordinal_content_type.startswith('image/'):
-            content_preview_html = f'<img src="{ordinal_content_url}" class="img-fluid" style="max-height: 400px;" alt="Ordinal content">'
-        elif 'text/plain' in ordinal_content_type or 'text/javascript' in ordinal_content_type or 'application/json' in ordinal_content_type or 'application/javascript' in ordinal_content_type:
-            # Fetch and display text-based content
+            safe_src = html_lib.escape(ordinal_content_url, quote=True)
+            content_preview_html = (
+                f'<img src="{safe_src}" class="img-fluid" style="max-height: 400px;" alt="Ordinal content">'
+            )
+        elif looks_like_html_inscription('', ordinal_content_type):
+            content_preview_html = format_ordinal_html_iframe_preview(ordinal_content_url)
+            file_content = ""
+        elif 'text/' in ordinal_content_type or 'application/json' in ordinal_content_type:
             try:
-                import markdown2
-                import bleach
-                import re
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
                 response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                response.raise_for_status()
                 text_content = response.text
 
-                # Check if content is markdown
-                is_markdown = False
-                if 'text/plain' in ordinal_content_type:
-                    markdown_patterns = [
-                        r'^#{1,6}\s+.+$', r'\*\*.+\*\*', r'\*.+\*', r'^\s*[-*+]\s+',
-                        r'^\s*\d+\.\s+', r'\[.+\]\(.+\)', r'!\[.*\]\(.+\)'
-                    ]
-                    for pattern in markdown_patterns:
-                        if re.search(pattern, text_content, re.MULTILINE):
-                            is_markdown = True
-                            break
-
-                if is_markdown:
-                    html_content = markdown2.markdown(text_content, extras=['fenced-code-blocks', 'tables', 'break-on-newline'])
-                    allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                                    'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
-                                    'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span']
-                    allowed_attrs = {'a': ['href', 'title', 'target'], 'img': ['src', 'alt', 'title', 'width', 'height']}
-                    html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
-                    html_content = re.sub(r'src="(/content/[^"]+)"', r'src="https://ordinals.com\1"', html_content)
-                    content_preview_html = f'<div class="border p-3" style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                if looks_like_html_inscription(text_content, ordinal_content_type):
+                    content_preview_html = format_ordinal_html_iframe_preview(ordinal_content_url)
                     file_content = ""
+                elif 'text/markdown' in ordinal_content_type or (
+                    ordinal_content_type and 'markdown' in ordinal_content_type.lower()
+                ):
+                    html_content = markdown_to_safe_preview_html(text_content)
+                    if html_content:
+                        content_preview_html = (
+                            f'<div class="border p-3 markdown-body" '
+                            f'style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                        )
+                        file_content = ""
+                    else:
+                        file_content = text_content[:2000] + (
+                            "..." if len(text_content) > 2000 else ""
+                        )
+                elif (
+                    'text/plain' in ordinal_content_type
+                    or 'text/javascript' in ordinal_content_type
+                    or 'application/javascript' in ordinal_content_type
+                    or 'application/json' in ordinal_content_type
+                ):
+                    is_markdown = (
+                        'text/plain' in ordinal_content_type
+                        and text_looks_like_markdown(text_content)
+                    )
+
+                    if is_markdown:
+                        html_content = markdown_to_safe_preview_html(text_content)
+                        if html_content:
+                            content_preview_html = (
+                                f'<div class="border p-3 markdown-body" '
+                                f'style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                            )
+                            file_content = ""
+                        else:
+                            file_content = text_content[:2000] + (
+                                "..." if len(text_content) > 2000 else ""
+                            )
+                    else:
+                        file_content = text_content[:2000] + (
+                            "..." if len(text_content) > 2000 else ""
+                        )
                 else:
-                    file_content = text_content[:2000] + "..." if len(text_content) > 2000 else text_content
+                    # e.g. text/css — show snippet
+                    file_content = text_content[:2000] + (
+                        "..." if len(text_content) > 2000 else ""
+                    )
             except Exception as e:
                 current_app.logger.error(f"Error fetching ordinal text content: {e}")
                 file_content = "Error loading ordinal text content"
-        elif 'text/markdown' in ordinal_content_type:
-            try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
-                markdown_text = response.text
-                if MARKDOWN_SUPPORT:
-                    import markdown2
-                    html_content = markdown2.markdown(markdown_text, extras=['fenced-code-blocks', 'tables', 'break-on-newline'])
-                    content_preview_html = f'<div class="border p-3" style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
-                else:
-                    file_content = markdown_text[:2000] + ("..." if len(markdown_text) > 2000 else "")
-            except Exception:
-                file_content = "Error loading ordinal markdown content"
-        elif 'text/html' in ordinal_content_type:
-            content_preview_html = f'<iframe src="{ordinal_content_url}" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: 1px solid var(--card-border);"></iframe>'
         else:
-            file_content = f"Ordinal content type: {ordinal_content_type}\nPreview not available for this content type."
+            file_content = (
+                f"Ordinal content type: {ordinal_content_type}\nPreview not available for this content type."
+            )
 
     elif submission.file_path and os.path.exists(submission.file_path):
         # File upload - extract text for preview
@@ -1165,6 +1207,29 @@ def submission_detail(submission_id):
             if ext in ['.txt', '.xml']:
                 with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
                     content = f.read()
+                    if ext == '.txt' and text_looks_like_markdown(content):
+                        html_content = markdown_to_safe_preview_html(content)
+                        if html_content:
+                            content_preview_html = (
+                                f'<div class="border p-3 markdown-body" '
+                                f'style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                            )
+                            file_content = ""
+                        else:
+                            file_content = content[:2000] + "..." if len(content) > 2000 else content
+                    else:
+                        file_content = content[:2000] + "..." if len(content) > 2000 else content
+            elif ext in ('.md', '.markdown'):
+                with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                html_content = markdown_to_safe_preview_html(content)
+                if html_content:
+                    content_preview_html = (
+                        f'<div class="border p-3 markdown-body" '
+                        f'style="max-height: 400px; overflow-y: auto;">{html_content}</div>'
+                    )
+                    file_content = ""
+                else:
                     file_content = content[:2000] + "..." if len(content) > 2000 else content
             elif ext == '.docx':
                 from docx import Document
@@ -1219,11 +1284,17 @@ def submission_detail(submission_id):
     # Prepare template variables
     parent_draft_name = getattr(submission, 'parent_draft_name', '')
     inscription_ts = getattr(submission, 'inscriptionTimestamp', None)
+    _title = (submission.title or '').strip()
+    _draft = (getattr(submission, 'draft_name', None) or '').strip()
+    status_page_heading = _title or _draft or 'Submission Status'
+    status_doc_title = _title or _draft or f'Submission {submission.id}'
+
     template_vars = {
         'submission': submission,
         'current_user': current_user,
         'file_content': file_content,
         'content_preview_html': content_preview_html,
+        'status_page_heading': status_page_heading,
         'submission_id': submission.id,
         'submission_status': submission.status,
         'submission_status_title': submission.status.title(),
@@ -1256,7 +1327,9 @@ def submission_detail(submission_id):
         'parent_draft_name': parent_draft_name,
         'parent_draft_url': url_for('documents.draft_detail', draft_name=parent_draft_name) if parent_draft_name else '',
         'revision_number': getattr(submission, 'revision_number', ''),
-        'what_changed': getattr(submission, 'what_changed', ''),
+        'what_changed_html': revision_notes_to_safe_html(
+            getattr(submission, 'what_changed', '') or ''
+        ),
         'artifact_id': getattr(submission, 'artifact_id', None),
         'artifact_layer_slug': Layer.query.get(submission.layer_id).slug if submission.layer_id and getattr(submission, 'artifact_id', None) else None,
         'home_url': url_for('pages.home'),
@@ -1268,7 +1341,13 @@ def submission_detail(submission_id):
     }
 
     rendered_content = render_template_string(SUBMISSION_STATUS_TEMPLATE, **template_vars)
-    return _format_base_template(title=f"Submission {submission.id} - MLGH", theme=current_theme, user_menu=user_menu, content=rendered_content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(
+        title=f'{status_doc_title} - MLGH',
+        theme=current_theme,
+        user_menu=user_menu,
+        content=rendered_content,
+        build_number=BUILD_NUMBER,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1377,6 +1456,7 @@ def approve_submission(submission_id):
         except Exception:
             pass
 
+    old_status = submission.status
     submission.status = 'approved'
     submission.approved_at = datetime.utcnow()
     try:
@@ -1389,6 +1469,24 @@ def approve_submission(submission_id):
         return redirect(url_for('submissions.admin_submissions'))
 
     admin_user = get_current_user()
+    try:
+        from services.submission_notifications import (
+            emit_submission_status_notification,
+            run_submission_notification_dispatch,
+        )
+
+        bundle = emit_submission_status_notification(
+            submission,
+            actor_user_id=admin_user['id'],
+            old_status=old_status,
+            new_status='approved',
+        )
+        if bundle:
+            run_submission_notification_dispatch(bundle, admin_user['id'])
+    except Exception as ex:
+        from flask import current_app
+
+        current_app.logger.warning('submission notification dispatch (approve): %s', ex)
     action_desc = f"Approved revision {submission.revision_number} of {parent_draft_name}" if is_revision else f"Approved submission: {submission.title}"
     add_to_document_history(f"submission-{submission.id}", "approved", admin_user['name'], action_desc)
 
@@ -1705,7 +1803,7 @@ def admin_submissions():
         title="Submission Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+        content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/admin/submissions/<submission_id>/status', methods=['POST'])
@@ -1823,6 +1921,26 @@ def update_submission_status(submission_id):
         submission.doc_type = 'rfc'
 
     db.session.commit()
+
+    try:
+        from services.submission_notifications import (
+            emit_submission_status_notification,
+            run_submission_notification_dispatch,
+        )
+
+        au = get_current_user()
+        if au and new_status in ('approved', 'published'):
+            bundle = emit_submission_status_notification(
+                submission,
+                actor_user_id=au['id'],
+                old_status=old_status,
+                new_status=new_status,
+                rfc_number=submission.rfc_number if new_status == 'published' else None,
+            )
+            if bundle:
+                run_submission_notification_dispatch(bundle, au['id'])
+    except Exception as ex:
+        current_app.logger.warning('submission notification dispatch (status api): %s', ex)
 
     admin_user = get_current_user()
     action_details = f"Changed status from {old_status} to {new_status}"
