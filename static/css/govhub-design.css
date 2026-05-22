@@ -60,6 +60,21 @@
   list-style: none;
 }
 
+.layer-tab-group-label-item {
+  flex-basis: 100%;
+  width: 100%;
+  list-style: none;
+  margin-top: var(--gh-space-xs);
+}
+
+.layer-tab-group-label-item:first-child {
+  margin-top: 0;
+}
+
+#projectTabContent > .tab-pane:not(.active) {
+  display: none;
+}
+
 .layer-feature-pills .nav-item {
   margin: 0;
 }

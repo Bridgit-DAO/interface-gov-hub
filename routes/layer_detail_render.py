@@ -11,6 +11,7 @@ from services.layer_features import (
     get_effective_features,
     is_layer_tab_enabled,
 )
+from services.product_rollout import get_rollout_config
 
 
 _LAYER_TAB_GROUP_LABELS = {
@@ -33,7 +34,7 @@ def _layer_tab_button(tab_id, label, icon_class, active=False):
 
 
 def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html=''):
-    """Return (nav_groups_html, tab_panes_html, enabled_tab_ids) from effective feature flags."""
+    """Return (nav_html, tab_panes_html, enabled_tab_ids). Single tablist so Bootstrap tabs work."""
     tab_defs = [
         (
             'overview', 'Overview', None, True, 'fa-compass', 'home',
@@ -65,7 +66,7 @@ def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='
             '</div></div>',
         ),
     ]
-    groups_nav = {}
+    groups_nav: dict = {g: [] for g in ('home', 'core', 'decision', 'community', 'admin')}
     pane_parts = []
     enabled_ids = []
     first = True
@@ -77,38 +78,38 @@ def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='
         first = False
         enabled_ids.append(f'{tab_id}-tab')
         groups_nav.setdefault(group, []).append(_layer_tab_button(tab_id, label, icon, active=active))
-        pane_parts.append(f'<div class="tab-pane fade{show}" id="{tab_id}">{pane_inner}</div>')
+        pane_parts.append(f'<div class="tab-pane fade{show}" id="{tab_id}" role="tabpanel">{pane_inner}</div>')
 
-    nav_blocks = []
-    for group_key in ('home', 'core', 'decision'):
-        items = groups_nav.get(group_key)
+    show_waitlists = effective.get('waitlists', True)
+    if show_waitlists:
+        groups_nav['community'].append(
+            '<li id="waitlist-tabs-marker" class="nav-item d-none" role="presentation"></li>'
+        )
+
+    nav_items = []
+    for group_key in ('home', 'core', 'decision', 'community'):
+        items = groups_nav.get(group_key) or []
         if not items:
             continue
         label = _LAYER_TAB_GROUP_LABELS[group_key]
-        pills = '\n'.join(items)
-        nav_blocks.append(
-            f'<div class="layer-tab-group" data-tab-group="{group_key}">'
-            f'<div class="layer-tab-group-label">{label}</div>'
-            f'<ul class="nav layer-feature-pills" role="tablist">{pills}</ul></div>'
+        nav_items.append(
+            f'<li class="layer-tab-group-label-item" data-tab-group="{group_key}" aria-hidden="true">'
+            f'<span class="layer-tab-group-label">{label}</span></li>'
         )
-
-    show_waitlists = effective.get('waitlists', True)
-    community_hidden = '' if show_waitlists else ' d-none'
-    nav_blocks.append(
-        f'<div class="layer-tab-group{community_hidden}" id="layer-tab-group-community" data-tab-group="community">'
-        f'<div class="layer-tab-group-label">{_LAYER_TAB_GROUP_LABELS["community"]}</div>'
-        f'<ul class="nav layer-feature-pills" id="layer-waitlist-tabs" role="tablist">'
-        f'<li id="waitlist-tabs-marker" class="nav-item d-none" role="presentation"></li></ul></div>'
-    )
+        nav_items.extend(items)
 
     if admin_tab_html.strip():
-        nav_blocks.append(
-            f'<div class="layer-tab-group" data-tab-group="admin">'
-            f'<div class="layer-tab-group-label">{_LAYER_TAB_GROUP_LABELS["admin"]}</div>'
-            f'<ul class="nav layer-feature-pills" role="tablist">{admin_tab_html}</ul></div>'
+        nav_items.append(
+            f'<li class="layer-tab-group-label-item" data-tab-group="admin" aria-hidden="true">'
+            f'<span class="layer-tab-group-label">{_LAYER_TAB_GROUP_LABELS["admin"]}</span></li>'
         )
+        nav_items.append(admin_tab_html.strip())
 
-    nav_html = '\n'.join(nav_blocks)
+    nav_html = (
+        '<ul class="nav layer-feature-pills flex-wrap" id="projectTabs" role="tablist">'
+        + '\n'.join(nav_items)
+        + '</ul>'
+    )
     panes_html = '\n'.join(pane_parts) + '\n' + admin_tab_pane_html
     return nav_html, panes_html, enabled_ids
 
@@ -132,7 +133,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     effective_features = get_effective_features(project_obj)
     show_admin_tab = bool(project_obj and current_user and is_layer_admin(project_obj, current_user))
     initial_waitlist_id = str(waitlist_id) if waitlist_id else None
+    site_rollout = get_rollout_config()
     layer_features_json = json.dumps({k: effective_features.get(k, True) for k in LAYER_FEATURE_ORDER})
+    site_rollout_json = json.dumps({k: bool(site_rollout.get(k, True)) for k in LAYER_FEATURE_ORDER})
     layer_feat_keys_json = json.dumps(LAYER_FEATURE_ORDER)
     layer_feat_labels_json = json.dumps(LAYER_FEATURE_LABELS)
     
@@ -188,7 +191,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             </div>
         </div>
         
-        <div class="layer-feature-tabs-wrap mb-4{tabs_hidden_class}" id="projectTabsWrap" role="tablist">
+        <div class="layer-feature-tabs-wrap mb-4{tabs_hidden_class}" id="projectTabsWrap">
             {tabs_nav_html}
         </div>
         
@@ -562,8 +565,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     const isProjectAdmin = {'true' if show_admin_tab else 'false'};
     const showCarousel = {json.dumps(standalone)};
     const layerEffectiveFeatures = {layer_features_json};
+    const siteProductRollout = {site_rollout_json};
     const layerFeatKeys = {layer_feat_keys_json};
     const layerFeatLabels = {layer_feat_labels_json};
+
+    function layerFeatKeysSiteEnabled() {{
+        return (layerFeatKeys || []).filter(function(k) {{ return siteProductRollout[k] === true; }});
+    }}
     const enabledLayerTabIds = {enabled_layer_tab_ids_json};
     const layerBase = showCarousel ? '/layer/' + projectSlug + '/' : '/layers/' + projectSlug + '/';
 
@@ -658,10 +666,26 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
     
     function switchToTab(tabId) {{
-        const map = {{ workgroups: 'workgroups-tab', clusters: 'clusters-tab', roles: 'roles-tab', claims: 'claims-tab', votes: 'votes-tab', artifacts: 'artifacts-tab', opportunities: 'opportunities-tab', admin: 'admin-tab' }};
+        const map = {{
+            overview: 'overview-tab',
+            workgroups: 'workgroups-tab',
+            clusters: 'clusters-tab',
+            roles: 'roles-tab',
+            claims: 'claims-tab',
+            votes: 'votes-tab',
+            artifacts: 'artifacts-tab',
+            opportunities: 'opportunities-tab',
+            admin: 'admin-tab',
+        }};
         const btnId = map[tabId];
         const tabEl = btnId ? document.getElementById(btnId) : null;
-        if (tabEl) tabEl.click();
+        if (tabEl) {{
+            if (typeof bootstrap !== 'undefined' && bootstrap.Tab) {{
+                bootstrap.Tab.getOrCreateInstance(tabEl).show();
+            }} else {{
+                tabEl.click();
+            }}
+        }}
     }}
     
     function switchToTabFromHash() {{
@@ -683,7 +707,17 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 const id = stored.replace('waitlist-', '');
                 tabEl = document.getElementById('waitlist-tab-' + id);
             }} else {{
-                const map = {{ workgroups: 'workgroups-tab', clusters: 'clusters-tab', roles: 'roles-tab', claims: 'claims-tab', votes: 'votes-tab', artifacts: 'artifacts-tab', opportunities: 'opportunities-tab', admin: 'admin-tab' }};
+                const map = {{
+                    overview: 'overview-tab',
+                    workgroups: 'workgroups-tab',
+                    clusters: 'clusters-tab',
+                    roles: 'roles-tab',
+                    claims: 'claims-tab',
+                    votes: 'votes-tab',
+                    artifacts: 'artifacts-tab',
+                    opportunities: 'opportunities-tab',
+                    admin: 'admin-tab',
+                }};
                 const btnId = map[stored];
                 tabEl = btnId ? document.getElementById(btnId) : null;
             }}
@@ -1718,9 +1752,16 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (el) el.addEventListener('click', function() {{ clearHashIfNeeded(getProjectTabKey(id)); }}, true);
         }});
         
-        const projectTabsWrap = document.getElementById('projectTabsWrap');
-        if (projectTabsWrap) {{
-            projectTabsWrap.addEventListener('shown.bs.tab', function(e) {{
+        const overviewTabBtn = document.getElementById('overview-tab');
+        if (overviewTabBtn) {{
+            overviewTabBtn.addEventListener('shown.bs.tab', function() {{
+                if (project && document.getElementById('overview-content')) loadOverview();
+            }});
+        }}
+
+        const projectTabs = document.getElementById('projectTabs');
+        if (projectTabs) {{
+            projectTabs.addEventListener('shown.bs.tab', function(e) {{
                 const tabKey = getProjectTabKey(e.target.id);
                 if (tabKey) {{
                     const prevKey = localStorage.getItem('projectDetailTab_' + projectSlug + '_current');
@@ -1728,7 +1769,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                     clearHashIfNeeded(tabKey);
                 }}
             }});
-            projectTabsWrap.addEventListener('click', function(e) {{
+            projectTabs.addEventListener('click', function(e) {{
                 const btn = e.target.closest('[id^="waitlist-tab-"]');
                 if (btn && btn.id && btn.id.match(/^waitlist-tab-(\\d+)$/)) {{
                     clearHashIfNeeded('waitlist-' + btn.id.match(/^waitlist-tab-(\\d+)$/)[1]);
@@ -1761,10 +1802,14 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             marker.previousElementSibling.remove();
         }}
         document.querySelectorAll('[id^="waitlist-pane-"]').forEach(el => el.remove());
-        const commGroup = document.getElementById('layer-tab-group-community');
-        if (commGroup) commGroup.classList.remove('d-none');
+        function setCommunityTabGroupVisible(visible) {{
+            document.querySelectorAll('#projectTabs [data-tab-group="community"]').forEach(function(el) {{
+                el.classList.toggle('d-none', !visible);
+            }});
+        }}
+        setCommunityTabGroupVisible(true);
         if (waitlists.length === 0) {{
-            if (commGroup) commGroup.classList.add('d-none');
+            setCommunityTabGroupVisible(false);
             return;
         }}
         waitlists.forEach((w, idx) => {{
@@ -1950,9 +1995,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             const ownerUserEsc = escapeHtmlBasic(data.owner.username || '');
             const ownerNameEsc = escapeHtml(data.owner.display_name || '');
             let html = '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Product features</h5></div><div class="card-body">';
-            html += '<p class="text-muted small mb-3">Turn off capabilities for this layer only. Disabled areas are removed from navigation, tabs, and admin sections. Site-wide rollout must also allow the feature.</p>';
+            html += '<p class="text-muted small mb-3">Turn off capabilities for this layer only (among features enabled site-wide). Disabled areas are removed from navigation, tabs, and admin sections.</p>';
             html += '<div class="row g-2">';
-            layerFeatKeys.forEach(function(k) {{
+            const siteKeys = layerFeatKeysSiteEnabled();
+            if (!siteKeys.length) {{
+                html += '<div class="col-12"><p class="text-muted small mb-0">No site-wide features are enabled to configure per layer.</p></div>';
+            }}
+            siteKeys.forEach(function(k) {{
                 const on = layerEffectiveFeatures[k] !== false;
                 html += '<div class="col-md-6 col-lg-4"><div class="form-check"><input class="form-check-input" type="checkbox" id="layer-feat-' + k + '" ' + (on ? 'checked' : '') + '><label class="form-check-label" for="layer-feat-' + k + '">' + (layerFeatLabels[k] || k) + '</label></div></div>';
             }});
@@ -2062,9 +2111,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     async function saveLayerFeatures() {{
         if (!project) return;
         const payload = {{}};
-        (layerFeatKeys || []).forEach(function(k) {{
+        layerFeatKeysSiteEnabled().forEach(function(k) {{
             const el = document.getElementById('layer-feat-' + k);
-            payload[k] = el ? el.checked : true;
+            if (el && !el.checked) payload[k] = false;
         }});
         const msgEl = document.getElementById('layer-feat-save-msg');
         try {{

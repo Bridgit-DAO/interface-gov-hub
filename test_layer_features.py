@@ -52,14 +52,19 @@ def test_is_layer_tab_enabled():
 
 
 def test_validate_layer_features_patch_accepts_all_features():
-    out, err = validate_layer_features_patch({'waitlists': False, 'guilds': True})
+    with app.app_context():
+        gcfg = {k: True for k in LAYER_FEATURE_ORDER}
+        out, err = validate_layer_features_patch(
+            {'waitlists': False, 'guilds': True}, global_cfg=gcfg
+        )
     assert err is None
-    assert out['waitlists'] is False
-    assert out['guilds'] is True
+    assert out == {'waitlists': False}
 
 
 def test_validate_layer_features_patch_rejects_unknown():
-    out, err = validate_layer_features_patch({'not_a_feature': False})
+    with app.app_context():
+        gcfg = {k: True for k in LAYER_FEATURE_ORDER}
+        out, err = validate_layer_features_patch({'not_a_feature': False}, global_cfg=gcfg)
     assert out is None
     assert 'not_a_feature' in (err or '')
 
@@ -155,8 +160,33 @@ def test_layer_page_waitlists_group_hidden_when_disabled(client):
         db.session.commit()
     r = client.get(f'/layers/{slug}/')
     text = r.get_data(as_text=True)
-    assert 'id="layer-tab-group-community"' in text
-    assert 'layer-tab-group d-none' in text
+    assert 'id="waitlist-tabs-marker"' not in text
+
+
+def test_layer_page_single_tablist_with_overview(client):
+    slug = _ensure_test_layer()
+    r = client.get(f'/layers/{slug}/')
+    text = r.get_data(as_text=True)
+    assert 'id="projectTabs"' in text
+    assert 'id="overview-tab"' in text
+    assert text.count('role="tablist"') >= 1
+
+
+def test_validate_layer_features_rejects_site_disabled_key():
+    with app.app_context():
+        gcfg = {k: True for k in LAYER_FEATURE_ORDER}
+        gcfg['votes'] = False
+        out, err = validate_layer_features_patch({'votes': False}, global_cfg=gcfg)
+        assert out is None
+        assert 'site-wide' in (err or '').lower()
+
+
+def test_validate_layer_features_accepts_false_for_site_enabled():
+    with app.app_context():
+        gcfg = {k: True for k in LAYER_FEATURE_ORDER}
+        out, err = validate_layer_features_patch({'votes': False}, global_cfg=gcfg)
+        assert err is None
+        assert out == {'votes': False}
 
 
 def test_layers_directory_map_tiles(client):

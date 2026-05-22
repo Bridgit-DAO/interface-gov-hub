@@ -13,18 +13,30 @@ from models import (
     Claim, EmailUnsubscribe, Submission, Role, Quest, Artifact, ArtifactRelation,
     Guild, GuildLayerLink,
 )
+from services.access_policy import (
+    layer_listing_visible,
+    normalize_join_policy_layer_guild,
+    normalize_listing_visibility,
+)
 from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin
 from services.events import emit_event
 from services.utils import create_slug
 from services.ordinals import fetch_meta_domain_from_inscription
 from services.email import make_unsubscribe_token
-from services.knowledge_layer import KNOWLEDGE_FORM_VALUES
+from services.knowledge_layer import KNOWLEDGE_FORM_VALUES, canonical_knowledge_form
+from services.layer_features import (
+    LAYER_FEATURE_ORDER,
+    get_effective_features,
+    layer_enabled_features_to_json,
+    validate_layer_features_patch,
+)
+from services.event_registry import EXCLUDED_FROM_ACTIVITY_FEED
 
 bp = Blueprint('layers', __name__, url_prefix='/api/layers')
 
-# Omit from default layer activity API (analytics / high-volume); include via ?event_type=...
-ACTIVITY_FEED_EXCLUDED_EVENT_TYPES = frozenset({'contribution_type_filter_applied'})
+# Omit from default layer activity API; include via ?event_type= (see services/event_registry.py)
+ACTIVITY_FEED_EXCLUDED_EVENT_TYPES = EXCLUDED_FROM_ACTIVITY_FEED
 
 
 def _resolve_project_email_recipients(layer_id, groups):
@@ -100,6 +112,8 @@ def list_layers():
 
     query = query.order_by(Layer.last_activity.desc())
     layers = query.all()
+    viewer = get_current_user()
+    layers = [p for p in layers if layer_listing_visible(p, viewer)]
 
     layer_ids = [p.id for p in layers]
     count_map = {}
@@ -115,7 +129,7 @@ def list_layers():
         d['workgroups_count'] = count_map.get(p.id, 0)
         result.append(d)
 
-    resp = jsonify({'layers': result, 'count': len(layers)})
+    resp = jsonify({'layers': result, 'count': len(result)})
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
     return resp
 
@@ -128,7 +142,7 @@ def create_layer():
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
 
-    data = request.get_json()
+    data = request.get_json() or {}
     name = data.get('name', '').strip()
     mission = data.get('mission') or data.get('mission_statement') or ''
     mission = mission.strip() if mission else None
@@ -162,7 +176,9 @@ def create_layer():
         mission=mission or None,
         description=description,
         status='proposed',
-        approval_status='pending'
+        approval_status='pending',
+        listing_visibility=normalize_listing_visibility(data.get('listing_visibility')),
+        join_policy=normalize_join_policy_layer_guild(data.get('join_policy')),
     )
     db.session.add(layer)
     db.session.commit()
@@ -179,10 +195,15 @@ def get_layer_by_slug(slug):
         current_app.logger.warning(f"[LAYER] api_get_project_by_slug: no project found for slug={slug!r}")
         abort(404)
     current_app.logger.info(f"[LAYER] api_get_project_by_slug: found project id={project.id} name={project.name}")
+    current_user = get_current_user()
+    if not layer_listing_visible(project, current_user):
+        abort(404)
     workgroups_count = Workgroup.query.filter_by(layer_id=project.id).count()
     project_dict = project.to_dict()
     project_dict['workgroups_count'] = workgroups_count
-    current_user = get_current_user()
+    project_dict['effective_features'] = {
+        k: get_effective_features(project).get(k, True) for k in LAYER_FEATURE_ORDER
+    }
     if current_user:
         member = LayerMember.query.filter_by(
             layer_id=project.id, user_id=current_user['id'], status='active'
@@ -207,11 +228,16 @@ def get_layer(layer_id):
         abort(404)
     current_app.logger.info(f"[LAYER] api_get_project: found id={project.id} slug={project.slug}")
 
+    current_user = get_current_user()
+    if not layer_listing_visible(project, current_user):
+        abort(404)
+
     workgroups_count = Workgroup.query.filter_by(layer_id=project.id).count()
     project_dict = project.to_dict()
     project_dict['workgroups_count'] = workgroups_count
-
-    current_user = get_current_user()
+    project_dict['effective_features'] = {
+        k: get_effective_features(project).get(k, True) for k in LAYER_FEATURE_ORDER
+    }
     if current_user:
         member = LayerMember.query.filter_by(
             layer_id=project.id, user_id=current_user['id'], status='active'
@@ -233,6 +259,8 @@ def layer_carousel(layer_id):
         project = Layer.query.filter_by(slug=layer_id).first()
     if not project:
         abort(404)
+    if not layer_listing_visible(project, get_current_user()):
+        abort(404)
 
     config = {}
     if project.carousel_config:
@@ -241,10 +269,11 @@ def layer_carousel(layer_id):
         except (json.JSONDecodeError, TypeError):
             pass
 
+    eff = get_effective_features(project)
     auto = config.get('auto_items') or {}
-    recent_drafts = auto.get('recent_drafts', True)
-    open_roles = auto.get('open_roles', True)
-    open_opportunities = auto.get('open_opportunities', True)
+    recent_drafts = auto.get('recent_drafts', True) and eff.get('docs', True)
+    open_roles = auto.get('open_roles', True) and eff.get('roles', True)
+    open_opportunities = auto.get('open_opportunities', True) and eff.get('opportunities', True)
 
     items = []
     layer_slug = project.slug
@@ -389,7 +418,13 @@ def update_layer(layer_id):
         val = data['carousel_config']
         project.carousel_config = json.dumps(val) if val is not None else None
     if 'image_url' in data:
-        project.image_url = data['image_url'].strip() if data['image_url'] else None
+        raw_img = data.get('image_url')
+        if raw_img is None or (isinstance(raw_img, str) and not raw_img.strip()):
+            project.image_url = None
+        elif isinstance(raw_img, str):
+            project.image_url = raw_img.strip()
+        else:
+            return jsonify({'error': 'image_url must be a string or null'}), 400
     if 'status' in data and data['status'] in ['proposed', 'active', 'stabilizing', 'maintaining', 'dormant', 'concluded', 'archived']:
         old_status = project.status
         project.status = data['status']
@@ -414,6 +449,23 @@ def update_layer(layer_id):
             project.meta_domain = domain
         else:
             project.meta_domain = None
+    if 'listing_visibility' in data:
+        project.listing_visibility = normalize_listing_visibility(data.get('listing_visibility'))
+    if 'join_policy' in data:
+        project.join_policy = normalize_join_policy_layer_guild(data.get('join_policy'))
+    if 'enabled_features' in data:
+        raw_ef = data['enabled_features']
+        if raw_ef is None:
+            project.enabled_features = None
+        else:
+            from services.product_rollout import get_rollout_config
+
+            overrides, err = validate_layer_features_patch(raw_ef, global_cfg=get_rollout_config())
+            if err:
+                return jsonify({'error': err}), 400
+            # Persist only explicit false overrides (null layer config = all on)
+            stored = {k: v for k, v in overrides.items() if v is False}
+            project.enabled_features = layer_enabled_features_to_json(stored)
 
     project.updated_at = datetime.utcnow()
     if data:
@@ -422,7 +474,11 @@ def update_layer(layer_id):
                    payload={'updated_fields': list(data.keys())})
     db.session.commit()
 
-    return jsonify({'success': True, 'project': project.to_dict()})
+    out = project.to_dict()
+    out['effective_features'] = {
+        k: get_effective_features(project).get(k, True) for k in LAYER_FEATURE_ORDER
+    }
+    return jsonify({'success': True, 'project': out})
 
 
 @bp.route('/<layer_id>/approve/', methods=['POST'])
@@ -627,7 +683,7 @@ def record_contribution_type_filter(layer_id):
     data = request.get_json(silent=True) or {}
     kf = data.get('knowledge_form')
     if kf is not None and kf != '':
-        kf = str(kf).strip().lower()
+        kf = canonical_knowledge_form(str(kf))
         if kf not in KNOWLEDGE_FORM_VALUES:
             return jsonify({'error': 'Invalid knowledge_form'}), 400
     else:
