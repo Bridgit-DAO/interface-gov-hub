@@ -1,19 +1,31 @@
-"""Documents routes: /doc/active, /doc/all, /doc/draft/*, comments, follow, history, revisions, /test/, annotations."""
+"""Documents routes: /doc/active, /doc/all, /doc/draft/*, comments, follow, history, revisions, /test/."""
 import os
 import re
 import html as html_mod
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 from flask import Blueprint, request, redirect, url_for, flash, session, Response, current_app, jsonify, send_file
+
+from sqlalchemy import or_
 
 from extensions import db
 from models import (
     Comment, DocumentHistory, Submission, Artifact, ArtifactRelation,
-    Layer, UserFollow,
+    Layer,
 )
 from services.identity import get_current_user, require_auth
+from services.events import emit_event
+from services.document_follow_notifications import dispatch_document_followers
+from services.event_subscriptions import matrix_from_subscription_post, replace_draft_subscriptions_matrix
 from services.submissions import get_submission_by_ref, add_to_document_history
-from services.ordinals import process_ordinal_markdown, shorten_inscription_id
+from services.ordinals import (
+    process_ordinal_markdown,
+    shorten_inscription_id,
+    looks_like_html_inscription,
+    format_ordinal_html_iframe_preview,
+)
+from services.submission_preview_md import markdown_to_safe_preview_html, text_looks_like_markdown
 from services.documents import (
     load_draft_data,
     DRAFTS,
@@ -22,10 +34,17 @@ from services.documents import (
     toggle_comment_like,
     get_comment_likes,
     is_comment_liked,
-    is_user_following_draft,
-    get_notification_controls,
+    render_draft_subscription_form_html,
     add_comment_reply,
     EDIT_DELETE_TIME_MINUTES,
+    sort_documents_by_ml_number_desc,
+    submission_file_pages_words,
+    revision_notes_to_safe_html,
+)
+from services.draft_reader import (
+    build_draft_context,
+    draft_display_id,
+    load_draft_document_body,
 )
 
 bp = Blueprint('documents', __name__, url_prefix='')
@@ -34,6 +53,95 @@ bp = Blueprint('documents', __name__, url_prefix='')
 def _get_drafts():
     """Get DRAFTS list (cached in services.documents)."""
     return DRAFTS
+
+
+def _submission_uses_display_ordinal(submission):
+    if not submission:
+        return False
+    src = (getattr(submission, 'displayBodySource', None) or 'file').strip().lower()
+    return src == 'ordinal' and bool(getattr(submission, 'displayOrdinalContentUrl', None))
+
+
+def _can_manage_submission_display_body(user, submission):
+    if not user or not submission:
+        return False
+    role = user.get('role')
+    if role in ('admin', 'editor'):
+        return True
+    if (submission.sourceType or 'file').strip().lower() != 'file':
+        return False
+    sub_by = (submission.submitted_by or '').strip()
+    uname = (user.get('name') or '').strip()
+    return bool(sub_by and uname and sub_by == uname)
+
+
+def _load_ordinal_document_body(ordinal_content_url, ordinal_content_type, draft):
+    """
+    Fetch and render inscription body (markdown / HTML iframe / image).
+    Returns (document_content, render_document_as_html, calculated_pages, calculated_words).
+    """
+    from flask import current_app
+
+    document_content = ''
+    render_document_as_html = False
+    calculated_pages = draft.get('pages', 1)
+    calculated_words = draft.get('words', 0)
+    octype = ordinal_content_type or ''
+
+    if ordinal_content_url and ('text/' in octype or 'application/json' in octype):
+        try:
+            import requests
+
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                raw_content = response.text
+                words = len(raw_content.split())
+                calculated_pages = max(1, (words + 499) // 500)
+                calculated_words = words
+                draft['pages'] = calculated_pages
+                draft['words'] = calculated_words
+
+                is_markdown = False
+                markdown_patterns = [
+                    r'^#{1,6}\s+.+$',
+                    r'\*\*.+\*\*',
+                    r'\*.+\*',
+                    r'^\s*[-*+]\s+',
+                    r'^\s*\d+\.\s+',
+                    r'\[.+\]\(.+\)',
+                    r'!\[.*\]\(.+\)',
+                ]
+                for pattern in markdown_patterns:
+                    if re.search(pattern, raw_content, re.MULTILINE):
+                        is_markdown = True
+                        break
+
+                if looks_like_html_inscription(raw_content, ordinal_content_type):
+                    document_content = format_ordinal_html_iframe_preview(ordinal_content_url)
+                    render_document_as_html = True
+                elif is_markdown:
+                    document_content = process_ordinal_markdown(raw_content)
+                    render_document_as_html = True
+                else:
+                    document_content = raw_content
+        except Exception as e:
+            current_app.logger.warning(f'Failed to fetch ordinal content for display: {e}')
+            document_content = f'Error loading ordinal content: {str(e)}'
+    elif ordinal_content_url and octype.startswith('image/'):
+        document_content = (
+            f'<img src="{html_mod.escape(ordinal_content_url, quote=True)}" '
+            f'class="img-fluid" style="max-width: 100%;" alt="Ordinal image content">'
+        )
+        render_document_as_html = True
+    else:
+        document_content = (
+            f'Ordinal content type: {octype}\nPreview not available for this content type.'
+        )
+
+    return document_content, render_document_as_html, calculated_pages, calculated_words
 
 
 @bp.route('/doc/active/')
@@ -50,6 +158,11 @@ def all_documents():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     drafts = _get_drafts()
+    page = max(1, request.args.get('page', 1, type=int) or 1)
+    per_page = min(100, max(10, request.args.get('per_page', 20, type=int) or 20))
+    view = (request.args.get('view') or 'cards').strip().lower()
+    if view not in ('cards', 'list'):
+        view = 'cards'
 
     all_docs = []
     all_docs.extend(drafts)
@@ -59,19 +172,29 @@ def all_documents():
         Submission.is_revision == False
     ).all()
 
+    parent_refs = set()
     for submission in approved_submissions:
-        parent_refs = [submission.id]
+        parent_refs.add(submission.id)
         if submission.draft_name:
-            parent_refs.append(submission.draft_name)
-        latest_revision = Submission.query.filter(
+            parent_refs.add(submission.draft_name)
+
+    latest_revisions = {}
+    if parent_refs:
+        revisions = Submission.query.filter(
             Submission.parent_draft_name.in_(parent_refs),
             Submission.is_revision == True,
             Submission.status.in_(['approved', 'published'])
-        ).order_by(Submission.revision_number.desc()).first()
+        ).order_by(Submission.submitted_at.desc()).all()
+        for revision in revisions:
+            parent = getattr(revision, 'parent_draft_name', None)
+            if parent and parent not in latest_revisions:
+                latest_revisions[parent] = revision
 
+    for submission in approved_submissions:
+        latest_revision = latest_revisions.get(submission.id)
+        if not latest_revision and submission.draft_name:
+            latest_revision = latest_revisions.get(submission.draft_name)
         display_submission = latest_revision if latest_revision else submission
-        pages = display_submission.pages if display_submission.pages else 1
-        words = display_submission.words if display_submission.words else 0
         is_revision = getattr(display_submission, 'is_revision', False)
         revision_number = getattr(display_submission, 'revision_number', '')
 
@@ -82,66 +205,180 @@ def all_documents():
             'group': display_submission.group or 'N/A',
             'status': display_submission.status,
             'rev': revision_number if is_revision else '00',
-            'pages': pages,
-            'words': words,
+            'pages': display_submission.pages or 1,
+            'words': display_submission.words or 0,
             'date': display_submission.submitted_at.strftime('%Y-%m-%d') if display_submission.submitted_at else '',
             'abstract': display_submission.abstract or '',
             'ml_number': display_submission.ml_number,
             'is_revision': is_revision,
-            'revision_number': revision_number
+            'revision_number': revision_number,
+            '_submission': display_submission,
         })
 
-    docs_html = ""
-    for draft in all_docs:
-        display_id = draft.get('ml_number') or draft['name']
-        is_revision = draft.get('is_revision', False)
-        revision_number = draft.get('revision_number', '')
-        revision_badge = f'<span class="badge bg-success ms-2">Revision {revision_number}</span>' if is_revision and revision_number else ''
+    all_docs = sort_documents_by_ml_number_desc(all_docs)
+    total_docs = len(all_docs)
+    total_pages = max(1, (total_docs + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
+    start = (page - 1) * per_page
+    page_docs = all_docs[start:start + per_page]
 
-        docs_html += f"""
-        <div class="col-md-6 document-card">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title document-title">
-                        <a href="/doc/draft/{draft['name']}/">{display_id}</a>
+    query_suffix = f'view={view}&per_page={per_page}'
+    cards_active = 'active' if view == 'cards' else ''
+    list_active = 'active' if view == 'list' else ''
+
+    docs_html = ""
+    if view == 'list':
+        rows = []
+        for draft in page_docs:
+            submission_obj = draft.pop('_submission', None)
+            if submission_obj is not None:
+                pages, _words = submission_file_pages_words(submission_obj)
+                draft['pages'] = pages
+            raw_name = str(draft['name'])
+            display_id = str(draft.get('ml_number') or raw_name)
+            doc_href = quote(raw_name, safe='')
+            rev_label = html_mod.escape(str(draft.get('revision_number') or draft.get('rev') or '00'))
+            title_raw = str(draft.get('title') or '')
+            title_esc = html_mod.escape(title_raw)
+            rows.append(
+                f'<tr>'
+                f'<td><a href="/doc/draft/{doc_href}/">{html_mod.escape(display_id)}</a></td>'
+                f'<td class="doc-all-title-cell" title="{title_esc}">{title_esc}</td>'
+                f'<td><span class="badge bg-secondary">{html_mod.escape(str(draft.get("status")))}</span></td>'
+                f'<td>{rev_label}</td>'
+                f'<td>{int(draft.get("pages") or 1)}</td>'
+                f'<td>{html_mod.escape(str(draft.get("date") or ""))}</td>'
+                f'<td class="text-nowrap">'
+                f'<a href="/doc/draft/{doc_href}/read/" class="btn btn-sm btn-primary me-1">Read</a>'
+                f'<a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>'
+                f'</td>'
+                f'</tr>'
+            )
+        docs_html = f'''
+        <style>
+          .doc-all-list-table th,
+          .doc-all-list-table td {{ white-space: nowrap; }}
+          .doc-all-list-table .doc-all-title-cell {{
+            max-width: 22rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }}
+        </style>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle doc-all-list-table">
+                <thead>
+                    <tr>
+                        <th>ID</th><th>Title</th><th>Status</th><th>Rev</th>
+                        <th>Pages</th><th>Date</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>{"".join(rows) if rows else '<tr><td colspan="7" class="text-muted">No documents on this page.</td></tr>'}</tbody>
+            </table>
+        </div>
+        '''
+    else:
+        for draft in page_docs:
+            submission_obj = draft.pop('_submission', None)
+            if submission_obj is not None:
+                pages, words = submission_file_pages_words(submission_obj)
+                draft['pages'] = pages
+                draft['words'] = words
+
+            raw_name = str(draft['name'])
+            display_id = str(draft.get('ml_number') or raw_name)
+            is_revision = draft.get('is_revision', False)
+            revision_number = draft.get('revision_number', '')
+            revision_badge = (
+                f'<span class="badge bg-success ms-2">Revision {html_mod.escape(str(revision_number))}</span>'
+                if is_revision and revision_number else ''
+            )
+            doc_href = quote(raw_name, safe='')
+            authors = draft['authors'] if isinstance(draft.get('authors'), list) else []
+            authors_text = ', '.join(str(author) for author in authors) if authors else 'N/A'
+
+            words = int(draft.get('words') or 0)
+            words_span = f'<span>{words} words</span>' if words else ''
+            docs_html += f"""
+        <div class="col-12 col-lg-6 document-card">
+            <div class="card h-100">
+                <div class="card-body d-flex flex-column">
+                    <h5 class="card-title document-title mb-2">
+                        <a href="/doc/draft/{doc_href}/">{html_mod.escape(display_id)}</a>
                         {revision_badge}
                     </h5>
-                    <p class="card-text">{draft['title']}</p>
+                    <p class="card-text flex-grow-0">{html_mod.escape(str(draft['title'] or ''))}</p>
                     <div class="document-meta">
-                        <span class="badge bg-secondary status-badge">{draft['status']}</span>
-                        <span class="ms-2">Rev: {draft['rev']}</span>
-                        <span class="ms-2">{draft['pages']} pages</span>
-                        <span class="ms-2">{draft['words']} words</span>
+                        <span class="badge bg-secondary status-badge">{html_mod.escape(str(draft['status']))}</span>
+                        <span>Rev: {html_mod.escape(str(draft['rev']))}</span>
+                        <span>{int(draft.get('pages') or 1)} pages</span>
+                        {words_span}
                     </div>
-                    <div class="mt-2">
+                    <div class="mt-2 mb-0">
                         <small class="text-muted">
-                            Authors: {', '.join(draft['authors']) if draft['authors'] else 'N/A'}<br>
-                            Group: {draft['group']}<br>
-                            Date: {draft['date']}
+                            Authors: {html_mod.escape(authors_text)}<br>
+                            Group: {html_mod.escape(str(draft['group'] or 'N/A'))}<br>
+                            Date: {html_mod.escape(str(draft['date'] or ''))}
                         </small>
                     </div>
-                    <div class="mt-2">
-                        <a href="/doc/draft/{draft['name']}/comments/" class="btn btn-sm btn-outline-primary">Comments</a>
-                        <a href="/doc/draft/{draft['name']}/history/" class="btn btn-sm btn-outline-secondary">History</a>
-                        <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-sm btn-outline-info">Revisions</a>
+                    <div class="doc-card-actions mt-auto pt-2">
+                        <a href="/doc/draft/{doc_href}/read/" class="btn btn-sm btn-primary">Read</a>
+                        <a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>
+                        <a href="/doc/draft/{doc_href}/comments/" class="btn btn-sm btn-outline-secondary">Comments</a>
+                        <a href="/doc/draft/{doc_href}/history/" class="btn btn-sm btn-outline-secondary">History</a>
+                        <a href="/doc/draft/{doc_href}/revisions/" class="btn btn-sm btn-outline-secondary">Revisions</a>
                     </div>
                 </div>
             </div>
         </div>
         """
 
-    content = f"""
-    <div class="container mt-4">
-        <h1>All Documents</h1>
-        <p>Showing {len(all_docs)} documents</p>
+    prev_disabled = ' disabled' if page <= 1 else ''
+    next_disabled = ' disabled' if page >= total_pages else ''
+    prev_page = max(1, page - 1)
+    next_page = min(total_pages, page + 1)
+    pagination_html = ''
+    if total_pages > 1:
+        pagination_html = f"""
+        <nav aria-label="Document pages" class="mt-3">
+            <ul class="pagination">
+                <li class="page-item{prev_disabled}">
+                    <a class="page-link" href="?page={prev_page}&{query_suffix}">Previous</a>
+                </li>
+                <li class="page-item disabled">
+                    <span class="page-link">Page {page} of {total_pages}</span>
+                </li>
+                <li class="page-item{next_disabled}">
+                    <a class="page-link" href="?page={next_page}&{query_suffix}">Next</a>
+                </li>
+            </ul>
+        </nav>
+        """
 
-        <div class="row">
-            {docs_html}
+    docs_wrapper_open = '<div class="row">' if view == 'cards' else ''
+    docs_wrapper_close = '</div>' if view == 'cards' else ''
+
+    content = f"""
+    <div class="container gh-doc-directory mt-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <div>
+                <h1 class="mb-0">All Documents</h1>
+                <p class="text-muted mb-0">Showing {len(page_docs)} of {total_docs} documents</p>
+            </div>
+            <div class="btn-group" role="group" aria-label="View mode">
+                <a href="?view=cards&per_page={per_page}" class="btn btn-outline-secondary {cards_active}">Cards</a>
+                <a href="?view=list&per_page={per_page}" class="btn btn-outline-secondary {list_active}">List</a>
+            </div>
         </div>
+
+        {docs_wrapper_open}
+            {docs_html}
+        {docs_wrapper_close}
+        {pagination_html}
     </div>
     """
 
-    return _format_base_template(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/doc/draft/<path:draft_name>.txt')
@@ -256,11 +493,167 @@ Meta-Layer Initiative
     return Response(document_content, mimetype='text/plain; charset=utf-8')
 
 
+@bp.route('/doc/draft/<path:draft_name>/read/')
+def draft_reader(draft_name):
+    """Full-page reader for a single draft (minimal chrome, document-focused)."""
+    from html import escape as html_escape
+    from services.rendering import _format_base_template, generate_user_menu
+    from config import BUILD_NUMBER
+
+    draft, submission = build_draft_context(draft_name)
+    if not draft:
+        return 'Document not found', 404
+
+    display_id = draft_display_id(draft)
+    title_escaped = html_escape(str(draft.get('title') or ''))
+    doc_href = quote(str(draft.get('name') or draft_name), safe='')
+    pdf_height = 'calc(100vh - 11rem)'
+    document_content, render_html, pages, words = load_draft_document_body(
+        draft,
+        submission,
+        draft_name,
+        pdf_iframe_height=pdf_height,
+    )
+
+    if render_html:
+        body_block = f'<div class="draft-reader-body prose">{document_content}</div>'
+    else:
+        body_block = (
+            f'<pre class="draft-reader-body draft-reader-pre">'
+            f'{html_escape(document_content)}</pre>'
+        )
+
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+
+    content = f'''
+    <style>
+      .draft-reader-page {{
+        --reader-content-max: 52rem;
+        --reader-gutter: 15px;
+        max-width: 100%;
+        padding: 0 var(--reader-gutter) 1rem;
+      }}
+      @media (min-width: 768px) {{
+        .draft-reader-page {{ --reader-gutter: 24px; }}
+      }}
+      @media (min-width: 1200px) {{
+        .draft-reader-page {{ --reader-gutter: 40px; }}
+      }}
+      .draft-reader-toolbar {{
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--navbar-bg);
+        color: var(--text-primary);
+        border-bottom: 1px solid var(--border-color);
+        padding: 0.65rem var(--reader-gutter);
+        margin: 0 calc(-1 * var(--reader-gutter)) 1rem;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }}
+      .draft-reader-toolbar-inner {{
+        max-width: var(--reader-content-max);
+        margin: 0 auto;
+        width: 100%;
+        min-width: 0;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.25rem 0;
+      }}
+      .draft-reader-nav {{
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        gap: 0.5rem;
+      }}
+      .draft-reader-meta {{
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        overflow: hidden;
+        white-space: nowrap;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        line-height: 1.4;
+      }}
+      .draft-reader-meta strong,
+      .draft-reader-stats {{
+        flex-shrink: 0;
+        color: var(--text-primary);
+      }}
+      .draft-reader-meta .draft-reader-stats {{
+        color: var(--text-secondary);
+      }}
+      .draft-reader-sep {{
+        flex-shrink: 0;
+        color: var(--text-muted);
+      }}
+      .draft-reader-title {{
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }}
+      .draft-reader-toolbar .btn-outline-secondary {{
+        color: var(--text-secondary);
+        border-color: var(--border-color);
+        background: transparent;
+      }}
+      .draft-reader-toolbar .btn-outline-secondary:hover,
+      .draft-reader-toolbar .btn-outline-secondary:focus {{
+        color: var(--text-primary);
+        border-color: var(--border-hover);
+        background: var(--bg-tertiary);
+      }}
+      .draft-reader-body {{ max-width: var(--reader-content-max); margin: 0 auto; }}
+      .draft-reader-pre {{
+        white-space: pre-wrap; word-wrap: break-word;
+        font-family: var(--bs-font-monospace); font-size: 0.95rem;
+        color: var(--text-primary);
+      }}
+      .draft-reader-body .pdf-viewer-container iframe {{
+        width: 100% !important;
+        min-height: {pdf_height};
+      }}
+    </style>
+    <div class="draft-reader-page">
+      <div class="draft-reader-toolbar">
+        <div class="draft-reader-toolbar-inner">
+          <div class="draft-reader-nav">
+            <a href="/doc/all/" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+            <a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>
+          </div>
+          <div class="draft-reader-meta">
+            <strong>{html_escape(display_id)}</strong>
+            <span class="draft-reader-sep">·</span>
+            <span class="draft-reader-title" title="{title_escaped}">{title_escaped}</span>
+            <span class="draft-reader-sep">·</span>
+            <span class="draft-reader-stats">{int(pages)} pg</span>
+          </div>
+        </div>
+      </div>
+      {body_block}
+    </div>
+    '''
+
+    return _format_base_template(
+        title=f'{display_id} — Reader',
+        theme=current_theme,
+        user_menu=user_menu,
+        content=content,
+        build_number=BUILD_NUMBER,
+    )
+
+
 @bp.route('/doc/draft/<path:draft_name>/')
 def draft_detail(draft_name):
     from services.rendering import _format_base_template, generate_user_menu
     from config import BUILD_NUMBER
-    from services.hypothesis import generate_hypothesis_config, HYPOTHESIS_ENABLED
 
     drafts = _get_drafts()
     draft = next((d for d in drafts if d['name'] == draft_name), None)
@@ -290,7 +683,13 @@ def draft_detail(draft_name):
                     except Exception as e:
                         current_app.logger.warning(f"Failed to fetch ordinal content for word/page count: {e}")
                         pass
+            else:
+                pages_count, words_count = submission_file_pages_words(submission)
 
+            dbs = getattr(submission, 'displayBodySource', None) or 'file'
+            displaying_linked = (
+                dbs.strip().lower() == 'ordinal' and bool(getattr(submission, 'displayOrdinalContentUrl', None))
+            )
             draft = {
                 'name': submission.draft_name or submission.id,
                 'title': submission.title,
@@ -312,73 +711,78 @@ def draft_detail(draft_name):
                 'ordinalContentType': ordinal_content_type,
                 'is_revision': getattr(submission, 'is_revision', False),
                 'revision_number': getattr(submission, 'revision_number', ''),
-                'parent_draft_name': getattr(submission, 'parent_draft_name', '')
+                'parent_draft_name': getattr(submission, 'parent_draft_name', ''),
+                'displayBodySource': dbs,
+                'displayOrdinalId': getattr(submission, 'displayOrdinalId', None),
+                'displayOrdinalContentUrl': getattr(submission, 'displayOrdinalContentUrl', None),
+                'displayOrdinalContentType': getattr(submission, 'displayOrdinalContentType', None),
+                'displayingLinkedOrdinal': displaying_linked,
             }
 
     if not draft:
         return "Document not found", 404
 
+    if not submission:
+        submission = get_submission_by_ref(draft.get('name')) or get_submission_by_ref(draft_name)
+        if submission:
+            dbs = getattr(submission, 'displayBodySource', None) or 'file'
+            displaying_linked = (
+                dbs.strip().lower() == 'ordinal'
+                and bool(getattr(submission, 'displayOrdinalContentUrl', None))
+            )
+            draft['displayBodySource'] = dbs
+            draft['displayOrdinalId'] = getattr(submission, 'displayOrdinalId', None)
+            draft['displayOrdinalContentUrl'] = getattr(submission, 'displayOrdinalContentUrl', None)
+            draft['displayOrdinalContentType'] = getattr(submission, 'displayOrdinalContentType', None)
+            draft['displayingLinkedOrdinal'] = displaying_linked
+
     document_content = "Document content not available."
     calculated_pages = draft.get('pages', 1)
     calculated_words = draft.get('words', 0)
+    # True when body is HTML (markdown → HTML or PDF iframe); use prose styling, not <pre>-like monospace.
+    render_document_as_html = False
 
-    if submission and draft.get('sourceType') == 'ordinal':
-        ordinal_content_url = getattr(submission, 'ordinalContentUrl', None)
-        ordinal_content_type = getattr(submission, 'ordinalContentType', '')
-
-        if ordinal_content_url and ('text/' in ordinal_content_type or 'application/json' in ordinal_content_type):
-            try:
-                import requests
-                import markdown2
-                import bleach
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    raw_content = response.text
-                    words = len(raw_content.split())
-                    calculated_pages = max(1, (words + 499) // 500)
-                    calculated_words = words
-                    draft['pages'] = calculated_pages
-                    draft['words'] = calculated_words
-
-                    is_markdown = False
-                    markdown_patterns = [
-                        r'^#{1,6}\s+.+$',
-                        r'\*\*.+\*\*',
-                        r'\*.+\*',
-                        r'^\s*[-*+]\s+',
-                        r'^\s*\d+\.\s+',
-                        r'\[.+\]\(.+\)',
-                        r'!\[.*\]\(.+\)'
-                    ]
-                    for pattern in markdown_patterns:
-                        if re.search(pattern, raw_content, re.MULTILINE):
-                            is_markdown = True
-                            break
-
-                    if is_markdown:
-                        document_content = process_ordinal_markdown(raw_content)
-                    else:
-                        document_content = raw_content
-            except Exception as e:
-                current_app.logger.warning(f"Failed to fetch ordinal content for display: {e}")
-                document_content = f"Error loading ordinal content: {str(e)}"
-        elif ordinal_content_url and ordinal_content_type.startswith('image/'):
-            document_content = f'<img src="{ordinal_content_url}" class="img-fluid" style="max-width: 100%;" alt="Ordinal image content">'
-        else:
-            document_content = f"Ordinal content type: {ordinal_content_type}\nPreview not available for this content type."
+    if submission and _submission_uses_display_ordinal(submission):
+        document_content, render_document_as_html, calculated_pages, calculated_words = _load_ordinal_document_body(
+            submission.displayOrdinalContentUrl,
+            submission.displayOrdinalContentType or '',
+            draft,
+        )
+    elif submission and draft.get('sourceType') == 'ordinal':
+        document_content, render_document_as_html, calculated_pages, calculated_words = _load_ordinal_document_body(
+            getattr(submission, 'ordinalContentUrl', None),
+            getattr(submission, 'ordinalContentType', '') or '',
+            draft,
+        )
 
     elif submission and submission.file_path and os.path.exists(submission.file_path):
         _, ext = os.path.splitext(submission.filename.lower())
         try:
-            if ext in ['.txt', '.xml']:
+            if ext in ['.txt', '.xml', '.md', '.markdown']:
                 with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    document_content = f.read()
-                words = len(document_content.split())
+                    raw_text = f.read()
+                words = len(raw_text.split())
                 calculated_pages = max(1, (words + 499) // 500)
                 calculated_words = words
+                if ext in ('.md', '.markdown'):
+                    md_html = markdown_to_safe_preview_html(raw_text)
+                    if md_html:
+                        document_content = md_html
+                        render_document_as_html = True
+                    else:
+                        document_content = raw_text
+                elif ext == '.txt':
+                    if text_looks_like_markdown(raw_text):
+                        md_html = markdown_to_safe_preview_html(raw_text)
+                        if md_html:
+                            document_content = md_html
+                            render_document_as_html = True
+                        else:
+                            document_content = raw_text
+                    else:
+                        document_content = raw_text
+                else:
+                    document_content = raw_text
             elif ext == '.docx':
                 from docx import Document
                 doc = Document(submission.file_path)
@@ -402,6 +806,7 @@ def draft_detail(draft_name):
                 calculated_words = calculated_pages * 275
                 file_size = os.path.getsize(submission.file_path)
                 file_size_kb = file_size / 1024
+                render_document_as_html = True
                 document_content = f'''
 <div class="pdf-viewer-container">
     <div class="alert alert-info mb-3">
@@ -621,7 +1026,7 @@ Meta-Layer Initiative
                 inquiry: [{{k:'what_is_unclear',l:'What is unclear?',t:'ta'}},{{k:'status',l:'Status',t:'sel',o:['open','closed']}}],
                 principle: [{{k:'why_matters',l:'Why does this matter?',t:'ta'}}],
                 model: [{{k:'key_assumptions',l:'Key assumptions',t:'ta'}}],
-                conviction: [{{k:'why_believe',l:'Why do you believe this?',t:'ta'}}],
+                claim: [{{k:'why_believe',l:'Why do you believe this?',t:'ta'}}],
                 decision: [{{k:'what_resolves',l:'What does this resolve?',t:'ta'}},{{k:'status',l:'Status',t:'sel',o:['draft','final']}}],
                 gloss: [{{k:'definition',l:'Definition',t:'ta'}}],
                 scenario: [{{k:'actors_context',l:'Actors / context',t:'ta'}}]
@@ -723,7 +1128,9 @@ Meta-Layer Initiative
                 window.__klScaffoldData = art.knowledge_scaffold || null;
                 rebuildKlContribution();
                 const kls = document.getElementById('kl-contribution-type');
-                if (kls && art.knowledge_form && [...kls.options].some(function(o){{return o.value===art.knowledge_form;}})) kls.value = art.knowledge_form;
+                var kf = art.knowledge_form;
+                if (kf === 'conviction') kf = 'claim';
+                if (kls && kf && [...kls.options].some(function(o){{return o.value===kf;}})) kls.value = kf;
                 else if (kls) kls.value = '';
                 renderKlScaffold();
             }}
@@ -786,7 +1193,88 @@ Meta-Layer Initiative
     revision_number = draft.get('revision_number', '')
     revision_badge = f'<span class="badge bg-success ms-2">Revision {revision_number}</span>' if is_revision and revision_number else ''
 
-    if draft.get('sourceType') == 'ordinal':
+    linked_display_rows = ''
+    if draft.get('displayingLinkedOrdinal'):
+        doid = draft.get('displayOrdinalId') or ''
+        dot = (draft.get('displayOrdinalContentType') or '').replace('<', '')
+        if doid:
+            esc_id = html_mod.escape(doid, quote=True)
+            link_html = (
+                f'<a href="https://ordinals.com/inscription/{esc_id}" target="_blank" '
+                f'class="text-decoration-none" style="color: var(--accent-color) !important;">'
+                f'<code style="font-family: monospace; font-size: 0.85em;">{shorten_inscription_id(doid, 8)}</code></a>'
+            )
+        else:
+            link_html = '<span class="text-muted">(no inscription id)</span>'
+        linked_display_rows = (
+            '<tr><td colspan="2" style="padding-top: 10px;"><hr style="border-color: var(--border-color);"></td></tr>'
+            '<tr><td style="color: var(--text-secondary) !important;"><strong>Displayed body:</strong></td>'
+            '<td style="color: var(--text-primary) !important;">'
+            '<span class="badge bg-info me-2"><i class="bi bi-coin"></i> Linked ordinal</span>'
+            f'{link_html}'
+            '</td></tr>'
+        )
+        if dot:
+            linked_display_rows += (
+                '<tr><td style="color: var(--text-secondary) !important;"><strong>Display content type:</strong></td>'
+                f'<td style="color: var(--text-primary) !important;">{html_mod.escape(dot)}</td></tr>'
+            )
+
+    display_body_card_html = ''
+    if (
+        _sub
+        and current_user
+        and _can_manage_submission_display_body(current_user, _sub)
+        and (_sub.sourceType or 'file').strip().lower() == 'file'
+    ):
+        is_linked = bool(draft.get('displayingLinkedOrdinal'))
+        pref_oid = (getattr(_sub, 'displayOrdinalId', None) or getattr(_sub, 'ordinalId', None) or '') or ''
+        pref_url = (
+            (getattr(_sub, 'displayOrdinalContentUrl', None) or '')
+            if is_linked
+            else (getattr(_sub, 'ordinalContentUrl', None) or getattr(_sub, 'displayOrdinalContentUrl', None) or '')
+        )
+        pref_ct = (
+            (getattr(_sub, 'displayOrdinalContentType', None) or '')
+            if is_linked
+            else (
+                getattr(_sub, 'ordinalContentType', None) or getattr(_sub, 'displayOrdinalContentType', None) or ''
+            )
+        )
+        esc_dn = html_mod.escape(draft_name, quote=True)
+        display_body_card_html = f'''
+                        <div class="border-top pt-2 mt-2">
+                            <h6 class="text-muted mb-2">Reader display</h6>
+                            <p class="small text-muted mb-2">Show inscription text in the reader while keeping the uploaded file for download and history.</p>
+                            <form method="post" action="/doc/draft/{esc_dn}/display-body/" class="mb-2">
+                                <input type="hidden" name="display_body" value="file">
+                                <button type="submit" class="btn btn-outline-secondary btn-sm w-100"{' disabled' if not is_linked else ''}>Use uploaded file for body</button>
+                            </form>
+                            <form method="post" action="/doc/draft/{esc_dn}/display-body/">
+                                <input type="hidden" name="display_body" value="ordinal">
+                                <div class="mb-2">
+                                    <label class="form-label small mb-0">Inscription id (optional)</label>
+                                    <input class="form-control form-control-sm" name="display_ordinal_id"
+                                           value="{html_mod.escape(pref_oid, quote=True)}"
+                                           placeholder="abc…i0">
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small mb-0">Content URL</label>
+                                    <input class="form-control form-control-sm" name="display_ordinal_content_url" required
+                                           value="{html_mod.escape(pref_url, quote=True)}"
+                                           placeholder="https://…">
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small mb-0">Content type</label>
+                                    <input class="form-control form-control-sm" name="display_ordinal_content_type"
+                                           value="{html_mod.escape(pref_ct, quote=True)}"
+                                           placeholder="text/plain;charset=utf-8">
+                                </div>
+                                <button type="submit" class="btn btn-info btn-sm w-100">Use ordinal for body</button>
+                            </form>
+                        </div>'''
+
+    if draft.get('sourceType') == 'ordinal' or render_document_as_html:
         content_style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 1em; line-height: 1.6;"
     else:
         content_style = "font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4; white-space: pre-wrap;"
@@ -795,7 +1283,11 @@ Meta-Layer Initiative
     <div class="container mt-4">
         <h1>{display_id} {revision_badge}</h1>
         <p class="lead">{draft['title']}</p>
-
+        <p class="mb-3">
+            <a href="/doc/draft/{quote(str(draft.get('name') or draft_name), safe='')}/read/" class="btn btn-primary">
+                <i class="bi bi-book"></i> Read full page
+            </a>
+        </p>
         <div class="row">
             <div class="col-md-8">
                 <div class="card">
@@ -816,6 +1308,7 @@ Meta-Layer Initiative
                             {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Timestamp:</strong></td><td style="color: var(--text-primary) !important;">{draft["inscriptionTimestamp"].strftime("%Y-%m-%d %H:%M UTC") if draft.get("inscriptionTimestamp") else "N/A"}</td></tr>' if draft.get('sourceType') == 'ordinal' else ''}
                             {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Content Type:</strong></td><td style="color: var(--text-primary) !important;">{draft["ordinalContentType"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('ordinalContentType') else ''}
                             {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Inscription ID:</strong></td><td style="color: var(--text-primary) !important;"><a href="https://ordinals.com/inscription/{draft["ordinalId"]}" target="_blank" class="text-decoration-none" style="color: var(--accent-color) !important;"><code style="font-family: monospace; font-size: 0.85em;">{shorten_inscription_id(draft["ordinalId"], 8)}</code></a></td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('ordinalId') else ''}
+                            {linked_display_rows}
                         </table>
                     </div>
                 </div>
@@ -860,27 +1353,13 @@ Meta-Layer Initiative
                     </div>
                     <div class="card-body">
                         {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>' if draft.get('status') == 'approved' else ''}
-                        {f'<div class="small text-muted mb-2" id="annotation-count">Loading annotation count...</div>' if HYPOTHESIS_ENABLED else ''}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
                         <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
 
-                        {f'''<div class="border-top pt-2 mt-2">
-                            <h6 class="text-muted mb-2">Annotations</h6>
-                            <button id="toggle-annotations" class="btn btn-outline-info w-100 mb-2" onclick="toggleAnnotations()">
-                                <i class="fas fa-comment-dots me-1"></i>
-                                <span id="annotations-text">Enable Annotations</span>
-                            </button>
-                            {'<div class="alert alert-info small mt-2" role="alert"><i class="fas fa-user-plus me-1"></i><strong>First time?</strong> <a href="https://hypothes.is/signup" target="_blank" class="alert-link">Create free Hypothesis account</a> (30 seconds) to annotate and highlight text.</div>' if not current_user or not current_user.get('hypothesis_account') else ''}
-                            <small class="text-muted d-block">
-                                Powered by <a href="https://hypothes.is" target="_blank" class="text-decoration-none">Hypothesis</a>.
-                                Public annotations visible to everyone.
-                            </small>
-                        </div>''' if HYPOTHESIS_ENABLED else ''}
+                        {display_body_card_html}
                         {f'<a href="/submit/revision/{draft["name"]}/" class="btn btn-success w-100 mb-2"><i class="fas fa-plus me-1"></i>Submit New Revision</a>' if current_user and draft.get('status') == 'approved' else ''}
                         {'' if draft.get('sourceType') == 'ordinal' else f'<a href="/download/{draft["name"]}" class="btn btn-outline-primary w-100 mb-2">Download Document</a>'}
-                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/follow/" style="display: inline;" class="mb-2"><select name="notification_level" class="form-select form-select-sm mb-1"><option value="all">All changes & comments</option><option value="significant">Significant changes only</option><option value="major">Major changes only</option><option value="comments">Comments only</option><option value="none">No notifications</option></select><button type="submit" class="btn btn-success w-100"><i class="fas fa-bell me-1"></i>Follow Document</button></form>' if current_user and draft.get('status') == 'approved' and not is_user_following_draft(draft_name, current_user) else ''}
-                        {'<form method="post" action="/doc/draft/' + draft['name'] + '/unfollow/" style="display: inline;" class="mb-2"><button type="submit" class="btn btn-warning w-100"><i class="fas fa-bell-slash me-1"></i>Unfollow Document</button></form>' if current_user and draft.get('status') == 'approved' and is_user_following_draft(draft_name, current_user) else ''}
-                        {get_notification_controls(draft_name, current_user) if current_user and draft.get('status') == 'approved' and is_user_following_draft(draft_name, current_user) else ''}
+                        {render_draft_subscription_form_html(draft_name, current_user) if current_user and draft.get('status') == 'approved' else ''}
                         {'' if not current_user else ''}
                     </div>
                 </div>
@@ -970,16 +1449,63 @@ Meta-Layer Initiative
     else:
         title_id = draft['name']
 
-    hypothesis_config = generate_hypothesis_config(document_name=draft['name'], document_type='draft')
-
     return _format_base_template(
         title=f"{title_id} - MLGH",
         theme=current_theme,
         user_menu=user_menu,
         content=content,
         build_number=BUILD_NUMBER,
-        hypothesis_config=hypothesis_config
     )
+
+
+@bp.route('/doc/draft/<path:draft_name>/display-body/', methods=['POST'])
+def draft_display_body(draft_name):
+    """Switch draft reader body between uploaded file and a linked ordinal (file-backed submissions only)."""
+    user = get_current_user()
+    if not user:
+        flash('You must be signed in to change display settings.', 'error')
+        return redirect(url_for('documents.draft_detail', draft_name=draft_name))
+    sub = get_submission_by_ref(draft_name)
+    if not sub or not _can_manage_submission_display_body(user, sub):
+        flash('You cannot change display settings for this draft.', 'error')
+        return redirect(url_for('documents.draft_detail', draft_name=draft_name))
+
+    mode = (request.form.get('display_body') or 'file').strip().lower()
+    if mode != 'ordinal':
+        sub.displayBodySource = 'file'
+        sub.displayOrdinalId = None
+        sub.displayOrdinalContentUrl = None
+        sub.displayOrdinalContentType = None
+        sub.displaySwitchedAt = datetime.utcnow()
+        sub.displaySwitchedBy = user.get('name')
+        details = 'Body display reset to uploaded file.'
+        flash('Reader now uses the uploaded file.', 'success')
+    else:
+        url = (request.form.get('display_ordinal_content_url') or '').strip()
+        if not url:
+            flash('Content URL is required to show an ordinal body.', 'error')
+            return redirect(url_for('documents.draft_detail', draft_name=draft_name))
+        oid = (request.form.get('display_ordinal_id') or '').strip() or None
+        ct = (request.form.get('display_ordinal_content_type') or '').strip() or None
+        sub.displayBodySource = 'ordinal'
+        sub.displayOrdinalContentUrl = url
+        sub.displayOrdinalId = oid
+        sub.displayOrdinalContentType = ct
+        sub.displaySwitchedAt = datetime.utcnow()
+        sub.displaySwitchedBy = user.get('name')
+        details = f'Body display set to linked ordinal (id={oid or "n/a"})'
+        flash('Reader now shows the linked ordinal body; the uploaded file is unchanged.', 'success')
+
+    db.session.add(
+        DocumentHistory(
+            draft_name=draft_name,
+            action='display_body_changed',
+            user=user.get('name') or 'unknown',
+            details=details,
+        )
+    )
+    db.session.commit()
+    return redirect(url_for('documents.draft_detail', draft_name=draft_name))
 
 
 @bp.route('/doc/draft/<path:draft_name>/comments/', methods=['GET', 'POST'])
@@ -1026,8 +1552,39 @@ def draft_comments(draft_name):
                     author=current_user['name']
                 )
                 db.session.add(new_comment)
+                db.session.flush()
+                sub = (
+                    Submission.query.filter(
+                        or_(
+                            Submission.draft_name == draft_name,
+                            Submission.parent_draft_name == draft_name,
+                        ),
+                        Submission.status == 'approved',
+                    )
+                    .order_by(Submission.submitted_at.desc().nullslast())
+                    .first()
+                )
+                layer_id = getattr(sub, 'layer_id', None) if sub else None
+                evt = emit_event(
+                    'draft_comment_added',
+                    actor_type='user',
+                    actor_id=current_user['id'],
+                    subject_type='comment',
+                    subject_id=str(new_comment.id),
+                    layer_id=layer_id,
+                    payload={'draft_name': draft_name, 'preview': comment_text[:200]},
+                )
                 db.session.commit()
                 add_to_document_history(draft_name, 'Comment added', current_user['name'], f'Added comment: {comment_text[:50]}...')
+                dispatch_document_followers(
+                    draft_name=draft_name,
+                    event_type='draft_comment_added',
+                    event_log=evt,
+                    actor_user_id=current_user['id'],
+                    title=f'New comment on {draft_name}',
+                    body=comment_text[:500],
+                    link_path=f'/doc/draft/{draft_name}/comments/',
+                )
                 flash('Comment added successfully!', 'success')
                 return redirect(url_for('documents.draft_comments', draft_name=draft_name))
             else:
@@ -1047,7 +1604,38 @@ def draft_comments(draft_name):
             parent_comment_id = request.form.get('parent_comment_id')
             reply_text = request.form.get('reply_text', '').strip()
             if reply_text and parent_comment_id:
-                add_comment_reply(draft_name, parent_comment_id, reply_text, current_user)
+                reply = add_comment_reply(draft_name, parent_comment_id, reply_text, current_user)
+                sub = (
+                    Submission.query.filter(
+                        or_(
+                            Submission.draft_name == draft_name,
+                            Submission.parent_draft_name == draft_name,
+                        ),
+                        Submission.status == 'approved',
+                    )
+                    .order_by(Submission.submitted_at.desc().nullslast())
+                    .first()
+                )
+                layer_id = getattr(sub, 'layer_id', None) if sub else None
+                evt = emit_event(
+                    'draft_comment_added',
+                    actor_type='user',
+                    actor_id=current_user['id'],
+                    subject_type='comment',
+                    subject_id=str(reply.id),
+                    layer_id=layer_id,
+                    payload={'draft_name': draft_name, 'preview': reply_text[:200], 'is_reply': True},
+                )
+                db.session.commit()
+                dispatch_document_followers(
+                    draft_name=draft_name,
+                    event_type='draft_comment_added',
+                    event_log=evt,
+                    actor_user_id=current_user['id'],
+                    title=f'New reply on {draft_name}',
+                    body=reply_text[:500],
+                    link_path=f'/doc/draft/{draft_name}/comments/',
+                )
                 flash('Reply added successfully!', 'success')
                 return redirect(url_for('documents.draft_comments', draft_name=draft_name))
             else:
@@ -1112,7 +1700,6 @@ def draft_comments(draft_name):
 
         <h1>Comments for {display_id}</h1>
         <p class="lead">{draft['title']}</p>
-
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
@@ -1259,7 +1846,7 @@ def draft_comments(draft_name):
     </script>
 """
 
-    return _format_base_template(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/doc/draft/<path:draft_name>/history/')
@@ -1330,7 +1917,6 @@ def draft_history(draft_name):
 
         <h1>History for {display_id}</h1>
         <p class="lead">{draft['title']}</p>
-
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
@@ -1343,74 +1929,39 @@ def draft_history(draft_name):
             </div>
     """
 
-    return _format_base_template(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"History - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
-@bp.route('/doc/draft/<path:draft_name>/follow/', methods=['POST'])
-def follow_draft(draft_name):
-    current_user = get_current_user()
-    if not current_user:
-        flash('You must be logged in to follow documents.', 'error')
-        return redirect(url_for('documents.draft_detail', draft_name=draft_name))
-
-    existing_follow = UserFollow.query.filter_by(user_id=current_user['id'], draft_name=draft_name).first()
-    if existing_follow:
-        flash('You are already following this document.', 'info')
-    else:
-        notification_level = request.form.get('notification_level', 'all')
-        follow = UserFollow(
-            user_id=current_user['id'],
-            draft_name=draft_name,
-            notification_level=notification_level
-        )
-        db.session.add(follow)
-        db.session.commit()
-        level_desc = UserFollow.NOTIFICATION_LEVELS.get(notification_level, 'All changes and comments')
-        flash(f'You are now following this document with {level_desc.lower()} notifications.', 'success')
-
+def _redirect_after_subscription(draft_name: str):
+    """Same-origin relative path only (avoid open redirects)."""
+    next_raw = (request.form.get('next') or '').strip()
+    if next_raw.startswith('/') and not next_raw.startswith('//'):
+        return redirect(next_raw)
     return redirect(url_for('documents.draft_detail', draft_name=draft_name))
 
 
-@bp.route('/doc/draft/<path:draft_name>/unfollow/', methods=['POST'])
-def unfollow_draft(draft_name):
+@bp.route('/doc/draft/<path:draft_name>/subscriptions/', methods=['POST'])
+def update_draft_subscriptions(draft_name):
+    """Save per-event subscription matrix or clear all (draft detail + notifications hub)."""
     current_user = get_current_user()
     if not current_user:
-        flash('You must be logged in to unfollow documents.', 'error')
+        flash('You must be logged in to manage subscriptions.', 'error')
         return redirect(url_for('documents.draft_detail', draft_name=draft_name))
 
-    follow = UserFollow.query.filter_by(user_id=current_user['id'], draft_name=draft_name).first()
-    if follow:
-        db.session.delete(follow)
+    if request.form.get('clear_all'):
+        replace_draft_subscriptions_matrix(current_user['id'], draft_name, {})
         db.session.commit()
-        flash('You have stopped following this document.', 'success')
+        flash('Removed all notification subscriptions for this draft.', 'success')
+        return _redirect_after_subscription(draft_name)
+
+    matrix = matrix_from_subscription_post(request.form)
+    replace_draft_subscriptions_matrix(current_user['id'], draft_name, matrix)
+    db.session.commit()
+    if not matrix:
+        flash('No channels enabled — this draft has no notification subscriptions.', 'info')
     else:
-        flash('You were not following this document.', 'info')
-
-    return redirect(url_for('documents.draft_detail', draft_name=draft_name))
-
-
-@bp.route('/doc/draft/<path:draft_name>/update-notification/', methods=['POST'])
-def update_notification_level(draft_name):
-    current_user = get_current_user()
-    if not current_user:
-        flash('You must be logged in to update notification settings.', 'error')
-        return redirect(url_for('documents.draft_detail', draft_name=draft_name))
-
-    follow = UserFollow.query.filter_by(user_id=current_user['id'], draft_name=draft_name).first()
-    if not follow:
-        flash('You are not following this document.', 'error')
-        return redirect(url_for('documents.draft_detail', draft_name=draft_name))
-
-    notification_level = request.form.get('notification_level', 'all')
-    if notification_level in UserFollow.NOTIFICATION_LEVELS:
-        follow.notification_level = notification_level
-        db.session.commit()
-        level_desc = UserFollow.NOTIFICATION_LEVELS[notification_level]
-        flash(f'Notification level updated to: {level_desc}', 'success')
-    else:
-        flash('Invalid notification level.', 'error')
-
-    return redirect(url_for('documents.draft_detail', draft_name=draft_name))
+        flash('Subscription settings saved.', 'success')
+    return _redirect_after_subscription(draft_name)
 
 
 @bp.route('/doc/draft/<path:draft_name>/revisions/')
@@ -1432,6 +1983,7 @@ def draft_revisions(draft_name):
             else:
                 original_submission_id = submission.id
 
+            sub_p, sub_w = submission_file_pages_words(submission)
             draft = {
                 'name': submission.id,
                 'title': submission.title,
@@ -1440,8 +1992,8 @@ def draft_revisions(draft_name):
                 'group': submission.group,
                 'date': submission.submitted_at.strftime('%Y-%m-%d') if submission.submitted_at else '',
                 'rev': getattr(submission, 'revision_number', '00') or '00',
-                'pages': submission.pages or 1,
-                'words': submission.words or 0,
+                'pages': sub_p,
+                'words': sub_w,
                 'is_revision': getattr(submission, 'is_revision', False),
                 'parent_draft_name': getattr(submission, 'parent_draft_name', ''),
                 'original_submission_id': original_submission_id,
@@ -1453,59 +2005,19 @@ def draft_revisions(draft_name):
 
     display_id = draft.get('ml_number', draft_name) or draft_name
 
-    calculated_pages = draft.get('pages', 1)
-    calculated_words = draft.get('words', 0)
-
-    if submission and submission.file_path and os.path.exists(submission.file_path):
-        _, ext = os.path.splitext(submission.filename.lower())
-        try:
-            if ext in ['.txt', '.xml']:
-                with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    document_content = f.read()
-                words = len(document_content.split())
-                calculated_pages = max(1, (words + 499) // 500)
-                calculated_words = words
-            elif ext == '.docx':
-                from docx import Document
-                doc = Document(submission.file_path)
-                content_parts = []
-                for paragraph in doc.paragraphs:
-                    if paragraph.text.strip():
-                        content_parts.append(paragraph.text)
-                for table in doc.tables:
-                    for row in table.rows:
-                        for cell in row.cells:
-                            if cell.text.strip():
-                                content_parts.append(cell.text)
-                document_content = '\n\n'.join(content_parts)
-                words = len(document_content.split())
-                calculated_pages = max(1, (words + 499) // 500)
-                calculated_words = words
-            elif ext == '.pdf':
-                from PyPDF2 import PdfReader
-                reader = PdfReader(submission.file_path)
-                content_parts = []
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text.strip():
-                        content_parts.append(text)
-                document_content = '\n\n'.join(content_parts)
-                document_content = re.sub(r'\n+', '\n', document_content)
-                document_content = re.sub(r' +', ' ', document_content)
-                words = len(document_content.split())
-                calculated_pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
-                calculated_words = words
-        except Exception:
-            pass
-
-        draft['pages'] = calculated_pages
-        draft['words'] = calculated_words
+    if submission:
+        cp, cw = submission_file_pages_words(submission)
+        draft['pages'] = cp
+        draft['words'] = cw
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
 
     original_id = draft.get('original_submission_id', draft['name'])
     original_submission = get_submission_by_ref(original_id)
+    orig_pages, orig_words = (
+        submission_file_pages_words(original_submission) if original_submission else (1, 0)
+    )
 
     all_revisions = Submission.query.filter(
         Submission.parent_draft_name == original_id,
@@ -1522,11 +2034,16 @@ def draft_revisions(draft_name):
             'published': 'bg-info'
         }.get(rev.status, 'bg-secondary')
 
-        what_changed = getattr(rev, 'what_changed', '')
-        what_changed_html = f'<p class="mb-2"><strong>What changed:</strong> {what_changed}</p>' if what_changed else ''
+        wc_block = revision_notes_to_safe_html(getattr(rev, 'what_changed', '') or '')
+        what_changed_html = (
+            f'<div class="what-changed-notes"><p class="mb-2"><strong>What changed:</strong></p>{wc_block}</div>'
+            if wc_block else ''
+        )
 
         is_current = (rev.id == draft['name'])
         current_badge = '<span class="badge bg-primary ms-2">Current</span>' if is_current else ''
+
+        rev_pages, rev_words = submission_file_pages_words(rev)
 
         revisions_list_html += f"""
         <div class="card mb-3">
@@ -1539,7 +2056,7 @@ def draft_revisions(draft_name):
             </div>
             <div class="card-body">
                 <p class="mb-2"><strong>Published:</strong> {rev.approved_at.strftime('%Y-%m-%d') if rev.approved_at and rev.status == 'approved' else (rev.submitted_at.strftime('%Y-%m-%d') if rev.submitted_at else 'N/A')}</p>
-                <p class="mb-2"><strong>Pages:</strong> {rev.pages or 1} | <strong>Words:</strong> {rev.words or 0}</p>
+                <p class="mb-2"><strong>Pages:</strong> {rev_pages} | <strong>Words:</strong> {rev_words}</p>
                 {what_changed_html}
             </div>
         </div>
@@ -1558,7 +2075,7 @@ def draft_revisions(draft_name):
                     </div>
                     <div class="card-body">
                         <p class="mb-2"><strong>Published:</strong> {original_submission.approved_at.strftime('%Y-%m-%d') if original_submission and original_submission.approved_at else (original_submission.submitted_at.strftime('%Y-%m-%d') if original_submission and original_submission.submitted_at else draft['date'])}</p>
-                        <p class="mb-0"><strong>Pages:</strong> {original_submission.pages if original_submission else 1} | <strong>Words:</strong> {original_submission.words if original_submission else 0}</p>
+                        <p class="mb-0"><strong>Pages:</strong> {orig_pages} | <strong>Words:</strong> {orig_words}</p>
                     </div>
                 </div>
 
@@ -1581,7 +2098,6 @@ def draft_revisions(draft_name):
 
         <h1>Revisions for {display_id}</h1>
         <p class="lead">{draft['title']}</p>
-
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
@@ -1595,7 +2111,7 @@ def draft_revisions(draft_name):
     </div>
     """
 
-    return _format_base_template(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Revisions - {display_id}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 # ============================================================================
@@ -1624,12 +2140,3 @@ def draft_page(filename=None):
     return send_file(path, mimetype='text/html; charset=utf-8')
 
 
-@bp.route('/api/annotations/<document_name>/count')
-def annotation_count(document_name):
-    """Get annotation count for a document (Hypothesis)."""
-    from services.hypothesis import get_document_annotations
-    annotations = get_document_annotations(document_name, 'draft')
-    return jsonify({
-        'count': len(annotations),
-        'document': document_name
-    })

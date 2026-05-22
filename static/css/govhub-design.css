@@ -31,6 +31,51 @@
   max-width: var(--gh-content-max-wide);
 }
 
+/* Docs directory — match prod readability (wider than default 960px shell) */
+.gh-doc-directory.container {
+  max-width: 1120px;
+}
+
+.doc-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.doc-card-actions .btn {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.document-card .card {
+  height: 100%;
+}
+
+.document-card .document-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.document-card .document-meta .status-badge {
+  margin: 0;
+}
+
+.document-card .card-title.document-title {
+  font-size: 1.05rem;
+  line-height: 1.35;
+}
+
+.document-card .card-text {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
 [data-theme="dark"] {
   --gh-glow: rgba(102, 126, 234, 0.45);
   --gh-glow-soft: rgba(102, 126, 234, 0.18);
