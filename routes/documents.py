@@ -300,7 +300,7 @@ def all_documents():
             words = int(draft.get('words') or 0)
             words_span = f'<span>{words} words</span>' if words else ''
             docs_html += f"""
-        <div class="col-12 col-lg-6 document-card">
+        <div class="col-12 document-card">
             <div class="card h-100">
                 <div class="card-body d-flex flex-column">
                     <h5 class="card-title document-title mb-2">
@@ -355,11 +355,11 @@ def all_documents():
         </nav>
         """
 
-    docs_wrapper_open = '<div class="row">' if view == 'cards' else ''
+    docs_wrapper_open = '<div class="row g-3">' if view == 'cards' else ''
     docs_wrapper_close = '</div>' if view == 'cards' else ''
 
     content = f"""
-    <div class="container gh-doc-directory mt-4">
+    <div class="container doc-all-page mt-4">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <div>
                 <h1 class="mb-0">All Documents</h1>

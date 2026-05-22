@@ -31,9 +31,9 @@
   max-width: var(--gh-content-max-wide);
 }
 
-/* Docs directory — match prod readability (wider than default 960px shell) */
-.gh-doc-directory.container {
-  max-width: 1120px;
+/* Docs directory — narrow shell, full-width cards, tidy action row */
+.doc-all-page .document-card {
+  margin-bottom: 0;
 }
 
 .doc-card-actions {
