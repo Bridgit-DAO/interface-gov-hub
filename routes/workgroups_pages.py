@@ -1,4 +1,6 @@
 """Workgroup page routes: /workgroups/<workgroup_slug>/."""
+import json
+
 from flask import Blueprint, session
 
 from services.identity import get_current_user
@@ -135,6 +137,7 @@ def workgroup_detail(workgroup_slug):
     let project = null;
     const workgroupSlug = '{workgroup_slug}';
     const isAuthenticated = {'true' if current_user else 'false'};
+    const currentUserId = {json.dumps(current_user['id']) if current_user else 'null'};
 
     async function loadWorkgroup() {{
         try {{
@@ -143,10 +146,10 @@ def workgroup_detail(workgroup_slug):
             const projectsData = await projectsResp.json();
 
             // Search for workgroup across all projects
-            for (const proj of projectsData.layers) {{
+            for (const proj of (projectsData.layers || [])) {{
                 const wgResp = await fetch(`/api/layers/${{proj.id}}/workgroups/`);
                 const wgData = await wgResp.json();
-                const found = wgData.workgroups.find(wg => wg.slug === workgroupSlug);
+                const found = (wgData.workgroups || []).find(wg => wg.slug === workgroupSlug);
 
                 if (found) {{
                     workgroup = found;
@@ -162,6 +165,9 @@ def workgroup_detail(workgroup_slug):
 
             // Load full workgroup details
             const detailResp = await fetch(`/api/workgroups/${{workgroup.id}}/`);
+            if (!detailResp.ok) {{
+                throw new Error('Workgroup detail request failed');
+            }}
             workgroup = await detailResp.json();
 
             displayWorkgroupHeader();
@@ -267,9 +273,8 @@ def workgroup_detail(workgroup_slug):
             const data = await response.json();
 
             // Check if current user is already a chair
-            const currentUserId = {current_user['id'] if current_user else 'null'};
             let isCurrentUserChair = false;
-            if (isAuthenticated && data.chairs) {{
+            if (isAuthenticated && currentUserId && data.chairs) {{
                 isCurrentUserChair = data.chairs.some(c => c.user_id === currentUserId);
             }}
 
@@ -318,9 +323,8 @@ def workgroup_detail(workgroup_slug):
             const data = await response.json();
 
             // Check if current user is already a member
-            const currentUserId = {current_user['id'] if current_user else 'null'};
             let isCurrentUserMember = false;
-            if (isAuthenticated && data.members) {{
+            if (isAuthenticated && currentUserId && data.members) {{
                 isCurrentUserMember = data.members.some(m => m.user_id === currentUserId);
             }}
 

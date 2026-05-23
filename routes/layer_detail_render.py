@@ -938,6 +938,14 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             '<div class="living-module-body">' + bodyHtml + '</div></div>';
     }}
 
+    function livingModuleStatLink(tabKey, label, countId, countInitial) {{
+        const countVal = countInitial != null ? String(countInitial) : '…';
+        const countAttrs = countId ? ' id="' + countId + '"' : '';
+        return '<a href="#' + tabKey + '" class="living-module-stat-link" data-layer-tab="' + tabKey + '" onclick="switchToTab(\\'' + tabKey + '\\'); return false;">' +
+            '<span class="living-module-stat-value"' + countAttrs + '>' + countVal + '</span>' +
+            '<span class="living-module-stat-text">' + escapeHtml(label) + '</span></a>';
+    }}
+
     function loadOverview() {{
         const statusEsc = escapeHtml(String(project.status || ''));
         const approvalEsc = escapeHtml(String(project.approval_status || ''));
@@ -946,12 +954,16 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const wgCount = project.workgroups_count || 0;
         const modules = [];
         let pulseBody = '';
+        const pulseStats = [];
         if (isLayerFeatureOn('workgroups')) {{
-            pulseBody += '<div class="living-module-stat">' + wgCount + '</div><div class="living-module-stat-label">Workgroups</div>';
+            pulseStats.push(livingModuleStatLink('workgroups', 'Workgroups', null, wgCount));
         }}
         if (isLayerFeatureOn('roles')) {{
-            pulseBody += '<div class="mt-2"><span class="living-module-stat-label">Roles</span> <span id="roles-count" class="living-module-stat" style="font-size:1.1rem">…</span></div>';
-            pulseBody += '<div><span class="living-module-stat-label">Active claims</span> <span id="claims-count" class="living-module-stat" style="font-size:1.1rem">…</span></div>';
+            pulseStats.push(livingModuleStatLink('roles', 'Roles', 'roles-count'));
+            pulseStats.push(livingModuleStatLink('claims', 'Active claims', 'claims-count'));
+        }}
+        if (pulseStats.length) {{
+            pulseBody += '<div class="living-module-stat-list">' + pulseStats.join('') + '</div>';
         }}
         if (pulseBody) modules.push(livingModule('fa-heartbeat', 'Layer pulse', pulseBody, false));
         modules.push(livingModule('fa-info-circle', 'Layer info',

@@ -53,9 +53,9 @@ def groups():
             <div class="card mb-3">
                 <div class="card-body">
                     <h5 class="card-title">
-                        <a href="/group/{group['acronym']}/">{group['acronym']}</a>
+                        <a href="/group/{group['acronym']}/">{group['name']}</a>
                     </h5>
-                    <p class="card-text">{group['name']}</p>
+                    <p class="card-text text-muted small">{group['acronym']}</p>
                     <div class="document-meta">
                         <span class="badge bg-primary">{group['type']}</span>
                         <span class="badge bg-success ms-2">{group['state']}</span>

@@ -193,25 +193,49 @@ def projects_directory():
     {gh_page_header('Layers Map', 'Discover layers — status, activity, and community at a glance', 'fa-layer-group', create_btn)}
     {gh_filter_row(
         gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadProjects()"><option value="">All Statuses</option><option value="proposed">Proposed</option><option value="active">Active</option><option value="stabilizing">Stabilizing</option><option value="maintaining">Maintaining</option><option value="dormant">Dormant</option><option value="concluded">Concluded</option><option value="archived">Archived</option></select>')
-        + gh_filter_col('Approval', '<select id="approval-filter" class="form-select" onchange="loadProjects()"><option value="">All</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>')
+        + gh_filter_col('Approval', '<select id="approval-filter" class="form-select" onchange="loadProjects()"><option value="active" selected>Active</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>')
         + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search layers..." onkeyup="filterProjects()">')
     )}
     {gh_directory_grid('projects-container', 'row row-cols-2 row-cols-sm-3 row-cols-md-3 row-cols-lg-4 g-3')}
     {gh_page_close()}
     <script>
     let allProjects = [];
-    async function loadProjects() {{
-        const statusFilter = document.getElementById('status-filter').value;
-        const approvalFilter = document.getElementById('approval-filter').value;
-        let url = '/api/layers/';
+    function layersApiUrl(extra) {{
         const params = new URLSearchParams();
+        const statusFilter = document.getElementById('status-filter').value;
         if (statusFilter) params.append('status', statusFilter);
-        if (approvalFilter) params.append('approval_status', approvalFilter);
-        if (params.toString()) url += '?' + params.toString();
+        if (extra) Object.entries(extra).forEach(([k, v]) => params.append(k, v));
+        const qs = params.toString();
+        return '/api/layers/' + (qs ? '?' + qs : '');
+    }}
+    function orderProjectsByApproval(projects, approvalFilter) {{
+        if (approvalFilter !== 'active') return projects;
+        const rank = {{ approved: 0, pending: 1 }};
+        return projects.slice().sort((a, b) =>
+            (rank[a.approval_status] ?? 9) - (rank[b.approval_status] ?? 9)
+        );
+    }}
+    async function loadProjects() {{
+        const approvalFilter = document.getElementById('approval-filter').value;
         try {{
-            const response = await fetch(url);
-            const data = await response.json();
-            allProjects = data.layers;
+            if (approvalFilter === 'active') {{
+                const [approvedRes, pendingRes] = await Promise.all([
+                    fetch(layersApiUrl({{ approval_status: 'approved' }})),
+                    fetch(layersApiUrl({{ approval_status: 'pending' }})),
+                ]);
+                const approvedData = await approvedRes.json();
+                const pendingData = await pendingRes.json();
+                allProjects = orderProjectsByApproval(
+                    [...(approvedData.layers || []), ...(pendingData.layers || [])],
+                    'active'
+                );
+            }} else {{
+                const response = await fetch(layersApiUrl(
+                    approvalFilter ? {{ approval_status: approvalFilter }} : {{}}
+                ));
+                const data = await response.json();
+                allProjects = data.layers || [];
+            }}
             displayProjects(allProjects);
         }} catch (error) {{
             console.error('Error loading projects:', error);
@@ -220,11 +244,12 @@ def projects_directory():
     }}
     function filterProjects() {{
         const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        const approvalFilter = document.getElementById('approval-filter').value;
         const filtered = allProjects.filter(p => {{
             const blob = (p.name + ' ' + (p.description || '') + ' ' + (p.mission || '')).toLowerCase();
             return blob.includes(searchTerm);
         }});
-        displayProjects(filtered);
+        displayProjects(orderProjectsByApproval(filtered, approvalFilter));
     }}
     function layerCardImageUrl(project) {{
         if (!project || !project.image_url) return '';
