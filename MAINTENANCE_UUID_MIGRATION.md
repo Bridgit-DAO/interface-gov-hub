@@ -38,7 +38,7 @@ python migrate_uuid_pk.py --phase 7   # BadgeSkin, BadgeCycle, OneTimeBadge, Gui
 | 3 | Submission | string(8) → UUID; updates submission_id FKs |
 | 4 | Cluster, Role, Claim, Badge, Guild | string → UUID |
 | 5 | Vote, Ballot, VoteEligibilitySnapshot, VoteCandidate | int → UUID |
-| 6 | Remaining | Waitlist, Comment, VoteEligibilitySnapshot, VoteCandidate, RoleImage, Quest, LayerMember, LayerAdmin, WorkingGroup, GuildMembership, CoordinatorRequest, WorkgroupMemberRequest, HypothesisAccount, UserFollow, DocumentHistory, RoleImageVote, EventLog, QuestSubmission, Monument, WorkingGroupMember, WorkingGroupChair, ArtifactRelation |
+| 6 | Remaining | Waitlist, Comment, VoteEligibilitySnapshot, VoteCandidate, RoleImage, Quest, LayerMember, LayerAdmin, WorkingGroup, GuildMembership, CoordinatorRequest, WorkgroupMemberRequest, UserEventSubscription, DocumentHistory, RoleImageVote, EventLog, QuestSubmission, Monument, WorkingGroupMember, WorkingGroupChair, ArtifactRelation, UserNotification |
 | 7 | String(50) PKs | BadgeSkin, BadgeCycle, OneTimeBadge, GuildInvitation, StatusChange; RoleImage.layer_id, RoleImage.cycle_id → String(36) |
 
 ## Rollback

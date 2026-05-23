@@ -16,7 +16,7 @@ gov-hub-dev/
 
   models/
     __init__.py             # Import all, expose for db.create_all()
-    identity.py             # User, UserFollow, HypothesisAccount
+    identity.py             # User, UserEventSubscription, UserLinkedAccount
     artifact.py             # Submission, Artifact, ArtifactRelation, Comment, DocumentHistory
     coordination.py        # Layer, LayerMember, LayerAdmin, Workgroup, Guild, Cluster, Role, Claim, Badge, Vote, Ballot, etc.
     events.py              # EventLog, StatusChange
@@ -55,8 +55,7 @@ gov-hub-dev/
 | Model | Target File | Notes |
 |-------|-------------|-------|
 | User | models/identity.py | |
-| UserFollow | models/identity.py | |
-| HypothesisAccount | models/identity.py | |
+| UserEventSubscription | models/identity.py | Per user: event_type × subject (e.g. draft) × in_app/email |
 | Submission | models/artifact.py | |
 | SiteConfig | models/artifact.py | Or config.py |
 | InscriptionOrder | models/artifact.py | Ordinal wizard |

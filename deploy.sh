@@ -69,6 +69,11 @@ if [ -f "$SCRIPT_DIR/agent-deploy.sh" ]; then
 else
     # Fallback to manual restart if agent script doesn't exist
     echo "Agent deployment script not found, using manual restart..."
+    if [ -x "$SCRIPT_DIR/scripts/update_build_number.sh" ]; then
+        "$SCRIPT_DIR/scripts/update_build_number.sh" "$ENV" || true
+    elif [ -f "$SCRIPT_DIR/scripts/update_build_number.sh" ]; then
+        bash "$SCRIPT_DIR/scripts/update_build_number.sh" "$ENV" || true
+    fi
     if [ "$ENV" == "production" ]; then
         systemctl --user stop datatracker.service || true
         sleep 2

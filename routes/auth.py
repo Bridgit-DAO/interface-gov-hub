@@ -12,28 +12,25 @@ from services.utils import check_rate_limit
 bp = Blueprint('auth', __name__, url_prefix='')
 
 LOGIN_TEMPLATE = """
-<div class="container mt-4">
+<div class="gh-page container mt-4 gh-auth-panel">
+    <header class="gh-page-header">
+        <div class="gh-page-header-main">
+            <div class="gh-page-header-icon"><i class="fas fa-sign-in-alt"></i></div>
+            <div><h1 class="gh-page-title">Sign In</h1><p class="gh-page-lead">Connect your account to continue</p></div>
+        </div>
+    </header>
     <div class="row justify-content-center">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="mb-0">Sign In</h3>
-                </div>
-                <div class="card-body">
+        <div class="col-md-6 col-lg-5">
+            <div class="living-module mb-0">
+                <div class="living-module-body text-center py-2">
                     <div id="flash-messages"></div>
-
-                    <!-- Single Web3Auth Sign In Button - uses loginWithWeb3Auth from BASE_TEMPLATE -->
-                    <div class="mb-4 text-center">
-                        <p class="text-muted mb-3">Connect your account to continue</p>
-                        <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" onclick="loginWithWeb3Auth()">
-                            <svg width="20" height="20" class="me-2" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;">
-                                <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
-                            </svg>
-                            Sign In with Web3Auth
-                        </button>
-                        <p class="text-muted mt-3 small">Sign in with Google, Twitter, Email, or connect your wallet</p>
-                    </div>
-
+                    <p class="text-muted mb-3">Web3Auth — Google, email, or wallet</p>
+                    <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" onclick="loginWithWeb3Auth()">
+                        <svg width="20" height="20" class="me-2" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;">
+                            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
+                        </svg>
+                        Sign In with Web3Auth
+                    </button>
                 </div>
             </div>
         </div>
@@ -42,16 +39,18 @@ LOGIN_TEMPLATE = """
 """
 
 REGISTER_TEMPLATE = """
-<div class="container mt-4">
+<div class="gh-page container mt-4 gh-auth-panel">
+    <header class="gh-page-header">
+        <div class="gh-page-header-main">
+            <div class="gh-page-header-icon"><i class="fas fa-user-plus"></i></div>
+            <div><h1 class="gh-page-title">Create Account</h1><p class="gh-page-lead">Join the Meta-Layer Governance Hub</p></div>
+        </div>
+    </header>
     <div class="row justify-content-center">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="mb-0">Create Account</h3>
-                </div>
-                <div class="card-body">
+        <div class="col-md-6 col-lg-5">
+            <div class="living-module mb-0">
+                <div class="living-module-body">
                     <div id="flash-messages"></div>
-                    
                     <form method="POST">
                         <div class="mb-3">
                             <label for="username" class="form-label">Username</label>
@@ -73,7 +72,6 @@ REGISTER_TEMPLATE = """
                             <button type="submit" class="btn btn-primary">Create Account</button>
                         </div>
                     </form>
-                    
                     <hr>
                     <div class="text-center">
                         <p class="mb-0">Already have an account? <a href="/login/">Sign in</a></p>
@@ -100,7 +98,6 @@ def login():
         user_menu=user_menu,
         content=LOGIN_TEMPLATE,
         build_number=BUILD_NUMBER,
-        hypothesis_config=""
     )
 
 
@@ -141,6 +138,10 @@ def register():
                 theme='dark'
             )
             db.session.add(new_user)
+            db.session.flush()
+            from services.document_follow_notifications import ensure_notification_unsubscribe_token
+
+            ensure_notification_unsubscribe_token(new_user)
             db.session.commit()
 
             session['user'] = username
@@ -148,11 +149,11 @@ def register():
             return redirect(url_for('pages.home'))
 
     user_menu = """
-    <div class="nav-item">
+    <li class="nav-item">
         <a class="nav-link" href="/login/">Sign In</a>
-    </div>
+    </li>
     """
-    return render_template_string(_format_base_template(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER, hypothesis_config=""))
+    return render_template_string(_format_base_template(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER))
 
 
 @bp.route('/api/auth/web3auth', methods=['POST'])
@@ -235,6 +236,10 @@ def web3auth_login():
                 last_login=datetime.utcnow()
             )
             db.session.add(user)
+            db.session.flush()
+            from services.document_follow_notifications import ensure_notification_unsubscribe_token
+
+            ensure_notification_unsubscribe_token(user)
             db.session.commit()
 
         session['user'] = user.username

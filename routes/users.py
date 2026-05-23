@@ -164,6 +164,15 @@ def api_update_user_profile():
     if 'social_links' in data:
         user.social_links = json.dumps(data['social_links'])
 
+    if 'email_notifications_opt_in' in data:
+        user.email_notifications_opt_in = bool(data['email_notifications_opt_in'])
+
+    if 'email_digest_mode' in data:
+        mode = (data['email_digest_mode'] or 'immediate').strip().lower()
+        if mode not in ('immediate', 'daily', 'weekly', 'off'):
+            return jsonify({'error': 'email_digest_mode must be immediate, daily, weekly, or off'}), 400
+        user.email_digest_mode = mode
+
     db.session.commit()
 
     return jsonify({'success': True, 'message': 'Profile updated successfully'})

@@ -1,0 +1,90 @@
+{
+  "lang": {
+    "en": "English",
+    "ar": "العربية",
+    "fr": "Français",
+    "pt": "Português",
+    "zh_Hans": "简体中文",
+    "ja": "日本語",
+    "ru": "Русский"
+  },
+  "page": {
+    "breadcrumb": {
+      "home": "Início",
+      "recognition": "Reconhecimento",
+      "active": "Civic Mason"
+    },
+    "title": "Civic Mason",
+    "tagline": "Contribuidores com o distintivo Civic Mason deixam um tijolo na parede."
+  },
+  "dev": {
+    "label": "Somente dev: regras do Civic Mason",
+    "demoSwitch": "Modo demo — sem distintivo, colocações ilimitadas"
+  },
+  "a11y": {
+    "demoMode": "Modo demo",
+    "close": "Fechar",
+    "loading": "A carregar…",
+    "muralAlt": "Mural Civic Mason",
+    "brickColors": "Cor do tijolo",
+    "configureBrick": "Configurar tijolo",
+    "editBrick": "Editar tijolo"
+  },
+  "ineligible": {
+    "loginTitle": "Iniciar sessão",
+    "loginBody": "Inicie sessão para ver as opções de colocação no mural Civic Mason.",
+    "badgeTitle": "Ganhe o distintivo Civic Mason",
+    "badgeBody": "Coloque um tijolo permanente neste mural obtendo um distintivo elegível Civic Mason através da participação cívica.",
+    "badgeButton": "Ver distintivos e como obtê-los",
+    "yearTitle": "Um tijolo por ano",
+    "yearBody": "Já colocou um tijolo em {{year}} (UTC). Pode colocar outro em {{nextYear}}."
+  },
+  "config": {
+    "title": "Configurar tijolo",
+    "hint": "Escolha uma cor — clique duas vezes para selecionar e fechar.",
+    "message": "Mensagem",
+    "optional": "(opcional)",
+    "placeholder": "Deixe uma mensagem…"
+  },
+  "edit": {
+    "title": "Editar tijolo",
+    "hint": "Atualize cor ou mensagem e Aceitar — ou cancele esta colocação.",
+    "cancelPlacement": "Cancelar colocação",
+    "accept": "Aceitar"
+  },
+  "palette": {
+    "colorN": "Cor {{n}}"
+  },
+  "toast": {
+    "placed": "Tijolo colocado! Clique em 5 segundos para editar ou cancelar.",
+    "placedAt": "Tijolo colocado em ({{x}}, {{y}})",
+    "failedPlace": "Falha ao colocar tijolo",
+    "updated": "Tijolo atualizado",
+    "removed": "Tijolo removido",
+    "removeFailed": "Falha ao remover tijolo",
+    "removeError": "Erro ao remover tijolo"
+  },
+  "grid": {
+    "loadError": "Não foi possível carregar os tijolos."
+  },
+  "brick": {
+    "anonymous": "Anónimo",
+    "unknown": "Desconhecido"
+  },
+  "api": {
+    "errors": {
+      "AUTHENTICATION_REQUIRED": "Autenticação necessária",
+      "BADGE_REQUIRED": "Obtenha um distintivo elegível Civic Mason para colocar tijolos",
+      "ALREADY_PLACED_THIS_YEAR": "Só pode colocar um tijolo por ano civil",
+      "NOT_OWNER": "Apenas o dono do tijolo pode fazer isso",
+      "GRID_REQUIRED": "grid_x e grid_y obrigatórios",
+      "GRID_INVALID": "grid_x e grid_y devem ser números",
+      "POSITION_OCCUPIED": "Posição já ocupada",
+      "NO_SUPPORT_BELOW": "Deve apoiar-se em pelo menos um tijolo abaixo",
+      "ROW_FULL": "Fila cheia (máx. 12 tijolos por fila)",
+      "NOT_AVAILABLE": "Indisponível",
+      "MESSAGE_REQUIRED": "mensagem obrigatória",
+      "UNKNOWN": "Algo correu mal"
+    }
+  }
+}

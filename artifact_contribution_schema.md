@@ -33,17 +33,25 @@ What the object *is*.
 What kind of thinking the artifact embodies — **IFP-aligned knowledge form**.
 
 - **UI label:** Contribution type  
-- **Storage / API:** `knowledge_form` (nullable enum; same seven values, stable casing per API convention e.g. snake_case)
+- **Storage / API:** `knowledge_form` (nullable enum; **fifteen** IFP-aligned values, snake_case in JSON)
 
 `knowledge_form` (when set, exactly one of):
 
-- `inquiry`
-- `principle`
-- `model`
-- `conviction`
-- `decision`
-- `gloss`
-- `scenario`
+- `inquiry` — what should we think about next?
+- `principle` — what must we always or never do?
+- `model` — how do these elements relate?
+- `claim` — what do we believe is true?
+- `decision` — why did we choose this over alternatives?
+- `gloss` — what does this concept mean?
+- `scenario` — what might happen if these forces play out?
+- `pattern` — what resolves this recurring tension?
+- `boundary` — where does authority end?
+- `domain` — what knowledge area is this?
+- `case` — what happened when we tried this?
+- `reference` — what do I need to know about this domain?
+- `research` — what are we investigating?
+- `skill` — how does an agent execute this reliably?
+- `opus` — what am I saying here?
 
 **Rules (Unified Phase I):**
 
@@ -68,7 +76,7 @@ If the user opens the contribution-type control, pre-highlight the **default** f
 | `bridge`          | `gloss`                   |
 | `translation`     | `gloss`                   |
 | `monument_context`| `scenario`                |
-| `comment`         | `conviction`              |
+| `comment`         | `claim`                   |
 | `poll`            | `decision`                |
 | `announcement`    | `decision`                |
 | `event`           | `scenario`                |
@@ -77,22 +85,29 @@ If the user opens the contribution-type control, pre-highlight the **default** f
 
 ## 3. Allowed picker set (default + ≤3 alternates)
 
-Values below are the **only** options shown for that type (plus clear/unset). No full seven-option list per type.
+Values below are the **only** values the **server** accepts for that `artifact_type` (plus clear/unset). UI may still show default + a subset (e.g. four choices); see `GET /api/knowledge-layer/schema/` for `allowed` per type.
 
-| `artifact_type`   | Allowed `knowledge_form` values (order: default first) |
-|-------------------|--------------------------------------------------------|
-| `proposal`        | decision, principle, model, inquiry                    |
-| `document`        | model, principle, scenario, decision                   |
-| `evidence`        | model, scenario, principle, gloss                      |
-| `meeting_summary` | model, scenario, inquiry, decision                     |
-| `decision`        | decision, principle, model, scenario                   |
-| `bridge`          | gloss, model, principle, inquiry                       |
-| `translation`     | gloss, principle, model                                |
-| `monument_context`| scenario, principle, gloss, model                      |
-| `comment`         | conviction, inquiry, principle, model                |
-| `poll`            | decision, inquiry, principle                           |
-| `announcement`    | decision, principle, model                             |
-| `event`           | scenario, inquiry, model                               |
+| `artifact_type`   | Allowed `knowledge_form` values (default first where noted) |
+|-------------------|--------------------------------------------------------------|
+| `document`        | **all fifteen** (full catalog)                               |
+| `submission`      | **all fifteen** (full catalog)                               |
+| `proposal`        | **all fifteen** (full catalog)                               |
+| `evidence`        | model, scenario, principle, gloss, pattern, case, reference, research, domain, boundary |
+| `meeting_summary` | model, scenario, inquiry, decision, case, pattern, domain, principle |
+| `decision`        | decision, principle, model, scenario, boundary, pattern, case, opus |
+| `bridge`          | gloss, model, principle, inquiry, boundary, reference, domain, case |
+| `translation`     | gloss, principle, model, domain, reference, case             |
+| `monument_context`| scenario, principle, gloss, model, domain, case, boundary, pattern |
+| `comment`         | claim, inquiry, principle, model, pattern, boundary, gloss |
+| `poll`            | decision, inquiry, principle, pattern, domain                |
+| `announcement`    | decision, principle, model, opus, domain                     |
+| `event`           | scenario, inquiry, model, case, pattern, opus                |
+| `support`         | claim, principle, model, pattern, boundary, case           |
+| `opposition`      | claim, principle, model, pattern, boundary, case             |
+| `monument`        | scenario, principle, gloss, model, domain, case, reference, boundary |
+| `insight`         | model, principle, inquiry, scenario, pattern, research, case, boundary, domain, skill |
+| `reflection`      | claim, inquiry, principle, model, pattern, boundary, case, domain |
+| `implementation`  | decision, principle, model, scenario, skill, case, pattern, boundary, research |
 
 ---
 
@@ -124,10 +139,20 @@ When `knowledge_form` is non-null, the artifact may include **optional** structu
 | `inquiry` | `what_is_unclear` (string), `status`: `open` \| `closed` | What is unclear? / Status |
 | `principle` | `why_matters` (string) | Why does this matter? |
 | `model` | `key_assumptions` (string) | Key assumptions |
-| `conviction` | `why_believe` (string) | Why do you believe this? |
+| `claim` | `why_believe` (string) | Why do you believe this? |
 | `decision` | `what_resolves` (string), `status`: `draft` \| `final` | What does this resolve? / Status |
 | `gloss` | `definition` (string) | Definition |
 | `scenario` | `actors_context` (string) | Actors / context |
+| `pattern` | `recurring_tension` (string), `resolution` (string) | Recurring tension / Resolution |
+| `boundary` | `authority_scope` (string), `where_it_ends` (string) | Scope of authority / Where it ends |
+| `domain` | `area_label` (string), `relationship_to_parent` (string) | Area / Relationship to parent |
+| `case` | `what_we_tried`, `what_happened`, `takeaway` (strings) | Tried / Happened / Takeaway |
+| `reference` | `must_know_summary`, `pointer_notes` (strings) | Must-know summary / Pointers |
+| `research` | `central_question` (string), `status`: `active` \| `paused` \| `complete` | Question / Status |
+| `skill` | `procedure_summary`, `verification` (strings) | Procedure / How to verify |
+| `opus` | `thesis`, `stakes` (strings) | Thesis / Stakes |
+
+**Schema API:** `GET /api/knowledge-layer/schema/` returns `knowledge_form_core_questions` (tooltip copy), `scaffold_keys_by_form`, and `scaffold_status_enums` for inquiry / decision / research status fields.
 
 **Rules:**
 

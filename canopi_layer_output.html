@@ -88,7 +88,7 @@
             box-shadow: var(--shadow);
             padding: 0;
             height: 53px;
-            z-index: 1030 !important; /* Below Hypothesis sidebar/panels (~10000) so collapse & dropdown are visible */
+            z-index: 1030 !important; /* Keep collapse & dropdown usable above page chrome */
             position: relative !important;
             overflow: visible !important;
         }
@@ -623,7 +623,7 @@
             background: var(--border-hover);
         }
 
-        /* Dropdown menu above navbar but below Hypothesis UI */
+        /* Dropdown menu stacking relative to navbar */
         .dropdown-menu {
             z-index: 1050 !important;
             border-radius: 12px;
@@ -3815,76 +3815,6 @@ Write your layer description in markdown...">' + aboutEsc + '</textarea>';
 
         // Make loginWithWeb3Auth available globally
         window.loginWithWeb3Auth = loginWithWeb3Auth;
-        
-        // Hypothesis Annotation Toggle
-        function toggleAnnotations() {
-            const button = document.getElementById('toggle-annotations');
-            const text = document.getElementById('annotations-text');
-            const currentState = getCookie('annotations') || 'off';
-            
-            if (currentState === 'off') {
-                setCookie('annotations', 'on', 365);
-                button.className = 'btn btn-success w-100 mb-2';
-                text.textContent = 'Disable Annotations';
-                // Reload page to load Hypothesis
-                window.location.reload();
-            } else {
-                setCookie('annotations', 'off', 365);
-                button.className = 'btn btn-outline-info w-100 mb-2';
-                text.textContent = 'Enable Annotations';
-                // Reload page to remove Hypothesis
-                window.location.reload();
-            }
-        }
-        
-        // Cookie helper functions
-        function setCookie(name, value, days) {
-            const expires = new Date();
-            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
-            document.cookie = name + '=' + value + ';expires=' + expires.toUTCString() + ';path=/';
-        }
-        
-        function getCookie(name) {
-            const nameEQ = name + "=";
-            const ca = document.cookie.split(';');
-            for(let i = 0; i < ca.length; i++) {
-                let c = ca[i];
-                while (c.charAt(0) == ' ') c = c.substring(1, c.length);
-                if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
-            }
-            return null;
-        }
-        
-        // Update button state on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            const button = document.getElementById('toggle-annotations');
-            const text = document.getElementById('annotations-text');
-            if (button && text) {
-                const currentState = getCookie('annotations') || 'off';
-                if (currentState === 'on') {
-                    button.className = 'btn btn-success w-100 mb-2';
-                    text.textContent = 'Disable Annotations';
-                } else {
-                    button.className = 'btn btn-outline-info w-100 mb-2';
-                    text.textContent = 'Enable Annotations';
-                }
-            }
-            
-            // Load annotation count
-            const countElement = document.getElementById('annotation-count');
-            if (countElement) {
-                const documentName = window.location.pathname.split('/').pop().replace('/', '');
-                fetch(`/api/annotations/${documentName}/count`)
-                    .then(response => response.json())
-                    .then(data => {
-                        const count = data.count || 0;
-                        countElement.innerHTML = `<i class="fas fa-comment-dots me-1"></i>${count} annotation${count !== 1 ? 's' : ''}`;
-                    })
-                    .catch(error => {
-                        countElement.textContent = '';
-                    });
-            }
-        });
     </script>
 </body>
 </html>

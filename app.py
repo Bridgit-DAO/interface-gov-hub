@@ -5,11 +5,13 @@ Creates and configures the Flask app for Meta-Layer Task Force governance.
 Use: app = create_app() or from app import app
 """
 import os
+import sys
 
 from flask import Flask
 
 from config import (
     BUILD_NUMBER,
+    PROJECT_ROOT,
     INSTANCE_DIR,
     DB_PATH,
     DEBUG,
@@ -23,6 +25,10 @@ from config import (
     KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED,
     KNOWLEDGE_SCAFFOLD_ENABLED,
     KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED,
+    ARTIFACT_TAGS_ENABLED,
+    ARTIFACT_TAG_FILTERS_ENABLED,
+    PUBLIC_BASE_URL,
+    CANOPI_PUBLIC_URL,
 )
 
 # Ensure instance directory exists
@@ -32,7 +38,14 @@ os.makedirs(INSTANCE_DIR, exist_ok=True)
 def create_app():
     """Create and configure the Flask application."""
     app = Flask(__name__, instance_path=INSTANCE_DIR, instance_relative_config=True)
-    app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-in-production')
+    secret_key = (os.environ.get('SECRET_KEY') or '').strip()
+    if not secret_key:
+        is_dev_checkout = os.path.basename(PROJECT_ROOT).endswith('-dev')
+        if not IS_DEVELOPMENT and not is_dev_checkout and 'pytest' not in sys.modules:
+            raise RuntimeError('SECRET_KEY must be set in production.')
+        print('⚠️  SECRET_KEY is not set; using an insecure development-only fallback.')
+        secret_key = 'dev-only-insecure-secret-key'
+    app.secret_key = secret_key
 
     # Trust X-Forwarded-* when behind nginx (proto + host for layer subdomain resolution)
     try:
@@ -44,6 +57,10 @@ def create_app():
     # Database
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,
+        'connect_args': {'timeout': 30},
+    }
     app.config['DEBUG'] = DEBUG
 
     # App config for blueprints
@@ -55,6 +72,10 @@ def create_app():
     app.config['KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED'] = KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED
     app.config['KNOWLEDGE_SCAFFOLD_ENABLED'] = KNOWLEDGE_SCAFFOLD_ENABLED
     app.config['KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED'] = KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED
+    app.config['ARTIFACT_TAGS_ENABLED'] = ARTIFACT_TAGS_ENABLED
+    app.config['ARTIFACT_TAG_FILTERS_ENABLED'] = ARTIFACT_TAG_FILTERS_ENABLED
+    app.config['PUBLIC_BASE_URL'] = PUBLIC_BASE_URL
+    app.config['CANOPI_PUBLIC_URL'] = CANOPI_PUBLIC_URL
 
     # Session security
     app.config['SESSION_COOKIE_SECURE'] = not IS_DEVELOPMENT
@@ -65,9 +86,25 @@ def create_app():
     from extensions import db
     db.init_app(app)
 
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite:///'):
+        from sqlalchemy import event
+
+        with app.app_context():
+            sqlite_engine = db.engine
+
+        @event.listens_for(sqlite_engine, 'connect')
+        def _set_sqlite_pragmas(dbapi_connection, connection_record):
+            del connection_record
+            cursor = dbapi_connection.cursor()
+            cursor.execute('PRAGMA journal_mode=WAL')
+            cursor.execute('PRAGMA busy_timeout=30000')
+            cursor.execute('PRAGMA foreign_keys=ON')
+            cursor.close()
+
     # Models (must be after db.init_app)
     from models import (
-        User, UserFollow, HypothesisAccount,
+        User,
+        UserEventSubscription, UserNotification,
         EventLog, StatusChange,
         Layer, LayerMember, LayerAdmin,
         Waitlist, WaitlistEntry, WaitlistMilestone, EmailUnsubscribe, WaitlistEmailSignup,
@@ -102,7 +139,9 @@ def create_app():
     from routes.submissions import bp as submissions_bp
     from routes.ordinals import bp as ordinals_bp, bp_pages as ordinals_pages_bp
     from routes.documents import bp as documents_bp
+    from routes.notifications import bp as notifications_bp
     from routes.admin import bp as admin_bp
+    from routes.product_rollout_admin import bp as product_rollout_admin_bp
     from routes.pages import bp as pages_bp
     from routes.users import bp as users_bp
     from routes.profile_pages import bp as profile_pages_bp
@@ -155,7 +194,9 @@ def create_app():
     app.register_blueprint(ordinals_bp)
     app.register_blueprint(ordinals_pages_bp)
     app.register_blueprint(documents_bp)
+    app.register_blueprint(notifications_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(product_rollout_admin_bp)
     app.register_blueprint(pages_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(profile_pages_bp)

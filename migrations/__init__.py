@@ -825,6 +825,103 @@ def migrate_knowledge_layer_integration(app):
         print(f"⚠️  Error in migrate_knowledge_layer_integration: {e}")
 
 
+def migrate_layer_enabled_features(app):
+    """Per-layer product feature overrides (JSON on layer.enabled_features)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(layer)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'enabled_features' not in cols:
+            cursor.execute("ALTER TABLE layer ADD COLUMN enabled_features TEXT")
+            conn.commit()
+            print("✅ Added enabled_features to layer")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_layer_enabled_features: {e}")
+
+
+def migrate_knowledge_form_conviction_to_claim(app):
+    """Rename legacy knowledge_form conviction → claim on artifacts."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(artifact)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'knowledge_form' not in cols:
+            conn.close()
+            return
+        cursor.execute(
+            "UPDATE artifact SET knowledge_form = 'claim' WHERE knowledge_form = 'conviction'"
+        )
+        n = cursor.rowcount
+        conn.commit()
+        conn.close()
+        if n:
+            print(f"✅ Renamed knowledge_form conviction → claim on {n} artifact(s)")
+    except Exception as e:
+        print(f"⚠️  Error in migrate_knowledge_form_conviction_to_claim: {e}")
+
+
+def migrate_artifact_tags(app):
+    """Layer-scoped artifact tags and artifact_tag_link junction."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_tag'")
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE artifact_tag (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    slug VARCHAR(48) NOT NULL,
+                    label VARCHAR(64) NOT NULL,
+                    description TEXT,
+                    color VARCHAR(7),
+                    created_by_user_id VARCHAR(36) REFERENCES user(id),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(layer_id, slug)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_artifact_tag_layer ON artifact_tag(layer_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_artifact_tag_layer_slug ON artifact_tag(layer_id, slug)"
+            )
+            conn.commit()
+            print("✅ Created artifact_tag table")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_tag_link'")
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE artifact_tag_link (
+                    id VARCHAR(36) PRIMARY KEY,
+                    artifact_id VARCHAR(36) NOT NULL REFERENCES artifact(id),
+                    tag_id VARCHAR(36) NOT NULL REFERENCES artifact_tag(id),
+                    created_by_user_id VARCHAR(36) REFERENCES user(id),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(artifact_id, tag_id)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_artifact_tag_link_artifact ON artifact_tag_link(artifact_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_artifact_tag_link_tag ON artifact_tag_link(tag_id)"
+            )
+            conn.commit()
+            print("✅ Created artifact_tag_link table")
+
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_artifact_tags: {e}")
+
+
 def migrate_guild_unified_phase1(app):
     """Unified Phase I: guild_layer_link, guild_artifact_link, guild_membership.membership_state."""
     try:
@@ -915,6 +1012,144 @@ def migrate_guild_unified_phase1(app):
         conn.close()
     except Exception as e:
         print(f"⚠️  Error in migrate_guild_unified_phase1: {e}")
+
+
+def migrate_access_control_v1(app):
+    """listing_visibility + join_policy on layer, guild, quest (access policy v1)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        def add_cols(table: str, columns: list):
+            cursor.execute(f"PRAGMA table_info({table})")
+            existing = [c[1] for c in cursor.fetchall()]
+            if not existing:
+                return
+            for col_name, ddl in columns:
+                if col_name not in existing:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {ddl}")
+                    conn.commit()
+                    print(f"✅ Added {table}.{col_name}")
+
+        add_cols(
+            'layer',
+            [
+                ("listing_visibility", "VARCHAR(20) DEFAULT 'public'"),
+                ("join_policy", "VARCHAR(30) DEFAULT 'open'"),
+            ],
+        )
+        add_cols(
+            'guild',
+            [
+                ("listing_visibility", "VARCHAR(20) DEFAULT 'public'"),
+                ("join_policy", "VARCHAR(30) DEFAULT 'open'"),
+            ],
+        )
+        add_cols(
+            'quest',
+            [
+                ("listing_visibility", "VARCHAR(20) DEFAULT 'public'"),
+                ("join_policy", "VARCHAR(30) DEFAULT 'open'"),
+            ],
+        )
+
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_access_control_v1: {e}")
+
+
+def migrate_notifications_stack_v1(app):
+    """User notification columns, user_event_subscription, user_notification; drop legacy user_follow if present."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("PRAGMA table_info(user)")
+        user_cols = [c[1] for c in cursor.fetchall()]
+        if user_cols:
+            for col_name, ddl in [
+                ('notification_unsubscribe_token', 'VARCHAR(64)'),
+                ('email_notifications_opt_in', 'INTEGER DEFAULT 1'),
+                ('email_digest_mode', "VARCHAR(20) DEFAULT 'immediate'"),
+            ]:
+                if col_name not in user_cols:
+                    cursor.execute(f"ALTER TABLE user ADD COLUMN {col_name} {ddl}")
+                    conn.commit()
+                    print(f"✅ Added user.{col_name}")
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_event_subscription'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE user_event_subscription (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL REFERENCES user(id),
+                    event_type VARCHAR(80) NOT NULL,
+                    subject_type VARCHAR(40) NOT NULL,
+                    subject_id VARCHAR(200) NOT NULL,
+                    deliver_in_app INTEGER DEFAULT 1,
+                    deliver_email INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ues_user ON user_event_subscription(user_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ues_event ON user_event_subscription(event_type)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ues_subject ON user_event_subscription(subject_type, subject_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ues_user_subject_event ON "
+                "user_event_subscription(user_id, subject_type, subject_id, event_type)"
+            )
+            conn.commit()
+            print("✅ Created user_event_subscription")
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_notification'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE user_notification (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL REFERENCES user(id),
+                    event_log_id VARCHAR(36) REFERENCES event_log(id),
+                    title VARCHAR(255) NOT NULL,
+                    body TEXT,
+                    link_url VARCHAR(500),
+                    read_at TIMESTAMP,
+                    email_sent_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_un_user ON user_notification(user_id)")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_un_created ON user_notification(created_at)"
+            )
+            conn.commit()
+            print("✅ Created user_notification")
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_follow'"
+        )
+        if cursor.fetchone():
+            cursor.execute("DROP TABLE user_follow")
+            conn.commit()
+            print("✅ Dropped legacy user_follow table")
+
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_notifications_stack_v1: {e}")
 
 
 def migrate_hardcoded_users(app):

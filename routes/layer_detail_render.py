@@ -35,6 +35,11 @@ def _layer_tab_button(tab_id, label, icon_class, active=False):
 
 def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html=''):
     """Return (nav_html, tab_panes_html, enabled_tab_ids). Single tablist so Bootstrap tabs work."""
+    opp_body_hint = (
+        'Drafts, quests, and ways to contribute.'
+        if effective.get('quests', True)
+        else 'Drafts and ways to contribute.'
+    )
     tab_defs = [
         (
             'overview', 'Overview', None, True, 'fa-compass', 'home',
@@ -60,7 +65,7 @@ def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='
             '<div class="living-module mb-4"><div class="living-module-header">'
             '<div class="living-module-icon"><i class="fas fa-bullseye"></i></div>'
             '<h5 class="living-module-title">Opportunities</h5></div>'
-            '<div class="living-module-body"><p class="text-muted small">Drafts, quests, and ways to contribute.</p>'
+            f'<div class="living-module-body"><p class="text-muted small">{opp_body_hint}</p>'
             '<div id="opportunities-tab-container"><div class="text-center py-4">'
             '<div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>'
             '</div></div>',
@@ -131,6 +136,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     
     project_obj = Layer.query.filter_by(slug=project_slug).first()
     effective_features = get_effective_features(project_obj)
+    show_quests = effective_features.get('quests', True)
     show_admin_tab = bool(project_obj and current_user and is_layer_admin(project_obj, current_user))
     initial_waitlist_id = str(waitlist_id) if waitlist_id else None
     site_rollout = get_rollout_config()
@@ -165,10 +171,71 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         )
         enabled_layer_tab_ids_json = json.dumps(enabled_tab_ids + (['admin-tab'] if show_admin_tab else []))
 
+    create_quest_admin_btn = (
+        '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showCreateQuestModal()">'
+        '<i class="fas fa-tasks me-2"></i>Create Quest</button></div>'
+        if show_quests
+        else ''
+    )
+    quest_modal_html = ''
+    if show_quests:
+        quest_modal_html = """
+    <div class="modal fade" id="createQuestModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-tasks me-2"></i>Create Quest</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="create-quest-alert" class="alert d-none" role="alert"></div>
+                    <form id="createQuestForm">
+                        <div class="mb-3">
+                            <label for="quest-title" class="form-label">Title *</label>
+                            <input type="text" class="form-control" id="quest-title" required placeholder="e.g. Write opposition for draft X">
+                        </div>
+                        <div class="mb-3">
+                            <label for="quest-description" class="form-label">Description</label>
+                            <textarea class="form-control" id="quest-description" rows="3" placeholder="What contribution are you looking for?"></textarea>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="quest-type" class="form-label">Type</label>
+                                <select class="form-select" id="quest-type">
+                                    <option value="contribution">Contribution</option>
+                                    <option value="bounty">Bounty</option>
+                                    <option value="review">Review</option>
+                                    <option value="documentation">Documentation</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="quest-difficulty" class="form-label">Difficulty</label>
+                                <select class="form-select" id="quest-difficulty">
+                                    <option value="easy">Easy</option>
+                                    <option value="medium" selected>Medium</option>
+                                    <option value="hard">Hard</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="quest-acceptance-criteria" class="form-label">Acceptance criteria (optional)</label>
+                            <textarea class="form-control" id="quest-acceptance-criteria" rows="2" placeholder="What must be done to complete this quest?"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="create-quest-submit-btn" onclick="submitCreateQuest()"><i class="fas fa-check me-2"></i>Create Quest</button>
+                </div>
+            </div>
+        </div>
+    </div>
+"""
+
     tabs_hidden_class = ' d-none' if standalone else ''
     if standalone:
         container_html = """
-    <div class="container mt-4">
+    <div class="gh-page container mt-4">
         <div id="project-title" class="mb-3">
             <div class="d-flex justify-content-center py-3">
                 <div class="spinner-border text-primary" role="status">
@@ -182,7 +249,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
 """
     else:
         container_html = f"""
-    <div class="container mt-4">
+    <div class="gh-page container mt-4">
         <div id="project-title" class="mb-3">
             <div class="d-flex justify-content-center py-3">
                 <div class="spinner-border text-primary" role="status">
@@ -303,56 +370,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         </div>
     </div>
     
-    <div class="modal fade" id="createQuestModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="fas fa-tasks me-2"></i>Create Quest</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div id="create-quest-alert" class="alert d-none" role="alert"></div>
-                    <form id="createQuestForm">
-                        <div class="mb-3">
-                            <label for="quest-title" class="form-label">Title *</label>
-                            <input type="text" class="form-control" id="quest-title" required placeholder="e.g. Write opposition for draft X">
-                        </div>
-                        <div class="mb-3">
-                            <label for="quest-description" class="form-label">Description</label>
-                            <textarea class="form-control" id="quest-description" rows="3" placeholder="What contribution are you looking for?"></textarea>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="quest-type" class="form-label">Type</label>
-                                <select class="form-select" id="quest-type">
-                                    <option value="contribution">Contribution</option>
-                                    <option value="bounty">Bounty</option>
-                                    <option value="review">Review</option>
-                                    <option value="documentation">Documentation</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="quest-difficulty" class="form-label">Difficulty</label>
-                                <select class="form-select" id="quest-difficulty">
-                                    <option value="easy">Easy</option>
-                                    <option value="medium" selected>Medium</option>
-                                    <option value="hard">Hard</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="quest-acceptance-criteria" class="form-label">Acceptance criteria (optional)</label>
-                            <textarea class="form-control" id="quest-acceptance-criteria" rows="2" placeholder="What must be done to complete this quest?"></textarea>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="create-quest-submit-btn" onclick="submitCreateQuest()"><i class="fas fa-check me-2"></i>Create Quest</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    {quest_modal_html}
     
     <div class="modal fade" id="createVoteModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
@@ -857,7 +875,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
         if (isProjectAdmin) {{
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
-            actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showCreateQuestModal()"><i class="fas fa-tasks me-2"></i>Create Quest</button></div>';
+            actionsHtml += {json.dumps(create_quest_admin_btn)};
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showCreateVoteModal()"><i class="fas fa-vote-yea me-2"></i>Create Vote</button></div>';
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showEmailModal()"><i class="fas fa-envelope me-2"></i>Email</button></div>';
         }}
@@ -1225,9 +1243,12 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }}
             const ms = data.missing_support || [];
             const mo = data.missing_opposition || [];
-            const oq = data.open_quests || [];
+            const oq = isLayerFeatureOn('quests') ? (data.open_quests || []) : [];
             if (ms.length === 0 && mo.length === 0 && oq.length === 0) {{
-                container.innerHTML = '<p class="text-muted small mb-0">All drafts have support and opposition. No open quests. Great participation!</p>';
+                const emptyMsg = isLayerFeatureOn('quests')
+                    ? 'All drafts have support and opposition. No open quests. Great participation!'
+                    : 'All drafts have support and opposition.';
+                container.innerHTML = '<p class="text-muted small mb-0">' + emptyMsg + '</p>';
                 return;
             }}
             let html = '<div class="row">';
@@ -1247,7 +1268,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 if (mo.length > 5) html += '<li class="text-muted">+' + (mo.length - 5) + ' more</li>';
                 html += '</ul></div>';
             }}
-            if (oq.length > 0) {{
+            if (isLayerFeatureOn('quests') && oq.length > 0) {{
                 html += '<div class="col-12 mt-2"><h6 class="text-primary"><i class="fas fa-tasks me-1"></i>Open quests</h6><ul class="list-unstyled small">';
                 oq.slice(0, 5).forEach(q => {{
                     html += '<li class="mb-1"><span class="badge bg-secondary me-1">' + escapeHtmlBasic(q.quest_type || 'quest') + '</span><a href="' + layerBase + 'quests/' + q.id + '/" class="text-decoration-none">' + escapeHtmlBasic(q.title || 'Untitled') + '</a></li>';

@@ -973,7 +973,7 @@ def waitlist_detail(waitlist_id):
     </div>'''
 
     content = f"""
-    <div class="container mt-4">
+    <div class="gh-page container mt-4">
 
       <!-- Breadcrumb -->
       <nav aria-label="breadcrumb" class="mb-3">

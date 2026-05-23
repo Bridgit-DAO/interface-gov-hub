@@ -146,15 +146,16 @@ app.run(use_reloader=use_reloader)
 **Date**: 2026-01-17
 
 ### Feature: Document Follow System
-**Purpose**: Allow users to follow documents and receive notifications  
-**Implementation**: 
-- `UserFollow` model with `notification_level` (all/significant/major/comments/none)
-- Routes for follow/unfollow
-- Functions: `get_user_follow()`, `should_notify_user()`, `get_users_to_notify()`
-**Components**: `ietf_data_viewer_simple.py` (UserFollow model, routes, notification functions)  
-**Patterns**: Many-to-many relationship, notification levels  
-**Status**: Email notifications not yet implemented  
-**Date**: 2026-01-17
+**Purpose**: Allow users to follow drafts and receive in-app (and optional email) notifications for governance events on that draft.  
+**Implementation** (current):
+- **`UserEventSubscription`** (`user_event_subscription`): one row per `(user_id, event_type, subject_type, subject_id)` with `deliver_in_app` / `deliver_email`. Draft follows use `subject_type='draft'`, `subject_id=<draft_name>`, and event types such as `draft_comment_added`, `draft_submission_approved`, `draft_revision_approved`, `draft_published_as_rfc`.
+- Legacy **`user_follow`** was migrated away (`migrate_user_follow_to_event_subscriptions`); preset **notification levels** expand to the right set of `event_type` rows via `services/event_subscriptions.py` (`replace_draft_subscriptions`, `LEVEL_TO_EVENT_TYPES`, `infer_draft_notification_level`).
+- **Dispatch**: `services/document_follow_notifications.py` — `dispatch_document_followers(..., event_type=...)` loads subscribers by exact `event_type` + draft subject; respects subscription channels and layer email unsubscribe.
+- **Routes**: `routes/documents.py` — follow / unfollow / update level call `replace_draft_subscriptions`; new comments/replies dispatch with `event_type='draft_comment_added'`; submission approvals / revisions / RFC publish use `services/submission_notifications.py` (`draft_submission_approved`, `draft_revision_approved`, `draft_published_as_rfc`).
+**UI note**: The draft page still uses a **single notification-level dropdown** (presets: all / significant / major / comments / none), not per-event toggles. The database stores **one subscription row per event type**; presets only control which rows are created. A per-event UI would match mental model to storage and allow arbitrary combinations, at the cost of more controls and implementation work; the preset keeps the draft page simple while dispatch stays exact-match on `event_type`.
+**Components**: `models/identity.py`, `services/event_subscriptions.py`, `services/document_follow_notifications.py`, `routes/documents.py`  
+**Patterns**: Event-sourced notifications (`EventLog`), explicit subscriptions  
+**Date**: 2026-01-17 (original follow); 2026-04 (subscriptions migration)
 
 ### Feature: Environment Separation
 **Purpose**: Separate development and production environments  

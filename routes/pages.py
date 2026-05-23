@@ -10,6 +10,7 @@ from models import User, Submission, Layer, Vote, Role, Claim, Badge, EmailUnsub
 from services.identity import get_current_user, require_auth
 from services.utils import _is_uuid_like
 from services.email import verify_unsubscribe_token
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_filter_row, gh_filter_col, gh_directory_grid, gh_living_module
 
 bp = Blueprint('pages', __name__, url_prefix='')
 
@@ -47,128 +48,76 @@ def home():
         theme=current_theme,
         user_menu=user_menu,
         content=f"""
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-md-8">
-                <p class="lead">Welcome to the Governance Hub for the Meta-Layer!</p>
-
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="fas fa-project-diagram me-2"></i>Layers</h5>
-                            </div>
-                            <div class="card-body">
-                                <p>Browse and discover MLTF layers and their workgroups.</p>
-                                <a href="/layers/" class="btn btn-primary">View Layers</a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="fas fa-users me-2"></i>Workgroups</h5>
-                            </div>
-                            <div class="card-body">
-                                <p>Browse workgroups across all projects and their activities.</p>
-                                <a href="/workgroups/" class="btn btn-primary">View Workgroups</a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="row mt-4">
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="fas fa-shield-alt me-2"></i>Guilds</h5>
-                            </div>
-                            <div class="card-body">
-                                <p>Cross-project collaboration groups and communities.</p>
-                                <a href="/guilds/" class="btn btn-primary">View Guilds</a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="fas fa-user-tag me-2"></i>Roles</h5>
-                            </div>
-                            <div class="card-body">
-                                <p>Explore and claim roles across all projects.</p>
-                                <a href="/roles/" class="btn btn-primary">Browse Roles</a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="row mt-4">
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="fas fa-user-friends me-2"></i>People</h5>
-                            </div>
-                            <div class="card-body">
-                                <p>Directory of Meta-Layer participants and contributors.</p>
-                                <a href="/person/" class="btn btn-primary">View People</a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="fas fa-file-alt me-2"></i>Documents</h5>
-                            </div>
-                            <div class="card-body">
-                                <p>View the latest Meta-Layer documents including drafts and RFCs.</p>
-                                <a href="/doc/all/" class="btn btn-primary">View All Documents</a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="row mt-4">
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="fas fa-medal me-2"></i>Badges</h5>
-                            </div>
-                            <div class="card-body">
-                                <p>Browse and vote on visual representations for roles across all projects.</p>
-                                <a href="/badges/" class="btn btn-primary">View Badges</a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="fas fa-list-ol me-2"></i>Waitlists</h5>
-                            </div>
-                            <div class="card-body">
-                                <p>Join waitlists for upcoming projects, features, and opportunities.</p>
-                                <a href="/waitlists/" class="btn btn-primary">View Waitlists</a>
-                            </div>
-                        </div>
-                    </div>
+    <div class="gh-page container mt-4">
+        <div class="gh-home-hero">
+            <h1>Governance Hub</h1>
+            <p>Welcome to the Meta-Layer Governance Hub — layers, roles, guilds, docs, and coordination in one place.</p>
+        </div>
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="gh-home-hub">
+                    <a href="/layers/" class="gh-home-hub-card text-decoration-none">
+                        <div class="gh-home-hub-icon"><i class="fas fa-layer-group"></i></div>
+                        <h2>Layers</h2>
+                        <p>Browse MLTF layers, workgroups, and living layer maps.</p>
+                        <span class="btn btn-sm btn-primary">View Layers</span>
+                    </a>
+                    <a href="/workgroups/" class="gh-home-hub-card text-decoration-none">
+                        <div class="gh-home-hub-icon"><i class="fas fa-users-cog"></i></div>
+                        <h2>Workgroups</h2>
+                        <p>Find workgroups across layers and their activities.</p>
+                        <span class="btn btn-sm btn-primary">View Workgroups</span>
+                    </a>
+                    <a href="/guilds/" class="gh-home-hub-card text-decoration-none">
+                        <div class="gh-home-hub-icon"><i class="fas fa-shield-halved"></i></div>
+                        <h2>Guilds</h2>
+                        <p>Cross-project collaboration groups and communities.</p>
+                        <span class="btn btn-sm btn-primary">View Guilds</span>
+                    </a>
+                    <a href="/roles/" class="gh-home-hub-card text-decoration-none">
+                        <div class="gh-home-hub-icon"><i class="fas fa-user-tag"></i></div>
+                        <h2>Roles</h2>
+                        <p>Explore and claim roles across all layers.</p>
+                        <span class="btn btn-sm btn-outline-primary">Browse Roles</span>
+                    </a>
+                    <a href="/person/" class="gh-home-hub-card text-decoration-none">
+                        <div class="gh-home-hub-icon"><i class="fas fa-user-friends"></i></div>
+                        <h2>People</h2>
+                        <p>Directory of Meta-Layer participants and contributors.</p>
+                        <span class="btn btn-sm btn-outline-primary">View People</span>
+                    </a>
+                    <a href="/doc/all/" class="gh-home-hub-card text-decoration-none">
+                        <div class="gh-home-hub-icon"><i class="fas fa-file-alt"></i></div>
+                        <h2>Documents</h2>
+                        <p>Drafts, RFCs, and layer documentation.</p>
+                        <span class="btn btn-sm btn-outline-primary">View Docs</span>
+                    </a>
+                    <a href="/badges/" class="gh-home-hub-card text-decoration-none">
+                        <div class="gh-home-hub-icon"><i class="fas fa-medal"></i></div>
+                        <h2>Badges</h2>
+                        <p>Visual representations and galleries for roles.</p>
+                        <span class="btn btn-sm btn-outline-primary">View Badges</span>
+                    </a>
+                    <a href="/waitlists/" class="gh-home-hub-card text-decoration-none">
+                        <div class="gh-home-hub-icon"><i class="fas fa-list-ol"></i></div>
+                        <h2>Waitlists</h2>
+                        <p>Join waitlists for upcoming features and opportunities.</p>
+                        <span class="btn btn-sm btn-outline-primary">View Waitlists</span>
+                    </a>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5>Quick Stats</h5>
-                    </div>
-                    <div class="card-body">
-                        <p><strong>Documents:</strong> {doc_count}</p>
-                        <p><strong>Workgroups:</strong> {len(GROUPS)}</p>
-                        <p><strong>Last Updated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-                    </div>
+            <div class="col-lg-4">
+                <div class="gh-home-stats">
+                    <h2>Quick stats</h2>
+                    <p class="mb-2"><strong>Documents:</strong> {doc_count}</p>
+                    <p class="mb-2"><strong>Workgroups:</strong> {len(GROUPS)}</p>
+                    <p class="mb-0 text-muted small"><strong>Updated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
                 </div>
             </div>
         </div>
     </div>
     """,
         build_number=BUILD_NUMBER,
-        hypothesis_config="",
     )
 
 
@@ -262,7 +211,6 @@ def profile():
         user_menu=user_menu,
         content=profile_content,
         build_number=BUILD_NUMBER,
-        hypothesis_config=""
     ))
 
 
@@ -303,39 +251,13 @@ def layer_standalone_workgroups(layer_ref):
     layer_name_esc = html_mod.escape(project.name or project.slug)
 
     content = f'''
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li>
-                <li class="breadcrumb-item active">Workgroups</li>
-            </ol>
-        </nav>
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <h1>Workgroups</h1>
-                <p class="lead">Workgroups in {layer_name_esc}</p>
-            </div>
-            <div class="col-md-4 text-end">
-                <a href="/layer/{project.slug}/" class="btn btn-secondary mb-2 w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layer</a>
-            </div>
-        </div>
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <label for="status-filter" class="form-label">Status:</label>
-                <select id="status-filter" class="form-select" onchange="loadWorkgroups()">
-                    <option value="">All Statuses</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="completed">Completed</option>
-                    <option value="archived">Archived</option>
-                </select>
-            </div>
-            <div class="col-md-6">
-                <label for="search-input" class="form-label">Search:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search workgroups..." onkeyup="filterWorkgroups()">
-            </div>
-        </div>
-        <div id="workgroups-container" class="row">
+    <div class="gh-page container mt-4">
+        {gh_page_header('Workgroups', f'Workgroups in {layer_name_esc}', 'fa-users-cog', actions_html=f'<a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li><li class="breadcrumb-item active">Workgroups</li></ol></nav>')}
+        {gh_filter_row(
+            gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>', 'col-md-6')
+            + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search workgroups..." onkeyup="filterWorkgroups()">', 'col-md-6')
+        )}
+        <div id="workgroups-container" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
             <div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>
         </div>
     </div>
@@ -400,37 +322,13 @@ def layer_standalone_roles(layer_ref):
     import html as html_mod
     layer_name_esc = html_mod.escape(project.name or project.slug)
     content = f'''
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li>
-                <li class="breadcrumb-item active">Roles</li>
-            </ol>
-        </nav>
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <h1>Roles</h1>
-                <p class="lead">Roles in {layer_name_esc}</p>
-            </div>
-            <div class="col-md-4 text-end">
-                <a href="/layer/{project.slug}/" class="btn btn-secondary mb-2 w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layer</a>
-            </div>
-        </div>
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <label for="status-filter" class="form-label">Status:</label>
-                <select id="status-filter" class="form-select" onchange="loadRoles()">
-                    <option value="">All</option>
-                    <option value="approved">Approved</option>
-                    <option value="draft">Draft</option>
-                </select>
-            </div>
-            <div class="col-md-6">
-                <label for="search-input" class="form-label">Search:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">
-            </div>
-        </div>
-        <div id="roles-container" class="row">
+    <div class="gh-page container mt-4">
+        {gh_page_header('Roles', f'Roles in {layer_name_esc}', 'fa-user-tag', actions_html=f'<a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li><li class="breadcrumb-item active">Roles</li></ol></nav>')}
+        {gh_filter_row(
+            gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadRoles()"><option value="">All</option><option value="approved">Approved</option><option value="draft">Draft</option></select>', 'col-md-6')
+            + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">', 'col-md-6')
+        )}
+        <div id="roles-container" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
             <div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>
         </div>
     </div>
@@ -503,17 +401,8 @@ def layer_standalone_section(layer_ref):
     import html as html_mod
     layer_name_esc = html_mod.escape(project.name or project.slug)
     content = f'''
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li>
-                <li class="breadcrumb-item active">{section_title}</li>
-            </ol>
-        </nav>
-        <h1 class="mb-3">{section_title}</h1>
-        <p class="text-muted mb-4">View full {section} in MLGH.</p>
-        <a href="/layers/{project.slug}/#{section}" class="btn btn-primary"><i class="fas fa-external-link-alt me-2"></i>View in MLGH</a>
-        <a href="/layer/{project.slug}/" class="btn btn-outline-secondary ms-2"><i class="fas fa-arrow-left me-2"></i>Back to Layer</a>
+    <div class="gh-page container mt-4">
+        {gh_page_header(section_title, f'View full {section} in MLGH', 'fa-compass', actions_html=f'<a href="/layers/{project.slug}/#{section}" class="btn btn-primary btn-sm me-1"><i class="fas fa-external-link-alt me-1"></i>View in MLGH</a><a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li><li class="breadcrumb-item active">{section_title}</li></ol></nav>')}
     </div>
     '''
     return render_layer_standalone_page(
@@ -530,11 +419,17 @@ def layer_standalone_waitlists(layer_ref):
     """Layer-scoped waitlists. Stays in layer view."""
     from services.rendering import render_layer_standalone_page, generate_user_menu
     from routes.directory import build_waitlists_content
+    from services.layer_features import is_feature_enabled_for_layer, require_layer_feature
 
     if _is_uuid_like(layer_ref):
         project = Layer.query.filter_by(public_id=layer_ref).first_or_404()
     else:
         project = Layer.query.filter_by(slug=layer_ref).first_or_404()
+
+    require_layer_feature('waitlists', project)
+    if not is_feature_enabled_for_layer('layers', project):
+        from flask import abort
+        abort(404)
 
     content = build_waitlists_content(project.slug)
     return render_layer_standalone_page(
@@ -638,16 +533,12 @@ def layer_standalone_about(layer_ref):
     html_content = process_ordinal_markdown(raw) if raw else '<p class="text-muted">No about content yet.</p>'
 
     content = f'''
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/layer/{project.slug}/">{html_mod.escape(project.name or project.slug)}</a></li>
-                <li class="breadcrumb-item active">About</li>
-            </ol>
-        </nav>
-        <h1 class="mb-4">About {html_mod.escape(project.name or project.slug)}</h1>
-        <div class="about-content" style="max-width: 720px;">
+    <div class="gh-page container mt-4">
+        {gh_page_header(f'About {html_mod.escape(project.name or project.slug)}', '', 'fa-info-circle', actions_html=f'<a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{html_mod.escape(project.name or project.slug)}</a></li><li class="breadcrumb-item active">About</li></ol></nav>')}
+        <div class="living-module">
+            <div class="living-module-body about-content" style="max-width: 720px;">
             {html_content}
+            </div>
         </div>
     </div>
     '''

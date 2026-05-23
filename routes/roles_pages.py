@@ -7,6 +7,16 @@ from models import Layer, Role, RoleImage, RoleImageVote
 from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin
 from services.utils import _is_uuid_like
+from services.directory_ui import (
+    gh_page_open,
+    gh_page_close,
+    gh_page_header,
+    gh_filter_row,
+    gh_filter_col,
+    gh_directory_grid,
+    gh_breadcrumb,
+    gh_living_module,
+)
 
 bp = Blueprint('roles_pages', __name__, url_prefix='')
 
@@ -30,44 +40,15 @@ def roles_directory():
     current_user = get_current_user()
 
     content = f"""
-    <div class="container mt-4">
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <h1>Roles Directory</h1>
-                <p class="lead">Browse and claim roles across all projects</p>
-            </div>
-        </div>
-
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <label for="project-filter" class="form-label">Layer:</label>
-                <select id="project-filter" class="form-select" onchange="loadRoles()">
-                    <option value="">All Layers</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="status-filter" class="form-label">Status:</label>
-                <select id="status-filter" class="form-select" onchange="loadRoles()">
-                    <option value="">All Statuses</option>
-                    <option value="approved">Approved</option>
-                    <option value="draft">Draft</option>
-                    <option value="deprecated">Deprecated</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="search-input" class="form-label">Search:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">
-            </div>
-        </div>
-
-        <div id="roles-container" class="row">
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    </div>
+    {gh_page_open()}
+    {gh_page_header('Roles Directory', 'Browse and claim roles across all layers', 'fa-user-tag')}
+    {gh_filter_row(
+        gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadRoles()"><option value="">All Layers</option></select>')
+        + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadRoles()"><option value="">All Statuses</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="deprecated">Deprecated</option></select>')
+        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">')
+    )}
+    {gh_directory_grid('roles-container')}
+    {gh_page_close()}
 
     <script>
     let allRoles = [];
@@ -104,7 +85,7 @@ def roles_directory():
 
                 const response = await fetch(url);
                 const data = await response.json();
-                allRoles = data.roles;
+                allRoles = (response.ok && data.roles) ? data.roles : [];
             }} else {{
                 for (const project of allProjects) {{
                     let url = `/api/layers/${{project.id}}/roles/`;
@@ -112,21 +93,22 @@ def roles_directory():
 
                     const response = await fetch(url);
                     const data = await response.json();
-                    allRoles = allRoles.concat(data.roles.map(r => ({{...r, layer_name: project.name, layer_slug: project.slug}})));
+                    const roles = (response.ok && Array.isArray(data.roles)) ? data.roles : [];
+                    allRoles = allRoles.concat(roles.map(r => ({{...r, layer_name: project.name, layer_slug: project.slug}})));
                 }}
             }}
 
             displayRoles(allRoles);
         }} catch (error) {{
             console.error('Error loading roles:', error);
-            document.getElementById('roles-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading roles</div></div>';
+            document.getElementById('roles-container').innerHTML = GhDirectory.emptyState('Error loading roles', 'danger');
         }}
     }}
 
     function filterRoles() {{
         const searchTerm = document.getElementById('search-input').value.toLowerCase();
         const filtered = allRoles.filter(r =>
-            r.title_guild.toLowerCase().includes(searchTerm) ||
+            (r.title_guild || '').toLowerCase().includes(searchTerm) ||
             (r.description && r.description.toLowerCase().includes(searchTerm))
         );
         displayRoles(filtered);
@@ -136,7 +118,7 @@ def roles_directory():
         const container = document.getElementById('roles-container');
 
         if (roles.length === 0) {{
-            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No roles found</div></div>';
+            container.innerHTML = GhDirectory.emptyState('No roles found');
             return;
         }}
 
@@ -152,32 +134,17 @@ def roles_directory():
                 ? '<span class="badge bg-info"><i class="fas fa-check-circle me-1"></i>Approval Required</span>'
                 : '<span class="badge bg-success"><i class="fas fa-bolt me-1"></i>Instant Claim</span>';
 
-            html += `
-                <div class="col-md-6 col-lg-4 mb-4">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h5 class="card-title">
-                                <a href="/roles/${{role.slug}}/">${{role.title_guild}}</a>
-                            </h5>
-                            <div class="mb-2">
-                                ${{statusBadge}}
-                                ${{claimBadge}}
-                            </div>
-                            <p class="card-text text-muted small">${{role.description.substring(0, 100)}}...</p>
-                            <div class="mt-3">
-                                <small class="text-muted">
-                                    <i class="fas fa-project-diagram me-1"></i> ${{role.layer_name || 'Unknown Project'}}
-                                </small>
-                            </div>
-                        </div>
-                        <div class="card-footer">
-                            <small class="text-muted">
-                                <i class="fas fa-hand-paper me-1"></i> ${{role.claims_count || 0}} claims
-                            </small>
-                        </div>
-                    </div>
-                </div>
-            `;
+            const desc = role.description ? role.description.substring(0, 160) : '';
+            html += GhDirectory.tile({{
+                href: '/roles/' + role.slug + '/',
+                title: role.title_guild,
+                description: desc,
+                icon: 'fa-user-tag',
+                pulse: role.status === 'approved' ? 'Open' : '',
+                badgesHtml: statusBadge + claimBadge,
+                metaHtml: '<i class="fas fa-layer-group me-1"></i>' + GhDirectory.esc(role.layer_name || 'Unknown Layer'),
+                footerHtml: '<i class="fas fa-hand-paper me-1"></i>' + (role.claims_count || 0) + ' claims'
+            }});
         }});
 
         container.innerHTML = html;
@@ -204,58 +171,40 @@ def role_images_directory():
     current_user = get_current_user()
 
     content = f"""
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-md-8">
-                <div class="row mb-3">
-                    <div class="col-12">
-                        <h1><i class="fas fa-medal me-2"></i>Badges</h1>
-                        <p class="lead mb-2">Design galleries for roles and workgroups across all layers</p>
-                    </div>
+    {gh_page_open()}
+    {gh_page_header('Badges', 'Design galleries for roles and workgroups across all layers', 'fa-medal')}
+    <div class="gh-detail-layout">
+        <div class="gh-detail-main">
+            <ul class="nav gh-badge-tabs" id="badgeTabs">
+                <li class="nav-item"><button class="nav-link" data-tab="all" onclick="switchTab('all',this)">All</button></li>
+                <li class="nav-item"><button class="nav-link" data-tab="upcoming" onclick="switchTab('upcoming',this)">Upcoming</button></li>
+                <li class="nav-item"><button class="nav-link" data-tab="current" onclick="switchTab('current',this)">Current</button></li>
+                <li class="nav-item"><button class="nav-link" data-tab="past" onclick="switchTab('past',this)">Past</button></li>
+            </ul>
+            {gh_filter_row(
+                gh_filter_col('Layer', '<select id="project-filter" class="form-select form-select-sm" onchange="filterAndDisplay()"><option value="">All Layers</option></select>', 'col-md-6')
+                + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search roles..." oninput="filterAndDisplay()">', 'col-md-6')
+            )}
+            {gh_directory_grid('badges-container')}
+        </div>
+        <div class="gh-detail-sidebar">
+            <div class="living-module">
+                <div class="living-module-header">
+                    <div class="living-module-icon"><i class="fas fa-bolt"></i></div>
+                    <h5 class="living-module-title">Actions</h5>
                 </div>
-
-                <ul class="nav nav-tabs mb-3" id="badgeTabs">
-                    <li class="nav-item"><button class="nav-link" data-tab="all" onclick="switchTab('all',this)">All</button></li>
-                    <li class="nav-item"><button class="nav-link" data-tab="upcoming" onclick="switchTab('upcoming',this)">Upcoming</button></li>
-                    <li class="nav-item"><button class="nav-link" data-tab="current" onclick="switchTab('current',this)">Current</button></li>
-                    <li class="nav-item"><button class="nav-link" data-tab="past" onclick="switchTab('past',this)">Past</button></li>
-                </ul>
-
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <select id="project-filter" class="form-select form-select-sm" onchange="filterAndDisplay()">
-                            <option value="">All Layers</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search roles..." oninput="filterAndDisplay()">
-                    </div>
-                </div>
-
-                <div id="badges-container" class="row">
-                    <div class="col-12 text-center py-5">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-4">
-                <div class="card mb-3">
-                    <div class="card-header"><h6 class="mb-0">Actions</h6></div>
-                    <div class="card-body">
-                        <a href="#" class="btn btn-primary w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addDesignModal">
-                            <i class="fas fa-plus me-2"></i>Submit Design
-                        </a>
-                        <a href="/badges/one-time/" class="btn btn-outline-secondary w-100 btn-sm">
-                            <i class="fas fa-star me-1"></i>One-Time Badges
-                        </a>
-                    </div>
+                <div class="living-module-body">
+                    <a href="#" class="btn btn-primary w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addDesignModal">
+                        <i class="fas fa-plus me-2"></i>Submit Design
+                    </a>
+                    <a href="/badges/one-time/" class="btn btn-outline-secondary w-100 btn-sm">
+                        <i class="fas fa-star me-1"></i>One-Time Badges
+                    </a>
                 </div>
             </div>
         </div>
     </div>
+    {gh_page_close()}
 
     <div class="modal fade" id="addDesignModal" tabindex="-1">
         <div class="modal-dialog">
@@ -373,7 +322,7 @@ def role_images_directory():
             allRoles = data.roles || [];
             filterAndDisplay();
         }} catch (error) {{
-            document.getElementById('badges-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading badges</div></div>';
+            document.getElementById('badges-container').innerHTML = GhDirectory.emptyState('Error loading badges', 'danger');
         }}
     }}
 
@@ -394,7 +343,7 @@ def role_images_directory():
     function displayBadges(roles) {{
         const container = document.getElementById('badges-container');
         if (roles.length === 0) {{
-            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No badge designs found for this filter.</div></div>';
+            container.innerHTML = GhDirectory.emptyState('No badge designs found for this filter.');
             return;
         }}
         let html = '';
@@ -408,34 +357,27 @@ def role_images_directory():
 
             let phaseBadge = '';
             let phaseInfo = '';
+            let pulse = '';
             if (phase === 'upcoming' && earliest) {{
                 const diff = Math.ceil((new Date(earliest) - now) / 86400000);
                 phaseBadge = '<span class="badge bg-info me-1">Upcoming</span>';
-                phaseInfo = `<small class="text-muted d-block">Opens in ${{diff}} day${{diff !== 1 ? 's' : ''}}</small>`;
+                phaseInfo = 'Opens in ' + diff + ' day' + (diff !== 1 ? 's' : '');
+                pulse = 'Soon';
             }} else if (phase === 'current') {{
                 phaseBadge = '<span class="badge bg-success me-1">Active</span>';
+                pulse = 'Active';
             }}
 
-            html += `
-            <div class="col-md-4 mb-4">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title mb-1">
-                            <a href="/roles/${{roleSlug}}/images/" class="text-decoration-none">${{role.title_guild}}</a>
-                        </h5>
-                        ${{role.title_operational ? `<div class="text-muted small mb-1">${{role.title_operational}}</div>` : ''}}
-                        <div class="mb-1">${{phaseBadge}}<small class="text-muted"><i class="fas fa-layer-group me-1"></i>${{projectName}}</small></div>
-                        ${{phaseInfo}}
-                        <p class="card-text small mt-2">${{role.description ? role.description.substring(0, 90) + (role.description.length > 90 ? '...' : '') : ''}}</p>
-                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mt-auto">
-                            <a href="/roles/${{roleSlug}}/images/" class="btn btn-primary btn-sm">
-                                <i class="fas fa-images me-1"></i>Designs (${{designCount}})
-                            </a>
-                            <span class="text-muted small">${{voteCount}} vote${{voteCount !== 1 ? 's' : ''}}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
+            html += GhDirectory.tile({{
+                href: '/roles/' + roleSlug + '/images/',
+                title: role.title_guild,
+                description: (role.title_operational ? role.title_operational + '. ' : '') + (role.description || ''),
+                icon: 'fa-medal',
+                pulse: pulse,
+                badgesHtml: phaseBadge,
+                metaHtml: '<i class="fas fa-layer-group me-1"></i>' + GhDirectory.esc(projectName),
+                footerHtml: (phaseInfo ? phaseInfo + ' · ' : '') + designCount + ' design' + (designCount !== 1 ? 's' : '') + ' · ' + voteCount + ' vote' + (voteCount !== 1 ? 's' : '')
+            }});
         }});
         container.innerHTML = html;
     }}
@@ -527,51 +469,40 @@ def one_time_badges_page():
     current_user = get_current_user()
 
     content = f"""
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-md-8">
-                <h1><i class="fas fa-star me-2"></i>One-Time Badges</h1>
-                <p class="lead mb-3">Badges for specific tasks or milestones, awarded once.</p>
-
-                <div class="row g-2 mb-3">
-                    <div class="col-md-5">
-                        <select id="otb-project-filter" class="form-select form-select-sm" onchange="loadOTBs()">
-                            <option value="">All Layers</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <select id="otb-status-filter" class="form-select form-select-sm" onchange="loadOTBs()">
-                            <option value="">All Statuses</option>
-                            <option value="draft">Draft</option>
-                            <option value="upcoming">Upcoming</option>
-                            <option value="submission">Submission open</option>
-                            <option value="delay">Delay</option>
-                            <option value="voting">Voting</option>
-                            <option value="completed">Completed</option>
-                        </select>
-                    </div>
+    {gh_page_open()}
+    {gh_page_header('One-Time Badges', 'Badges for specific tasks or milestones, awarded once.', 'fa-star')}
+    <div class="gh-detail-layout">
+        <div class="gh-detail-main">
+            {gh_filter_row(
+                gh_filter_col('Layer', '<select id="otb-project-filter" class="form-select form-select-sm" onchange="loadOTBs()"><option value="">All Layers</option></select>', 'col-md-6')
+                + gh_filter_col('Status', '<select id="otb-status-filter" class="form-select form-select-sm" onchange="loadOTBs()"><option value="">All Statuses</option><option value="draft">Draft</option><option value="upcoming">Upcoming</option><option value="submission">Submission open</option><option value="delay">Delay</option><option value="voting">Voting</option><option value="completed">Completed</option></select>', 'col-md-6')
+            )}
+            <div class="living-module">
+                <div class="living-module-header">
+                    <div class="living-module-icon"><i class="fas fa-list"></i></div>
+                    <h5 class="living-module-title">Badge campaigns</h5>
                 </div>
-
-                <div id="otb-list"></div>
+                <div class="living-module-body" id="otb-list"></div>
             </div>
-
-            <div class="col-md-4">
-                <div class="card mb-3">
-                    <div class="card-header"><h6 class="mb-0">Actions</h6></div>
-                    <div class="card-body">
-                        <button class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#createOTBModal">
-                            <i class="fas fa-plus me-2"></i>Create One-Time Badge
-                        </button>
-                        <div class="mt-2">
-                            <a href="/badges/" class="btn btn-outline-secondary w-100 btn-sm">
-                                <i class="fas fa-arrow-left me-1"></i>Back to Badges
-                            </a>
-                        </div>
-                    </div>
+        </div>
+        <div class="gh-detail-sidebar">
+            <div class="living-module">
+                <div class="living-module-header">
+                    <div class="living-module-icon"><i class="fas fa-bolt"></i></div>
+                    <h5 class="living-module-title">Actions</h5>
+                </div>
+                <div class="living-module-body">
+                    <button class="btn btn-primary w-100 mb-2" data-bs-toggle="modal" data-bs-target="#createOTBModal">
+                        <i class="fas fa-plus me-2"></i>Create One-Time Badge
+                    </button>
+                    <a href="/badges/" class="btn btn-outline-secondary w-100 btn-sm">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Badges
+                    </a>
                 </div>
             </div>
         </div>
     </div>
+    {gh_page_close()}
 
     <div class="modal fade" id="createOTBModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
@@ -719,16 +650,34 @@ def _render_role_detail(role_slug, layer_slug=None, layer_id=None, use_layer_sta
     layer_js = f"const layerSlug = {_json.dumps(layer_slug)}; const layerId = {_json.dumps(layer_id)};" if layer_slug and layer_id else "const layerSlug = null; const layerId = null;"
 
     content = f"""
-    <div class="container mt-4">
-        <div id="role-header" class="mb-4"><div class="d-flex justify-content-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div></div>
-        <div class="row">
-            <div class="col-md-8">
-                <div class="card mb-4"><div class="card-header"><h5>Description</h5></div><div class="card-body" id="role-description"><div class="spinner-border spinner-border-sm text-primary"></div></div></div>
-                <div class="card"><div class="card-header"><div class="d-flex justify-content-between align-items-center"><h5 class="mb-0">Active Claims</h5><span id="role-claim-btn-placeholder"></span></div></div><div class="card-body" id="role-claims"><div class="spinner-border spinner-border-sm text-primary"></div></div></div>
+    <div class="gh-page container mt-4">
+        <div id="role-header" class="gh-detail-hero mb-0">
+            <div class="d-flex justify-content-center py-4"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>
+        </div>
+        <div class="gh-detail-layout mt-4">
+            <div class="gh-detail-main">
+                <div class="living-module">
+                    <div class="living-module-header"><div class="living-module-icon"><i class="fas fa-align-left"></i></div><h5 class="living-module-title">Description</h5></div>
+                    <div class="living-module-body" id="role-description"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+                </div>
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-hand-paper"></i></div>
+                        <h5 class="living-module-title">Active claims</h5>
+                        <span id="role-claim-btn-placeholder" class="ms-auto"></span>
+                    </div>
+                    <div class="living-module-body" id="role-claims"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+                </div>
             </div>
-            <div class="col-md-4">
-                <div class="card mb-4"><div class="card-header"><h5>Role Details</h5></div><div class="card-body" id="role-details"><div class="spinner-border spinner-border-sm text-primary"></div></div></div>
-                <div class="card"><div class="card-header"><h5>Configuration</h5></div><div class="card-body" id="role-config"><div class="spinner-border spinner-border-sm text-primary"></div></div></div>
+            <div class="gh-detail-sidebar">
+                <div class="living-module">
+                    <div class="living-module-header"><div class="living-module-icon"><i class="fas fa-info-circle"></i></div><h5 class="living-module-title">Role details</h5></div>
+                    <div class="living-module-body" id="role-details"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+                </div>
+                <div class="living-module">
+                    <div class="living-module-header"><div class="living-module-icon"><i class="fas fa-cog"></i></div><h5 class="living-module-title">Configuration</h5></div>
+                    <div class="living-module-body" id="role-config"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+                </div>
             </div>
         </div>
     </div>
@@ -745,9 +694,10 @@ def _render_role_detail(role_slug, layer_slug=None, layer_id=None, use_layer_sta
         role = await detailResp.json();
         displayRoleHeader(); displayRoleDescription(); displayRoleDetails(); displayRoleConfig(); loadClaims();
     }} catch (error) {{ console.error('Error loading role:', error); document.getElementById('role-header').innerHTML = '<div class="alert alert-danger">Error loading role</div>'; }} }}
-    function displayRoleHeader() {{ const statusBadge = getStatusBadge(role.status); const editBtn = (role.can_edit) ? '<button type="button" class="btn btn-outline-secondary mb-2 me-2" onclick="editRole()"><i class="fas fa-edit me-2"></i>Edit Role</button>' : '';
-        const bc = layerSlug ? `<nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/${{layerSlug}}/">Layer</a></li><li class="breadcrumb-item"><a href="/layer/${{layerSlug}}/roles/">Roles</a></li><li class="breadcrumb-item active">${{role.title_guild}}</li></ol></nav>` : `<nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layers/">Layers</a></li><li class="breadcrumb-item"><a href="/layers/${{project.slug}}/">${{project.name}}</a></li><li class="breadcrumb-item active">${{role.title_guild}}</li></ol></nav>`;
-        document.getElementById('role-header').innerHTML = `<div class="row"><div class="col-md-8">${{bc}}<h1>${{role.title_guild}}</h1>${{role.title_operational ? `<h5 class="text-muted">${{role.title_operational}}</h5>` : ''}}<div class="mb-3">${{statusBadge}}${{role.public_visible ? '<span class="badge bg-info ms-2">Public</span>' : ''}}</div></div><div class="col-md-4 text-end">${{editBtn}}<a href="/roles/${{roleSlug}}/images/" class="btn btn-outline-primary mb-2"><i class="fas fa-images me-2"></i>View Images</a></div></div>`; }}
+    function displayRoleHeader() {{ const statusBadge = getStatusBadge(role.status); const editBtn = (role.can_edit) ? '<button type="button" class="btn btn-secondary btn-sm" onclick="editRole()"><i class="fas fa-edit me-2"></i>Edit</button>' : '';
+        const bc = layerSlug ? '<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/' + layerSlug + '/">Layer</a></li><li class="breadcrumb-item"><a href="/layer/' + layerSlug + '/roles/">Roles</a></li><li class="breadcrumb-item active">' + role.title_guild + '</li></ol></nav>' : '<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layers/">Layers</a></li><li class="breadcrumb-item"><a href="/layers/' + project.slug + '/">' + project.name + '</a></li><li class="breadcrumb-item active">' + role.title_guild + '</li></ol></nav>';
+        const mediaHtml = role.image_url ? '<div class="gh-detail-hero-media"><img src="' + role.image_url + '" alt=""></div>' : '<div class="gh-detail-hero-media"><i class="fas fa-user-tag fa-2x text-muted opacity-50"></i></div>';
+        document.getElementById('role-header').innerHTML = '<div class="gh-detail-hero-inner">' + mediaHtml + '<div class="gh-detail-hero-body flex-grow-1">' + bc + '<h1>' + role.title_guild + '</h1>' + (role.title_operational ? '<p class="text-muted mb-2">' + role.title_operational + '</p>' : '') + '<div class="mb-0">' + statusBadge + (role.public_visible ? '<span class="badge bg-info ms-2">Public</span>' : '') + '</div></div><div class="gh-detail-hero-actions">' + editBtn + '<a href="/roles/' + roleSlug + '/images/" class="btn btn-outline-primary btn-sm"><i class="fas fa-images me-2"></i>Images</a></div></div>'; }}
     function displayRoleDescription() {{ document.getElementById('role-description').innerHTML = `<p>${{role.description}}</p>`; }}
     function displayRoleDetails() {{ const layerHref = layerSlug ? '/layer/' + layerSlug + '/' : '/layers/' + project.slug + '/'; const clusterLine = role.cluster_name ? `<p><strong>Cluster:</strong> <a href="${{layerHref}}#clusters">${{role.cluster_name}}</a></p>` : (role.cluster_id ? '<p><strong>Cluster:</strong> <span class="text-muted">—</span></p>' : ''); const imageHtml = role.image_url ? `<div class="mb-3 text-center"><img src="${{role.image_url}}" alt="${{role.title_guild}}" class="img-fluid rounded" style="max-height: 200px;"></div>` : ''; document.getElementById('role-details').innerHTML = `${{imageHtml}}<p><strong>Layer:</strong> <a href="${{layerHref}}">${{project.name}}</a></p>${{clusterLine}}<p><strong>Status:</strong> ${{role.status}}</p><p><strong>Visibility:</strong> ${{role.public_visible ? 'Public' : 'Private'}}</p><p><strong>Active Claims:</strong> ${{role.active_claims_count || 0}}</p><p><strong>Created:</strong> ${{new Date(role.created_at).toLocaleDateString()}}</p>`; }}
     function displayRoleConfig() {{ document.getElementById('role-config').innerHTML = `<p><strong>Claim Approval:</strong> ${{role.claim_requires_approval ? 'Required' : 'Not Required'}}</p><p><strong>Badges:</strong> ${{role.badge_enabled ? 'Enabled' : 'Disabled'}}</p>${{role.badge_enabled ? `<p><strong>Badge Approval:</strong> ${{role.badge_requires_approval ? 'Required' : 'Not Required'}}</p>` : ''}}`; }}
@@ -795,26 +745,38 @@ def claim_role_page(role_slug):
     current_user = get_current_user()
 
     content = f"""
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-md-8 offset-md-2">
-                <h1 class="mb-4" id="page-title">Claim Role</h1>
-                <div id="alert-container"></div>
-                <div id="role-info" class="card mb-4"><div class="card-body text-center"><div class="spinner-border text-primary"></div></div></div>
-                <form id="claimRoleForm" style="display: none;">
-                    <div class="mb-3"><label for="intent" class="form-label">Intent Statement</label><textarea class="form-control" id="intent" rows="4" placeholder="Describe your intent in claiming this role and how you plan to contribute..."></textarea><div class="form-text">Optional: Explain your motivation and plans</div></div>
-                    <div class="mb-3"><label for="evidence_links" class="form-label">Supporting work</label><textarea class="form-control" id="evidence_links" rows="3" placeholder="https://example.com/my-work\nhttps://github.com/username/project"></textarea><div class="form-text">Optional: Links to relevant work or contributions (one per line)</div></div>
-                    <div class="mb-3"><label for="term_duration_months" class="form-label">Term duration (months)</label><select class="form-select" id="term_duration_months"><option value="1">1 month</option><option value="3" selected>3 months</option><option value="6">6 months</option><option value="12">12 months</option></select><div class="form-text">Time limit for this claim</div></div>
-                    <div id="approval-notice" class="alert alert-warning" style="display: none;"><i class="fas fa-exclamation-triangle me-2"></i><strong>Note:</strong> This role requires approval. Your claim will be pending until reviewed by a layer admin.</div>
-                    <div class="d-flex gap-2"><button type="submit" class="btn btn-primary" id="submitBtn"><i class="fas fa-hand-paper me-2"></i>Submit Claim</button><a href="/roles/{role_slug}/" class="btn btn-secondary">Cancel</a></div>
-                </form>
+    <div class="gh-page container mt-4">
+        <div class="gh-detail-layout">
+            <div class="gh-detail-main mx-auto" style="max-width: 720px;">
+                <div id="role-header" class="gh-detail-hero mb-4">
+                    <div class="living-module-body text-center py-4" id="role-info">
+                        <div class="spinner-border text-primary"></div>
+                    </div>
+                </div>
+                <div id="alert-container" class="mb-3"></div>
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-hand-paper"></i></div>
+                        <h5 class="living-module-title">Claim this role</h5>
+                    </div>
+                    <div class="living-module-body">
+                        <form id="claimRoleForm" style="display: none;">
+                            <div class="mb-3"><label for="intent" class="form-label">Intent Statement</label><textarea class="form-control" id="intent" rows="4" placeholder="Describe your intent in claiming this role and how you plan to contribute..."></textarea><div class="form-text">Optional: Explain your motivation and plans</div></div>
+                            <div class="mb-3"><label for="evidence_links" class="form-label">Supporting work</label><textarea class="form-control" id="evidence_links" rows="3" placeholder="https://example.com/my-work&#10;https://github.com/username/project"></textarea><div class="form-text">Optional: Links to relevant work or contributions (one per line)</div></div>
+                            <div class="mb-3"><label for="term_duration_months" class="form-label">Term duration (months)</label><select class="form-select" id="term_duration_months"><option value="1">1 month</option><option value="3" selected>3 months</option><option value="6">6 months</option><option value="12">12 months</option></select><div class="form-text">Time limit for this claim</div></div>
+                            <div id="approval-notice" class="alert alert-warning" style="display: none;"><i class="fas fa-exclamation-triangle me-2"></i><strong>Note:</strong> This role requires approval. Your claim will be pending until reviewed by a layer admin.</div>
+                            <div class="d-flex gap-2"><button type="submit" class="btn btn-primary" id="submitBtn"><i class="fas fa-hand-paper me-2"></i>Submit Claim</button><a href="/roles/{role_slug}/" class="btn btn-secondary">Cancel</a></div>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
     <script>
     let role = null; let project = null; const roleSlug = {_json.dumps(role_slug)};
     async function loadRole() {{ try {{ const projectsResp = await fetch('/api/layers/'); const projectsData = await projectsResp.json(); for (const proj of projectsData.layers) {{ const rolesResp = await fetch(`/api/layers/${{proj.id}}/roles/`); const rolesData = await rolesResp.json(); const found = rolesData.roles.find(r => r.slug === roleSlug); if (found) {{ role = found; project = proj; break; }} }} if (!role) {{ document.getElementById('alert-container').innerHTML = '<div class="alert alert-danger">Role not found</div>'; return; }} const detailResp = await fetch(`/api/roles/${{role.id}}/`); if (!detailResp.ok) {{ document.getElementById('alert-container').innerHTML = '<div class="alert alert-danger">Role not found</div>'; return; }} role = await detailResp.json(); displayRoleInfo(); if (role.claim_requires_approval) {{ document.getElementById('approval-notice').style.display = 'block'; }} document.getElementById('claimRoleForm').style.display = 'block'; }} catch (error) {{ document.getElementById('alert-container').innerHTML = '<div class="alert alert-danger">Error loading role</div>'; }} }}
-    function displayRoleInfo() {{ document.getElementById('page-title').textContent = `Claim Role: ${{role.title_guild}}`; document.getElementById('role-info').innerHTML = `<div class="card-body"><h5>${{role.title_guild}}</h5>${{role.title_operational ? `<h6 class="text-muted">${{role.title_operational}}</h6>` : ''}}<p class="mt-3">${{role.description}}</p><p class="mb-0"><strong>Layer:</strong> <a href="/layers/${{project.slug}}/">${{project.name}}</a></p></div>`; }}
+    function displayRoleInfo() {{ const mediaHtml = role.image_url ? '<div class="gh-detail-hero-media"><img src="' + role.image_url + '" alt=""></div>' : '<div class="gh-detail-hero-media"><i class="fas fa-user-tag fa-2x text-muted opacity-50"></i></div>';
+        document.getElementById('role-info').innerHTML = '<div class="gh-detail-hero-inner">' + mediaHtml + '<div class="gh-detail-hero-body flex-grow-1"><h1>' + role.title_guild + '</h1>' + (role.title_operational ? '<p class="text-muted mb-2">' + role.title_operational + '</p>' : '') + '<p class="mb-2">' + role.description + '</p><p class="mb-0 small"><strong>Layer:</strong> <a href="/layers/' + project.slug + '/">' + project.name + '</a></p></div></div>'; }}
     document.getElementById('claimRoleForm').addEventListener('submit', async (e) => {{ e.preventDefault(); const submitBtn = document.getElementById('submitBtn'); submitBtn.disabled = true; submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...'; const evidenceText = document.getElementById('evidence_links').value.trim(); const evidenceLinks = evidenceText ? evidenceText.split('\\n').filter(l => l.trim()) : []; const termEl = document.getElementById('term_duration_months'); const termVal = (termEl && termEl.value !== undefined && termEl.value !== '') ? termEl.value : '3'; const termMonths = parseInt(termVal, 10) || 3; const formData = {{ intent: document.getElementById('intent').value.trim() || null, evidence_links: evidenceLinks, term_duration_months: termMonths }}; try {{ const response = await fetch(`/api/roles/${{role.id}}/claims/`, {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(formData) }}); const data = await response.json(); if (response.ok) {{ const statusMsg = role.claim_requires_approval ? 'Your claim has been submitted and is pending approval.' : 'Your claim has been submitted successfully!'; document.getElementById('alert-container').innerHTML = `<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>${{statusMsg}} Redirecting...</div>`; setTimeout(() => {{ window.location.href = `/roles/${{roleSlug}}/`; }}, 2000); }} else {{ throw new Error(data.error || 'Failed to submit claim'); }} }} catch (error) {{ document.getElementById('alert-container').innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-2"></i>${{error.message}}</div>`; submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-hand-paper me-2"></i>Submit Claim'; }} }});
     loadRole();
     </script>
@@ -851,63 +813,54 @@ def role_images_gallery(role_slug):
         role_id_js = _json.dumps(role.id)
 
     content = f"""
-    <div class="container mt-4">
-        <div class="row">
-            <!-- Main designs column -->
-            <div class="col-md-8">
-                <div class="mb-3">
-                    <h1 class="mb-0">Designs: <a href="/roles/{role_slug}/" class="text-decoration-none">{role_title}</a></h1>
-                    <p class="text-muted mb-0">Community-submitted badge designs for this role</p>
-                </div>
-
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <select id="sort-select" class="form-select form-select-sm w-auto" onchange="loadImages()">
-                        <option value="net_score">Net Score</option>
-                        <option value="upvotes">Most Upvotes</option>
-                        <option value="date">Most Recent</option>
-                    </select>
-                    {'<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#submitImageModal"><i class="fas fa-plus me-1"></i>Submit Design</button>' if current_user else '<a href="/login/" class="btn btn-primary btn-sm"><i class="fas fa-sign-in-alt me-1"></i>Login to Submit</a>'}
-                </div>
-
-                <div id="images-container" class="row">
-                    <div class="col-12 text-center py-5">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
-                </div>
+    {gh_page_open()}
+    {gh_page_header(f'Designs: {role_title}', 'Community-submitted badge designs for this role', 'fa-palette', actions_html=f'<a href="/roles/{role_slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-user-tag me-1"></i>Role</a>')}
+    <div class="gh-detail-layout">
+        <div class="gh-detail-main">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <select id="sort-select" class="form-select form-select-sm w-auto" onchange="loadImages()">
+                    <option value="net_score">Net Score</option>
+                    <option value="upvotes">Most Upvotes</option>
+                    <option value="date">Most Recent</option>
+                </select>
+                {'<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#submitImageModal"><i class="fas fa-plus me-1"></i>Submit Design</button>' if current_user else '<a href="/login/" class="btn btn-primary btn-sm"><i class="fas fa-sign-in-alt me-1"></i>Login to Submit</a>'}
             </div>
-
-            <!-- Sidebar: badge cycle + skin picker -->
-            <div class="col-md-4">
-                <!-- Cycle timeline card -->
-                <div class="card mb-3" id="cycle-card">
-                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0"><i class="fas fa-clock me-1"></i>Badge Cycle</h6>
-                    </div>
-                    <div class="card-body py-2 small" id="cycle-body">
-                        <div class="text-muted">Loading…</div>
+            <div id="images-container" class="row row-cols-1 row-cols-md-2 g-3">
+                <div class="col-12 text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
                     </div>
                 </div>
-
-                <!-- Skin picker card -->
-                <div class="card mb-3">
-                    <div class="card-header py-2"><h6 class="mb-0"><i class="fas fa-palette me-1"></i>Badge Skin</h6></div>
-                    <div class="card-body py-2">
-                        <p class="small text-muted mb-2">Preview designs in each layout skin{'. Admins can select the active skin.' if is_project_admin_flag else '.'}</p>
-                        <div id="skin-list" class="d-flex flex-column gap-2">
-                            <div class="text-muted small">Loading skins…</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Back link -->
-                <a href="/badges/" class="btn btn-outline-secondary btn-sm w-100">
-                    <i class="fas fa-arrow-left me-1"></i>All Badges
-                </a>
             </div>
         </div>
+        <div class="gh-detail-sidebar">
+            <div class="living-module mb-3" id="cycle-card">
+                <div class="living-module-header">
+                    <div class="living-module-icon"><i class="fas fa-clock"></i></div>
+                    <h5 class="living-module-title">Badge cycle</h5>
+                </div>
+                <div class="living-module-body small" id="cycle-body">
+                    <div class="text-muted">Loading…</div>
+                </div>
+            </div>
+            <div class="living-module mb-3">
+                <div class="living-module-header">
+                    <div class="living-module-icon"><i class="fas fa-palette"></i></div>
+                    <h5 class="living-module-title">Badge skin</h5>
+                </div>
+                <div class="living-module-body py-2">
+                    <p class="small text-muted mb-2">Preview designs in each layout skin{'. Admins can select the active skin.' if is_project_admin_flag else '.'}</p>
+                    <div id="skin-list" class="d-flex flex-column gap-2">
+                        <div class="text-muted small">Loading skins…</div>
+                    </div>
+                </div>
+            </div>
+            <a href="/badges/" class="btn btn-outline-secondary btn-sm w-100">
+                <i class="fas fa-arrow-left me-1"></i>All Badges
+            </a>
+        </div>
     </div>
+    {gh_page_close()}
 
     <!-- Submit Image Modal -->
     <div class="modal fade" id="submitImageModal" tabindex="-1">
@@ -1357,20 +1310,14 @@ def role_image_detail(role_slug, image_id):
         user_vote = vote.value if vote else None
 
     content = f"""
-    <div class="container mt-4">
-        <div class="row mb-3">
-            <div class="col-md-12">
-                <a href="/roles/{role_slug}/images/" class="btn btn-outline-secondary btn-sm">
-                    <i class="fas fa-arrow-left me-1"></i> Back to Gallery
-                </a>
-            </div>
-        </div>
-
+    <div class="gh-page container mt-4">
+        {gh_page_header('Role Image', f'Proposal for {role_slug}', 'fa-image', actions_html=f'<a href="/roles/{role_slug}/images/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Gallery</a>', breadcrumb_html=gh_breadcrumb([('Roles', '/roles/'), (role_slug, f'/roles/{role_slug}/'), ('Images', f'/roles/{role_slug}/images/'), ('Image', None)]))}
+        <div class="gh-detail-layout">
         <div class="row">
             <div class="col-md-8">
-                <div class="card">
-                    <div class="card-body">
-                        <h2 class="card-title mb-3">
+                <div class="living-module mb-4">
+                    <div class="living-module-body">
+                        <h2 class="h4 mb-3">
                             Role Image for {role_slug}
                             {f'<span class="badge bg-success ms-2">Primary</span>' if image.is_primary else ''}
                             {f'<span class="badge bg-warning ms-2">Hidden</span>' if image.is_hidden and is_admin else ''}
@@ -1456,6 +1403,7 @@ def role_image_detail(role_slug, image_id):
                     </div>
                 </div>''' if is_admin else ''}
             </div>
+        </div>
         </div>
     </div>
 

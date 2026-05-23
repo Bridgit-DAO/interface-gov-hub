@@ -3,9 +3,23 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-# All IFP-aligned values (storage: lowercase snake)
+# All IFP-aligned values (storage: lowercase snake). Matches wiki [[Form]] vocabulary.
 KNOWLEDGE_FORM_VALUES = frozenset({
-    'inquiry', 'principle', 'model', 'conviction', 'decision', 'gloss', 'scenario',
+    'inquiry',
+    'principle',
+    'model',
+    'claim',
+    'decision',
+    'gloss',
+    'scenario',
+    'pattern',
+    'boundary',
+    'domain',
+    'case',
+    'reference',
+    'research',
+    'skill',
+    'opus',
 })
 
 # Default when opening picker (first value in allowed list matches)
@@ -18,41 +32,76 @@ ARTIFACT_TYPE_DEFAULT_FORM: Dict[str, str] = {
     'bridge': 'gloss',
     'translation': 'gloss',
     'monument_context': 'scenario',
-    'comment': 'conviction',
+    'comment': 'claim',
     'poll': 'decision',
     'announcement': 'decision',
     'event': 'scenario',
     'submission': 'model',
-    'support': 'conviction',
-    'opposition': 'conviction',
+    'support': 'claim',
+    'opposition': 'claim',
     # Document / layer UI artifact picker (routes/documents.py)
     'monument': 'scenario',
     'insight': 'model',
-    'reflection': 'conviction',
+    'reflection': 'claim',
     'implementation': 'decision',
 }
 
-# Allowed picker values per artifact_type (includes default)
+# Allowed values per artifact_type (includes default). `document` / `submission` = full catalog.
 ARTIFACT_TYPE_ALLOWED_FORMS: Dict[str, frozenset] = {
-    'proposal': frozenset({'decision', 'principle', 'model', 'inquiry'}),
-    'document': frozenset({'model', 'principle', 'scenario', 'decision'}),
-    'evidence': frozenset({'model', 'scenario', 'principle', 'gloss'}),
-    'meeting_summary': frozenset({'model', 'scenario', 'inquiry', 'decision'}),
-    'decision': frozenset({'decision', 'principle', 'model', 'scenario'}),
-    'bridge': frozenset({'gloss', 'model', 'principle', 'inquiry'}),
-    'translation': frozenset({'gloss', 'principle', 'model'}),
-    'monument_context': frozenset({'scenario', 'principle', 'gloss', 'model'}),
-    'comment': frozenset({'conviction', 'inquiry', 'principle', 'model'}),
-    'poll': frozenset({'decision', 'inquiry', 'principle'}),
-    'announcement': frozenset({'decision', 'principle', 'model'}),
-    'event': frozenset({'scenario', 'inquiry', 'model'}),
-    'submission': frozenset({'model', 'principle', 'scenario', 'decision'}),
-    'support': frozenset({'conviction', 'principle', 'model'}),
-    'opposition': frozenset({'conviction', 'principle', 'model'}),
-    'monument': frozenset({'scenario', 'principle', 'gloss', 'model'}),
-    'insight': frozenset({'model', 'principle', 'inquiry', 'scenario'}),
-    'reflection': frozenset({'conviction', 'inquiry', 'principle', 'model'}),
-    'implementation': frozenset({'decision', 'principle', 'model', 'scenario'}),
+    'proposal': KNOWLEDGE_FORM_VALUES,
+    'document': KNOWLEDGE_FORM_VALUES,
+    'evidence': frozenset({
+        'model', 'scenario', 'principle', 'gloss', 'pattern', 'case', 'reference',
+        'research', 'domain', 'boundary',
+    }),
+    'meeting_summary': frozenset({
+        'model', 'scenario', 'inquiry', 'decision', 'case', 'pattern', 'domain', 'principle',
+    }),
+    'decision': frozenset({
+        'decision', 'principle', 'model', 'scenario', 'boundary', 'pattern', 'case', 'opus',
+    }),
+    'bridge': frozenset({
+        'gloss', 'model', 'principle', 'inquiry', 'boundary', 'reference', 'domain', 'case',
+    }),
+    'translation': frozenset({
+        'gloss', 'principle', 'model', 'domain', 'reference', 'case',
+    }),
+    'monument_context': frozenset({
+        'scenario', 'principle', 'gloss', 'model', 'domain', 'case', 'boundary', 'pattern',
+    }),
+    'comment': frozenset({
+        'claim', 'inquiry', 'principle', 'model', 'pattern', 'boundary', 'gloss',
+    }),
+    'poll': frozenset({
+        'decision', 'inquiry', 'principle', 'pattern', 'domain',
+    }),
+    'announcement': frozenset({
+        'decision', 'principle', 'model', 'opus', 'domain',
+    }),
+    'event': frozenset({
+        'scenario', 'inquiry', 'model', 'case', 'pattern', 'opus',
+    }),
+    'submission': KNOWLEDGE_FORM_VALUES,
+    'support': frozenset({
+        'claim', 'principle', 'model', 'pattern', 'boundary', 'case',
+    }),
+    'opposition': frozenset({
+        'claim', 'principle', 'model', 'pattern', 'boundary', 'case',
+    }),
+    'monument': frozenset({
+        'scenario', 'principle', 'gloss', 'model', 'domain', 'case', 'reference', 'boundary',
+    }),
+    'insight': frozenset({
+        'model', 'principle', 'inquiry', 'scenario', 'pattern', 'research', 'case',
+        'boundary', 'domain', 'skill',
+    }),
+    'reflection': frozenset({
+        'claim', 'inquiry', 'principle', 'model', 'pattern', 'boundary', 'case', 'domain',
+    }),
+    'implementation': frozenset({
+        'decision', 'principle', 'model', 'scenario', 'skill', 'case', 'pattern',
+        'boundary', 'research',
+    }),
 }
 
 SCAFFOLD_MAX_STRING_LEN = 2000
@@ -62,14 +111,59 @@ SCAFFOLD_KEYS_BY_FORM: Dict[str, frozenset] = {
     'inquiry': frozenset({'what_is_unclear', 'status'}),
     'principle': frozenset({'why_matters'}),
     'model': frozenset({'key_assumptions'}),
-    'conviction': frozenset({'why_believe'}),
+    'claim': frozenset({'why_believe'}),
     'decision': frozenset({'what_resolves', 'status'}),
     'gloss': frozenset({'definition'}),
     'scenario': frozenset({'actors_context'}),
+    'pattern': frozenset({'recurring_tension', 'resolution'}),
+    'boundary': frozenset({'authority_scope', 'where_it_ends'}),
+    'domain': frozenset({'area_label', 'relationship_to_parent'}),
+    'case': frozenset({'what_we_tried', 'what_happened', 'takeaway'}),
+    'reference': frozenset({'must_know_summary', 'pointer_notes'}),
+    'research': frozenset({'central_question', 'status'}),
+    'skill': frozenset({'procedure_summary', 'verification'}),
+    'opus': frozenset({'thesis', 'stakes'}),
 }
 
 INQUIRY_STATUSES = frozenset({'open', 'closed'})
 DECISION_SCAFFOLD_STATUSES = frozenset({'draft', 'final'})
+RESEARCH_STATUSES = frozenset({'active', 'paused', 'complete'})
+
+# Optional: human-readable “core question” per form (for tooltips / docs; also exposed in schema).
+KNOWLEDGE_FORM_CORE_QUESTIONS: Dict[str, str] = {
+    'model': 'How do these elements relate?',
+    'claim': 'What do we believe is true?',
+    'decision': 'Why did we choose this over alternatives?',
+    'pattern': 'What resolves this recurring tension?',
+    'principle': 'What must we always or never do?',
+    'gloss': 'What does this concept mean?',
+    'inquiry': 'What should we think about next?',
+    'boundary': 'Where does authority end?',
+    'scenario': 'What might happen if these forces play out?',
+    'domain': 'What knowledge area is this?',
+    'case': 'What happened when we tried this?',
+    'reference': 'What do I need to know about this domain?',
+    'research': 'What are we investigating?',
+    'skill': 'How does an agent execute this reliably?',
+    'opus': 'What am I saying here?',
+}
+
+# Renamed conviction → claim; accept legacy slug on read/write.
+KNOWLEDGE_FORM_LEGACY_ALIASES: Dict[str, str] = {
+    'conviction': 'claim',
+}
+
+
+def canonical_knowledge_form(value: Optional[str]) -> Optional[str]:
+    """Normalize stored/API knowledge_form; maps legacy slugs to current vocabulary."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    v = value.strip().lower()
+    if not v:
+        return None
+    return KNOWLEDGE_FORM_LEGACY_ALIASES.get(v, v)
 
 
 def allowed_forms_for_artifact_type(artifact_type: Optional[str]) -> frozenset:
@@ -99,10 +193,20 @@ def public_schema_dict(config: dict) -> dict:
             'knowledge_contribution_type_enabled': bool(config.get('KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED', True)),
             'knowledge_scaffold_enabled': bool(config.get('KNOWLEDGE_SCAFFOLD_ENABLED', False)),
             'knowledge_contribution_filters_enabled': bool(config.get('KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED', True)),
+            'artifact_tags_enabled': bool(config.get('ARTIFACT_TAGS_ENABLED', True)),
+            'artifact_tag_filters_enabled': bool(config.get('ARTIFACT_TAG_FILTERS_ENABLED', True)),
         },
         'knowledge_forms': sorted(KNOWLEDGE_FORM_VALUES),
+        'knowledge_form_core_questions': {
+            k: KNOWLEDGE_FORM_CORE_QUESTIONS[k] for k in sorted(KNOWLEDGE_FORM_CORE_QUESTIONS)
+        },
         'artifact_types': atype_map,
         'scaffold_keys_by_form': {k: sorted(v) for k, v in sorted(SCAFFOLD_KEYS_BY_FORM.items())},
+        'scaffold_status_enums': {
+            'inquiry': sorted(INQUIRY_STATUSES),
+            'decision': sorted(DECISION_SCAFFOLD_STATUSES),
+            'research': sorted(RESEARCH_STATUSES),
+        },
         'scaffold_max_string_len': SCAFFOLD_MAX_STRING_LEN,
     }
 
@@ -147,6 +251,11 @@ def _normalize_scaffold(
             elif knowledge_form == 'decision':
                 if v not in DECISION_SCAFFOLD_STATUSES:
                     return None, f'decision.status must be one of {sorted(DECISION_SCAFFOLD_STATUSES)}'
+            elif knowledge_form == 'research':
+                if v not in RESEARCH_STATUSES:
+                    return None, f'research.status must be one of {sorted(RESEARCH_STATUSES)}'
+            else:
+                return None, f'status is not valid for knowledge_form {knowledge_form!r}'
             out[key] = v
             continue
         # string fields
@@ -192,7 +301,7 @@ def apply_knowledge_patch(art, data: dict, app_config: dict) -> List[str]:
         elif not isinstance(raw, str):
             return ['knowledge_form must be a string or null']
         else:
-            new_form = raw.strip().lower()
+            new_form = canonical_knowledge_form(raw)
             if new_form not in KNOWLEDGE_FORM_VALUES:
                 return [f'knowledge_form must be one of {sorted(KNOWLEDGE_FORM_VALUES)}']
         allowed = allowed_forms_for_artifact_type(atype)
@@ -246,7 +355,7 @@ def validate_knowledge_for_create(
     if knowledge_form is not None and not (isinstance(knowledge_form, str) and knowledge_form.strip() == ''):
         if not isinstance(knowledge_form, str):
             return None, None, ['knowledge_form must be a string or null']
-        form = knowledge_form.strip().lower()
+        form = canonical_knowledge_form(knowledge_form)
         if form not in KNOWLEDGE_FORM_VALUES:
             return None, None, [f'knowledge_form must be one of {sorted(KNOWLEDGE_FORM_VALUES)}']
         allowed = allowed_forms_for_artifact_type(artifact_type)

@@ -1,6 +1,7 @@
 """Bridges pages: list, create. Web2 bridges between content."""
 from flask import Blueprint, session, request
 from services.identity import get_current_user, require_auth
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_filter_row, gh_filter_col, gh_living_module
 
 bp = Blueprint('bridges_pages', __name__, url_prefix='')
 
@@ -17,42 +18,23 @@ def bridges_list():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
 
-    content = """
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item active">Bridges</li>
-            </ol>
-        </nav>
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h1 class="mb-1">Bridges</h1>
-                <p class="text-muted mb-0">Links between content (URL + text/image/video/audio). Optionally inscribed to Bitcoin Ordinals.</p>
-            </div>
-            <a href="/bridges/create/" class="btn btn-primary"><i class="fas fa-link me-2"></i>Create Bridge</a>
-        </div>
-
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <label for="relationship-filter" class="form-label">Relationship</label>
-                <select id="relationship-filter" class="form-select" onchange="loadBridges()">
+    content = f"""
+    <div class="gh-page container mt-4">
+        {gh_page_header('Bridges', 'Links between content (URL + text/image/video/audio). Optionally inscribed to Bitcoin Ordinals.', 'fa-link', actions_html='<a href="/bridges/create/" class="btn btn-primary btn-sm"><i class="fas fa-link me-1"></i>Create Bridge</a>', breadcrumb_html=gh_breadcrumb([('Home', '/'), ('Bridges', None)]))}
+        {gh_filter_row(
+            gh_filter_col('Relationship', '''<select id="relationship-filter" class="form-select" onchange="loadBridges()">
                     <option value="">All</option>
                     <option value="cites">Cites</option>
                     <option value="contradicted_by">Contradicted by</option>
                     <option value="supported_by">Supported by</option>
                     <option value="related_to">Related to</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="inscribed-filter" class="form-label">Inscribed</label>
-                <select id="inscribed-filter" class="form-select" onchange="loadBridges()">
+                </select>''', 'col-md-6')
+            + gh_filter_col('Inscribed', '''<select id="inscribed-filter" class="form-select" onchange="loadBridges()">
                     <option value="">All</option>
                     <option value="true">Yes</option>
                     <option value="false">No</option>
-                </select>
-            </div>
-        </div>
+                </select>''', 'col-md-6')
+        )}
 
         <div id="bridges-container">
             <div class="text-center py-5">
@@ -62,7 +44,7 @@ def bridges_list():
             </div>
         </div>
     </div>
-
+    """ + """
     <script>
     const bridgeRelLabels = {
         cites: 'Cites',
@@ -132,16 +114,9 @@ def bridges_create():
     source_url = (request.args.get('source', '') or '').replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
     target_url = (request.args.get('target', '') or '').replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
 
-    content = """
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item"><a href="/bridges/">Bridges</a></li>
-                <li class="breadcrumb-item active">Create</li>
-            </ol>
-        </nav>
-        <h1 class="mb-4">Create Bridge</h1>
+    content = f"""
+    <div class="gh-page container mt-4">
+        {gh_page_header('Create Bridge', 'Link two pieces of content with a relationship', 'fa-link', actions_html='<a href="/bridges/" class="btn btn-outline-secondary btn-sm">All bridges</a>', breadcrumb_html=gh_breadcrumb([('Home', '/'), ('Bridges', '/bridges/'), ('Create', None)]))}
 
         <div id="alert-container"></div>
         <div id="session-prefill" class="alert alert-info d-none">
@@ -149,6 +124,7 @@ def bridges_create():
             <span id="session-prefill-msg">Source and target from your active session will be loaded.</span>
         </div>
 
+        {gh_living_module('Bridge details', '''
         <form id="bridgeForm">
             <div class="mb-3">
                 <label for="name" class="form-label">Name *</label>
@@ -235,8 +211,9 @@ def bridges_create():
                 <a href="/bridges/" class="btn btn-secondary">Cancel</a>
             </div>
         </form>
+        ''', 'fa-link')}
     </div>
-
+    """ + """
     <script>
     (async function() {
         // Try to get active session and prefill

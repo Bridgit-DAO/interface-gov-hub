@@ -6,6 +6,7 @@ from models import (
     WorkingGroupChair, WorkingGroupMember, WorkgroupMemberRequest, CoordinatorRequest,
 )
 from services.identity import get_current_user, require_auth, require_role
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('group', __name__, url_prefix='')
 
@@ -72,15 +73,10 @@ def groups():
 
     current_theme = session.get('theme', 'dark')
     content = f"""
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-12">
-                <h1 class="mb-4">Workgroups</h1>
-                <p class="lead mb-4">Browse the Meta-Layer Desirable Properties workgroups.</p>
-                <div class="row">
+    <div class="gh-page container mt-4">
+        {gh_page_header('Workgroups', 'Browse the Meta-Layer Desirable Properties workgroups', 'fa-users-cog', breadcrumb_html=gh_breadcrumb([('Home', '/'), ('Workgroups', None)]))}
+        <div class="row row-cols-1 row-cols-md-2 g-3">
                     {groups_html}
-                </div>
-            </div>
         </div>
     </div>
     """
@@ -88,7 +84,7 @@ def groups():
         title="Workgroups - MLGH",
         theme=current_theme,
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 
 @bp.route('/group/<acronym>/')
@@ -180,51 +176,19 @@ def group_detail(acronym):
 
     current_theme = session.get('theme', current_user.get('theme', 'dark') if current_user else 'dark')
 
+    leadership_pending = '<span class="badge bg-warning ms-2">Pending Approval</span>' if not chair_approved and chair_name != "TBD" else ''
     content = f"""
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-12">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item"><a href="/group/">Workgroups</a></li>
-                <li class="breadcrumb-item active">{group['name']}</li>
-            </ol>
-        </nav>
-        <div class="card mb-4">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                        <h1 class="card-title mb-2">{group['name']}</h1>
-                        <p class="text-muted mb-3">{group['acronym'].upper()}</p>
-                        <p class="card-text">{group['description']}</p>
-                    </div>
-                    <div class="text-end">
-                        {join_button}
-                        {coord_request_ui}
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="row">
+    <div class="gh-page container mt-4">
+        {gh_page_header(group['name'], group['acronym'].upper(), 'fa-users', actions_html=f'{join_button} {coord_request_ui}', breadcrumb_html=gh_breadcrumb([('Home', '/'), ('Workgroups', '/group/'), (group['name'], None)]))}
+        <div class="gh-detail-layout">
+        <div class="row g-3">
             <div class="col-md-8">
-                <div class="card mb-4">
-                    <div class="card-header"><h5 class="mb-0">About</h5></div>
-                    <div class="card-body">
-                        <p>{group.get('about', group['description'])}</p>
-                    </div>
-                </div>
+                {gh_living_module('About', f'<p class="mb-0">{group.get("about", group["description"])}</p>', 'fa-info-circle')}
             </div>
             <div class="col-md-4">
-                <div class="card mb-4">
-                    <div class="card-header"><h5 class="mb-0">Leadership</h5></div>
-                    <div class="card-body">
-                        <p><strong>Coordinator:</strong> {chair_name}</p>
-                        {'<span class="badge bg-warning">Pending Approval</span>' if not chair_approved and chair_name != "TBD" else ''}
-                    </div>
-                </div>
+                {gh_living_module('Leadership', f'<p class="mb-2"><strong>Coordinator:</strong> {chair_name}</p>{leadership_pending}', 'fa-user-tie')}
+                {gh_living_module('Details', f'<p class="mb-2"><strong>State:</strong> <span class="badge bg-success">{group["state"]}</span></p><p class="mb-0 text-muted small">{group["description"]}</p>', 'fa-clipboard-list', extra_class='mt-3')}
             </div>
-        </div>
         </div>
         </div>
     </div>
@@ -276,7 +240,7 @@ def group_detail(acronym):
         title=f"{group['name']} - MLGH",
         theme=current_theme,
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 
 @bp.route('/group/<acronym>/join', methods=['POST'])

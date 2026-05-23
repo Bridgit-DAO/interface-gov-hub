@@ -11,6 +11,7 @@ from models import (
 from services.identity import get_current_user, require_auth, require_role
 from services.avatar import avatar_url
 from services.submissions import add_to_document_history
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('admin', __name__, url_prefix='')
 
@@ -140,25 +141,20 @@ def admin_dashboard():
         """
 
     content = f"""
-    <div class="container mt-4">
+    <div class="gh-page container mt-4 gh-admin-page">
         <div id="admin-alerts" class="mb-4">
             {alerts_html}
         </div>
 
+        {gh_page_header('Admin Dashboard', 'Site administration and moderation', 'fa-shield-alt', actions_html=(
+            '<a href="/admin/users/" class="btn btn-outline-primary btn-sm me-1"><i class="fas fa-users me-1"></i>Users</a>'
+            '<a href="/admin/submissions/" class="btn btn-outline-success btn-sm me-1"><i class="fas fa-file-alt me-1"></i>Submissions</a>'
+            '<a href="/admin/layers/" class="btn btn-outline-info btn-sm me-1"><i class="fas fa-project-diagram me-1"></i>Layers</a>'
+            '<a href="/admin/product-rollout/" class="btn btn-dark btn-sm"><i class="fas fa-toggle-on me-1"></i>Rollout</a>'
+        ))}
+
         <div class="row">
             <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h1>Admin Dashboard</h1>
-                    <div>
-                        <a href="/admin/users/" class="btn btn-outline-primary me-2"><i class="fas fa-users me-1"></i>Users</a>
-                        <a href="/admin/submissions/" class="btn btn-outline-success me-2"><i class="fas fa-file-alt me-1"></i>Submissions</a>
-                        <a href="/admin/layers/" class="btn btn-outline-info me-2"><i class="fas fa-project-diagram me-1"></i>Layers</a>
-                        <a href="/admin/workgroups/" class="btn btn-outline-warning me-2"><i class="fas fa-users me-1"></i>Workgroups</a>
-                        <a href="/admin/roles/" class="btn btn-outline-secondary me-2"><i class="fas fa-user-tag me-1"></i>Roles</a>
-                        <a href="/admin/badges/" class="btn btn-outline-primary"><i class="fas fa-award me-1"></i>Badges</a>
-                    </div>
-                </div>
-
                 <div class="row mb-4">
                     <div class="col-md-3">
                         <div class="card h-100">
@@ -269,6 +265,9 @@ def admin_dashboard():
                                     <a href="/admin/analytics/" class="btn btn-secondary">
                                         <i class="fas fa-chart-bar me-2"></i>View Analytics
                                     </a>
+                                    <a href="/admin/product-rollout/" class="btn btn-dark">
+                                        <i class="fas fa-toggle-on me-2"></i>Product rollout
+                                    </a>
                                 </div>
                             </div>
                         </div>
@@ -335,7 +334,7 @@ def admin_dashboard():
         title="Admin Dashboard - MLGH",
         theme=get_current_user().get('theme', 'dark'),
         content=content,
-        user_menu=user_menu, build_number=BUILD_NUMBER, hypothesis_config="")
+        user_menu=user_menu, build_number=BUILD_NUMBER)
 
 
 @bp.route('/admin/users/')
@@ -418,23 +417,11 @@ def admin_users():
     """
 
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
-                <li class="breadcrumb-item active">User Management</li>
-            </ol>
-        </nav>
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('User Management', f'{total_users} users total', 'fa-users', actions_html=f'<span class="badge bg-info">Total: {total_users}</span>', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('User Management', None)]))}
 
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1>User Management</h1>
-            <div>
-                <span class="badge bg-info me-2">Total: {total_users} users</span>
-            </div>
-        </div>
-
-        <div class="card mb-4">
-            <div class="card-body">
+        <div class="living-module mb-4">
+            <div class="living-module-body">
                 <form method="GET" class="row g-3">
                     <div class="col-md-6">
                         <label for="search" class="form-label">Search Users</label>
@@ -459,11 +446,12 @@ def admin_users():
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">Users ({users.total} total)</h5>
+        <div class="living-module">
+            <div class="living-module-header">
+                <div class="living-module-icon"><i class="fas fa-users"></i></div>
+                <h5 class="living-module-title">Users ({users.total} total)</h5>
             </div>
-            <div class="card-body p-0">
+            <div class="living-module-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
                         <thead>
@@ -542,7 +530,7 @@ def admin_users():
         title="User Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+        content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/admin/users/<username>/role', methods=['POST'])
@@ -647,15 +635,8 @@ def admin_analytics():
         """
 
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
-                <li class="breadcrumb-item active">Analytics</li>
-            </ol>
-        </nav>
-
-        <h1 class="mb-4">Analytics Dashboard</h1>
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('Analytics Dashboard', 'Site usage and activity metrics', 'fa-chart-line', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Analytics', None)]))}
 
         <div class="row mb-4">
             <div class="col-md-3">
@@ -820,7 +801,7 @@ def admin_analytics():
         title="Analytics - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+        content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/admin/chairs/')
@@ -875,18 +856,8 @@ def admin_chairs():
         coord_request_rows = '<tr><td colspan="5" class="text-center text-muted py-3">No pending coordinator requests.</td></tr>'
 
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
-                <li class="breadcrumb-item active">Coordinator Management</li>
-            </ol>
-        </nav>
-
-        <div class="mb-4">
-            <h1 class="mb-1">Coordinator Management</h1>
-            <p class="text-muted mb-0">Manage workgroup coordinators. Add coordinators from <a href="/admin/users/">User Management</a> or <a href="/person/">People</a> (admin actions).</p>
-        </div>
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('Coordinator Management', 'Manage workgroup coordinators — add from User Management or People', 'fa-user-tie', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Coordinator Management', None)]))}
 
         <div class="row mb-4">
             <div class="col-md-4">
@@ -975,7 +946,7 @@ def admin_chairs():
         title="Coordinator Management - MLGH",
         theme=current_theme,
         user_menu=user_menu,
-        content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+        content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/admin/users/<user_id>/add-coordinator', methods=['GET', 'POST'])
@@ -1021,23 +992,11 @@ def add_coordinator_for_user(user_id):
         for g in GROUPS
     )
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
-                <li class="breadcrumb-item"><a href="/admin/users/">User Management</a></li>
-                <li class="breadcrumb-item"><a href="/admin/chairs/">Coordinator Management</a></li>
-                <li class="breadcrumb-item active">Add as coordinator</li>
-            </ol>
-        </nav>
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('Add as coordinator', f'User: {display_name} (@{target.username})', 'fa-user-plus', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('User Management', '/admin/users/'), ('Coordinator Management', '/admin/chairs/'), ('Add as coordinator', None)]))}
         <div class="row justify-content-center">
             <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Add as coordinator</h5>
-                    </div>
-                    <div class="card-body">
-                        <p class="mb-3">User: <strong>{display_name}</strong> (@{target.username})</p>
+                {gh_living_module('Workgroup assignment', f'''
                         <form method="POST">
                             <div class="mb-3">
                                 <label for="group_acronym" class="form-label">Workgroup *</label>
@@ -1051,8 +1010,7 @@ def add_coordinator_for_user(user_id):
                                 <a href="/admin/users/" class="btn btn-secondary">Cancel</a>
                             </div>
                         </form>
-                    </div>
-                </div>
+                ''', 'fa-users-cog')}
             </div>
         </div>
     </div>
@@ -1193,9 +1151,15 @@ def admin_projects():
         parts.append('</div>')
         return ''.join(parts)
 
+    _layers_admin_header = gh_page_header(
+        'Manage Layers',
+        'Approve and review layer submissions',
+        'fa-project-diagram',
+        breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Manage Layers', None)]),
+    )
     content = """
-    <div class="container mt-4" id="manage-projects-container" data-server-pending=""" + str(pending_count) + """ data-server-approved=""" + str(approved_count) + """ data-server-rejected=""" + str(rejected_count) + """>
-        <h1 class="mb-4">Manage Layers</h1>
+    <div class="gh-page container mt-4 gh-admin-page" id="manage-projects-container" data-server-pending=""" + str(pending_count) + """ data-server-approved=""" + str(approved_count) + """ data-server-rejected=""" + str(rejected_count) + """>
+        """ + _layers_admin_header + """
         <div id="project-load-error" class="alert alert-danger d-none" role="alert"></div>
 
         <ul class="nav nav-tabs mb-4" id="projectTabs" role="tablist">
@@ -1402,9 +1366,15 @@ def admin_workgroups():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
 
+    _wg_admin_header = gh_page_header(
+        'Manage Workgroups',
+        'Review and approve workgroup submissions across layers',
+        'fa-users-cog',
+        breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Manage Workgroups', None)]),
+    )
     content = """
-    <div class="container mt-4">
-        <h1 class="mb-4">Manage Workgroups</h1>
+    <div class="gh-page container mt-4 gh-admin-page">
+        """ + _wg_admin_header + """
 
         <ul class="nav nav-tabs mb-4" id="workgroupTabs" role="tablist">
             <li class="nav-item" role="presentation">
@@ -1667,10 +1637,15 @@ def admin_chair_nominations():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
 
+    _chair_admin_header = gh_page_header(
+        'Chair/Coordinator Nominations',
+        'Review and approve workgroup chair nominations',
+        'fa-user-check',
+        breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Chair Nominations', None)]),
+    )
     content = """
-    <div class="container mt-4">
-        <h1 class="mb-4">Chair/Coordinator Nominations</h1>
-        <p class="lead">Review and approve workgroup chair nominations</p>
+    <div class="gh-page container mt-4 gh-admin-page">
+        """ + _chair_admin_header + """
 
         <ul class="nav nav-tabs mb-4" id="chairTabs" role="tablist">
             <li class="nav-item" role="presentation">
@@ -1871,9 +1846,15 @@ def admin_roles():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
 
+    _roles_admin_header = gh_page_header(
+        'Manage Roles',
+        'Review draft and approved roles across all layers',
+        'fa-user-tag',
+        breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Manage Roles', None)]),
+    )
     content = """
-    <div class="container mt-4">
-        <h1 class="mb-4">Manage Roles</h1>
+    <div class="gh-page container mt-4 gh-admin-page">
+        """ + _roles_admin_header + """
 
         <ul class="nav nav-tabs mb-4" id="roleTabs" role="tablist">
             <li class="nav-item" role="presentation">
@@ -2011,9 +1992,15 @@ def admin_badges():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
 
+    _badges_admin_header = gh_page_header(
+        'Manage Badges',
+        'Review badge requests and issue badges',
+        'fa-award',
+        breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Manage Badges', None)]),
+    )
     content = """
-    <div class="container mt-4">
-        <h1 class="mb-4">Manage Badges</h1>
+    <div class="gh-page container mt-4 gh-admin-page">
+        """ + _badges_admin_header + """
 
         <ul class="nav nav-tabs mb-4" id="badgeTabs" role="tablist">
             <li class="nav-item" role="presentation">
@@ -2249,18 +2236,10 @@ def admin_member_requests():
         rows = '<tr><td colspan="4" class="text-center text-muted py-4">No pending member requests. (Default is no approval; join is instant.)</td></tr>'
 
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
-                <li class="breadcrumb-item"><a href="/admin/chairs/">Coordinator Management</a></li>
-                <li class="breadcrumb-item active">Member requests</li>
-            </ol>
-        </nav>
-        <h1 class="mb-2">Member requests</h1>
-        <p class="text-muted">When a workgroup has approval required, join requests appear here. Default: no approval (instant join).</p>
-        <div class="card">
-            <div class="card-body p-0">
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('Member requests', 'When a workgroup requires approval, join requests appear here', 'fa-user-plus', actions_html='<a href="/admin/chairs/" class="btn btn-outline-secondary btn-sm">Coordinator Management</a>', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Coordinator Management', '/admin/chairs/'), ('Member requests', None)]))}
+        <div class="living-module">
+            <div class="living-module-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
                         <thead class="table-light">
@@ -2271,12 +2250,9 @@ def admin_member_requests():
                 </div>
             </div>
         </div>
-        <div class="mt-3">
-            <a href="/admin/chairs/" class="btn btn-secondary">Back to Coordinator Management</a>
-        </div>
     </div>
     """
-    return _format_base_template(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/admin/member_requests/<req_id>/approve')

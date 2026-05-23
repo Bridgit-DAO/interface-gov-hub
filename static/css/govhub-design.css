@@ -412,9 +412,97 @@
   padding: 0.65rem var(--gh-space-md);
 }
 
-/* --- Layers directory tiles --- */
+/* --- Site-wide directory & page chrome --- */
+
+.gh-page {
+  padding-bottom: var(--gh-space-xl);
+}
+
+.gh-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gh-space-md);
+  margin-bottom: var(--gh-space-lg);
+  padding: var(--gh-space-lg);
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--card-border);
+  background: var(--gh-gradient-hero);
+}
+
+.gh-page-header-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gh-space-md);
+  flex: 1;
+  min-width: 0;
+}
+
+.gh-page-header-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--gh-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gh-gradient-map);
+  color: #667eea;
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.gh-page-title {
+  font-size: 1.65rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin: 0 0 var(--gh-space-xs);
+}
+
+.gh-page-lead {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 42rem;
+}
+
+.gh-page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gh-space-sm);
+  align-items: center;
+}
+
+.gh-filter-bar .form-label.gh-filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.gh-alert {
+  padding: var(--gh-space-md);
+  border-radius: var(--gh-radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.gh-alert-info {
+  border-color: rgba(29, 155, 240, 0.25);
+  color: var(--text-secondary);
+}
+
+.gh-alert-danger {
+  border-color: rgba(244, 33, 46, 0.25);
+  color: var(--error-color);
+}
+
+/* Directory tiles (layers map + all directories) */
+.gh-directory-tile,
 .layer-map-tile {
   height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
   border-radius: var(--gh-radius-lg);
@@ -424,12 +512,14 @@
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
+.gh-directory-tile:hover,
 .layer-map-tile:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-hover);
   border-color: rgba(102, 126, 234, 0.35);
 }
 
+.gh-directory-tile-visual,
 .layer-map-tile-visual {
   position: relative;
   height: 100px;
@@ -440,18 +530,29 @@
   overflow: hidden;
 }
 
+.gh-directory-tile-visual img,
 .layer-map-tile-visual img {
   max-height: 88%;
   max-width: 88%;
   object-fit: contain;
 }
 
+.gh-directory-tile-visual img {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: cover;
+}
+
+.gh-directory-placeholder,
 .layer-map-tile-visual .layer-map-placeholder {
   font-size: 2rem;
   opacity: 0.35;
   color: var(--text-muted);
 }
 
+.gh-directory-tile-pulse,
 .layer-map-tile-pulse {
   position: absolute;
   top: var(--gh-space-sm);
@@ -465,12 +566,14 @@
   backdrop-filter: blur(4px);
 }
 
+[data-theme="light"] .gh-directory-tile-pulse,
 [data-theme="light"] .layer-map-tile-pulse {
   background: rgba(255, 255, 255, 0.9);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
 }
 
+.gh-directory-tile-body,
 .layer-map-tile-body {
   padding: var(--gh-space-md);
   flex: 1;
@@ -478,6 +581,7 @@
   flex-direction: column;
 }
 
+.gh-directory-tile-title,
 .layer-map-tile-title {
   font-size: 0.95rem;
   font-weight: 700;
@@ -491,15 +595,18 @@
   margin: 0 0 var(--gh-space-xs);
 }
 
+.gh-directory-tile-title a,
 .layer-map-tile-title a {
   color: inherit;
   text-decoration: none;
 }
 
+.gh-directory-tile-title a:hover,
 .layer-map-tile-title a:hover {
   color: var(--accent-color);
 }
 
+.gh-directory-tile-desc,
 .layer-map-tile-desc {
   font-size: 0.78rem;
   color: var(--text-muted);
@@ -512,6 +619,7 @@
   flex: 1;
 }
 
+.gh-directory-tile-footer,
 .layer-map-tile-footer {
   display: flex;
   flex-wrap: wrap;
@@ -521,13 +629,313 @@
   margin-top: auto;
 }
 
+.gh-directory-tile-badges,
 .layer-map-tile-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 0.2rem;
 }
 
+.gh-directory-tile-meta,
 .layer-map-tile-meta {
   font-size: 0.75rem;
   color: var(--text-secondary);
+}
+
+.gh-directory-tile-foot {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: var(--gh-space-xs);
+  padding-top: var(--gh-space-xs);
+  border-top: 1px solid var(--border-color);
+}
+
+/* Detail pages (guild, etc.) — lighter hero */
+.gh-detail-hero {
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--card-border);
+  background: var(--gh-gradient-hero);
+  padding: var(--gh-space-lg);
+  margin-bottom: var(--gh-space-lg);
+}
+
+.gh-detail-hero-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gh-space-md);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.gh-detail-hero-media {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--gh-radius-md);
+  overflow: hidden;
+  background: var(--gh-gradient-map);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.gh-detail-hero-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gh-detail-hero-body h1 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin: 0 0 var(--gh-space-xs);
+}
+
+.gh-detail-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gh-space-sm);
+}
+
+.gh-detail-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gh-space-lg);
+}
+
+@media (min-width: 768px) {
+  .gh-detail-layout {
+    grid-template-columns: minmax(0, 1fr) 280px;
+  }
+}
+
+.gh-detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gh-space-md);
+}
+
+.gh-detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gh-space-md);
+}
+
+/* Home hub */
+.gh-home-hero {
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--card-border);
+  background: var(--gh-gradient-hero);
+  padding: var(--gh-space-xl) var(--gh-space-lg);
+  margin-bottom: var(--gh-space-lg);
+}
+
+.gh-home-hero h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  margin: 0 0 var(--gh-space-sm);
+}
+
+.gh-home-hero p {
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 36rem;
+}
+
+.gh-home-hub {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--gh-space-md);
+}
+
+.gh-home-hub-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  padding: var(--gh-space-md);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  height: 100%;
+  color: inherit;
+}
+
+.gh-home-hub-card:hover {
+  color: inherit;
+  border-color: rgba(102, 126, 234, 0.35);
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px);
+}
+
+.gh-home-hub-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--gh-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gh-gradient-map);
+  color: #667eea;
+  margin-bottom: var(--gh-space-sm);
+}
+
+.gh-home-hub-card h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 var(--gh-space-xs);
+}
+
+.gh-home-hub-card p {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  flex: 1;
+  margin: 0 0 var(--gh-space-md);
+}
+
+.gh-home-stats {
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  padding: var(--gh-space-md);
+}
+
+.gh-home-stats h2 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 var(--gh-space-md);
+}
+
+/* Badge directory tabs — match feature pills */
+.gh-badge-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gh-space-xs);
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--gh-space-md);
+  border: none;
+}
+
+.gh-badge-tabs .nav-item {
+  margin: 0;
+}
+
+.gh-badge-tabs .nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.85rem !important;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--gh-radius-pill) !important;
+  background: var(--bg-secondary);
+  color: var(--text-secondary) !important;
+}
+
+.gh-badge-tabs .nav-link.active {
+  background: var(--gh-gradient-map);
+  border-color: rgba(102, 126, 234, 0.45) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 0 0 1px var(--gh-glow-soft);
+}
+
+.gh-people-table-wrap {
+  overflow-x: auto;
+}
+
+.gh-people-table-wrap .table {
+  margin-bottom: 0;
+}
+
+.gh-people-table-wrap thead th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom-width: 1px;
+  white-space: nowrap;
+}
+
+.gh-detail-breadcrumb {
+  margin-bottom: var(--gh-space-sm);
+}
+
+.gh-detail-breadcrumb .breadcrumb {
+  margin-bottom: 0;
+  font-size: 0.85rem;
+}
+
+/* Navbar polish */
+.navbar {
+  border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(8px);
+}
+
+.navbar-brand {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Admin & legacy card pages inside gh-page */
+.gh-admin-page .card,
+.gh-page .card:not(.document-card .card) {
+  border: 1px solid var(--border-color);
+  border-radius: var(--gh-radius-md);
+  background: var(--bg-secondary);
+}
+
+.gh-admin-page .card-header,
+.gh-page .card-header {
+  background: transparent;
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+}
+
+.gh-admin-page .card-body h4 {
+  font-weight: 700;
+}
+
+/* Document directory */
+.doc-all-page.gh-page .document-card .card {
+  border-radius: var(--gh-radius-md);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.doc-all-page.gh-page .document-card .card:hover {
+  border-color: rgba(102, 126, 234, 0.35);
+  box-shadow: 0 4px 20px var(--gh-glow-soft);
+}
+
+/* Profile view tabs */
+.gh-profile-page .nav-tabs {
+  border-bottom: 1px solid var(--border-color);
+  gap: 0.25rem;
+}
+
+.gh-profile-page .nav-tabs .nav-link {
+  border: none;
+  border-radius: var(--gh-radius-pill);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  padding: 0.45rem 0.85rem;
+}
+
+.gh-profile-page .nav-tabs .nav-link.active {
+  background: var(--gh-glow-soft);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.gh-profile-page .tab-content .card,
+.gh-profile-page .tab-content .living-module {
+  margin-top: var(--gh-space-md);
+}
+
+/* Auth panel — hide duplicate module title inside living-module */
+.gh-auth-panel .living-module-header {
+  display: none;
 }

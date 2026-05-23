@@ -127,7 +127,7 @@ The artifact model defines:
 | **Submission** | `id` string → UUID. Vote, Comment, etc. |
 | **Role, Workgroup, Guild** | PK → UUID |
 | **Vote, Claim, Badge, Ballot, VoteEligibilitySnapshot** | PK → UUID |
-| **Remaining** | RoleImage, BadgeSkin, BadgeCycle, OneTimeBadge, Comment, StatusChange, InscriptionOrder, HypothesisAccount, etc. |
+| **Remaining** | RoleImage, BadgeSkin, BadgeCycle, OneTimeBadge, Comment, StatusChange, InscriptionOrder, UserNotification, etc. |
 
 ### Execution Order (Topological)
 

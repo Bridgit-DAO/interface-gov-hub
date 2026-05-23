@@ -46,6 +46,7 @@ from services.draft_reader import (
     draft_display_id,
     load_draft_document_body,
 )
+from services.directory_ui import gh_page_header, gh_living_module, gh_breadcrumb
 
 bp = Blueprint('documents', __name__, url_prefix='')
 
@@ -359,17 +360,18 @@ def all_documents():
     docs_wrapper_close = '</div>' if view == 'cards' else ''
 
     content = f"""
-    <div class="container doc-all-page mt-4">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-            <div>
-                <h1 class="mb-0">All Documents</h1>
-                <p class="text-muted mb-0">Showing {len(page_docs)} of {total_docs} documents</p>
-            </div>
-            <div class="btn-group" role="group" aria-label="View mode">
-                <a href="?view=cards&per_page={per_page}" class="btn btn-outline-secondary {cards_active}">Cards</a>
-                <a href="?view=list&per_page={per_page}" class="btn btn-outline-secondary {list_active}">List</a>
-            </div>
-        </div>
+    <div class="gh-page container doc-all-page mt-4">
+        {gh_page_header(
+            'All Documents',
+            f'Showing {len(page_docs)} of {total_docs} documents',
+            'fa-file-alt',
+            actions_html=(
+                f'<div class="btn-group" role="group" aria-label="View mode">'
+                f'<a href="?view=cards&per_page={per_page}" class="btn btn-outline-secondary btn-sm {cards_active}">Cards</a>'
+                f'<a href="?view=list&per_page={per_page}" class="btn btn-outline-secondary btn-sm {list_active}">List</a>'
+                f'</div>'
+            ),
+        )}
 
         {docs_wrapper_open}
             {docs_html}
@@ -1280,16 +1282,10 @@ Meta-Layer Initiative
         content_style = "font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4; white-space: pre-wrap;"
 
     content = f"""
-    <div class="container mt-4">
-        <h1>{display_id} {revision_badge}</h1>
-        <p class="lead">{draft['title']}</p>
-        <p class="mb-3">
-            <a href="/doc/draft/{quote(str(draft.get('name') or draft_name), safe='')}/read/" class="btn btn-primary">
-                <i class="bi bi-book"></i> Read full page
-            </a>
-        </p>
-        <div class="row">
-            <div class="col-md-8">
+    <div class="gh-page container mt-4">
+        {gh_page_header(str(display_id), draft['title'], 'fa-file-alt', actions_html=f'<a href="/doc/draft/{quote(str(draft.get("name") or draft_name), safe="")}/read/" class="btn btn-primary btn-sm"><i class="bi bi-book"></i> Read full page</a>')}
+        <div class="gh-detail-layout mt-3">
+            <div class="gh-detail-main">
                 <div class="card">
                     <div class="card-header">
                         <h5>Document Information</h5>
@@ -1344,7 +1340,7 @@ Meta-Layer Initiative
                 </div>
             </div>
 
-            <div class="col-md-4">
+            <div class="gh-detail-sidebar">
                 {_artifact_card_and_modal_html(draft, _sub, artifact_id, layer_slug, current_user)}
                 {support_oppose_card_html}
                 <div class="card">
@@ -1688,18 +1684,9 @@ def draft_comments(draft_name):
     comments_html = render_comment_tree(all_comments, draft_name, get_current_user, get_comment_likes, is_comment_liked)
 
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item"><a href="/doc/all/">Documents</a></li>
-                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{display_id}</a></li>
-                <li class="breadcrumb-item active">Comments</li>
-            </ol>
-        </nav>
-
-        <h1>Comments for {display_id}</h1>
-        <p class="lead">{draft['title']}</p>
+    <div class="gh-page container mt-4">
+        {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Comments', None)])}
+        {gh_page_header(f'Comments — {display_id}', draft['title'], 'fa-comments')}
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
@@ -1905,18 +1892,9 @@ def draft_history(draft_name):
         """
 
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item"><a href="/doc/all/">Documents</a></li>
-                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{display_id}</a></li>
-                <li class="breadcrumb-item active">History</li>
-            </ol>
-        </nav>
-
-        <h1>History for {display_id}</h1>
-        <p class="lead">{draft['title']}</p>
+    <div class="gh-page container mt-4">
+        {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('History', None)])}
+        {gh_page_header(f'History — {display_id}', draft['title'], 'fa-history')}
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
@@ -2086,18 +2064,9 @@ def draft_revisions(draft_name):
     """
 
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item"><a href="/doc/all/">Documents</a></li>
-                <li class="breadcrumb-item"><a href="/doc/draft/{draft_name}/">{display_id}</a></li>
-                <li class="breadcrumb-item active">Revisions</li>
-            </ol>
-        </nav>
-
-        <h1>Revisions for {display_id}</h1>
-        <p class="lead">{draft['title']}</p>
+    <div class="gh-page container mt-4">
+        {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Revisions', None)])}
+        {gh_page_header(f'Revisions — {display_id}', draft['title'], 'fa-code-branch')}
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft

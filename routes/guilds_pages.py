@@ -4,6 +4,7 @@ import json
 from flask import Blueprint, session
 
 from services.identity import get_current_user, require_auth
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('guilds_pages', __name__, url_prefix='')
 
@@ -18,69 +19,99 @@ def _get_imports():
 def guild_detail(guild_slug):
     """Guild detail page with members"""
     render_page, generate_user_menu = _get_imports()
+    from services.product_rollout import is_feature_enabled
+
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
+    show_quests = is_feature_enabled('quests')
+
+    quest_links_card = ''
+    if show_quests:
+        quest_links_card = """
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-tasks"></i></div>
+                        <h5 class="living-module-title">Linked quests</h5>
+                    </div>
+                    <div class="living-module-body" id="guild-quest-links">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </div>
+                </div>
+"""
 
     content = f"""
-    <div class="container mt-4">
-        <div id="guild-header" class="mb-4">
-            <div class="d-flex justify-content-center py-5">
+    <div class="gh-page container mt-4">
+        <div id="guild-header" class="gh-detail-hero mb-0">
+            <div class="d-flex justify-content-center py-4">
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
             </div>
         </div>
 
-        <div class="row">
-            <div class="col-md-8">
-                <div class="card mb-4">
-                    <div class="card-header"><h5>About</h5></div>
-                    <div class="card-body" id="guild-about">
+        <div class="gh-detail-layout mt-4">
+            <div class="gh-detail-main">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-align-left"></i></div>
+                        <h5 class="living-module-title">About</h5>
+                    </div>
+                    <div class="living-module-body" id="guild-about">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
 
-                <div class="card mb-4">
-                    <div class="card-header"><h5>Members</h5></div>
-                    <div class="card-body" id="guild-members">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-users"></i></div>
+                        <h5 class="living-module-title">Members</h5>
+                    </div>
+                    <div class="living-module-body" id="guild-members">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
 
-                <div class="card mb-4">
-                    <div class="card-header"><h5>Linked layers</h5></div>
-                    <div class="card-body" id="guild-layer-links">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-layer-group"></i></div>
+                        <h5 class="living-module-title">Linked layers</h5>
+                    </div>
+                    <div class="living-module-body" id="guild-layer-links">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
 
-                <div class="card mb-4">
-                    <div class="card-header"><h5>Linked quests</h5></div>
-                    <div class="card-body" id="guild-quest-links">
-                        <div class="spinner-border spinner-border-sm text-primary"></div>
-                    </div>
-                </div>
+                {quest_links_card}
 
-                <div class="card mb-4">
-                    <div class="card-header"><h5>Linked artifacts</h5></div>
-                    <div class="card-body" id="guild-artifact-links">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-cube"></i></div>
+                        <h5 class="living-module-title">Linked artifacts</h5>
+                    </div>
+                    <div class="living-module-body" id="guild-artifact-links">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-4">
-                <div class="card mb-4">
-                    <div class="card-header"><h5>Quick Actions</h5></div>
-                    <div class="card-body" id="guild-actions">
+            <div class="gh-detail-sidebar">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-bolt"></i></div>
+                        <h5 class="living-module-title">Quick actions</h5>
+                    </div>
+                    <div class="living-module-body" id="guild-actions">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="card-header"><h5>Statistics</h5></div>
-                    <div class="card-body" id="guild-stats">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-chart-bar"></i></div>
+                        <h5 class="living-module-title">Statistics</h5>
+                    </div>
+                    <div class="living-module-body" id="guild-stats">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
@@ -92,7 +123,7 @@ def guild_detail(guild_slug):
     let guild = null;
     const guildSlug = '{guild_slug}';
     const isAuthenticated = {'true' if current_user else 'false'};
-    const currentUserId = {current_user['id'] if current_user else 'null'};
+    const currentUserId = {json.dumps(current_user['id']) if current_user else 'null'};
 
     async function loadGuild() {{
         try {{
@@ -121,16 +152,20 @@ def guild_detail(guild_slug):
             : '<span class="badge bg-secondary">Archived</span>';
 
         const isInitiator = isAuthenticated && guild.initiator_id === currentUserId;
+        const mediaHtml = guild.image_url
+            ? '<div class="gh-detail-hero-media"><img src="' + guild.image_url + '" alt=""></div>'
+            : '<div class="gh-detail-hero-media"><i class="fas fa-shield-halved fa-2x text-muted opacity-50"></i></div>';
 
         document.getElementById('guild-header').innerHTML =
-            '<div class="row">' +
-                '<div class="col-md-8">' +
+            '<div class="gh-detail-hero-inner">' +
+                mediaHtml +
+                '<div class="gh-detail-hero-body flex-grow-1">' +
                     '<h1>' + (guild.name || '') + '</h1>' +
-                    '<div class="mb-3">' + statusBadge + '</div>' +
+                    '<div class="mb-0">' + statusBadge + '</div>' +
                 '</div>' +
-                '<div class="col-md-4 text-end">' +
-                    (isInitiator ? '<button class="btn btn-secondary me-2" onclick="editGuild()"><i class="fas fa-edit me-2"></i>Edit</button>' : '') +
-                    '<a href="/guilds/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back</a>' +
+                '<div class="gh-detail-hero-actions">' +
+                    (isInitiator ? '<button class="btn btn-secondary btn-sm" onclick="editGuild()"><i class="fas fa-edit me-2"></i>Edit</button>' : '') +
+                    '<a href="/guilds/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-2"></i>Back</a>' +
                 '</div>' +
             '</div>';
     }}
@@ -231,12 +266,19 @@ def guild_detail(guild_slug):
         const elA = document.getElementById('guild-artifact-links');
         if (!guild || !elL) return;
         const officer = guildIsOfficerFn();
+        const showQuests = {json.dumps(show_quests)};
         try {{
-            const [lr, qr, ar] = await Promise.all([
+            const fetches = [
                 fetch('/api/guilds/' + guild.id + '/layers/', {{ credentials: 'same-origin' }}),
-                fetch('/api/guilds/' + guild.id + '/quest-links/', {{ credentials: 'same-origin' }}),
                 fetch('/api/guilds/' + guild.id + '/artifact-links/', {{ credentials: 'same-origin' }})
-            ]);
+            ];
+            if (showQuests) {{
+                fetches.splice(1, 0, fetch('/api/guilds/' + guild.id + '/quest-links/', {{ credentials: 'same-origin' }}));
+            }}
+            const results = await Promise.all(fetches);
+            const lr = results[0];
+            const qr = showQuests ? results[1] : {{ ok: true, json: async () => ({{ links: [] }}) }};
+            const ar = showQuests ? results[2] : results[1];
             const ld = lr.ok ? await lr.json() : {{ links: [] }};
             const qd = qr.ok ? await qr.json() : {{ links: [] }};
             const ad = ar.ok ? await ar.json() : {{ links: [] }};
@@ -283,7 +325,7 @@ def guild_detail(guild_slug):
                     '<label class="form-label small mb-1">Link type</label><select class="form-select form-select-sm mb-1" id="guild-attach-quest-type"><option value="sponsor">sponsor</option><option value="steward">steward</option><option value="review">review</option></select>' +
                     '<button class="btn btn-primary btn-sm" type="button" onclick="guildAttachQuest()">Attach quest</button><p class="small mb-0 mt-1" id="guild-attach-quest-msg"></p></div>';
             }}
-            elQ.innerHTML = hQ;
+            if (elQ) elQ.innerHTML = hQ;
 
             let hA = '';
             if ((ad.links || []).length === 0) hA += '<p class="text-muted small mb-2">No artifact links.</p>';
@@ -308,7 +350,7 @@ def guild_detail(guild_slug):
             elA.innerHTML = hA;
         }} catch (e) {{
             elL.innerHTML = '<p class="text-danger small">Failed to load affiliations</p>';
-            elQ.innerHTML = '';
+            if (elQ) elQ.innerHTML = '';
             elA.innerHTML = '';
         }}
     }}
@@ -595,14 +637,13 @@ def guild_invite_landing(invite_token):
     current_user = get_current_user()
     tok = invite_token.strip('/')
     content = f"""
-    <div class="container mt-4">
+    <div class="gh-page container mt-4">
         <div class="col-md-8 mx-auto">
-            <h1 class="h3 mb-3">Guild invitation</h1>
+            {gh_page_header('Guild invitation', 'Accept an invitation to join a guild', 'fa-envelope-open-text', actions_html='<a href="/guilds/" class="btn btn-outline-secondary btn-sm">Guild directory</a>')}
             <div id="invite-status" class="mb-3"><div class="spinner-border spinner-border-sm"></div> Loading…</div>
             <div id="invite-actions" class="d-none">
                 <a href="/login/" class="btn btn-primary me-2" id="invite-login-btn">Log in to accept</a>
                 <button type="button" class="btn btn-success d-none" id="invite-accept-btn">Accept invitation</button>
-                <a href="/guilds/" class="btn btn-outline-secondary">Guild directory</a>
             </div>
         </div>
     </div>
@@ -674,14 +715,13 @@ def create_guild_page():
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
 
-    content = """
-    <div class="container mt-4">
+    content = f"""
+    <div class="gh-page container mt-4">
+        {gh_page_header('Create New Guild', 'Start a guild and invite members', 'fa-shield-halved', actions_html='<a href="/guilds/" class="btn btn-outline-secondary btn-sm">Cancel</a>', breadcrumb_html=gh_breadcrumb([('Home', '/'), ('Guilds', '/guilds/'), ('Create', None)]))}
         <div class="row">
             <div class="col-md-8 offset-md-2">
-                <h1 class="mb-4">Create New Guild</h1>
-
                 <div id="alert-container"></div>
-
+                {gh_living_module('Guild details', '''
                 <form id="createGuildForm">
                     <div class="mb-3">
                         <label for="name" class="form-label">Guild Name *</label>
@@ -707,10 +747,11 @@ def create_guild_page():
                         <a href="/guilds/" class="btn btn-secondary">Cancel</a>
                     </div>
                 </form>
+                ''', 'fa-shield-halved')}
             </div>
         </div>
     </div>
-
+    """ + """
     <script>
     document.getElementById('createGuildForm').addEventListener('submit', async (e) => {
         e.preventDefault();

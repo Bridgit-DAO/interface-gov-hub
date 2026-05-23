@@ -15,7 +15,13 @@ from models import (
     Monument,
     GuildArtifactLink,
     GuildQuestLink,
-    Quest,
+    Comment,
+)
+from services.access_policy import (
+    can_user_submit_quest,
+    normalize_join_policy_quest,
+    normalize_listing_visibility,
+    quest_listing_visible,
 )
 from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin, is_site_moderation_staff
@@ -23,8 +29,19 @@ from services.artifact import get_artifact_by_ref, _ensure_artifact_for_submissi
 from services.events import emit_event
 from services.knowledge_layer import (
     apply_knowledge_patch,
+    canonical_knowledge_form,
     public_schema_dict,
     validate_knowledge_for_create,
+)
+from services.artifact_tags import (
+    tags_enabled,
+    tag_filters_enabled,
+    parse_tag_slugs,
+    list_layer_tags,
+    set_artifact_tags,
+    apply_tag_filter,
+    artifact_to_dict,
+    enrich_artifact_dicts,
 )
 
 bp = Blueprint('artifacts', __name__, url_prefix='/api')
@@ -240,14 +257,23 @@ def layer_opportunities(layer_id):
         if not has_opposition:
             missing_opposition.append(item)
     open_quests = []
-    try:
-        for q in Quest.query.filter_by(layer_id=layer_id, status='open').order_by(Quest.created_at.desc()).limit(20):
-            open_quests.append({
-                'id': q.id, 'public_id': q.public_id, 'title': q.title,
-                'quest_type': q.quest_type, 'difficulty': q.difficulty,
-            })
-    except Exception:
-        pass
+    from services.layer_features import get_effective_features
+
+    layer = Layer.query.get(layer_id)
+    if get_effective_features(layer).get('quests', True):
+        viewer = get_current_user()
+        try:
+            for q in Quest.query.filter_by(layer_id=layer_id, status='open').order_by(Quest.created_at.desc()).limit(20):
+                if not quest_listing_visible(q, viewer):
+                    continue
+                open_quests.append({
+                    'id': q.id, 'public_id': q.public_id, 'title': q.title,
+                    'quest_type': q.quest_type, 'difficulty': q.difficulty,
+                    'listing_visibility': getattr(q, 'listing_visibility', 'public'),
+                    'join_policy': getattr(q, 'join_policy', 'open'),
+                })
+        except Exception:
+            pass
     return jsonify({
         'missing_support': missing_support,
         'missing_opposition': missing_opposition,
@@ -265,14 +291,18 @@ def layer_quests(layer_id):
         if status_filter:
             q = q.filter(Quest.status == status_filter)
         quests = q.order_by(Quest.created_at.desc()).all()
+        viewer = get_current_user()
+        visible = [q for q in quests if quest_listing_visible(q, viewer)]
         return jsonify({
             'quests': [{
                 'id': q.id, 'public_id': q.public_id, 'title': q.title, 'description': q.description,
                 'quest_type': q.quest_type, 'difficulty': q.difficulty, 'status': q.status,
                 'acceptance_criteria': q.acceptance_criteria,
                 'due_date': q.due_date.isoformat() if q.due_date else None,
+                'listing_visibility': getattr(q, 'listing_visibility', 'public'),
+                'join_policy': getattr(q, 'join_policy', 'open'),
                 'created_at': q.created_at.isoformat() if q.created_at else None,
-            } for q in quests]
+            } for q in visible]
         }), 200
     current_user = get_current_user()
     if not current_user:
@@ -287,6 +317,8 @@ def layer_quests(layer_id):
         difficulty=data.get('difficulty', 'medium'),
         status='open',
         acceptance_criteria=data.get('acceptance_criteria'),
+        listing_visibility=normalize_listing_visibility(data.get('listing_visibility')),
+        join_policy=normalize_join_policy_quest(data.get('join_policy')),
     )
     db.session.add(quest)
     db.session.flush()
@@ -294,13 +326,40 @@ def layer_quests(layer_id):
                subject_type='quest', subject_id=str(quest.id), layer_id=layer_id,
                payload={'title': quest.title})
     db.session.commit()
-    return jsonify({
-        'quest': {
-            'id': quest.id, 'public_id': quest.public_id, 'title': quest.title,
-            'description': quest.description, 'quest_type': quest.quest_type,
-            'difficulty': quest.difficulty, 'status': quest.status,
-        }
-    }), 201
+    return jsonify({'quest': quest.to_dict()}), 201
+
+
+@bp.route('/quests/<quest_id>/', methods=['PATCH'])
+@require_auth
+def update_quest(quest_id):
+    """Update quest metadata (layer admin or quest creator)."""
+    quest = Quest.query.get_or_404(quest_id)
+    layer = Layer.query.get_or_404(quest.layer_id)
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    if quest.creator_user_id != user.get('id') and not is_layer_admin(layer, user):
+        return jsonify({'error': 'Forbidden'}), 403
+    data = request.get_json() or {}
+    if 'title' in data and (data.get('title') or '').strip():
+        quest.title = data['title'].strip()
+    if 'description' in data:
+        quest.description = data['description']
+    if 'quest_type' in data:
+        quest.quest_type = data['quest_type']
+    if 'difficulty' in data:
+        quest.difficulty = data['difficulty']
+    if 'status' in data and data['status'] in ('open', 'closed', 'completed'):
+        quest.status = data['status']
+    if 'acceptance_criteria' in data:
+        quest.acceptance_criteria = data['acceptance_criteria']
+    if 'listing_visibility' in data:
+        quest.listing_visibility = normalize_listing_visibility(data.get('listing_visibility'))
+    if 'join_policy' in data:
+        quest.join_policy = normalize_join_policy_quest(data.get('join_policy'))
+    quest.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True, 'quest': quest.to_dict()})
 
 
 @bp.route('/quests/<quest_id>/submit/', methods=['POST'])
@@ -313,6 +372,9 @@ def quest_submit(quest_id):
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
+    ok, err = can_user_submit_quest(quest, current_user)
+    if not ok:
+        return jsonify({'error': err or 'Forbidden'}), 403
     data = request.get_json() or {}
     artifact_id = data.get('artifact_id')
     if not artifact_id:
@@ -426,7 +488,11 @@ def knowledge_layer_schema():
 def get_artifact(artifact_id):
     """Get artifact for modal."""
     art = Artifact.query.get_or_404(artifact_id)
-    return jsonify(art.to_dict())
+    payload = artifact_to_dict(art) if tags_enabled(current_app.config) else art.to_dict()
+    sub = Submission.query.filter_by(artifact_id=art.id).first()
+    if sub:
+        payload['submission_id'] = sub.id
+    return jsonify(payload)
 
 
 @bp.route('/artifacts/<artifact_id>/guild-links/', methods=['GET'])
@@ -547,20 +613,72 @@ def update_artifact(artifact_id):
         emit_event('artifact_status_changed', actor_type='user', actor_id=current_user['id'],
                    subject_type='artifact', subject_id=art.id, layer_id=art.layer_id,
                    payload={'old_status': old_status, 'new_status': art.status})
+    if tags_enabled(current_app.config) and ('tag_slugs' in data or 'tags' in data):
+        raw_tags = data.get('tag_slugs', data.get('tags'))
+        try:
+            added, removed = set_artifact_tags(art, raw_tags or [], current_user['id'])
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        for slug in added:
+            emit_event(
+                'artifact_tag_added',
+                actor_type='user',
+                actor_id=current_user['id'],
+                subject_type='artifact',
+                subject_id=art.id,
+                layer_id=art.layer_id,
+                payload={'tag_slug': slug},
+            )
+        for slug in removed:
+            emit_event(
+                'artifact_tag_removed',
+                actor_type='user',
+                actor_id=current_user['id'],
+                subject_type='artifact',
+                subject_id=art.id,
+                layer_id=art.layer_id,
+                payload={'tag_slug': slug},
+            )
     db.session.commit()
-    return jsonify({'success': True, 'artifact': art.to_dict()})
+    payload = artifact_to_dict(art) if tags_enabled(current_app.config) else art.to_dict()
+    return jsonify({'success': True, 'artifact': payload})
+
+
+@bp.route('/layers/<layer_id>/artifact-tags/', methods=['GET'])
+def list_layer_artifact_tags(layer_id):
+    """List tags defined on a layer (with artifact counts)."""
+    Layer.query.get_or_404(layer_id)
+    if not tags_enabled(current_app.config):
+        return jsonify({'tags': [], 'enabled': False}), 200
+    return jsonify({
+        'tags': list_layer_tags(layer_id, with_counts=True),
+        'enabled': True,
+    }), 200
 
 
 @bp.route('/layers/<layer_id>/artifacts/', methods=['GET'])
 def list_layer_artifacts(layer_id):
-    """List artifacts for a layer. Optional ?knowledge_form= when filters enabled."""
+    """List artifacts for a layer. Optional ?knowledge_form=, ?tags=, ?tags_any=."""
     Layer.query.get_or_404(layer_id)
     q = Artifact.query.filter_by(layer_id=layer_id)
     kf = request.args.get('knowledge_form')
     if kf and current_app.config.get('KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED', True):
-        q = q.filter(Artifact.knowledge_form == kf.strip().lower())
+        kf_norm = canonical_knowledge_form(kf)
+        if kf_norm:
+            q = q.filter(Artifact.knowledge_form == kf_norm)
+    if tag_filters_enabled(current_app.config):
+        tags_and = request.args.get('tags')
+        tags_any = request.args.get('tags_any')
+        if tags_and:
+            q = apply_tag_filter(q, tags_and.split(','), match_any=False)
+        elif tags_any:
+            q = apply_tag_filter(q, tags_any.split(','), match_any=True)
     arts = q.order_by(Artifact.created_at.desc()).limit(100).all()
-    return jsonify({'artifacts': [a.to_dict() for a in arts]}), 200
+    if tags_enabled(current_app.config):
+        artifacts = enrich_artifact_dicts(arts)
+    else:
+        artifacts = [a.to_dict() for a in arts]
+    return jsonify({'artifacts': artifacts}), 200
 
 
 @bp.route('/layers/<layer_id>/artifacts/', methods=['POST'])
@@ -615,8 +733,26 @@ def create_artifact(layer_id):
             layer_id=layer_id,
             payload={'knowledge_form': kform, 'source': 'create', 'previous': None},
         )
+    if tags_enabled(current_app.config) and ('tag_slugs' in data or 'tags' in data):
+        raw_tags = data.get('tag_slugs', data.get('tags'))
+        try:
+            added, _ = set_artifact_tags(art, raw_tags or [], current_user['id'])
+        except ValueError as exc:
+            db.session.rollback()
+            return jsonify({'error': str(exc)}), 400
+        for slug in added:
+            emit_event(
+                'artifact_tag_added',
+                actor_type='user',
+                actor_id=current_user['id'],
+                subject_type='artifact',
+                subject_id=art.id,
+                layer_id=layer_id,
+                payload={'tag_slug': slug, 'source': 'create'},
+            )
     db.session.commit()
-    return jsonify({'success': True, 'artifact': art.to_dict()}), 201
+    payload = artifact_to_dict(art) if tags_enabled(current_app.config) else art.to_dict()
+    return jsonify({'success': True, 'artifact': payload}), 201
 
 
 @bp.route('/submissions/<submission_id>/ensure-artifact/', methods=['POST'])
@@ -680,3 +816,87 @@ def artifact_lineage(artifact_id):
         'ancestors': ancestors,
         'descendants': descendants,
     }), 200
+
+
+@bp.route('/artifacts/<artifact_id>/comments/', methods=['POST'])
+@require_auth
+def create_artifact_comment(artifact_id):
+    """Create a comment on an artifact."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    art = Artifact.query.get_or_404(artifact_id)
+    data = request.get_json() or {}
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'Comment text is required'}), 400
+    
+    parent_id = (data.get('parent_id') or '').strip() or None
+    if parent_id:
+        parent = Comment.query.get(parent_id)
+        if not parent or parent.artifact_id != artifact_id:
+            return jsonify({'error': 'Parent comment not found or not on this artifact'}), 404
+    
+    comment = Comment(
+        artifact_id=artifact_id,
+        text=text,
+        author_user_id=current_user['id'],
+        author=current_user.get('display_name') or current_user.get('username') or current_user.get('email') or 'Anonymous',
+        parent_id=parent_id,
+    )
+    db.session.add(comment)
+    db.session.flush()
+    
+    emit_event('artifact_commented', actor_type='user', actor_id=current_user['id'],
+               subject_type='artifact', subject_id=artifact_id, layer_id=art.layer_id,
+               payload={'comment_id': comment.id, 'parent_id': parent_id})
+    db.session.commit()
+    
+    return jsonify({
+        'comment': {
+            'id': comment.id,
+            'text': comment.text,
+            'author': comment.author,
+            'author_user_id': comment.author_user_id,
+            'timestamp': comment.timestamp.isoformat() if comment.timestamp else None,
+            'parent_id': comment.parent_id,
+        }
+    }), 201
+
+
+@bp.route('/artifacts/<artifact_id>/comments/', methods=['GET'])
+def list_artifact_comments(artifact_id):
+    """List all comments for an artifact (with replies nested)."""
+    Artifact.query.get_or_404(artifact_id)
+    
+    # Get all comments for this artifact
+    all_comments = Comment.query.filter_by(artifact_id=artifact_id, is_deleted=False).order_by(Comment.timestamp).all()
+    
+    # Build comment tree
+    comment_map = {}
+    root_comments = []
+    
+    def comment_to_dict(c):
+        return {
+            'id': c.id,
+            'text': c.text,
+            'author': c.author,
+            'author_user_id': c.author_user_id,
+            'timestamp': c.timestamp.isoformat() if c.timestamp else None,
+            'parent_id': c.parent_id,
+            'edited_at': c.edited_at.isoformat() if c.edited_at else None,
+            'replies': [],
+        }
+    
+    for c in all_comments:
+        comment_map[c.id] = comment_to_dict(c)
+    
+    for c in all_comments:
+        c_dict = comment_map[c.id]
+        if c.parent_id and c.parent_id in comment_map:
+            comment_map[c.parent_id]['replies'].append(c_dict)
+        else:
+            root_comments.append(c_dict)
+    
+    return jsonify({'comments': root_comments, 'count': len(all_comments)}), 200

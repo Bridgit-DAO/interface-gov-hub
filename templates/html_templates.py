@@ -715,6 +715,7 @@ BASE_TEMPLATE = """
         }}
     </style>
     <link href="/static/css/govhub-design.css" rel="stylesheet">
+    <script src="/static/js/gh-directory.js" defer></script>
 </head>
 <body data-build-number="{build_number}" {body_attrs}>
     <script>
@@ -1083,24 +1084,32 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
 
 
 SUBMIT_TEMPLATE = """
-<div class="container mt-4" data-stripe-key="{{STRIPE_PK}}">
-    <nav aria-label="breadcrumb">
+<div class="gh-page container mt-4" data-stripe-key="{{STRIPE_PK}}">
+    <nav aria-label="breadcrumb" class="gh-detail-breadcrumb mb-3">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="/">Home</a></li>
             <li class="breadcrumb-item active">Submit Draft</li>
         </ol>
     </nav>
-    
-    <h1>Submit a Meta-Layer Draft</h1>
-    <p class="lead">Submit a new Meta-Layer Draft to the Gov-Hub</p>
+
+    <header class="gh-page-header">
+        <div class="gh-page-header-main">
+            <div class="gh-page-header-icon"><i class="fas fa-file-upload"></i></div>
+            <div>
+                <h1 class="gh-page-title">Submit a Meta-Layer Draft</h1>
+                <p class="gh-page-lead">Submit a new Meta-Layer Draft to the Gov-Hub</p>
+            </div>
+        </div>
+    </header>
     
     <div class="row">
         <div class="col-md-8">
-            <div class="card">
-                <div class="card-header">
-                    <h5>Draft Submission Form</h5>
+            <div class="living-module">
+                <div class="living-module-header">
+                    <div class="living-module-icon"><i class="fas fa-edit"></i></div>
+                    <h5 class="living-module-title">Draft Submission Form</h5>
                 </div>
-                <div class="card-body">
+                <div class="living-module-body">
                     <div id="flash-messages"></div>
                     
                     <!-- Tabs for Upload File vs From Ordinal -->
@@ -2275,14 +2284,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 PROFILE_TEMPLATE = """
-<div class="container mt-4">
+<div class="gh-page container mt-4 gh-profile-edit-page">
+    <header class="gh-page-header mb-4">
+        <div class="gh-page-header-main">
+            <div class="gh-page-header-icon"><i class="fas fa-user-cog"></i></div>
+            <div><h1 class="gh-page-title">User Profile</h1><p class="gh-page-lead">Manage your account settings</p></div>
+        </div>
+    </header>
     <div class="row">
         <div class="col-md-8">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="mb-0">User Profile</h3>
-                </div>
-                <div class="card-body">
+            <div class="living-module">
+                <div class="living-module-body">
                     <div id="flash-messages"></div>
                     
                     <!-- Profile Information -->

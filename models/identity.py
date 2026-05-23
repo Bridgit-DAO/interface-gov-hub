@@ -1,4 +1,4 @@
-"""Identity models: User, UserFollow, HypothesisAccount."""
+"""Identity models: User, UserLinkedAccount."""
 from datetime import datetime
 from uuid import uuid4
 
@@ -47,36 +47,10 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, nullable=True)
 
-
-class UserFollow(db.Model):
-    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
-    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
-    draft_name = db.Column(db.String(100), nullable=False)
-    followed_at = db.Column(db.DateTime, default=datetime.utcnow)
-    notification_level = db.Column(db.String(20), default='all')  # all, significant, major, comments, none
-
-    user = db.relationship('User', backref=db.backref('follows', lazy=True))
-
-    __table_args__ = (db.UniqueConstraint('user_id', 'draft_name', name='unique_user_draft_follow'),)
-
-    NOTIFICATION_LEVELS = {
-        'all': 'All changes and comments',
-        'significant': 'Only significant changes (state changes, new revisions)',
-        'major': 'Only major changes (IESG actions, RFC publication)',
-        'comments': 'Only comments',
-        'none': 'No notifications (just tracking)'
-    }
-
-
-class HypothesisAccount(db.Model):
-    """Links Meta-Layer users to their Hypothesis accounts"""
-    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
-    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, unique=True)
-    hypothesis_username = db.Column(db.String(100), nullable=False, unique=True)
-    hypothesis_userid = db.Column(db.String(100), nullable=False, unique=True)  # acct:username@authority
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    user = db.relationship('User', backref=db.backref('hypothesis_account', uselist=False))
+    # Notifications (email + in-app; see models/notifications.py, services/document_follow_notifications.py)
+    notification_unsubscribe_token = db.Column(db.String(64), nullable=True, unique=True, index=True)
+    email_notifications_opt_in = db.Column(db.Boolean, nullable=False, default=True)
+    email_digest_mode = db.Column(db.String(20), nullable=False, default='immediate')
 
 
 class UserLinkedAccount(db.Model):

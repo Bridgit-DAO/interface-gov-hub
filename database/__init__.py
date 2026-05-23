@@ -17,7 +17,12 @@ def init_db(app):
             migrate_vote_artifact_id,
             migrate_artifact_spec_fields,
             migrate_knowledge_layer_integration,
+            migrate_knowledge_form_conviction_to_claim,
+            migrate_layer_enabled_features,
+            migrate_artifact_tags,
             migrate_guild_unified_phase1,
+            migrate_access_control_v1,
+            migrate_notifications_stack_v1,
             migrate_submission_draft_name_backfill,
             migrate_user_profile_columns,
             migrate_public_id,
@@ -38,7 +43,12 @@ def init_db(app):
         migrate_vote_artifact_id(app)
         migrate_artifact_spec_fields(app)
         migrate_knowledge_layer_integration(app)
+        migrate_knowledge_form_conviction_to_claim(app)
+        migrate_layer_enabled_features(app)
+        migrate_artifact_tags(app)
         migrate_guild_unified_phase1(app)
+        migrate_access_control_v1(app)
+        migrate_notifications_stack_v1(app)
         migrate_submission_draft_name_backfill(app)
         migrate_user_profile_columns(app)
         migrate_public_id(app)

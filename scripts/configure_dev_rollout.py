@@ -16,6 +16,7 @@ DEV_ROLLOUT = {
     # Off until you want them on dev
     'votes': False,
     'artifacts': False,
+    'quests': False,
     'opportunities': False,
     'bridges': False,
     'civic_mason': False,

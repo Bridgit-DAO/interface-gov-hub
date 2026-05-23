@@ -317,15 +317,16 @@ def layer_carousel(layer_id):
 
     try:
         if open_opportunities:
-            opp_resp = _layer_opportunities_data(project.id)
-            for q in (opp_resp.get('open_quests') or [])[:3]:
-                items.append({
-                    'type': 'opportunity',
-                    'title': q.get('title') or 'Open Quest',
-                    'description': q.get('description'),
-                    'image': None,
-                    'link': f'/layers/{layer_slug}/quests/{q.get("id")}/',
-                })
+            opp_resp = _layer_opportunities_data(project.id, eff)
+            if eff.get('quests', True):
+                for q in (opp_resp.get('open_quests') or [])[:3]:
+                    items.append({
+                        'type': 'opportunity',
+                        'title': q.get('title') or 'Open Quest',
+                        'description': q.get('description'),
+                        'image': None,
+                        'link': f'/layers/{layer_slug}/quests/{q.get("id")}/',
+                    })
             for a in (opp_resp.get('missing_support') or [])[:2]:
                 items.append({
                     'type': 'opportunity',
@@ -351,8 +352,11 @@ def layer_carousel(layer_id):
     return jsonify({'items': items[:12]})
 
 
-def _layer_opportunities_data(layer_id):
+def _layer_opportunities_data(layer_id, effective=None):
     """Helper: opportunities data for carousel."""
+    if effective is None:
+        layer = Layer.query.get(layer_id)
+        effective = get_effective_features(layer)
     artifacts = Artifact.query.filter_by(layer_id=layer_id, artifact_type='submission').all()
     missing_support = []
     for a in artifacts:
@@ -370,12 +374,13 @@ def _layer_opportunities_data(layer_id):
                 'description': abstract,
             })
     open_quests = []
-    for q in Quest.query.filter_by(layer_id=layer_id, status='open').order_by(Quest.created_at.desc()).limit(5):
-        open_quests.append({
-            'id': q.id,
-            'title': q.title,
-            'description': (q.description or '')[:300] if q.description else None,
-        })
+    if effective.get('quests', True):
+        for q in Quest.query.filter_by(layer_id=layer_id, status='open').order_by(Quest.created_at.desc()).limit(5):
+            open_quests.append({
+                'id': q.id,
+                'title': q.title,
+                'description': (q.description or '')[:300] if q.description else None,
+            })
     return {'missing_support': missing_support, 'open_quests': open_quests}
 
 

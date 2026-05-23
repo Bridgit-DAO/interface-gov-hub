@@ -49,9 +49,11 @@ class InscriptionOrder(db.Model):
 
 class Comment(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
-    draft_name = db.Column(db.String(255), index=True)
+    draft_name = db.Column(db.String(255), index=True)  # Legacy: keep for backcompat with document comments
+    artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)  # New: artifact comments
     text = db.Column(db.Text)
-    author = db.Column(db.String(100))
+    author = db.Column(db.String(100))  # Legacy: display name string
+    author_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)  # New: proper user ref
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     parent_id = db.Column(db.String(36), db.ForeignKey('comment.id'), nullable=True)
     edited_at = db.Column(db.DateTime, nullable=True)
@@ -59,6 +61,8 @@ class Comment(db.Model):
     original_text = db.Column(db.Text, nullable=True)
 
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy=True)
+    artifact = db.relationship('Artifact', backref=db.backref('comments', lazy='dynamic'), foreign_keys=[artifact_id])
+    author_user = db.relationship('User', backref=db.backref('comments_authored', lazy='dynamic'), foreign_keys=[author_user_id])
 
 
 class DocumentHistory(db.Model):
@@ -180,5 +184,13 @@ class Submission(db.Model):
     rfc_number = db.Column(db.Integer, nullable=True)
     inscription_order_id = db.Column(db.String(36), nullable=True, index=True)
     artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)
+
+    # File-backed submission may show a linked ordinal body in the reader while keeping file + revision history.
+    displayBodySource = db.Column(db.String(20), default='file')  # 'file' | 'ordinal'
+    displayOrdinalId = db.Column(db.String(255), nullable=True)
+    displayOrdinalContentUrl = db.Column(db.String(500), nullable=True)
+    displayOrdinalContentType = db.Column(db.String(100), nullable=True)
+    displaySwitchedAt = db.Column(db.DateTime, nullable=True)
+    displaySwitchedBy = db.Column(db.String(100), nullable=True)
 
     artifact = db.relationship('Artifact', backref=db.backref('submissions', lazy='dynamic'), foreign_keys=[artifact_id])

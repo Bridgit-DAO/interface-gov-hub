@@ -1,4 +1,5 @@
 """Ordinals.com API helpers: reinscription resolution, meta-domain fetch, markdown processing."""
+import html
 import re
 import time
 import requests
@@ -16,6 +17,10 @@ def process_ordinal_markdown(markdown_text):
     if not _MARKDOWN_SUPPORT:
         import html
         return html.escape(markdown_text).replace('\n', '<br>')
+
+    from services.submission_preview_md import normalize_backslash_escaped_markdown
+
+    markdown_text = normalize_backslash_escaped_markdown(markdown_text)
 
     def replace_figure_image(match):
         alt_text = match.group(1) if match.group(1) else ''
@@ -57,6 +62,35 @@ def process_ordinal_markdown(markdown_text):
     }
     html_content = bleach.clean(html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
     return html_content
+
+
+def looks_like_html_inscription(raw_content: str, ordinal_content_type: str = '') -> bool:
+    """
+    True when inscription body is an HTML document (e.g. DVN Viewer).
+    Must be detected before markdown heuristics — embedded markdown lines like ## Purpose
+    otherwise match markdown patterns inside raw HTML source.
+    """
+    ct = (ordinal_content_type or '').lower()
+    if 'text/html' in ct:
+        return True
+    s = (raw_content or '').lstrip()[:16000].lower()
+    return s.startswith('<!doctype html') or s.startswith('<html')
+
+
+def format_ordinal_html_iframe_preview(ordinal_content_url: str) -> str:
+    """Preview HTML inscriptions by loading ordinals.com in an iframe so client JS can run."""
+    safe_url = html.escape(ordinal_content_url.strip(), quote=True)
+    return (
+        '<p class="text-muted small mb-2">'
+        'This inscription is HTML (often with client-side rendering). '
+        'Showing the same content URL as ordinals.com in a sandboxed frame.'
+        '</p>'
+        f'<iframe title="Ordinal inscription" src="{safe_url}" '
+        'sandbox="allow-scripts allow-same-origin allow-popups allow-forms" '
+        'referrerpolicy="no-referrer" '
+        'style="width:100%;min-height:800px;border:1px solid var(--input-border);'
+        'border-radius:8px;background:var(--bs-body-bg);"></iframe>'
+    )
 
 
 def shorten_inscription_id(inscription_id, chars_each_side=8):

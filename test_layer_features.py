@@ -117,6 +117,38 @@ def test_api_layer_artifacts_blocked_when_disabled(client):
     assert data.get('error_code') == 'FEATURE_DISABLED'
 
 
+def test_api_layer_quests_empty_when_disabled(client):
+    with app.app_context():
+        layer = Layer.query.filter_by(slug='test-layer-features').first()
+        if not layer:
+            pytest.skip('test layer missing')
+        layer.enabled_features = '{"quests": false}'
+        db.session.commit()
+        lid = layer.id
+
+    r = client.get(f'/api/layers/{lid}/quests/')
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data.get('quests') == []
+
+
+def test_api_layer_roles_empty_when_disabled(client):
+    """Global directories aggregate layers; disabled layer returns empty list, not 403."""
+    with app.app_context():
+        layer = Layer.query.filter_by(slug='test-layer-features').first()
+        if not layer:
+            pytest.skip('test layer missing')
+        layer.enabled_features = '{"roles": false}'
+        db.session.commit()
+        lid = layer.id
+
+    r = client.get(f'/api/layers/{lid}/roles/')
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data.get('roles') == []
+    assert data.get('count') == 0
+
+
 def test_resolve_layer_from_path():
     with app.app_context():
         layer = Layer.query.filter_by(slug='test-layer-features').first()

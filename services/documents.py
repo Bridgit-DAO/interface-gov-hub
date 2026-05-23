@@ -1,10 +1,17 @@
 """Document services: draft data, comments, follow, notification controls, pages/words calculation."""
 import os
-import signal
+import re
 from datetime import datetime, timedelta
+from html import escape
 
 from extensions import db
-from models import Comment, UserFollow, User
+from models import Comment, User
+
+from services.event_subscriptions import (
+    DRAFT_SUBSCRIPTION_ROWS,
+    get_draft_subscription_matrix,
+    user_follows_draft,
+)
 
 # Optional file processing libraries
 try:
@@ -34,6 +41,24 @@ COMMENTS = {}
 
 EDIT_DELETE_TIME_MINUTES = 15
 
+_ML_DIGITS_RE = re.compile(r'\d+')
+
+
+def draft_ml_number_sort_tuple(draft: dict) -> tuple:
+    """
+    Sort key for /doc/all/ lists: higher ML draft/RFC numbers first (reverse sort).
+    Drafts without ml_number use -1 so they appear after numbered items.
+    """
+    ml = (draft.get('ml_number') or '').strip()
+    found = _ML_DIGITS_RE.findall(ml)
+    num = int(found[-1]) if found else -1
+    tie_break = draft.get('name') or ''
+    return (num, tie_break)
+
+
+def sort_documents_by_ml_number_desc(documents: list) -> list:
+    return sorted(documents, key=draft_ml_number_sort_tuple, reverse=True)
+
 
 def load_draft_data():
     """Load draft data from test files. Returns empty list - test documents removed."""
@@ -50,13 +75,14 @@ def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_secon
     Returns: (pages, words) tuple
     Defaults to (1, 0) if calculation fails
 
-    Security features:
-    - File size limit (default 50MB)
-    - Processing timeout (default 30s)
-    - Safe error handling
+    Security: file size limit (default 50MB) to reduce memory exhaustion risk.
+
+    Note: SIGALRM-based timeouts were removed — Flask's threaded request workers
+    are not the main interpreter thread, so signal handlers raise and every
+    listing/detail ended up as (1, 0) words.
     """
+    del timeout_seconds  # retained for call-site compatibility
     try:
-        # Check file size (security: prevent memory exhaustion)
         file_size = os.path.getsize(file_path)
         max_size_bytes = max_size_mb * 1024 * 1024
         if file_size > max_size_bytes:
@@ -67,54 +93,155 @@ def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_secon
         words = 0
         pages = 1
 
-        def timeout_handler(signum, frame):
-            raise TimeoutError("File processing timeout")
+        if ext in ['.txt', '.xml', '.md', '.markdown']:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+            words = len(content.split())
+            pages = max(1, (words + 499) // 500)
 
-        # Set timeout alarm (if supported)
-        if hasattr(signal, 'SIGALRM'):
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(timeout_seconds)
+        elif ext == '.docx' and DOCX_SUPPORT:
+            doc = docx.Document(file_path)
+            content_parts = []
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    content_parts.append(paragraph.text)
+            content = '\n\n'.join(content_parts)
+            words = len(content.split())
+            pages = max(1, (words + 499) // 500)
 
-        try:
-            if ext in ['.txt', '.xml']:
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-                words = len(content.split())
-                pages = max(1, (words + 499) // 500)  # ~500 words per page
-
-            elif ext == '.docx' and DOCX_SUPPORT:
-                doc = docx.Document(file_path)
-                content_parts = []
-                for paragraph in doc.paragraphs:
-                    if paragraph.text.strip():
-                        content_parts.append(paragraph.text)
-                content = '\n\n'.join(content_parts)
-                words = len(content.split())
-                pages = max(1, (words + 499) // 500)
-
-            elif ext == '.pdf' and PDF_SUPPORT:
-                reader = PyPDF2.PdfReader(file_path)
-                content_parts = []
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text.strip():
-                        content_parts.append(text)
-                content = '\n\n'.join(content_parts)
-                words = len(content.split())
-                pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
-        finally:
-            # Cancel timeout alarm
-            if hasattr(signal, 'SIGALRM'):
-                signal.alarm(0)
+        elif ext == '.pdf' and PDF_SUPPORT:
+            reader = PyPDF2.PdfReader(file_path)
+            content_parts = []
+            for page in reader.pages:
+                text = page.extract_text()
+                if text.strip():
+                    content_parts.append(text)
+            content = '\n\n'.join(content_parts)
+            words = len(content.split())
+            pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
 
         return (pages, words)
 
-    except TimeoutError:
-        print(f"[WARNING] File processing timeout for {filename}")
-        return (1, 0)
     except Exception as e:
         print(f"[WARNING] Failed to calculate pages/words for {filename}: {e}")
         return (1, 0)  # Default fallback
+
+
+def revision_notes_to_safe_html(text) -> str:
+    """
+    Plain-text revision notes → safe HTML: blank-line boundaries become paragraphs;
+    single newlines inside a paragraph become <br />.
+    """
+    if text is None:
+        return ''
+    raw = str(text).strip()
+    if not raw:
+        return ''
+    normalized = raw.replace('\r\n', '\n').replace('\r', '\n')
+    blocks = [b.strip() for b in re.split(r'\n\s*\n', normalized) if b.strip()]
+    if not blocks:
+        return ''
+    parts = []
+    n = len(blocks)
+    for i, block in enumerate(blocks):
+        inner = escape(block).replace('\n', '<br />\n')
+        margin = 'mb-2' if i < n - 1 else 'mb-0'
+        parts.append(f'<p class="{margin}">{inner}</p>')
+    return ''.join(parts)
+
+
+def _config_upload_folder():
+    """UPLOAD_FOLDER from Flask config when in app context; else None."""
+    try:
+        from flask import current_app
+
+        return current_app.config.get('UPLOAD_FOLDER')
+    except RuntimeError:
+        return None
+
+
+def _resolve_submission_disk_path(file_path, filename, upload_folder):
+    """Use stored path if present; else try upload dir + basename (path drift on deploy)."""
+    if file_path and os.path.isfile(file_path):
+        return file_path
+    if upload_folder and filename:
+        cand = os.path.join(upload_folder, os.path.basename(filename))
+        if os.path.isfile(cand):
+            return cand
+    if upload_folder and file_path:
+        cand = os.path.join(upload_folder, os.path.basename(file_path))
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
+def _ordinal_text_word_page_count_from_url(url, ctype_raw):
+    """(pages, words) from an inscription content URL; None if not applicable or fetch fails."""
+    ctype = (ctype_raw or '').lower()
+    if not url or not ('text/' in ctype or 'application/json' in ctype):
+        return None
+    try:
+        import requests
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        r = requests.get(url, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return None
+        wc = len(r.text.split())
+        pc = max(1, (wc + 499) // 500)
+        return (pc, wc)
+    except Exception:
+        return None
+
+
+def _ordinal_text_word_page_count(submission):
+    """(pages, words) from ordinal URL for text/json inscriptions; None if not applicable or fetch fails."""
+    return _ordinal_text_word_page_count_from_url(
+        getattr(submission, 'ordinalContentUrl', None),
+        getattr(submission, 'ordinalContentType', None),
+    )
+
+
+def submission_file_pages_words(submission):
+    """
+    Pages/word count for UI: prefer calculating from upload file when possible;
+    for text ordinals with 0 words in DB, fetch inscription body (listing/detail).
+    """
+    if submission is None:
+        return 1, 0
+    st = (getattr(submission, 'sourceType', None) or 'file').strip().lower()
+    fp = getattr(submission, 'file_path', None) or None
+    fn = getattr(submission, 'filename', None) or None
+    try:
+        fallback_pages = max(1, int(submission.pages or 1))
+    except (TypeError, ValueError):
+        fallback_pages = 1
+    try:
+        fallback_words = int(submission.words or 0)
+    except (TypeError, ValueError):
+        fallback_words = 0
+
+    if st == 'file' and fn:
+        dbs = (getattr(submission, 'displayBodySource', None) or 'file').strip().lower()
+        if dbs == 'ordinal':
+            du = getattr(submission, 'displayOrdinalContentUrl', None)
+            dct = getattr(submission, 'displayOrdinalContentType', None)
+            got = _ordinal_text_word_page_count_from_url(du, dct)
+            if got:
+                return got
+        resolved = _resolve_submission_disk_path(fp, fn, _config_upload_folder())
+        if resolved:
+            pages, words = calculate_pages_and_words(resolved, fn)
+            return pages, words
+
+    if st == 'ordinal' and fallback_words == 0:
+        got = _ordinal_text_word_page_count(submission)
+        if got:
+            return got
+
+    return fallback_pages, fallback_words
 
 
 def toggle_comment_like(draft_name, comment_id, user):
@@ -144,42 +271,87 @@ def is_comment_liked(draft_name, comment_id, user):
 
 
 def is_user_following_draft(draft_name, user):
-    """Check if a user is following a specific draft."""
+    """Check if a user is following a specific draft (UserEventSubscription rows)."""
     if not user:
         return False
-    return UserFollow.query.filter_by(user_id=user['id'], draft_name=draft_name).first() is not None
+    return user_follows_draft(user['id'], draft_name)
 
 
-def get_user_follow(draft_name, user):
-    """Get the UserFollow object for a user and draft."""
-    if not user:
-        return None
-    return UserFollow.query.filter_by(user_id=user['id'], draft_name=draft_name).first()
-
-
-def get_notification_controls(draft_name, user):
-    """Generate HTML for notification level controls."""
+def render_draft_subscription_form_html(
+    draft_name,
+    user,
+    *,
+    compact=False,
+    next_url=None,
+    show_hub_link=True,
+):
+    """HTML for per-event in-app / email toggles; POST to /doc/draft/.../subscriptions/."""
     if not user:
         return ''
 
-    follow = get_user_follow(draft_name, user)
-    if not follow:
-        return ''
+    from html import escape
 
-    current_level = follow.notification_level
-    options = []
-    for level, description in UserFollow.NOTIFICATION_LEVELS.items():
-        selected = 'selected' if level == current_level else ''
-        options.append(f'<option value="{level}" {selected}>{description}</option>')
+    matrix = get_draft_subscription_matrix(user['id'], draft_name)
+    any_on = any(ia or em for ia, em in matrix.values())
+
+    rows_html = []
+    for et, label in DRAFT_SUBSCRIPTION_ROWS:
+        ia, em = matrix.get(et, (False, False))
+        ia_chk = ' checked' if ia else ''
+        em_chk = ' checked' if em else ''
+        rows_html.append(
+            f'<tr>'
+            f'<td class="small">{escape(label)}</td>'
+            f'<td class="text-center"><input type="checkbox" class="form-check-input" name="in_app_{escape(et)}" value="1"{ia_chk}></td>'
+            f'<td class="text-center"><input type="checkbox" class="form-check-input" name="email_{escape(et)}" value="1"{em_chk}></td>'
+            f'</tr>'
+        )
+
+    intro = (
+        '<p class="small text-muted mb-2">Choose which events notify you for this draft. Requires at least one channel on one row. '
+        'Email also needs account email opt-in under profile.</p>'
+        if not compact
+        else '<p class="small text-muted mb-2">Per-event in-app and email.</p>'
+    )
+    status = '<span class="badge bg-secondary mb-2">Not subscribed</span>' if not any_on else '<span class="badge bg-success mb-2">Subscribed</span>'
+    next_hidden = ''
+    if next_url:
+        next_hidden = f'<input type="hidden" name="next" value="{escape(next_url)}">'
+
+    wrap_cls = 'border-top pt-2 mt-2' if not compact else ''
+    heading = (
+        '<h6 class="text-muted mb-2"><i class="fas fa-bell me-1"></i>Notifications</h6>'
+        if not compact
+        else '<h6 class="text-muted mb-2 small">Events &amp; channels</h6>'
+    )
+    hub_link_html = (
+        '<p class="small text-muted mb-0"><a href="/notifications/">Open notifications hub</a></p>'
+        if show_hub_link
+        else ''
+    )
 
     return f'''
-    <form method="post" action="/doc/draft/{draft_name}/update-notification/" class="mt-2">
-        <label class="form-label small">Notification Level:</label>
-        <select name="notification_level" class="form-select form-select-sm mb-1">
-            {''.join(options)}
-        </select>
-        <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Update Notifications</button>
-    </form>
+    <div class="{wrap_cls}">
+        {heading}
+        {status}
+        {intro}
+        <form method="post" action="/doc/draft/{escape(draft_name)}/subscriptions/">
+            {next_hidden}
+            <div class="table-responsive">
+                <table class="table table-sm table-borderless mb-2 small">
+                    <thead><tr><th>Event</th><th class="text-center">In-app</th><th class="text-center">Email</th></tr></thead>
+                    <tbody>{''.join(rows_html)}</tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm w-100 mb-1"><i class="fas fa-save me-1"></i>Save subscriptions</button>
+        </form>
+        <form method="post" action="/doc/draft/{escape(draft_name)}/subscriptions/" class="mt-1">
+            {next_hidden}
+            <input type="hidden" name="clear_all" value="1">
+            <button type="submit" class="btn btn-outline-warning btn-sm w-100">Remove all for this draft</button>
+        </form>
+        {hub_link_html}
+    </div>
     '''
 
 

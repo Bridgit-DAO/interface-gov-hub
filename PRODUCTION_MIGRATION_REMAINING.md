@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Purpose:** Deploy the latest dev changes to production (post–Hypothesis migration).  
+**Purpose:** Deploy the latest dev changes to production.  
 **Scope:** Code only; no database schema changes.  
 **Target commit:** `259a9c6a8` (and any later dev commits before you run this).
 
@@ -16,15 +16,15 @@
   - Comments column (site document comments count).
   - Member column; “Coordinator for” renamed to “Coordinator”.
 - **UI / fixes**
-  - Navbar and dropdown z-index lowered so Hypothesis sidebar and user dropdown are visible and clickable (collapse on production, dropdown on dev).
-  - `hypothesis_config` fixes for People, Add as coordinator, and Meetings (use of `render_page()`).
+  - Navbar and dropdown z-index adjusted so the user dropdown stays usable (collapse on production, dropdown on dev).
+  - Consistent page wrapping via `render_page()` where applicable (People, Add as coordinator, Meetings).
 - **Script**
   - `simple-restart-production.sh` for restarting the production service.
 
 ## Pre-Migration Checklist
 
-- [ ] Dev is tested and acceptable (People search/filter, Role/Actions visibility, Hypothesis UI).
-- [ ] Production is currently stable on the previous deploy (e.g. Build 74 with Hypothesis).
+- [ ] Dev is tested and acceptable (People search/filter, Role/Actions visibility).
+- [ ] Production is currently stable on the previous deploy.
 - [ ] You have access to the production host and can run `git` and `systemctl --user` (or your production restart method).
 
 ## Migration Steps
@@ -62,7 +62,6 @@ git push origin main
 - [ ] Open production site (e.g. https://rfc.themetalayer.org).
 - [ ] Confirm build/version if shown (e.g. Build 74 or higher).
 - [ ] **People:** Open People, use search and workgroup filter; confirm Role only for editor/admin and “Add as coordinator” only for admin; check Comments column.
-- [ ] **Hypothesis:** On a document with annotations enabled, open Hypothesis sidebar and confirm the collapse control is visible and the user dropdown is not obscured by the navbar.
 
 ## Rollback
 
@@ -88,6 +87,6 @@ No DB migrations are required for this batch. All changes are in application cod
 | 1 | On production: `git fetch origin && git checkout main && git merge dev` |
 | 2 | Restart production: `./simple-restart-production.sh` (or your normal restart) |
 | 3 | Optionally push `main`: `git push origin main` |
-| 4 | Verify People page, Hypothesis sidebar/dropdown, and build |
+| 4 | Verify People page and build |
 
 Estimated time: about 5 minutes.

@@ -32,6 +32,7 @@ FEATURE_KEYS: List[str] = [
     'soft_launch',
     'votes',
     'artifacts',
+    'quests',
     'bridges',
     'opportunities',
 ]
@@ -327,9 +328,23 @@ def _path_needs_opportunities(p: str) -> bool:
     return False
 
 
+def _path_needs_quests(p: str) -> bool:
+    if p.startswith('/api/quests/'):
+        return True
+    if p.startswith('/api/guilds/') and '/quest-links/' in p:
+        return True
+    if p.startswith('/api/layers/') and '/quests/' in p:
+        return True
+    if p.startswith('/layers/') and '/quests/' in p:
+        return True
+    if p.startswith('/layer/') and '/quests/' in p:
+        return True
+    return False
+
+
 def _path_needs_artifacts(p: str) -> bool:
-    """Artifact/quest/monument/collection surfaces (not the opportunities sub-routes)."""
-    if _path_needs_opportunities(p):
+    """Artifact/monument/collection surfaces (quests and opportunities are separate)."""
+    if _path_needs_opportunities(p) or _path_needs_quests(p):
         return False
     if p == '/artifacts' or p.startswith('/artifacts/'):
         return True
@@ -339,7 +354,7 @@ def _path_needs_artifacts(p: str) -> bool:
         return True
     if p.startswith('/api/artifacts/'):
         return True
-    if p.startswith('/api/quests/') or p.startswith('/api/monuments/'):
+    if p.startswith('/api/monuments/'):
         return True
     if p.startswith('/api/knowledge-layer/'):
         return True
@@ -354,7 +369,6 @@ def _path_needs_artifacts(p: str) -> bool:
         for x in (
             '/artifacts/',
             '/artifact-relations/',
-            '/quests/',
             '/monuments/',
         )
     ):
@@ -399,6 +413,8 @@ def path_requires_feature_flags(path: str) -> set:
         need.add('bridges')
     if _path_needs_opportunities(p):
         need.add('opportunities')
+    if _path_needs_quests(p):
+        need.add('quests')
     if _path_needs_docs(p):
         need.add('docs')
     if _path_needs_waitlists(p):
@@ -419,6 +435,39 @@ def path_requires_feature_flags(path: str) -> set:
     if _path_needs_badges_api(p):
         need.add('badges')
     return need
+
+
+def _blocked_layer_list_json_response(path: str, feature: str):
+    """
+    For GET layer list APIs, return an empty collection instead of 403 so global
+    directories can aggregate across layers with per-layer features off.
+    """
+    from flask import jsonify, request
+
+    if request.method != 'GET':
+        return None
+    p = (path or '').split('?', 1)[0]
+    if not p.startswith('/api/layers/'):
+        return None
+    if feature == 'roles':
+        if p.endswith('/roles/'):
+            return jsonify({'roles': [], 'count': 0}), 200
+        if p.endswith('/clusters/'):
+            return jsonify({'clusters': [], 'count': 0}), 200
+        if p.endswith('/claims/'):
+            return jsonify({'claims': [], 'count': 0}), 200
+    if feature == 'workgroups' and p.endswith('/workgroups/'):
+        return jsonify({'workgroups': [], 'count': 0}), 200
+    if feature == 'waitlists' and p.endswith('/waitlists/'):
+        return jsonify({'waitlists': [], 'count': 0}), 200
+    if feature == 'guilds' and p.endswith('/guilds/'):
+        return jsonify({'guilds': [], 'count': 0}), 200
+    if feature == 'quests':
+        if p.endswith('/quests/'):
+            return jsonify({'quests': [], 'count': 0}), 200
+        if p.startswith('/api/guilds/') and p.endswith('/quest-links/'):
+            return jsonify({'links': []}), 200
+    return None
 
 
 def should_block_path_request(path: str, cfg: Dict[str, bool]) -> Optional[str]:
@@ -467,6 +516,9 @@ def apply_product_rollout_before_request() -> Any:
         return None
 
     if path.startswith('/api/') or request.headers.get('Accept', '').startswith('application/json'):
+        empty_list = _blocked_layer_list_json_response(path, blocked)
+        if empty_list is not None:
+            return empty_list
         return (
             jsonify(
                 {

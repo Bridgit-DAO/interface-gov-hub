@@ -247,7 +247,7 @@ Outcome:
 | `inquiry` | `what_is_unclear` (string), `status` (`open` \| `closed`) | What is unclear? / Status |
 | `principle` | `why_matters` (string) | Why does this matter? |
 | `model` | `key_assumptions` (string) | Key assumptions |
-| `conviction` | `why_believe` (string) | Why do you believe this? |
+| `claim` | `why_believe` (string) | Why do you believe this? |
 | `decision` | `what_resolves` (string), `status` (`draft` \| `final`) | What does this resolve? / Status |
 | `gloss` | `definition` (string) | Definition |
 | `scenario` | `actors_context` (string) | Actors / context |

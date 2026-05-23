@@ -1,0 +1,90 @@
+{
+  "lang": {
+    "en": "English",
+    "ar": "العربية",
+    "fr": "Français",
+    "pt": "Português",
+    "zh_Hans": "简体中文",
+    "ja": "日本語",
+    "ru": "Русский"
+  },
+  "page": {
+    "breadcrumb": {
+      "home": "ホーム",
+      "recognition": "認定",
+      "active": "Civic Mason"
+    },
+    "title": "Civic Mason",
+    "tagline": "Civic Mason バッジを持つコントリビューターは壁にレンガを残せます。"
+  },
+  "dev": {
+    "label": "開発のみ: Civic Mason ルール",
+    "demoSwitch": "デモモード — バッジ不要、配置無制限"
+  },
+  "a11y": {
+    "demoMode": "デモモード",
+    "close": "閉じる",
+    "loading": "読み込み中…",
+    "muralAlt": "Civic Mason 壁画",
+    "brickColors": "レンガの色",
+    "configureBrick": "レンガを設定",
+    "editBrick": "レンガを編集"
+  },
+  "ineligible": {
+    "loginTitle": "サインイン",
+    "loginBody": "Civic Mason の壁での配置オプションを表示するにはサインインしてください。",
+    "badgeTitle": "Civic Mason バッジを取得",
+    "badgeBody": "シビック参加で Civic Mason 対象バッジを取得すると、この壁に恒久的なレンガを置けます。",
+    "badgeButton": "バッジと取得方法を見る",
+    "yearTitle": "年に1レンガ",
+    "yearBody": "{{year}} 年（UTC）にはすでにレンガを置いています。{{nextYear}} 年に再度置けます。"
+  },
+  "config": {
+    "title": "レンガを設定",
+    "hint": "色を選び — ダブルクリックで確定して閉じます。",
+    "message": "メッセージ",
+    "optional": "（任意）",
+    "placeholder": "メッセージを残す…"
+  },
+  "edit": {
+    "title": "レンガを編集",
+    "hint": "色またはメッセージを更新し、承認 — またはこの配置をキャンセル。",
+    "cancelPlacement": "配置をキャンセル",
+    "accept": "承認"
+  },
+  "palette": {
+    "colorN": "色 {{n}}"
+  },
+  "toast": {
+    "placed": "レンガを配置しました。5秒以内にクリックで編集またはキャンセル。",
+    "placedAt": "レンガを ({{x}}, {{y}}) に配置",
+    "failedPlace": "レンガの配置に失敗しました",
+    "updated": "レンガを更新しました",
+    "removed": "レンガを削除しました",
+    "removeFailed": "レンガの削除に失敗しました",
+    "removeError": "レンガ削除中にエラー"
+  },
+  "grid": {
+    "loadError": "レンガを読み込めません。"
+  },
+  "brick": {
+    "anonymous": "匿名",
+    "unknown": "不明"
+  },
+  "api": {
+    "errors": {
+      "AUTHENTICATION_REQUIRED": "認証が必要です",
+      "BADGE_REQUIRED": "Civic Mason 対象バッジが必要です",
+      "ALREADY_PLACED_THIS_YEAR": "暦年につき1レンガのみ",
+      "NOT_OWNER": "所有者のみ実行できます",
+      "GRID_REQUIRED": "grid_x と grid_y が必要です",
+      "GRID_INVALID": "grid_x と grid_y は数値である必要があります",
+      "POSITION_OCCUPIED": "すでに占有されています",
+      "NO_SUPPORT_BELOW": "下に少なくとも1つレンガが必要です",
+      "ROW_FULL": "行が満杯です（最大12レンガ）",
+      "NOT_AVAILABLE": "利用不可",
+      "MESSAGE_REQUIRED": "メッセージが必要です",
+      "UNKNOWN": "問題が発生しました"
+    }
+  }
+}

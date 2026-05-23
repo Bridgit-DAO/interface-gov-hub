@@ -21,60 +21,67 @@ def workgroup_detail(workgroup_slug):
     current_user = get_current_user()
 
     content = f"""
-    <div class="container mt-4">
-        <div id="workgroup-header" class="mb-4">
-            <div class="d-flex justify-content-center py-5">
+    <div class="gh-page container mt-4">
+        <div id="workgroup-header" class="gh-detail-hero mb-0">
+            <div class="d-flex justify-content-center py-4">
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
             </div>
         </div>
 
-        <div class="row">
-            <div class="col-md-8">
-                <div class="card mb-4">
-                    <div class="card-header"><h5>About</h5></div>
-                    <div class="card-body" id="workgroup-about">
+        <div class="gh-detail-layout mt-4">
+            <div class="gh-detail-main">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-align-left"></i></div>
+                        <h5 class="living-module-title">About</h5>
+                    </div>
+                    <div class="living-module-body" id="workgroup-about">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
 
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">Chairs / Coordinators</h5>
-                            {'<button class="btn btn-sm btn-success" onclick="nominateForChair()" id="nominate-btn" style="display:none;"><i class="fas fa-star me-1"></i>Nominate for Chair</button>' if current_user else ''}
-                        </div>
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-star"></i></div>
+                        <h5 class="living-module-title">Chairs / Coordinators</h5>
+                        {'<button class="btn btn-sm btn-success ms-auto" onclick="nominateForChair()" id="nominate-btn" style="display:none;"><i class="fas fa-star me-1"></i>Nominate</button>' if current_user else ''}
                     </div>
-                    <div class="card-body" id="workgroup-chairs">
+                    <div class="living-module-body" id="workgroup-chairs">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="card-header">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">Members</h5>
-                            {'<button class="btn btn-sm btn-primary" onclick="joinWorkgroup()" id="join-btn" style="display:none;"><i class="fas fa-user-plus me-1"></i>Join</button>' if current_user else ''}
-                        </div>
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-users"></i></div>
+                        <h5 class="living-module-title">Members</h5>
+                        {'<button class="btn btn-sm btn-primary ms-auto" onclick="joinWorkgroup()" id="join-btn" style="display:none;"><i class="fas fa-user-plus me-1"></i>Join</button>' if current_user else ''}
                     </div>
-                    <div class="card-body" id="workgroup-members">
+                    <div class="living-module-body" id="workgroup-members">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-4">
-                <div class="card mb-4">
-                    <div class="card-header"><h5>Details</h5></div>
-                    <div class="card-body" id="workgroup-details">
+            <div class="gh-detail-sidebar">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-info-circle"></i></div>
+                        <h5 class="living-module-title">Details</h5>
+                    </div>
+                    <div class="living-module-body" id="workgroup-details">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="card-header"><h5>Charter & Goals</h5></div>
-                    <div class="card-body" id="workgroup-charter">
+                <div class="living-module">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-scroll"></i></div>
+                        <h5 class="living-module-title">Charter & Goals</h5>
+                    </div>
+                    <div class="living-module-body" id="workgroup-charter">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
                     </div>
                 </div>
@@ -172,36 +179,31 @@ def workgroup_detail(workgroup_slug):
     function displayWorkgroupHeader() {{
         const statusBadge = getStatusBadge(workgroup.status);
         const approvalBadge = getApprovalBadge(workgroup.approval_status);
-
-        // Use layer data if available, otherwise use workgroup's layer_name
         const projectSlug = project ? project.slug : '';
         const projectName = project ? project.name : (workgroup.layer_name || 'Layer');
-
-        document.getElementById('workgroup-header').innerHTML = `
-            <div class="row">
-                <div class="col-md-8">
-                    <nav aria-label="breadcrumb">
-                        <ol class="breadcrumb">
-                            <li class="breadcrumb-item"><a href="/layers/">Layers</a></li>
-                            ${{projectSlug ? `<li class="breadcrumb-item"><a href="/layers/${{projectSlug}}/">${{projectName}}</a></li>` : `<li class="breadcrumb-item">${{projectName}}</li>`}}
-                            <li class="breadcrumb-item active">${{workgroup.name}}</li>
-                        </ol>
-                    </nav>
-                    <h1>${{workgroup.name}}</h1>
-                    <div class="mb-3">
-                        ${{statusBadge}}
-                        ${{approvalBadge}}
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    ${{workgroup.image_url ? `<div class="card mb-3"><div class="card-body p-2 text-center"><img src="${{workgroup.image_url}}" alt="${{workgroup.name}}" class="img-fluid rounded" style="max-height: 200px;"></div></div>` : ''}}
-                    <div class="text-end">
-                        ${{workgroup.can_edit ? '<button type="button" class="btn btn-outline-secondary me-2" onclick="editWorkgroup()"><i class="fas fa-edit me-2"></i>Edit Workgroup</button>' : ''}}
-                        ${{projectSlug ? `<a href="/layers/${{projectSlug}}/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Layer</a>` : '<a href="/workgroups/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Workgroups</a>'}}
-                    </div>
-                </div>
-            </div>
-        `;
+        const bc = '<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb">' +
+            '<li class="breadcrumb-item"><a href="/layers/">Layers</a></li>' +
+            (projectSlug ? '<li class="breadcrumb-item"><a href="/layers/' + projectSlug + '/">' + projectName + '</a></li>' : '<li class="breadcrumb-item">' + projectName + '</li>') +
+            '<li class="breadcrumb-item active">' + (workgroup.name || '') + '</li></ol></nav>';
+        const mediaHtml = workgroup.image_url
+            ? '<div class="gh-detail-hero-media"><img src="' + workgroup.image_url + '" alt=""></div>'
+            : '<div class="gh-detail-hero-media"><i class="fas fa-users-cog fa-2x text-muted opacity-50"></i></div>';
+        const backBtn = projectSlug
+            ? '<a href="/layers/' + projectSlug + '/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-2"></i>Back</a>'
+            : '<a href="/workgroups/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-2"></i>Back</a>';
+        document.getElementById('workgroup-header').innerHTML =
+            '<div class="gh-detail-hero-inner">' +
+                mediaHtml +
+                '<div class="gh-detail-hero-body flex-grow-1">' +
+                    bc +
+                    '<h1>' + (workgroup.name || '') + '</h1>' +
+                    '<div class="mb-0">' + statusBadge + ' ' + approvalBadge + '</div>' +
+                '</div>' +
+                '<div class="gh-detail-hero-actions">' +
+                    (workgroup.can_edit ? '<button type="button" class="btn btn-secondary btn-sm" onclick="editWorkgroup()"><i class="fas fa-edit me-2"></i>Edit</button>' : '') +
+                    backBtn +
+                '</div>' +
+            '</div>';
     }}
 
     function displayWorkgroupAbout() {{

@@ -72,6 +72,11 @@ def render_layer_artifact_editor_and_collections(
                                 <p class="small text-muted mb-0">Helps others understand how to engage with this contribution.</p>
                             </div>
                             <div class="mb-2" id="la-kl-scaffold-wrap" style="display:none;"></div>
+                            <div class="mb-2 border-top pt-2" id="la-tags-wrap" style="display:none;">
+                                <label class="form-label">Tags <span class="text-muted">(optional)</span></label>
+                                <input type="text" class="form-control" id="la-artifact-tags" placeholder="governance, climate-policy (comma-separated)">
+                                <p class="small text-muted mb-0">Up to 10 tags per artifact. New labels are created for this layer.</p>
+                            </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -108,7 +113,7 @@ def render_layer_artifact_editor_and_collections(
                     inquiry: [{{k:'what_is_unclear',l:'What is unclear?',t:'ta'}},{{k:'status',l:'Status',t:'sel',o:['open','closed']}}],
                     principle: [{{k:'why_matters',l:'Why does this matter?',t:'ta'}}],
                     model: [{{k:'key_assumptions',l:'Key assumptions',t:'ta'}}],
-                    conviction: [{{k:'why_believe',l:'Why do you believe this?',t:'ta'}}],
+                    claim: [{{k:'why_believe',l:'Why do you believe this?',t:'ta'}}],
                     decision: [{{k:'what_resolves',l:'What does this resolve?',t:'ta'}},{{k:'status',l:'Status',t:'sel',o:['draft','final']}}],
                     gloss: [{{k:'definition',l:'Definition',t:'ta'}}],
                     scenario: [{{k:'actors_context',l:'Actors / context',t:'ta'}}]
@@ -205,7 +210,21 @@ def render_layer_artifact_editor_and_collections(
                             p.knowledge_scaffold = laCollectScaffold(vf);
                         }}
                     }}
+                    if (klSchema && klSchema.feature_flags && klSchema.feature_flags.artifact_tags_enabled) {{
+                        const tagEl = document.getElementById('la-artifact-tags');
+                        const raw = tagEl ? tagEl.value.trim() : '';
+                        p.tag_slugs = raw ? raw.split(/[,\\s]+/).map(function(s) {{ return s.trim(); }}).filter(Boolean) : [];
+                    }}
                     return p;
+                }}
+                function laRebuildTags() {{
+                    const wrap = document.getElementById('la-tags-wrap');
+                    if (!wrap) return;
+                    if (!klSchema || !klSchema.feature_flags || !klSchema.feature_flags.artifact_tags_enabled) {{
+                        wrap.style.display = 'none';
+                        return;
+                    }}
+                    wrap.style.display = 'block';
                 }}
                 function laSetFields(art) {{
                     for (const f of fields) {{
@@ -215,9 +234,17 @@ def render_layer_artifact_editor_and_collections(
                     window.__laScaffoldData = art.knowledge_scaffold || null;
                     laRebuildContribution();
                     const kls = document.getElementById('la-kl-contribution-type');
-                    if (kls && art.knowledge_form && [...kls.options].some(function(o){{return o.value===art.knowledge_form;}})) kls.value = art.knowledge_form;
+                    var kf = art.knowledge_form;
+                    if (kf === 'conviction') kf = 'claim';
+                    if (kls && kf && [...kls.options].some(function(o){{return o.value===kf;}})) kls.value = kf;
                     else if (kls) kls.value = '';
                     laRenderScaffold();
+                    laRebuildTags();
+                    const tagEl = document.getElementById('la-artifact-tags');
+                    if (tagEl) {{
+                        const tags = art.tags || [];
+                        tagEl.value = tags.map(function(t) {{ return t.slug || t.label || ''; }}).filter(Boolean).join(', ');
+                    }}
                 }}
                 document.getElementById('la-artifact-type').addEventListener('change', function() {{
                     laRebuildContribution();
@@ -230,6 +257,7 @@ def render_layer_artifact_editor_and_collections(
                 }});
                 document.getElementById('layerArtifactModal').addEventListener('show.bs.modal', async function() {{
                     await ensureKlSchema();
+                    laRebuildTags();
                     try {{
                         const r = await fetch('/api/artifacts/' + aid + '/', {{credentials:'same-origin'}});
                         const d = await r.json();

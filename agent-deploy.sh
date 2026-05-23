@@ -30,6 +30,13 @@ if [ "$ENV" == "development" ]; then
     SERVICE_NAME="datatracker-dev.service"
 fi
 
+agent_status "Updating build number..."
+if [ -x "$SCRIPT_DIR/scripts/update_build_number.sh" ]; then
+    "$SCRIPT_DIR/scripts/update_build_number.sh" "$ENV" || true
+elif [ -f "$SCRIPT_DIR/scripts/update_build_number.sh" ]; then
+    bash "$SCRIPT_DIR/scripts/update_build_number.sh" "$ENV" || true
+fi
+
 agent_status "Stopping service..."
 systemctl --user stop "$SERVICE_NAME" 2>&1 || true
 sleep 2

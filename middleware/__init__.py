@@ -1,5 +1,8 @@
 """Request/response middleware: script name, deployment safety, security headers, layer resolution."""
-from flask import request, g, jsonify
+import re
+import secrets
+
+from flask import request, g, jsonify, session, current_app
 
 from models import Layer
 from services.utils import _is_uuid_like
@@ -25,6 +28,47 @@ DEFAULT_CSP = (
     "img-src 'self' data: https: http: blob:; "
     "font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com https:;"
 )
+
+UNSAFE_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
+CSRF_EXEMPT_PREFIXES = ('/api/', '/_deploy/', '/auth/', '/static/')
+CSRF_FIELD_RE = re.compile(
+    r'(<form\b(?=[^>]*\bmethod=["\']?post["\']?)[^>]*>)',
+    flags=re.IGNORECASE,
+)
+
+
+def _csrf_token():
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_csrf_token'] = token
+    return token
+
+
+def _csrf_exempt_path(path):
+    return any((path or '').startswith(prefix) for prefix in CSRF_EXEMPT_PREFIXES)
+
+
+def _request_looks_like_browser_form():
+    ctype = (request.content_type or '').split(';', 1)[0].strip().lower()
+    return ctype in ('application/x-www-form-urlencoded', 'multipart/form-data')
+
+
+def _inject_csrf_inputs(response):
+    if response.direct_passthrough:
+        return response
+    ctype = (response.content_type or '').lower()
+    if 'text/html' not in ctype:
+        return response
+    body = response.get_data(as_text=True)
+    if '<form' not in body.lower():
+        return response
+    token_input = (
+        f'<input type="hidden" name="csrf_token" value="{_csrf_token()}">'
+    )
+    body = CSRF_FIELD_RE.sub(lambda m: m.group(1) + token_input, body)
+    response.set_data(body)
+    return response
 
 
 def register_request_handlers(app, deployment_mode=False, base_domain='themetalayer.org', reserved_subdomains=None, base_domains=None):
@@ -55,6 +99,23 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
             print(f"🚨 BLOCKED {request.method} {request.path} - Deployment mode active")
             return jsonify({'error': 'Data modifications disabled during deployment'}), 403
 
+    @app.before_request
+    def csrf_form_check():
+        """Protect browser form submissions without disrupting JSON APIs."""
+        if current_app.config.get('TESTING'):
+            return None
+        if request.method not in UNSAFE_METHODS:
+            return None
+        if _csrf_exempt_path(request.path):
+            return None
+        if not _request_looks_like_browser_form():
+            return None
+        expected = session.get('_csrf_token')
+        supplied = request.form.get('csrf_token') or request.headers.get('X-CSRFToken')
+        if not expected or not supplied or not secrets.compare_digest(expected, supplied):
+            return jsonify({'error': 'Invalid CSRF token'}), 400
+        return None
+
     @app.after_request
     def add_security_headers(response):
         """Add security headers including CSP for inline scripts"""
@@ -62,11 +123,31 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
             response.headers['Content-Security-Policy'] = EMBED_CSP
         else:
             response.headers['Content-Security-Policy'] = DEFAULT_CSP
-        return response
+        if request.is_secure:
+            response.headers.setdefault(
+                'Strict-Transport-Security',
+                'max-age=63072000; includeSubDomains; preload',
+            )
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+        response.headers.setdefault(
+            'Permissions-Policy',
+            'camera=(), microphone=(), geolocation=()',
+        )
+        if request.path.startswith('/embed/'):
+            response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+        else:
+            response.headers.setdefault('X-Frame-Options', 'DENY')
+        return _inject_csrf_inputs(response)
 
     @app.before_request
     def _resolve_layer():
         _do_resolve_layer_from_host(base_domain, reserved_subdomains, base_domains)
+
+    @app.before_request
+    def _product_rollout():
+        from services.product_rollout import apply_product_rollout_before_request
+        return apply_product_rollout_before_request()
 
 
 def _do_resolve_layer_from_host(base_domain='themetalayer.org', reserved_subdomains=None, base_domains=None):

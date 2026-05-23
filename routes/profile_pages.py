@@ -10,6 +10,7 @@ from models import User, Workgroup, Submission, Comment, LayerMember, UserLinked
 
 from services.identity import get_current_user, require_auth, get_or_create_referral_code
 from services.avatar import get_avatar_url
+from services.directory_ui import gh_page_open, gh_page_close, gh_page_header
 
 bp = Blueprint('profile_pages', __name__, url_prefix='')
 
@@ -267,7 +268,7 @@ def user_profile(username):
     </div>
 
     <!-- Profile Header -->
-    <div class="container">
+    <div class="gh-page gh-profile-page container">
         <div class="profile-header">
             <div class="row">
                 <div class="col-md-8">
@@ -567,17 +568,17 @@ def profile_edit():
     ]
 
     content = f"""
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-md-8 mx-auto">
-                <h1>Edit Profile</h1>
-                <p class="text-muted">Update your profile information</p>
+    {gh_page_open()}
+    {gh_page_header('Edit Profile', 'Update your profile information', 'fa-user-edit')}
+    <div class="row">
+        <div class="col-lg-8 mx-auto">
 
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Profile Images</h5>
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-image"></i></div>
+                        <h5 class="living-module-title">Profile images</h5>
                     </div>
-                    <div class="card-body">
+                    <div class="living-module-body">
                         <div class="row">
                             <div class="col-md-6">
                                 <label class="form-label">Profile Picture</label>
@@ -628,11 +629,12 @@ def profile_edit():
                     </div>
                 </div>
 
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Basic Information</h5>
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-id-card"></i></div>
+                        <h5 class="living-module-title">Basic information</h5>
                     </div>
-                    <div class="card-body">
+                    <div class="living-module-body">
                         <form id="profile-form">
                             <div class="mb-3">
                                 <label for="headline" class="form-label">Headline</label>
@@ -661,21 +663,34 @@ def profile_edit():
                     </div>
                 </div>
 
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Connected Accounts</h5>
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-bell"></i></div>
+                        <h5 class="living-module-title">Notifications</h5>
                     </div>
-                    <div class="card-body">
+                    <div class="living-module-body">
+                        <p class="text-muted small mb-2">In-app feed, per-draft subscriptions, and email channels (requires email opt-in).</p>
+                        <a href="/notifications/" class="btn btn-outline-primary btn-sm"><i class="fas fa-bell me-1"></i>Open notifications hub</a>
+                    </div>
+                </div>
+
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-link"></i></div>
+                        <h5 class="living-module-title">Connected accounts</h5>
+                    </div>
+                    <div class="living-module-body">
                         <p class="text-muted small mb-3">Connect your accounts to show them on your profile. Use 32×32 or larger icons.</p>
                         {connected_html}
                     </div>
                 </div>
 
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Social Links</h5>
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-share-alt"></i></div>
+                        <h5 class="living-module-title">Social links</h5>
                     </div>
-                    <div class="card-body">
+                    <div class="living-module-body">
                         <p class="text-muted small mb-3">Add links to your website or other profiles.</p>
                         <div id="social-links-container">
                             {_render_social_link_inputs(platforms, social_links)}
@@ -693,7 +708,7 @@ def profile_edit():
                 </div>
             </div>
         </div>
-    </div>
+    {gh_page_close()}
 
     <script>
     function previewImage(input, previewId) {{

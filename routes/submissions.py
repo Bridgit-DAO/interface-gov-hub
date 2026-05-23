@@ -13,6 +13,7 @@ from models import Submission, Layer
 from services.identity import get_current_user, require_auth, require_role
 from services.submissions import get_submission_by_ref, add_to_document_history, get_next_ml_number
 from services.documents import load_draft_data, revision_notes_to_safe_html
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 from services.ordinals import (
     shorten_inscription_id,
     looks_like_html_inscription,
@@ -44,8 +45,8 @@ def _strip_immortalize_from_submit_template(template: str) -> str:
 # ---------------------------------------------------------------------------
 
 SUBMISSION_STATUS_TEMPLATE = """
-<div class="container mt-4">
-    <nav aria-label="breadcrumb">
+<div class="gh-page container mt-4">
+    <nav aria-label="breadcrumb" class="gh-detail-breadcrumb mb-3">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{{ home_url }}">Home</a></li>
             <li class="breadcrumb-item"><a href="{{ submit_url }}">Submit Draft</a></li>
@@ -53,23 +54,31 @@ SUBMISSION_STATUS_TEMPLATE = """
         </ol>
     </nav>
 
-    <h1>{{ status_page_heading }}</h1>
-    <p class="lead">Track your Internet-Draft submission</p>
+    <header class="gh-page-header">
+        <div class="gh-page-header-main">
+            <div class="gh-page-header-icon"><i class="fas fa-clipboard-check"></i></div>
+            <div>
+                <h1 class="gh-page-title">{{ status_page_heading }}</h1>
+                <p class="gh-page-lead">Track your Internet-Draft submission</p>
+            </div>
+        </div>
+    </header>
 
     <div id="flash-messages"></div>
 
     <div class="row">
         <div class="col-md-8">
-            <div class="card">
-                <div class="card-header">
-                    <h5>
+            <div class="living-module mb-4">
+                <div class="living-module-header">
+                    <div class="living-module-icon"><i class="fas fa-file-alt"></i></div>
+                    <h5 class="living-module-title">
                         Submission Details
                         {% if is_revision %}
                         <span class="badge bg-success ms-2">Revision {{ revision_number }}</span>
                         {% endif %}
                     </h5>
                 </div>
-                <div class="card-body">
+                <div class="living-module-body">
                     <div class="row mb-3">
                         <div class="col-sm-3"><strong>Submission ID:</strong></div>
                         <div class="col-sm-9"><code>{{ submission.id }}</code></div>
@@ -768,23 +777,11 @@ def submit_revision(draft_name):
 
     draft_detail_url = url_for('documents.draft_detail', draft_name=draft_name)
     revision_form = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="{url_for('pages.home')}">Home</a></li>
-                <li class="breadcrumb-item"><a href="{draft_detail_url}">{display_id}</a></li>
-                <li class="breadcrumb-item active">Submit Revision</li>
-            </ol>
-        </nav>
+    <div class="gh-page container mt-4">
+        {gh_breadcrumb([('Home', url_for('pages.home')), (display_id, draft_detail_url), ('Submit Revision', None)])}
+        {gh_page_header('Submit New Revision', f'Submit a new revision of {display_id} (rev {draft.get("rev", "00")} → {new_rev})', 'fa-code-branch')}
 
-        <h1>Submit New Revision</h1>
-        <p class="lead">Submit a new revision of {display_id}</p>
-
-        <div class="alert alert-info">
-            <i class="fas fa-info-circle me-2"></i>
-            <strong>Current Revision:</strong> {draft.get('rev', '00')} → <strong>New Revision:</strong> {new_rev}
-        </div>
-
+        {gh_living_module('Revision form', f'''
         <form method="POST" enctype="multipart/form-data" id="revisionForm">
             <div class="mb-3">
                 <label class="form-label">Draft Name</label>
@@ -885,6 +882,7 @@ def submit_revision(draft_name):
                 <a href="{draft_detail_url}" class="btn btn-secondary btn-lg ms-2">Cancel</a>
             </div>
         </form>
+        ''', 'fa-edit')}
     </div>
 
     <script>
@@ -1069,18 +1067,9 @@ def submission_status():
     submit_url = url_for('submissions.submit_draft')
     doc_all_url = url_for('documents.all_documents')
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="{home_url}">Home</a></li>
-                <li class="breadcrumb-item"><a href="{submit_url}">Submit Draft</a></li>
-                <li class="breadcrumb-item active">My Submissions</li>
-            </ol>
-        </nav>
-
-        <h1>My Submissions</h1>
-
-        {f'<div class="alert alert-info">You have {len(submissions)} submission(s).</div>' if submissions else '<div class="alert alert-info">You have no submissions yet.</div>'}
+    <div class="gh-page container mt-4">
+        {gh_breadcrumb([('Home', home_url), ('Submit Draft', submit_url), ('My Submissions', None)])}
+        {gh_page_header('My Submissions', f'You have {len(submissions)} submission(s)' if submissions else 'No submissions yet', 'fa-inbox', actions_html=f'<a href="{submit_url}" class="btn btn-primary btn-sm">Submit draft</a>')}
 
         {submissions_html}
 
@@ -1680,22 +1669,8 @@ def admin_submissions():
     """
 
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/admin/">Admin Dashboard</a></li>
-                <li class="breadcrumb-item active">Submission Management</li>
-            </ol>
-        </nav>
-
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1>Submission Management</h1>
-            <div>
-                <select class="form-select form-select-sm" onchange="changeStatusFilter(this.value)">
-                    {status_options}
-                </select>
-            </div>
-        </div>
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('Submission Management', 'Review and moderate draft submissions', 'fa-file-alt', actions_html=f'<select class="form-select form-select-sm" onchange="changeStatusFilter(this.value)">{status_options}</select>', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Submission Management', None)]))}
 
         <div class="row mb-4">
             <div class="col-md-3">

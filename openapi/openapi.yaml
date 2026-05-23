@@ -1,0 +1,630 @@
+openapi: 3.0.3
+info:
+  title: Gov-Hub API
+  description: |
+    HTTP JSON API for Gov-Hub-Dev. Session-authenticated browser clients use cookie auth.
+    See docs/GOV_HUB_ACCESS_SSOT_AND_OPENAPI.md for access-control enums and schema SSOT notes.
+
+    **Status:** Partial coverage — expand paths/components as routes stabilize; treat undocumented endpoints as unstable.
+  version: 0.1.0
+
+servers:
+  - url: /
+    description: Same origin as the web app
+
+tags:
+  - name: guilds
+    description: Guilds, members, invitations, layer/artifact/quest links
+  - name: layers
+    description: Layers (projects) and layer-scoped resources
+  - name: artifacts
+    description: Artifacts and related links
+
+security:
+  - cookieAuth: []
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Flask session cookie (adjust `name` if SESSION_COOKIE_NAME differs in config)
+
+  schemas:
+    ErrorMessage:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    ListingVisibility:
+      type: string
+      description: Who may discover listing metadata (not yet enforced on all routes — see target model in docs).
+      enum: [public, private]
+
+    JoinPolicyLayerGuild:
+      type: string
+      description: How users become layer or guild members (target model).
+      enum: [open, by_invitation]
+
+    JoinPolicyQuest:
+      type: string
+      description: Who may participate in a quest (target model).
+      enum: [open, open_to_layer, open_to_guild, by_invitation]
+
+    GuildSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        image_url:
+          type: string
+          nullable: true
+        members_count:
+          type: integer
+          nullable: true
+
+    Guild:
+      allOf:
+        - $ref: '#/components/schemas/GuildSummary'
+        - type: object
+          properties:
+            initiator_id:
+              type: string
+            initiator_name:
+              type: string
+              nullable: true
+            description:
+              type: string
+              nullable: true
+            status:
+              type: string
+              example: active
+            created_at:
+              type: string
+              format: date-time
+              nullable: true
+            updated_at:
+              type: string
+              format: date-time
+              nullable: true
+            listing_visibility:
+              $ref: '#/components/schemas/ListingVisibility'
+            join_policy:
+              $ref: '#/components/schemas/JoinPolicyLayerGuild'
+
+    GuildLayerLink:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        guild_id:
+          type: string
+          format: uuid
+        layer_id:
+          type: string
+          format: uuid
+        created_by_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        guild:
+          $ref: '#/components/schemas/GuildSummary'
+
+    GuildListResponse:
+      type: object
+      properties:
+        guilds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Guild'
+        count:
+          type: integer
+
+    LayerGuildLinksResponse:
+      type: object
+      properties:
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/GuildLayerLink'
+        count:
+          type: integer
+
+    AttachGuildToLayerRequest:
+      type: object
+      required: [guild_id]
+      properties:
+        guild_id:
+          type: string
+          format: uuid
+
+    GuildInvitationPreview:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        guild:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            slug:
+              type: string
+        invitee_email_masked:
+          type: string
+
+    GuildQuestLink:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        guild_id:
+          type: string
+          format: uuid
+        quest_id:
+          type: string
+          format: uuid
+        link_type:
+          type: string
+          enum: [sponsor, steward, review]
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        quest:
+          type: object
+          additionalProperties: true
+
+    GuildQuestLinksResponse:
+      type: object
+      properties:
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/GuildQuestLink'
+
+    CreateGuildQuestLinkRequest:
+      type: object
+      required: [quest_id, link_type]
+      properties:
+        quest_id:
+          type: string
+          format: uuid
+        link_type:
+          type: string
+          enum: [sponsor, steward, review]
+
+    Quest:
+      type: object
+      description: Layer-scoped quest with access-control fields (v1)
+      properties:
+        id:
+          type: string
+          format: uuid
+        public_id:
+          type: string
+          format: uuid
+        layer_id:
+          type: string
+          format: uuid
+        creator_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        quest_type:
+          type: string
+        difficulty:
+          type: string
+        status:
+          type: string
+          enum: [open, closed, completed]
+        acceptance_criteria:
+          type: string
+          nullable: true
+        due_date:
+          type: string
+          format: date-time
+          nullable: true
+        listing_visibility:
+          $ref: '#/components/schemas/ListingVisibility'
+        join_policy:
+          $ref: '#/components/schemas/JoinPolicyQuest'
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+paths:
+  /api/guilds/:
+    get:
+      tags: [guilds]
+      summary: List guilds
+      security: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuildListResponse'
+    post:
+      tags: [guilds]
+      summary: Create guild
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  guild:
+                    $ref: '#/components/schemas/Guild'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+
+  /api/guilds/by-slug/{slug}/:
+    get:
+      tags: [guilds]
+      summary: Get guild by slug
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Guild detail
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+
+  /api/guilds/invitations/by-token/{token}/:
+    get:
+      tags: [guilds]
+      summary: Preview guild invitation (public)
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuildInvitationPreview'
+        '404':
+          description: Invalid invitation
+        '410':
+          description: Expired invitation
+
+  /api/guilds/invitations/by-token/{token}/accept/:
+    post:
+      tags: [guilds]
+      summary: Accept guild invitation
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Accepted
+        '401':
+          description: Must be logged in as invitee
+        '404':
+          description: Invalid invitation
+
+  /api/layers/{layer_id}/guilds/:
+    get:
+      tags: [layers]
+      summary: List guilds linked to a layer
+      security: []
+      parameters:
+        - name: layer_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Layer UUID or slug
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LayerGuildLinksResponse'
+        '404':
+          description: Layer not found
+    post:
+      tags: [layers]
+      summary: Attach guild to layer
+      parameters:
+        - name: layer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachGuildToLayerRequest'
+      responses:
+        '201':
+          description: Link created
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Layer or guild not found
+
+  /api/layers/{layer_id}/guilds/{guild_id}/:
+    delete:
+      tags: [layers]
+      summary: Remove guild–layer link
+      parameters:
+        - name: layer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: guild_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Removed
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+
+  /api/guilds/{guild_id}/quest-links/:
+    get:
+      tags: [guilds]
+      summary: List quest links for a guild
+      parameters:
+        - name: guild_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuildQuestLinksResponse'
+    post:
+      tags: [guilds]
+      summary: Attach quest to guild
+      parameters:
+        - name: guild_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGuildQuestLinkRequest'
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /api/guilds/{guild_id}/quest-links/{quest_id}/:
+    delete:
+      tags: [guilds]
+      summary: Remove guild–quest link
+      parameters:
+        - name: guild_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: quest_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: link_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [sponsor, steward, review]
+      responses:
+        '200':
+          description: Removed
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /api/quests/{quest_id}/:
+    patch:
+      tags: [artifacts]
+      summary: Update quest (layer admin or quest creator)
+      parameters:
+        - name: quest_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                quest_type:
+                  type: string
+                difficulty:
+                  type: string
+                status:
+                  type: string
+                  enum: [open, closed, completed]
+                acceptance_criteria:
+                  type: string
+                listing_visibility:
+                  $ref: '#/components/schemas/ListingVisibility'
+                join_policy:
+                  $ref: '#/components/schemas/JoinPolicyQuest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  quest:
+                    $ref: '#/components/schemas/Quest'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+
+  /api/artifacts/{artifact_id}/guild-links/:
+    get:
+      tags: [artifacts]
+      summary: List guilds linked to an artifact
+      security: []
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  links:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+
+  /api/quests/{quest_id}/guild-links/:
+    get:
+      tags: [artifacts]
+      summary: List guilds linked to a quest
+      security: []
+      parameters:
+        - name: quest_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  links:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true

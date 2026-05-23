@@ -12,6 +12,7 @@ from extensions import db
 from models import Submission, SiteConfig, InscriptionOrder
 from services.ordinals import process_ordinal_markdown
 from services.identity import require_auth
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('ordinals', __name__, url_prefix='/api')
 bp_pages = Blueprint('ordinals_pages', __name__, url_prefix='')
@@ -515,27 +516,20 @@ def immortalize_success(order_id):
     title = order.title or 'Untitled'
     authors_str = ', '.join(order.authors) if order.authors else ''
 
+    order_module = gh_living_module(
+        'Order details',
+        f'<h5 class="mb-3">{title}</h5>'
+        f'<p class="mb-1"><strong>Authors:</strong> {authors_str}</p>'
+        f'<p class="mb-1"><strong>Order ID:</strong> <code>{order_id}</code></p>'
+        f'<p class="mb-0"><strong>Status:</strong> <span id="orderStatus">{order.status}</span></p>',
+        'fa-receipt',
+    )
     content = f'''
-<div class="container mt-4">
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="/">Home</a></li>
-            <li class="breadcrumb-item"><a href="/submit/">Submit</a></li>
-            <li class="breadcrumb-item active">Order Confirmed</li>
-        </ol>
-    </nav>
-    <h2>Order Submitted</h2>
-    <div class="alert alert-info"><span class="badge bg-warning">Inscription Pending</span> Times to receive may vary.</div>
-    <div class="card mb-3">
-        <div class="card-body">
-            <h5>{title}</h5>
-            <p class="mb-1"><strong>Authors:</strong> {authors_str}</p>
-            <p class="mb-1"><strong>Order ID:</strong> <code>{order_id}</code></p>
-            <p class="mb-0"><strong>Status:</strong> <span id="orderStatus">{order.status}</span></p>
-        </div>
-    </div>
+<div class="gh-page container mt-4">
+    {gh_page_header('Order Confirmed', title, 'fa-check-circle', actions_html='<a href="/submit/" class="btn btn-primary btn-sm">Back to Submit</a>', breadcrumb_html=gh_breadcrumb([('Home', '/'), ('Submit', '/submit/'), ('Order Confirmed', None)]))}
+    <div class="alert alert-info mb-3"><span class="badge bg-warning">Inscription Pending</span> Times to receive may vary.</div>
+    {order_module}
     <div id="statusPoll"></div>
-    <a href="/submit/" class="btn btn-primary">Back to Submit</a>
 </div>
 <script>
 (function() {{
@@ -562,5 +556,4 @@ def immortalize_success(order_id):
         user_menu=user_menu,
         content=content,
         build_number=BUILD_NUMBER,
-        hypothesis_config=""
     )

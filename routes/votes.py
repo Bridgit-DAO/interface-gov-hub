@@ -14,6 +14,7 @@ from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin, close_vote, _election_candidates_ordered
 from services.submissions import get_submission_by_ref
 from services.events import emit_event
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('votes', __name__, url_prefix='/api')
 bp_pages = Blueprint('votes_pages', __name__, url_prefix='')
@@ -618,29 +619,37 @@ def vote_detail(vote_public_id):
     else:
         role_or_draft_line = ''
 
+    seats_line = (
+        f'<p><strong>Seats:</strong> Elect up to {vote.seats} winner(s)</p>'
+        if is_election and getattr(vote, 'seats', 1) > 1 else ''
+    )
+    vote_details_body = (
+        f'<p><strong>Status:</strong> <span class="badge bg-{status_color}">{vote.status.upper()}</span></p>'
+        f'{result_html}'
+        f'<p><strong>Layer:</strong> <a href="{layer_url}">{project.name}</a></p>'
+        f'{role_or_draft_line}'
+        f'<p><strong>Start:</strong> {vote.start_at.strftime("%Y-%m-%d %H:%M UTC")}</p>'
+        f'<p><strong>End:</strong> {vote.end_at.strftime("%Y-%m-%d %H:%M UTC")}</p>'
+        f'<p><strong>Quorum Required:</strong> {vote.quorum_count} votes</p>'
+        f'<p><strong>Win Threshold:</strong> {int(vote.win_threshold * 100)}%</p>'
+        f'{seats_line}'
+    )
+    vote_details_module = gh_living_module('Vote Details', vote_details_body, 'fa-info-circle')
+    participation_module = gh_living_module(
+        'Participation',
+        f'<p><strong>Eligible Voters:</strong> {eligible_count}</p>'
+        f'<p><strong>Ballots Cast:</strong> {ballot_count}</p>'
+        f'{user_status_html}',
+        'fa-users',
+    )
+
     content = f'''
-    <div class="container mt-4">
+    <div class="gh-page container mt-4">
+        {gh_page_header(html_mod.escape(vote.title), vote.description or '', 'fa-vote-yea', breadcrumb_html=gh_breadcrumb([('Home', '/'), (project.name, layer_url), (vote.title, None)]))}
+        <div class="gh-detail-layout">
         <div class="row">
             <div class="col-md-8">
-                <h1>{vote.title}</h1>
-                <p class="lead">{vote.description or ''}</p>
-
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h5>Vote Details</h5>
-                    </div>
-                    <div class="card-body">
-                        <p><strong>Status:</strong> <span class="badge bg-{status_color}">{vote.status.upper()}</span></p>
-                        {result_html}
-                        <p><strong>Layer:</strong> <a href="{layer_url}">{project.name}</a></p>
-                        {role_or_draft_line}
-                        <p><strong>Start:</strong> {vote.start_at.strftime('%Y-%m-%d %H:%M UTC')}</p>
-                        <p><strong>End:</strong> {vote.end_at.strftime('%Y-%m-%d %H:%M UTC')}</p>
-                        <p><strong>Quorum Required:</strong> {vote.quorum_count} votes</p>
-                        <p><strong>Win Threshold:</strong> {int(vote.win_threshold * 100)}%</p>
-                        {f'<p><strong>Seats:</strong> Elect up to {vote.seats} winner(s)</p>' if is_election and getattr(vote, 'seats', 1) > 1 else ''}
-                    </div>
-                </div>
+                {vote_details_module}
 
                 {run_for_role_html}
                 {withdraw_for_role_html}
@@ -649,17 +658,9 @@ def vote_detail(vote_public_id):
             </div>
 
             <div class="col-md-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5>Participation</h5>
-                    </div>
-                    <div class="card-body">
-                        <p><strong>Eligible Voters:</strong> {eligible_count}</p>
-                        <p><strong>Ballots Cast:</strong> {ballot_count}</p>
-                        {user_status_html}
-                    </div>
-                </div>
+                {participation_module}
             </div>
+        </div>
         </div>
     </div>
 
@@ -735,4 +736,4 @@ def vote_detail(vote_public_id):
     </script>
     '''
 
-    return _format_base_template(title=f"Vote: {vote.title}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER, hypothesis_config="")
+    return _format_base_template(title=f"Vote: {vote.title}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)

@@ -164,7 +164,6 @@ def run_migration(db_path, dry_run=False, phase='all'):
                     ('vote_eligibility_snapshot', 'person_id'),
                     ('vote_candidate', 'user_id'),
                     ('ballot', 'person_id'),
-                    ('user_follow', 'user_id'),
                     ('working_group_member', 'user_id'),
                 ]
                 for tbl, fk_col in user_fk_tables:
@@ -384,7 +383,6 @@ def run_migration(db_path, dry_run=False, phase='all'):
                 ('coordinator_request', {'user_id': user_map}),
                 ('workgroup_member_request', {'user_id': user_map}),
                 ('hypothesis_account', {'user_id': user_map}),
-                ('user_follow', {'user_id': user_map}),
                 ('document_history', {}),
                 ('role_image_vote', {'image_id': role_image_map, 'user_id': user_map}),
                 ('event_log', {'layer_id': layer_map, 'actor_user_id': user_map}),

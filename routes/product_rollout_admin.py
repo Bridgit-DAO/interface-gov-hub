@@ -15,6 +15,7 @@ from services.product_rollout import (
 )
 from services.identity import get_current_user, require_role
 from services.rendering import generate_user_menu, render_page
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('product_rollout_admin', __name__, url_prefix='')
 
@@ -31,7 +32,8 @@ FEATURE_LABELS = {
     'civic_mason': 'Civic Mason (page, recognition nav, and /api/civic-mason/)',
     'soft_launch': 'Soft-launch & demo flow (/soft-launch/, /api/soft-launch/)',
     'votes': 'Votes (directory, vote pages, and vote APIs under /api/…/votes/ and /api/votes/)',
-    'artifacts': 'Artifacts, quests, monuments, and collections (HTML + /api/artifacts, etc.)',
+    'artifacts': 'Artifacts, monuments, and collections (HTML + /api/artifacts, etc.)',
+    'quests': 'Quests (layer quest pages, /api/quests/, guild quest links, open quests)',
     'bridges': 'Bridges (list/create pages and /api/bridges/)',
     'opportunities': 'Opportunities directory and layer /opportunities/ surfaces',
 }
@@ -50,6 +52,7 @@ FEATURE_ICONS = {
     'soft_launch': 'fa-rocket',
     'votes': 'fa-vote-yea',
     'artifacts': 'fa-gem',
+    'quests': 'fa-tasks',
     'bridges': 'fa-link',
     'opportunities': 'fa-bullseye',
 }
@@ -121,30 +124,19 @@ def product_rollout_page():
         border-color: var(--border-color) !important;
       }}
     </style>
-    <div class="container py-4">
+    <div class="gh-page container py-4">
         {flash_html}
-        <nav aria-label="breadcrumb" class="mb-3">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/admin/">Admin</a></li>
-                <li class="breadcrumb-item active" aria-current="page">Product rollout</li>
-            </ol>
-        </nav>
-        <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-4">
-            <div>
-                <h1 class="h2 mb-1">Product rollout</h1>
-                <p class="text-muted mb-0">Turn major product areas on or off without redeploying.
-                Use <code>services.product_rollout.is_feature_enabled</code> in routes and templates to enforce.</p>
-                <p class="small text-muted mb-0 mt-2">After changing toggles, click <strong>Save</strong>. Check the JSON panel for the stored values.</p>
-            </div>
-        </div>
+        {gh_page_header('Product rollout', 'Turn major product areas on or off without redeploying', 'fa-toggle-on', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Product rollout', None)]))}
+        <p class="text-muted small mb-4">Use <code>services.product_rollout.is_feature_enabled</code> in routes and templates to enforce. After changing toggles, click <strong>Save</strong>.</p>
 
         <div class="row g-4">
             <div class="col-lg-7">
-                <form method="post" class="card border-0 shadow-sm">
-                    <div class="card-header bg-body-secondary">
-                        <h2 class="h5 mb-0">Features</h2>
+                <form method="post" class="living-module mb-0">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-sliders-h"></i></div>
+                        <h5 class="living-module-title">Features</h5>
                     </div>
-                    <div class="card-body">
+                    <div class="living-module-body">
                         {checks_html}
                         <button type="submit" class="btn btn-primary">Save</button>
                         <a href="/admin/" class="btn btn-outline-secondary">Back to admin</a>
@@ -152,14 +144,7 @@ def product_rollout_page():
                 </form>
             </div>
             <div class="col-lg-5">
-                <div class="card border-0 bg-body-secondary">
-                    <div class="card-header">Effective config (read-only)</div>
-                    <div class="card-body">
-                        <p class="small text-muted">Stored in <code>site_config</code> key
-                        <code>product_rollout</code> as JSON.</p>
-                        <pre class="small border rounded p-3 mb-0 product-rollout-json-preview" style="max-height:20rem; overflow:auto;"><code id="rollout-json-preview">{json_preview}</code></pre>
-                    </div>
-                </div>
+                {gh_living_module('Effective config (read-only)', f'<p class="small text-muted">Stored in <code>site_config</code> key <code>product_rollout</code> as JSON.</p><pre class="small border rounded p-3 mb-0 product-rollout-json-preview" style="max-height:20rem; overflow:auto;"><code id="rollout-json-preview">{json_preview}</code></pre>', 'fa-code')}
             </div>
         </div>
     </div>

@@ -9,6 +9,14 @@ from models import (
 from services.identity import get_current_user
 from services.avatar import get_avatar_url
 from services.event_subscriptions import count_distinct_drafts_followed
+from services.directory_ui import (
+    gh_page_open,
+    gh_page_close,
+    gh_page_header,
+    gh_filter_row,
+    gh_filter_col,
+    gh_directory_grid,
+)
 
 bp = Blueprint('directory', __name__, url_prefix='')
 
@@ -87,53 +95,39 @@ def people():
     role_th = '<th>Role</th>' if is_editor_or_admin else ''
     actions_th = '<th>Actions</th>' if is_admin else ''
     content = f"""
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item active">People</li>
-            </ol>
-        </nav>
-        <h1 class="mb-2">People</h1>
-        <p class="text-muted mb-4">Directory of MLGH participants. Member and coordinator workgroups and activity at a glance.</p>
-        <div class="card">
-            <div class="card-body">
-                <div class="row g-2 mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label small text-muted mb-0">Search</label>
-                        <input type="text" id="people-search" class="form-control" placeholder="Type to search by name or username..." autocomplete="off">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label small text-muted mb-0">Workgroup</label>
-                        <select id="people-workgroup" class="form-select">
-                            <option value="">All workgroups</option>
-                            {group_options}
-                        </select>
-                    </div>
-                </div>
-            </div>
-            <div class="card-body p-0 pt-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0" id="people-table">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Name</th>
-                                {role_th}
-                                <th>Member</th>
-                                <th>Coordinator</th>
-                                <th>Last active</th>
-                                <th>Submissions</th>
-                                <th>Documents followed</th>
-                                <th>Comments</th>
-                                {actions_th}
-                            </tr>
-                        </thead>
-                        <tbody>{table_rows}</tbody>
-                    </table>
-                </div>
+    {gh_page_open()}
+    {gh_page_header('People', 'Directory of MLGH participants — workgroups, activity, and contributions at a glance.', 'fa-user-friends')}
+    <div class="living-module">
+        <div class="living-module-header">
+            <div class="living-module-icon"><i class="fas fa-search"></i></div>
+            <h5 class="living-module-title">Find people</h5>
+        </div>
+        <div class="living-module-body">
+            {gh_filter_row(
+                gh_filter_col('Search', '<input type="text" id="people-search" class="form-control" placeholder="Name or username..." autocomplete="off">', 'col-md-6')
+                + gh_filter_col('Workgroup', f'<select id="people-workgroup" class="form-select"><option value="">All workgroups</option>{group_options}</select>', 'col-md-4')
+            )}
+            <div class="gh-people-table-wrap">
+                <table class="table table-hover mb-0" id="people-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            {role_th}
+                            <th>Member</th>
+                            <th>Coordinator</th>
+                            <th>Last active</th>
+                            <th>Submissions</th>
+                            <th>Followed</th>
+                            <th>Comments</th>
+                            {actions_th}
+                        </tr>
+                    </thead>
+                    <tbody>{table_rows}</tbody>
+                </table>
             </div>
         </div>
     </div>
+    {gh_page_close()}
     <script>
     (function() {{
         var searchEl = document.getElementById('people-search');
@@ -167,20 +161,16 @@ def meetings():
     generate_user_menu, render_page, _ = _get_imports()
     user_menu = generate_user_menu()
 
-    content = """
-    <div class="container mt-4">
-        <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="text-center">
-                    <i class="fas fa-calendar fa-4x text-muted mb-4"></i>
-                    <h1 class="mb-3">Meetings</h1>
-                    <p class="lead text-muted mb-4">Coming Soon</p>
-                    <p class="mb-4">Information about upcoming MLGH meetings and sessions will be available here. Stay tuned for announcements about our first events.</p>
-                    <a href="/" class="btn btn-primary">Return to Home</a>
-                </div>
-            </div>
+    content = f"""
+    {gh_page_open()}
+    {gh_page_header('Meetings', 'Upcoming MLGH meetings and sessions — coming soon', 'fa-calendar', actions_html='<a href="/" class="btn btn-outline-secondary btn-sm">Home</a>')}
+    <div class="living-module">
+        <div class="living-module-body text-center py-5">
+            <i class="fas fa-calendar fa-3x text-muted mb-3"></i>
+            <p class="text-muted mb-0">Information about upcoming MLGH meetings will be available here.</p>
         </div>
     </div>
+    {gh_page_close()}
     """
     return render_page("Meetings - MLGH", content, theme=session.get('theme', 'dark'), user_menu=user_menu)
 
@@ -193,53 +183,21 @@ def projects_directory():
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
 
+    create_btn = (
+        '<a href="/layers/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Layer</a>'
+        if current_user
+        else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'
+    )
     content = f"""
-    <div class="container mt-3 mt-md-4">
-        <div class="row mb-3 mb-md-4 align-items-center">
-            <div class="col-12 col-md-8 mb-2 mb-md-0">
-                <h1 class="h4 h2-md mb-1">Layers Map</h1>
-                <p class="lead mb-0 small text-muted">Discover layers — status, activity, and community at a glance</p>
-            </div>
-            <div class="col-12 col-md-4 text-md-end">
-                {'<a href="/layers/create/" class="btn btn-primary w-100 w-md-auto"><i class="fas fa-plus me-2"></i>Create Layer</a>' if current_user else '<a href="/login/" class="btn btn-primary w-100 w-md-auto"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
-            </div>
-        </div>
-        <div class="row g-3 mb-4">
-            <div class="col-12 col-sm-6 col-lg-4">
-                <label for="status-filter" class="form-label">Status:</label>
-                <select id="status-filter" class="form-select" onchange="loadProjects()">
-                    <option value="">All Statuses</option>
-                    <option value="proposed">Proposed</option>
-                    <option value="active">Active</option>
-                    <option value="stabilizing">Stabilizing</option>
-                    <option value="maintaining">Maintaining</option>
-                    <option value="dormant">Dormant</option>
-                    <option value="concluded">Concluded</option>
-                    <option value="archived">Archived</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="approval-filter" class="form-label">Approval:</label>
-                <select id="approval-filter" class="form-select" onchange="loadProjects()">
-                    <option value="">All</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="search-input" class="form-label">Search:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search layers..." onkeyup="filterProjects()">
-            </div>
-        </div>
-        <div id="projects-container" class="row row-cols-2 row-cols-sm-3 row-cols-md-3 row-cols-lg-4 g-3">
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    </div>
+    {gh_page_open()}
+    {gh_page_header('Layers Map', 'Discover layers — status, activity, and community at a glance', 'fa-layer-group', create_btn)}
+    {gh_filter_row(
+        gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadProjects()"><option value="">All Statuses</option><option value="proposed">Proposed</option><option value="active">Active</option><option value="stabilizing">Stabilizing</option><option value="maintaining">Maintaining</option><option value="dormant">Dormant</option><option value="concluded">Concluded</option><option value="archived">Archived</option></select>')
+        + gh_filter_col('Approval', '<select id="approval-filter" class="form-select" onchange="loadProjects()"><option value="">All</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>')
+        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search layers..." onkeyup="filterProjects()">')
+    )}
+    {gh_directory_grid('projects-container', 'row row-cols-2 row-cols-sm-3 row-cols-md-3 row-cols-lg-4 g-3')}
+    {gh_page_close()}
     <script>
     let allProjects = [];
     async function loadProjects() {{
@@ -257,7 +215,7 @@ def projects_directory():
             displayProjects(allProjects);
         }} catch (error) {{
             console.error('Error loading projects:', error);
-            document.getElementById('projects-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading projects</div></div>';
+            document.getElementById('projects-container').innerHTML = GhDirectory.emptyState('Error loading layers', 'danger');
         }}
     }}
     function filterProjects() {{
@@ -277,7 +235,7 @@ def projects_directory():
     function displayProjects(projects) {{
         const container = document.getElementById('projects-container');
         if (projects.length === 0) {{
-            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No projects found</div></div>';
+            container.innerHTML = GhDirectory.emptyState('No layers found');
             return;
         }}
         let html = '';
@@ -322,50 +280,24 @@ def workgroups_directory():
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
     
+    wg_create = (
+        '<button class="btn btn-primary" onclick="showCreateWorkgroupModal()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>'
+        if current_user else ''
+    )
+    wg_actions = (
+        '<a href="/layers/" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Layers</a>'
+        + wg_create
+    )
     content = f"""
-    <div class="container mt-4">
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <h1>Workgroups Directory</h1>
-                <p class="lead">Browse workgroups across all projects</p>
-            </div>
-            <div class="col-md-4 text-end">
-                <a href="/layers/" class="btn btn-secondary mb-2 w-100"><i class="fas fa-arrow-left me-2"></i>Back to Layers</a>
-                {'<button class="btn btn-primary w-100" onclick="showCreateWorkgroupModal()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>' if current_user else ''}
-            </div>
-        </div>
-        
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <label for="project-filter" class="form-label">Layer:</label>
-                <select id="project-filter" class="form-select" onchange="loadWorkgroups()">
-                    <option value="">All Layers</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="status-filter" class="form-label">Status:</label>
-                <select id="status-filter" class="form-select" onchange="loadWorkgroups()">
-                    <option value="">All Statuses</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="completed">Completed</option>
-                    <option value="archived">Archived</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="search-input" class="form-label">Search:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search workgroups..." onkeyup="filterWorkgroups()">
-            </div>
-        </div>
-        
-        <div id="workgroups-container" class="row">
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    </div>
+    {gh_page_open()}
+    {gh_page_header('Workgroups Directory', 'Browse workgroups across all layers', 'fa-users-cog', wg_actions)}
+    {gh_filter_row(
+        gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Layers</option></select>')
+        + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>')
+        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search workgroups..." onkeyup="filterWorkgroups()">')
+    )}
+    {gh_directory_grid('workgroups-container')}
+    {gh_page_close()}
     
     <script>
     let allWorkgroups = [];
@@ -403,7 +335,7 @@ def workgroups_directory():
                 
                 const response = await fetch(url);
                 const data = await response.json();
-                allWorkgroups = data.workgroups;
+                allWorkgroups = (response.ok && data.workgroups) ? data.workgroups : [];
             }} else {{
                 // Load workgroups from all projects
                 for (const project of allProjects) {{
@@ -412,14 +344,15 @@ def workgroups_directory():
                     
                     const response = await fetch(url);
                     const data = await response.json();
-                    allWorkgroups = allWorkgroups.concat(data.workgroups);
+                    const wgs = (response.ok && Array.isArray(data.workgroups)) ? data.workgroups : [];
+                    allWorkgroups = allWorkgroups.concat(wgs);
                 }}
             }}
             
             displayWorkgroups(allWorkgroups);
         }} catch (error) {{
             console.error('Error loading workgroups:', error);
-            document.getElementById('workgroups-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading workgroups</div></div>';
+            document.getElementById('workgroups-container').innerHTML = GhDirectory.emptyState('Error loading workgroups', 'danger');
         }}
     }}
     
@@ -436,7 +369,7 @@ def workgroups_directory():
         const container = document.getElementById('workgroups-container');
         
         if (workgroups.length === 0) {{
-            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No workgroups found</div></div>';
+            container.innerHTML = GhDirectory.emptyState('No workgroups found');
             return;
         }}
         
@@ -445,29 +378,17 @@ def workgroups_directory():
             const statusBadge = getStatusBadge(wg.status);
             const approvalBadge = getApprovalBadge(wg.approval_status);
             const project = allProjects.find(p => p.id === wg.layer_id);
-            
-            const wgImgHtml = wg.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{wg.image_url}}" alt="${{wg.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
-            html += `
-                <div class="col-md-6 col-lg-4 mb-4">
-                    <div class="card h-100">
-                        ${{wgImgHtml}}
-                        <div class="card-body">
-                            <h5 class="card-title">
-                                <a href="/workgroups/${{wg.slug}}/">${{wg.name}}</a>
-                            </h5>
-                            <div class="mb-2">
-                                ${{statusBadge}}
-                                ${{approvalBadge}}
-                            </div>
-                            <p class="card-text text-muted">${{wg.description || 'No description'}}</p>
-                            ${{project ? `<div class="mt-2"><small class="text-muted"><i class="fas fa-project-diagram me-1"></i> ${{project.name}}</small></div>` : ''}}
-                        </div>
-                        <div class="card-footer">
-                            <small class="text-muted">Created ${{new Date(wg.created_at).toLocaleDateString()}}</small>
-                        </div>
-                    </div>
-                </div>
-            `;
+            html += GhDirectory.tile({{
+                href: '/workgroups/' + wg.slug + '/',
+                title: wg.name,
+                description: wg.description || 'No description',
+                imageUrl: wg.image_url || '',
+                icon: 'fa-users-cog',
+                pulse: wg.status === 'active' ? 'Active' : '',
+                badgesHtml: statusBadge + approvalBadge,
+                metaHtml: project ? '<i class="fas fa-layer-group me-1"></i>' + GhDirectory.esc(project.name) : '',
+                footerHtml: 'Created ' + new Date(wg.created_at).toLocaleDateString()
+            }});
         }});
         
         container.innerHTML = html;
@@ -631,18 +552,10 @@ def votes_directory():
     generate_user_menu, render_page, _ = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
-    content = """
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item active">Votes</li>
-            </ol>
-        </nav>
-        <h1 class="mb-2">Votes</h1>
-        <p class="text-muted mb-4">Votes and elections are organized by layer. Browse layers to find active votes, ballots, and elections.</p>
-        <a href="/layers/" class="btn btn-primary"><i class="fas fa-layer-group me-2"></i>Browse Layers</a>
-    </div>
+    content = f"""
+    {gh_page_open()}
+    {gh_page_header('Votes', 'Votes and elections are organized by layer', 'fa-vote-yea', actions_html='<a href="/layers/" class="btn btn-primary btn-sm"><i class="fas fa-layer-group me-1"></i>Browse Layers</a>')}
+    {gh_page_close()}
     """
     return render_page("Votes - MLGH", content, theme=current_theme, user_menu=user_menu)
 
@@ -653,18 +566,10 @@ def artifacts_directory():
     generate_user_menu, render_page, _ = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
-    content = """
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item active">Artifacts</li>
-            </ol>
-        </nav>
-        <h1 class="mb-2">Artifacts</h1>
-        <p class="text-muted mb-4">Artifacts (proposals, evidence, submissions) are organized by layer. Browse layers to find artifacts.</p>
-        <a href="/layers/" class="btn btn-primary"><i class="fas fa-layer-group me-2"></i>Browse Layers</a>
-    </div>
+    content = f"""
+    {gh_page_open()}
+    {gh_page_header('Artifacts', 'Proposals, evidence, and submissions organized by layer', 'fa-cube', actions_html='<a href="/layers/" class="btn btn-primary btn-sm"><i class="fas fa-layer-group me-1"></i>Browse Layers</a>')}
+    {gh_page_close()}
     """
     return render_page("Artifacts - MLGH", content, theme=current_theme, user_menu=user_menu)
 
@@ -672,21 +577,20 @@ def artifacts_directory():
 @bp.route('/opportunities/')
 def opportunities_directory():
     """Opportunities directory: browse layers to find opportunities."""
+    from services.product_rollout import is_feature_enabled
+
     generate_user_menu, render_page, _ = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
-    content = """
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item active">Opportunities</li>
-            </ol>
-        </nav>
-        <h1 class="mb-2">Opportunities</h1>
-        <p class="text-muted mb-4">Drafts needing support or opposition, open quests, and ways to contribute are organized by layer. Browse layers to find opportunities.</p>
-        <a href="/layers/" class="btn btn-primary"><i class="fas fa-layer-group me-2"></i>Browse Layers</a>
-    </div>
+    opp_blurb = (
+        'Drafts needing support or opposition, open quests, and ways to contribute are organized by layer.'
+        if is_feature_enabled('quests')
+        else 'Drafts needing support or opposition and ways to contribute are organized by layer.'
+    )
+    content = f"""
+    {gh_page_open()}
+    {gh_page_header('Opportunities', opp_blurb + ' Browse layers to find opportunities.', 'fa-bullseye', '<a href="/layers/" class="btn btn-primary"><i class="fas fa-layer-group me-2"></i>Browse Layers</a>')}
+    {gh_page_close()}
     """
     return render_page("Opportunities - MLGH", content, theme=current_theme, user_menu=user_menu)
 
@@ -701,13 +605,10 @@ def build_waitlists_content(layer_slug=None):
     layer_id_js = json.dumps(str(layer_obj.id)) if layer_obj else 'null'
     layer_name_esc = (layer_obj.name or layer_slug).replace("'", "\\'").replace('"', '&quot;') if layer_obj else ''
     
-    layer_filter_html = '' if layer_scoped else """
-            <div class="col-md-4">
-                <label for="project-filter" class="form-label">Layer:</label>
-                <select id="project-filter" class="form-select" onchange="loadWaitlists()">
-                    <option value="">All Layers</option>
-                </select>
-            </div>"""
+    layer_filter_html = '' if layer_scoped else gh_filter_col(
+        'Layer',
+        '<select id="project-filter" class="form-select" onchange="loadWaitlists()"><option value="">All Layers</option></select>',
+    )
     
     layer_title_html = ''
     if layer_scoped:
@@ -715,40 +616,15 @@ def build_waitlists_content(layer_slug=None):
         layer_title_html = f'<nav aria-label="breadcrumb"><ol class="breadcrumb mb-2"><li class="breadcrumb-item"><a href="/layer/{layer_obj.slug}/">{name_esc}</a></li><li class="breadcrumb-item active">Waitlists</li></ol></nav>'
     
     return f"""
-    <div class="container mt-4">
-        <div class="row mb-4">
-            <div class="col-md-8">
-                {layer_title_html}
-                <h1>Waitlists Directory</h1>
-                <p class="lead">Join waitlists for upcoming projects, features, and opportunities</p>
-            </div>
-        </div>
-        
-        <div class="row mb-4">
-            {layer_filter_html}
-            <div class="col-md-4">
-                <label for="status-filter" class="form-label">Status:</label>
-                <select id="status-filter" class="form-select" onchange="loadWaitlists()">
-                    <option value="">All</option>
-                    <option value="active">Active</option>
-                    <option value="upcoming">Upcoming</option>
-                    <option value="closed">Closed</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label for="search-input" class="form-label">Search:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search waitlists..." onkeyup="filterWaitlists()">
-            </div>
-        </div>
-        
-        <div id="waitlists-container" class="row">
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    </div>
+    {gh_page_open()}
+    {gh_page_header('Waitlists Directory', 'Join waitlists for upcoming projects, features, and opportunities', 'fa-list-alt', breadcrumb_html=layer_title_html)}
+    {gh_filter_row(
+        (layer_filter_html or '')
+        + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWaitlists()"><option value="">All</option><option value="active">Active</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option></select>', 'col-md-4' if layer_scoped else 'col-md-4')
+        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search waitlists..." onkeyup="filterWaitlists()">', 'col-md-4' if layer_scoped else 'col-md-4')
+    )}
+    {gh_directory_grid('waitlists-container')}
+    {gh_page_close()}
     
     <script>
     let allWaitlists = [];
@@ -821,7 +697,7 @@ def build_waitlists_content(layer_slug=None):
             displayWaitlists(allWaitlists);
         }} catch (error) {{
             console.error('Error loading waitlists:', error);
-            document.getElementById('waitlists-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading waitlists</div></div>';
+            document.getElementById('waitlists-container').innerHTML = GhDirectory.emptyState('Error loading waitlists', 'danger');
         }}
     }}
     
@@ -838,7 +714,7 @@ def build_waitlists_content(layer_slug=None):
         const container = document.getElementById('waitlists-container');
         
         if (waitlists.length === 0) {{
-            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No waitlists found</div></div>';
+            container.innerHTML = GhDirectory.emptyState('No waitlists found');
             return;
         }}
         
@@ -871,37 +747,20 @@ def build_waitlists_content(layer_slug=None):
                     statusText = wl.count + ' member' + (wl.count !== 1 ? 's' : '');
                 }}
             }}
-            
-            const imgHtml = wl.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{wl.image_url}}" alt="${{wl.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
-            const layerLink = layerScopedId ? '<a href="/layer/{layer_obj.slug if layer_obj else ""}/">' + (project ? project.name : 'Layer') + '</a>' : '<a href="/layers/' + (project ? project.slug : wl.layer_id) + '/">' + (project ? project.name : 'Unknown Layer') + '</a>';
-            html += `
-                <div class="col-md-6 col-lg-4 mb-4">
-                    <div class="card h-100">
-                        ${{imgHtml}}
-                        <div class="card-body">
-                            <h5 class="card-title">
-                                <a href="/waitlists/${{wl.id}}/">${{wl.name}}</a>
-                            </h5>
-                            <div class="mb-2">
-                                ${{statusBadge}}
-                                ${{wl.referrals ? '<span class="badge bg-primary ms-1"><i class="fas fa-users"></i> Referrals</span>' : ''}}
-                                ${{wl.milestones ? '<span class="badge bg-info ms-1"><i class="fas fa-flag"></i> Milestones</span>' : ''}}
-                            </div>
-                            <p class="card-text text-muted small mb-2">
-                                <i class="fas fa-project-diagram me-1"></i>
-                                ${{layerLink}}
-                            </p>
-                            <p class="card-text">${{wl.description || 'No description'}}</p>
-                            <div class="mt-3">
-                                <small class="text-muted">${{statusText}}</small>
-                            </div>
-                        </div>
-                        <div class="card-footer">
-                            <small class="text-muted">Created ${{new Date(wl.created_at).toLocaleDateString()}}</small>
-                        </div>
-                    </div>
-                </div>
-            `;
+            const extraBadges = (wl.referrals ? '<span class="badge bg-primary ms-1"><i class="fas fa-users"></i> Referrals</span>' : '')
+                + (wl.milestones ? '<span class="badge bg-info ms-1"><i class="fas fa-flag"></i> Milestones</span>' : '');
+            const layerName = project ? project.name : 'Unknown Layer';
+            html += GhDirectory.tile({{
+                href: '/waitlists/' + wl.id + '/',
+                title: wl.name,
+                description: wl.description || 'No description',
+                imageUrl: wl.image_url || '',
+                icon: 'fa-list-alt',
+                pulse: isClosed ? 'Closed' : (isUpcoming ? 'Upcoming' : (isFull ? 'Full' : 'Open')),
+                badgesHtml: statusBadge + extraBadges,
+                metaHtml: '<i class="fas fa-layer-group me-1"></i>' + GhDirectory.esc(layerName),
+                footerHtml: statusText + ' · Created ' + new Date(wl.created_at).toLocaleDateString()
+            }});
         }});
         
         container.innerHTML = html;
@@ -941,41 +800,20 @@ def guilds_directory():
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
     
+    guild_create = (
+        '<a href="/guilds/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Guild</a>'
+        if current_user
+        else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'
+    )
     content = f"""
-    <div class="container mt-4">
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <h1>Guilds Directory</h1>
-                <p class="lead">Cross-project collaboration groups</p>
-            </div>
-            <div class="col-md-4 text-end">
-                {'<a href="/guilds/create/" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Guild</a>' if current_user else '<a href="/login/" class="btn btn-primary"><i class="fas fa-sign-in-alt me-2"></i>Login to Create</a>'}
-            </div>
-        </div>
-        
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <label for="status-filter" class="form-label">Status:</label>
-                <select id="status-filter" class="form-select" onchange="loadGuilds()">
-                    <option value="">All Statuses</option>
-                    <option value="active">Active</option>
-                    <option value="archived">Archived</option>
-                </select>
-            </div>
-            <div class="col-md-6">
-                <label for="search-input" class="form-label">Search:</label>
-                <input type="text" id="search-input" class="form-control" placeholder="Search guilds..." onkeyup="filterGuilds()">
-            </div>
-        </div>
-        
-        <div id="guilds-container" class="row">
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    </div>
+    {gh_page_open()}
+    {gh_page_header('Guilds Directory', 'Cross-project collaboration groups', 'fa-shield-halved', guild_create)}
+    {gh_filter_row(
+        gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadGuilds()"><option value="">All Statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>', 'col-md-6')
+        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search guilds..." onkeyup="filterGuilds()">', 'col-md-6')
+    )}
+    {gh_directory_grid('guilds-container')}
+    {gh_page_close()}
     
     <script>
     let allGuilds = [];
@@ -993,7 +831,7 @@ def guilds_directory():
             displayGuilds(allGuilds);
         }} catch (error) {{
             console.error('Error loading guilds:', error);
-            document.getElementById('guilds-container').innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading guilds</div></div>';
+            document.getElementById('guilds-container').innerHTML = GhDirectory.emptyState('Error loading guilds', 'danger');
         }}
     }}
     
@@ -1010,41 +848,26 @@ def guilds_directory():
         const container = document.getElementById('guilds-container');
         
         if (guilds.length === 0) {{
-            container.innerHTML = '<div class="col-12"><div class="alert alert-info">No guilds found</div></div>';
+            container.innerHTML = GhDirectory.emptyState('No guilds found');
             return;
         }}
         
         let html = '';
         guilds.forEach(guild => {{
-            const statusBadge = guild.status === 'active' 
-                ? '<span class="badge bg-success">Active</span>' 
+            const statusBadge = guild.status === 'active'
+                ? '<span class="badge bg-success">Active</span>'
                 : '<span class="badge bg-secondary">Archived</span>';
-            
-            const guildImgHtml = guild.image_url ? `<div class="card-img-top overflow-hidden" style="height: 140px; background: var(--bg-secondary, #f8f9fa);"><img src="${{guild.image_url}}" alt="${{guild.name}}" class="w-100 h-100 object-fit-cover"></div>` : '';
-            html += `
-                <div class="col-md-6 col-lg-4 mb-4">
-                    <div class="card h-100">
-                        ${{guildImgHtml}}
-                        <div class="card-body">
-                            <h5 class="card-title">
-                                <a href="/guilds/${{guild.slug}}/">${{guild.name}}</a>
-                            </h5>
-                            <div class="mb-2">
-                                ${{statusBadge}}
-                            </div>
-                            <p class="card-text text-muted">${{guild.description || 'No description'}}</p>
-                            <div class="mt-3">
-                                <small class="text-muted">
-                                    <i class="fas fa-users me-1"></i> ${{guild.members_count || 0}} members
-                                </small>
-                            </div>
-                        </div>
-                        <div class="card-footer">
-                            <small class="text-muted">Created ${{new Date(guild.created_at).toLocaleDateString()}}</small>
-                        </div>
-                    </div>
-                </div>
-            `;
+            html += GhDirectory.tile({{
+                href: '/guilds/' + guild.slug + '/',
+                title: guild.name,
+                description: guild.description || 'No description',
+                imageUrl: guild.image_url || '',
+                icon: 'fa-shield-halved',
+                pulse: guild.status === 'active' ? 'Active' : 'Archived',
+                badgesHtml: statusBadge,
+                metaHtml: '<i class="fas fa-users me-1"></i>' + (guild.members_count || 0) + ' members',
+                footerHtml: 'Created ' + new Date(guild.created_at).toLocaleDateString()
+            }});
         }});
         
         container.innerHTML = html;

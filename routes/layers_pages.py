@@ -20,6 +20,7 @@ from services.artifact import get_artifact_by_ref
 from services.coordination import is_layer_admin
 from services.knowledge_layer import ARTIFACT_TYPE_ALLOWED_FORMS
 from routes.layer_artifact_ui import render_layer_artifact_editor_and_collections
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('layers_pages', __name__, url_prefix='')
 
@@ -56,17 +57,12 @@ def layer_about(layer_slug):
     html_content = process_ordinal_markdown(raw) if raw else '<p class="text-muted">No about content yet.</p>'
 
     content = f'''
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item"><a href="/layers/{layer_slug}/">{html_mod.escape(layer.name or layer_slug)}</a></li>
-                <li class="breadcrumb-item active">About</li>
-            </ol>
-        </nav>
-        <h1 class="mb-4">About {html_mod.escape(layer.name or layer_slug)}</h1>
-        <div class="about-content" style="max-width: 720px;">
+    <div class="gh-page container mt-4">
+        {gh_page_header(f'About {html_mod.escape(layer.name or layer_slug)}', '', 'fa-info-circle', actions_html=f'<a href="/layers/{layer_slug}/" class="btn btn-outline-secondary btn-sm">Layer</a>', breadcrumb_html=gh_breadcrumb([('Home', '/'), (layer.name or layer_slug, f'/layers/{layer_slug}/'), ('About', None)]))}
+        <div class="living-module">
+            <div class="living-module-body about-content" style="max-width: 720px;">
             {html_content}
+            </div>
         </div>
     </div>
     '''
@@ -161,48 +157,22 @@ def layer_quest_detail(layer_slug, quest_id):
         '''
     elif quest.status == 'open':
         submit_form_html = '<p class="text-muted small mt-3"><a href="/login/">Sign in</a> to submit for this quest.</p>'
+    quest_meta = f'{quest.quest_type} · {quest.status} · {quest.difficulty}'
     content = f'''
-<div class="container mt-4">
-    <nav aria-label="breadcrumb"><ol class="breadcrumb">
-        <li class="breadcrumb-item"><a href="/layers/">Layers</a></li>
-        <li class="breadcrumb-item"><a href="/layers/{layer_slug}/">{layer_name_esc}</a></li>
-        <li class="breadcrumb-item"><a href="/layers/{layer_slug}/#opportunities">Opportunities</a></li>
-        <li class="breadcrumb-item active">{title_esc}</li>
-    </ol></nav>
-    <div class="d-flex justify-content-between align-items-start mb-3">
-        <h1>{title_esc}</h1>
-        {back_link}
-    </div>
-    <p class="text-muted"><span class="badge bg-secondary">{quest.quest_type}</span> <span class="badge bg-{status_badge}">{quest.status}</span> <span class="badge bg-secondary">{quest.difficulty}</span></p>
-    {f'<p class="lead">{desc_esc}</p>' if desc_esc else ''}
-    <div class="row mt-4">
+<div class="gh-page container mt-4">
+    {gh_page_header(title_esc, quest_meta, 'fa-tasks', actions_html=back_link, breadcrumb_html=gh_breadcrumb([('Layers', '/layers/'), (layer.name or layer_slug, f'/layers/{layer_slug}/'), ('Opportunities', f'/layers/{layer_slug}/#opportunities'), (quest.title or 'Quest', None)]))}
+    {f'<p class="gh-page-lead mb-4">{desc_esc}</p>' if desc_esc else ''}
+    <div class="gh-detail-layout">
+    <div class="row mt-2">
         <div class="col-lg-8">
-            <div class="mb-4">
-                <h5>Details</h5>
-                <ul class="list-unstyled">
-                    <li>Created: {created_str}</li>
-                    {creator_block}
-                    {f'<li>Acceptance criteria: {criteria_esc}</li>' if criteria_esc else ''}
-                </ul>
-            </div>
-            <div class="mb-4">
-                <h5>Submissions</h5>
-                <table class="table table-sm">
-                    <thead><tr><th>Artifact / Draft</th><th>Submitter</th><th>Status</th><th>Date</th></tr></thead>
-                    <tbody>{submissions_html}</tbody>
-                </table>
-            </div>
+            {gh_living_module('Details', f'<ul class="list-unstyled mb-0"><li>Created: {created_str}</li>{creator_block}{f"<li>Acceptance criteria: {criteria_esc}</li>" if criteria_esc else ""}</ul>', 'fa-info-circle')}
+            {gh_living_module('Submissions', f'<table class="table table-sm mb-0"><thead><tr><th>Artifact / Draft</th><th>Submitter</th><th>Status</th><th>Date</th></tr></thead><tbody>{submissions_html}</tbody></table>', 'fa-inbox', extra_class='mt-3')}
             {submit_form_html}
         </div>
         <div class="col-lg-4">
-            <div class="card">
-                <div class="card-body">
-                    <h6 class="card-title">Quick links</h6>
-                    <a href="/layers/{layer_slug}/" class="d-block mb-2"><i class="fas fa-layer-group me-1"></i>Layer</a>
-                    <a href="/layers/{layer_slug}/#opportunities" class="d-block"><i class="fas fa-tasks me-1"></i>All opportunities</a>
-                </div>
-            </div>
+            {gh_living_module('Quick links', f'<a href="/layers/{layer_slug}/" class="d-block mb-2"><i class="fas fa-layer-group me-1"></i>Layer</a><a href="/layers/{layer_slug}/#opportunities" class="d-block"><i class="fas fa-tasks me-1"></i>All opportunities</a>', 'fa-link', extra_class='mt-0')}
         </div>
+    </div>
     </div>
 </div>
 '''
@@ -399,68 +369,26 @@ def artifact_detail(layer_slug, artifact_id):
         add_support_oppose_forms = '<p class="text-muted small mt-2"><a href="/login/">Sign in</a> to add support or opposition.</p>'
     public_ref_esc = html_mod.escape(artifact.public_ref or '')
     public_ref_block = f'<code class="text-muted ms-2" title="Public reference (artifact_specification)">{public_ref_esc}</code>' if public_ref_esc else ''
+    artifact_meta = f'{artifact.artifact_type} · {artifact.status or "draft"}'
     content = f'''
-<div class="container mt-4">
-    <nav aria-label="breadcrumb"><ol class="breadcrumb">
-        <li class="breadcrumb-item"><a href="/layers/">Layers</a></li>
-        <li class="breadcrumb-item"><a href="/layers/{layer_slug}/">{layer_name_esc}</a></li>
-        <li class="breadcrumb-item active">Artifact</li>
-    </ol></nav>
+<div class="gh-page container mt-4">
+    {gh_page_header(f'{title_esc}{public_ref_block}', artifact_meta, 'fa-gem', breadcrumb_html=gh_breadcrumb([('Layers', '/layers/'), (layer_name_esc, f'/layers/{layer_slug}/'), ('Artifact', None)]))}
+    <div class="gh-detail-layout">
     <div class="row">
         <div class="col-lg-8">
-            <h1>{title_esc}{public_ref_block}</h1>
-            <p class="text-muted"><span class="badge bg-secondary">{artifact.artifact_type}</span>{contrib_badge}{guild_badges_block} <span class="badge bg-{status_badge}">{artifact.status or "draft"}</span></p>
+            {contrib_badge}{guild_badges_block}
             {summary_block}
             {body_block}
             {scaffold_block}
-            <div class="mb-4">
-                <h5>Provenance</h5>
-                <ul class="list-unstyled">
-                    <li>Created: {created_str}</li>
-                    {creator_block}
-                </ul>
-            </div>
-            <div class="mb-4">
-                <h5>Support &amp; Opposition</h5>
-                <p class="text-muted small">Structured support and opposition artifacts (GOV-HUB-3)</p>
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6 class="text-success">Support ({len(supports)})</h6>
-                        <ul class="list-group list-group-flush">{supports_html}</ul>
-                    </div>
-                    <div class="col-md-6">
-                        <h6 class="text-danger">Opposition ({len(opposes)})</h6>
-                        <ul class="list-group list-group-flush">{opposes_html}</ul>
-                    </div>
-                </div>
-                {add_support_oppose_forms}
-            </div>
-            <div class="mb-4">
-                <h5>Other Relations</h5>
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>Outgoing</h6>
-                        <ul class="list-group list-group-flush">{outgoing_html}</ul>
-                    </div>
-                    <div class="col-md-6">
-                        <h6>Incoming</h6>
-                        <ul class="list-group list-group-flush">{other_incoming_html}</ul>
-                    </div>
-                </div>
-            </div>
+            {gh_living_module('Provenance', f'<ul class="list-unstyled mb-0"><li>Created: {created_str}</li>{creator_block}</ul>', 'fa-history')}
+            {gh_living_module('Support & Opposition', f'<p class="text-muted small">Structured support and opposition artifacts (GOV-HUB-3)</p><div class="row"><div class="col-md-6"><h6 class="text-success">Support ({len(supports)})</h6><ul class="list-group list-group-flush">{supports_html}</ul></div><div class="col-md-6"><h6 class="text-danger">Opposition ({len(opposes)})</h6><ul class="list-group list-group-flush">{opposes_html}</ul></div></div>{add_support_oppose_forms}', 'fa-balance-scale', extra_class='mt-3')}
+            {gh_living_module('Other Relations', f'<div class="row"><div class="col-md-6"><h6>Outgoing</h6><ul class="list-group list-group-flush">{outgoing_html}</ul></div><div class="col-md-6"><h6>Incoming</h6><ul class="list-group list-group-flush">{other_incoming_html}</ul></div></div>', 'fa-project-diagram', extra_class='mt-3')}
         </div>
         <div class="col-lg-4">
-            <div class="card">
-                <div class="card-body">
-                    <h6 class="card-title">Links</h6>
-                    {submission_link}
-                    <a href="/api/artifacts/{artifact_id}/relations/" class="btn btn-outline-secondary btn-sm mt-2">API: Relations</a>
-                    <a href="/api/artifacts/{artifact_id}/lineage/" class="btn btn-outline-secondary btn-sm mt-2">API: Lineage</a>
-                    <button type="button" class="btn btn-outline-primary btn-sm mt-2 d-block" data-bs-toggle="modal" data-bs-target="#lineageModal"><i class="fas fa-project-diagram me-1"></i>Lineage Graph</button>
-                    {editor_collections_html}
-                </div>
-            </div>
+            {gh_living_module('Links', f'{submission_link}<a href="/api/artifacts/{artifact_id}/relations/" class="btn btn-outline-secondary btn-sm mt-2">API: Relations</a><a href="/api/artifacts/{artifact_id}/lineage/" class="btn btn-outline-secondary btn-sm mt-2">API: Lineage</a><button type="button" class="btn btn-outline-primary btn-sm mt-2 d-block" data-bs-toggle="modal" data-bs-target="#lineageModal"><i class="fas fa-project-diagram me-1"></i>Lineage Graph</button>', 'fa-link', extra_class='mt-0')}
         </div>
+    </div>
+    {editor_collections_html}
     </div>
 </div>
 <div class="modal fade" id="lineageModal" tabindex="-1">
@@ -530,14 +458,13 @@ def create_project_page():
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
 
-    content = """
-    <div class="container mt-4">
+    content = f"""
+    <div class="gh-page container mt-4">
+        {gh_page_header('Create New Layer', 'Submit a new layer for admin approval', 'fa-plus-circle', actions_html='<a href="/layers/" class="btn btn-outline-secondary btn-sm">Cancel</a>', breadcrumb_html=gh_breadcrumb([('Home', '/'), ('Layers', '/layers/'), ('Create', None)]))}
         <div class="row">
             <div class="col-md-8 offset-md-2">
-                <h1 class="mb-4">Create New Layer</h1>
-
                 <div id="alert-container"></div>
-
+                {gh_living_module('Layer details', '''
                 <form id="createProjectForm">
                     <div class="mb-3">
                         <label for="name" class="form-label">Layer Name *</label>
@@ -580,10 +507,11 @@ def create_project_page():
                         <a href="/layers/" class="btn btn-secondary">Cancel</a>
                     </div>
                 </form>
+                ''', 'fa-layer-group')}
             </div>
         </div>
     </div>
-
+    """ + """
     <script>
     document.getElementById('createProjectForm').addEventListener('submit', async (e) => {
         e.preventDefault();

@@ -17,6 +17,10 @@ def test_knowledge_schema_endpoint():
         assert 'artifact_types' in d
         assert 'proposal' in d['artifact_types']
         assert d['artifact_types']['proposal']['default'] == 'decision'
+        assert 'pattern' in d['knowledge_forms']
+        assert 'opus' in d['knowledge_forms']
+        assert d['knowledge_form_core_questions'].get('pattern')
+        assert 'research' in d['scaffold_status_enums']
 
 
 def test_validate_knowledge_for_create():
@@ -29,10 +33,29 @@ def test_validate_knowledge_for_create():
     )
     assert not err and form == 'decision' and sc is None
 
-    _, _, err = validate_knowledge_for_create(
-        'proposal', 'gloss', None, cfg
+    form_r, _, err = validate_knowledge_for_create(
+        'proposal', 'research', None, cfg
     )
-    assert err, 'gloss not allowed for proposal'
+    assert not err and form_r == 'research'
+
+    _, _, err = validate_knowledge_for_create(
+        'proposal', 'not_a_real_form', None, cfg
+    )
+    assert err, 'invalid knowledge_form must be rejected'
+
+    scfg = {
+        'KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED': True,
+        'KNOWLEDGE_SCAFFOLD_ENABLED': True,
+    }
+    form, sc, err = validate_knowledge_for_create(
+        'document', 'pattern', {'recurring_tension': 'x'}, scfg
+    )
+    assert not err and form == 'pattern' and sc == {'recurring_tension': 'x'}
+
+    _, _, err = validate_knowledge_for_create(
+        'document', 'research', {'status': 'not_a_status'}, scfg
+    )
+    assert err, 'invalid research.status must be rejected'
 
 
 def test_apply_knowledge_patch_clears_scaffold_when_form_cleared():

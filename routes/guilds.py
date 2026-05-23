@@ -1,7 +1,7 @@
 """Guilds API: guild CRUD, members, invitations."""
 from datetime import datetime, timedelta
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
 
 from uuid import uuid4
 
@@ -27,6 +27,11 @@ from services.guild_phase1 import (
     can_manage_guild_quest_link,
     is_guild_officer,
 )
+from services.access_policy import (
+    guild_listing_visible,
+    normalize_join_policy_layer_guild,
+    normalize_listing_visibility,
+)
 from services.identity import get_current_user, require_auth
 from services.avatar import get_avatar_url
 from services.utils import create_slug, generate_guild_id, generate_invitation_token
@@ -37,6 +42,8 @@ bp = Blueprint('guilds', __name__, url_prefix='/api/guilds')
 def _guild_detail(guild_id):
     """Shared implementation for guild detail with members."""
     guild = Guild.query.get_or_404(guild_id)
+    if not guild_listing_visible(guild, get_current_user()):
+        abort(404)
     mq = GuildMembership.query.filter_by(guild_id=guild_id)
     mq = mq.filter(GuildMembership.membership_state == 'active')
     memberships = mq.all()
@@ -66,8 +73,11 @@ def list_guilds():
     query = Guild.query.filter_by(status=status) if status else Guild.query
     query = query.order_by(Guild.created_at.desc())
     guilds = query.all()
+    viewer = get_current_user()
     result = []
     for g in guilds:
+        if not guild_listing_visible(g, viewer):
+            continue
         d = g.to_dict()
         d['members_count'] = GuildMembership.query.filter_by(
             guild_id=g.id, membership_state='active'
@@ -84,7 +94,7 @@ def create_guild():
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
 
-    data = request.get_json()
+    data = request.get_json() or {}
     name = data.get('name', '').strip()
     description = data.get('description', '').strip()
 
@@ -109,7 +119,9 @@ def create_guild():
         slug=slug,
         initiator_id=current_user['id'],
         description=description,
-        status='active'
+        status='active',
+        listing_visibility=normalize_listing_visibility(data.get('listing_visibility')),
+        join_policy=normalize_join_policy_layer_guild(data.get('join_policy')),
     )
     membership = GuildMembership(
         guild_id=guild_id,
@@ -228,6 +240,10 @@ def update_guild(guild_id):
         guild.image_url = data['image_url'].strip() if data['image_url'] else None
     if 'status' in data and data['status'] in ['active', 'archived']:
         guild.status = data['status']
+    if 'listing_visibility' in data:
+        guild.listing_visibility = normalize_listing_visibility(data.get('listing_visibility'))
+    if 'join_policy' in data:
+        guild.join_policy = normalize_join_policy_layer_guild(data.get('join_policy'))
 
     guild.updated_at = datetime.utcnow()
     db.session.commit()

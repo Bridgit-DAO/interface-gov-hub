@@ -87,7 +87,7 @@ def _content_to_bridge_fields(prefix, content):
 
 @bp.route('/', methods=['GET'])
 def list_bridges():
-    """List bridges with optional filters: relationship, inscribed."""
+    """List bridges with optional filters: relationship, inscribed, source_url, target_url."""
     query = Bridge.query
     relationship = request.args.get('relationship', '').strip()
     if relationship:
@@ -95,6 +95,12 @@ def list_bridges():
         if err:
             return jsonify({'error': err}), 400
         query = query.filter_by(relationship=rel)
+    source_url = (request.args.get('source_url') or '').strip()
+    if source_url:
+        query = query.filter(Bridge.source_url == source_url)
+    target_url = (request.args.get('target_url') or '').strip()
+    if target_url:
+        query = query.filter(Bridge.target_url == target_url)
     inscribed = request.args.get('inscribed')
     if inscribed == 'true' or inscribed == '1':
         query = query.filter(Bridge.inscription_id.isnot(None))

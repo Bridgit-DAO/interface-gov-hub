@@ -147,7 +147,7 @@ This section describes the approved migration: (1) transition all existing entit
 
 | Migration | What changes |
 |---|---|
-| **UUID** | All primary keys become UUID. Tables: User, Project→Layer, Submission, Vote, Ballot, VoteEligibilitySnapshot, Claim, Role, Workgroup, Guild, GuildMembership, GuildInvitation, Badge, RoleImage, RoleImageVote, BadgeSkin, BadgeCycle, OneTimeBadge, Comment, StatusChange, InscriptionOrder, HypothesisAccount, etc. |
+| **UUID** | All primary keys become UUID. Tables: User, Project→Layer, Submission, Vote, Ballot, VoteEligibilitySnapshot, Claim, Role, Workgroup, Guild, GuildMembership, GuildInvitation, Badge, RoleImage, RoleImageVote, BadgeSkin, BadgeCycle, OneTimeBadge, Comment, StatusChange, InscriptionOrder, UserNotification, etc. |
 | **Project → Layer** | Model `Project` → `Layer`. Table `project` → `layer`. All `project_id` columns → `layer_id`. All Python/JS/SQL references. Routes `/api/projects/` → `/api/layers/`. Frontend: project → layer. |
 
 ## Execution Order
