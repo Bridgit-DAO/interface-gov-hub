@@ -55,7 +55,7 @@ fi
 
 # 3. Verify the main Python file exists
 print_info "Step 3: Verifying application file..."
-if [ ! -f "/home/ubuntu/datatracker/ietf_data_viewer_simple.py" ]; then
+if [ ! -f "/home/ubuntu/datatracker/run.py" ]; then
     print_error "Application file not found!"
     exit 1
 fi

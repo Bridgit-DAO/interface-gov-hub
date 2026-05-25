@@ -10,7 +10,7 @@ print("=== Force Restart Script ===")
 # 1. Find and kill running processes
 print("\n1. Finding running processes...")
 try:
-    result = subprocess.run(['pgrep', '-f', 'ietf_data_viewer_simple.py'], 
+    result = subprocess.run(['pgrep', '-f', 'run.py'], 
                           capture_output=True, text=True)
     if result.stdout:
         pids = result.stdout.strip().split('\n')
@@ -53,17 +53,21 @@ try:
 except Exception as e:
     print(f"   Error checking schema: {e}")
 
-# 3. Start server
+# 3. Start server (dev: 8001)
 print("\n3. Starting server...")
 try:
     os.chdir('/home/ubuntu/datatracker')
+    env = os.environ.copy()
+    env['FLASK_ENV'] = 'development'
+    env['FLASK_PORT'] = '8001'
     
     with open('/home/ubuntu/datatracker/restart.log', 'w') as f:
         proc = subprocess.Popen(
-            ['python3', 'ietf_data_viewer_simple.py'],
+            ['python3', 'run.py'],
             stdout=f,
             stderr=subprocess.STDOUT,
-            start_new_session=True
+            start_new_session=True,
+            env=env
         )
     
     print(f"   Started with PID {proc.pid}")

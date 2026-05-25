@@ -1,0 +1,60 @@
+{
+  "lang": {
+    "menuLabel": "Язык",
+    "names": {
+      "en": "English",
+      "ar": "العربية",
+      "fr": "Français",
+      "pt": "Português",
+      "zh_Hans": "简体中文",
+      "ja": "日本語",
+      "ru": "Русский"
+    }
+  },
+  "nav": {
+    "participate": "Участие",
+    "governance": "Управление",
+    "community": "Сообщество",
+    "recognition": "Признание",
+    "learn": "Обучение",
+    "submitDraft": "Отправить черновик",
+    "immortalize": "Увековечить",
+    "waitlists": "Списки ожидания",
+    "people": "Люди",
+    "guilds": "Гильдии",
+    "badges": "Значки",
+    "civicMason": "Civic Mason",
+    "docsDrafts": "Документы и черновики",
+    "toggleMenu": "Открыть меню"
+  },
+  "gov": {
+    "layers": "Слои",
+    "bridges": "Мосты",
+    "roles": "Роли",
+    "workgroups": "Рабочие группы",
+    "votes": "Голосования",
+    "artifacts": "Артефакты",
+    "opportunities": "Возможности",
+    "docs": "Документы",
+    "about": "О проекте"
+  },
+  "user": {
+    "profile": "Профиль",
+    "myLayers": "Мои слои",
+    "mySubmissions": "Мои заявки",
+    "viewStandalone": "Отдельный вид",
+    "viewInMLGH": "Открыть в MLGH",
+    "adminDashboard": "Панель администратора",
+    "logout": "Выйти",
+    "signIn": "Войти"
+  },
+  "footer": {
+    "line": "Сборка {{build}} | Gov-Hub.",
+    "layerLine": "Сборка {{build}} | {{layer}}"
+  },
+  "theme": {
+    "switchToLight": "Светлая тема",
+    "switchToDark": "Тёмная тема",
+    "toggle": "Переключить тему"
+  }
+}

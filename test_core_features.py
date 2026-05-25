@@ -8,7 +8,11 @@ import sys
 import os
 sys.path.append('.')
 
-from ietf_data_viewer_simple import app, COMMENTS
+import pytest
+
+from app import app
+from models import User
+from services.documents import COMMENTS
 
 def test_critical_features():
     """Test all critical application features"""
@@ -18,80 +22,67 @@ def test_critical_features():
     with app.app_context():
         client = app.test_client()
 
-        # 1. Authentication System
+        # 1. Authentication: login page is GET-only (Web3Auth); no password form POST
         print("1. 🔐 Testing Authentication...")
-        response = client.post('/login/', data={'username': 'admin', 'password': 'admin123'})
-        if response.status_code == 302:  # Redirect to home
-            print("   ✅ Login works")
-        else:
-            print("   ❌ Login failed")
-            return False
+        response = client.get('/login/')
+        assert response.status_code == 200, "Login page should load"
+        text_login = response.get_data(as_text=True)
+        assert 'Sign In' in text_login or 'Web3Auth' in text_login
+
+        # Exercise authenticated flows via session (same pattern as other tests)
+        user_row = (
+            User.query.filter(User.role.in_(['admin', 'editor'])).first()
+            or User.query.first()
+        )
+        if not user_row:
+            pytest.skip("No users in DB — seed data needed for full core feature test")
+        with client.session_transaction() as sess:
+            sess['user'] = user_row.username
+        print("   ✅ Login page OK; session set for follow-on checks")
 
         # 2. Admin Dashboard
         print("2. 📊 Testing Admin Dashboard...")
         response = client.get('/admin/')
-        if 'Admin Dashboard' in response.get_data(as_text=True):
-            print("   ✅ Admin dashboard accessible")
-        else:
-            print("   ❌ Admin dashboard failed")
-            return False
+        assert response.status_code == 200
+        assert 'Admin Dashboard' in response.get_data(as_text=True)
+        print("   ✅ Admin dashboard accessible")
 
         # 3. User Management
         print("3. 👥 Testing User Management...")
-        # Test user registration functionality
         response = client.post('/register/', data={
             'username': 'testuser',
             'password': 'testpass123',
             'name': 'Test User',
             'email': 'test@example.com'
         }, follow_redirects=True)
-        if response.status_code == 200:
-            print("   ✅ User registration works")
-        else:
-            print(f"   ❌ User registration failed: {response.status_code}")
-            return False
+        assert response.status_code == 200, f"registration: {response.status_code}"
+        print("   ✅ User registration works")
 
         # 4. Document System
         print("4. 📄 Testing Document System...")
         response = client.get('/doc/all/')
-        if 'All Documents' in response.get_data(as_text=True):
-            print("   ✅ Document listing works")
-        else:
-            print("   ❌ Document listing failed")
-            return False
+        assert 'All Documents' in response.get_data(as_text=True)
+        print("   ✅ Document listing works")
 
         # 5. Individual Draft Pages
         print("5. 📋 Testing Individual Draft Pages...")
         # Check if we have any drafts/submissions first
-        from ietf_data_viewer_simple import Submission, PublishedDraft
-        has_drafts = Submission.query.count() > 0 or len(PublishedDraft.query.all()) > 0
+        from models import Submission
+        has_drafts = Submission.query.count() > 0
 
         if has_drafts:
             # Test with first available draft
             first_submission = Submission.query.first()
             if first_submission:
-                response = client.get(f'/doc/draft/{first_submission.draft_name}/')
-                if first_submission.draft_name in response.get_data(as_text=True):
-                    print("   ✅ Individual draft page works")
-                else:
-                    print("   ❌ Individual draft page failed")
-                    return False
-            else:
-                first_draft = PublishedDraft.query.first()
-                response = client.get(f'/doc/draft/{first_draft.name}/')
-                if first_draft.name in response.get_data(as_text=True):
-                    print("   ✅ Individual draft page works")
-                else:
-                    print("   ❌ Individual draft page failed")
-                    return False
+                draft_ref = first_submission.draft_name or first_submission.id
+                response = client.get(f'/doc/draft/{draft_ref}/')
+                assert draft_ref in response.get_data(as_text=True)
+                print("   ✅ Individual draft page works")
         else:
             # No drafts available - test that the route doesn't crash
             response = client.get('/doc/draft/nonexistent-draft/')
-            if response.status_code == 404:
-                print("   ✅ Draft route handles missing drafts gracefully")
-            else:
-                print("   ❌ Draft route should return 404 for missing drafts")
-                return False
+            assert response.status_code == 404
+            print("   ✅ Draft route handles missing drafts gracefully")
 
         # 6. Comment System
         print("6. 💬 Testing Comment System...")
@@ -105,73 +96,48 @@ def test_critical_features():
             first_submission = Submission.query.first()
             if first_submission:
                 draft_name = first_submission.draft_name
-            else:
-                first_draft = PublishedDraft.query.first()
-                if first_draft:
-                    draft_name = first_draft.name
+            if first_submission:
+                draft_name = first_submission.draft_name or first_submission.id
 
             if draft_name:
                 response = client.post(f'/doc/draft/{draft_name}/comments/',
                                       data={'comment': 'Automated test comment'})
-                if response.status_code in [200, 302]:
-                    print("   ✅ Comment submission works")
-                else:
-                    print("   ❌ Comment submission failed")
-                    return False
+                assert response.status_code in (200, 302)
+                print("   ✅ Comment submission works")
 
                 # Test comment display
                 response = client.get(f'/doc/draft/{draft_name}/comments/')
-                if 'Add a Comment' in response.get_data(as_text=True):
-                    print("   ✅ Comment display with form works")
-                else:
-                    print("   ❌ Comment display missing form")
-                    return False
+                assert 'Add a Comment' in response.get_data(as_text=True)
+                print("   ✅ Comment display with form works")
             else:
                 print("   ⚠️  No drafts available for comment testing")
         else:
             # Test comment route accessibility without drafts
             response = client.get('/doc/draft/nonexistent-draft/comments/')
-            if response.status_code == 404:
-                print("   ✅ Comment routes handle missing drafts gracefully")
-            else:
-                print("   ❌ Comment routes should return 404 for missing drafts")
-                return False
+            assert response.status_code == 404
+            print("   ✅ Comment routes handle missing drafts gracefully")
 
         # 7. Submission System
         print("7. 📤 Testing Submission System...")
-        # Test submission form accessibility
         response = client.get('/submit/')
-        if response.status_code == 200 and 'Submit Internet-Draft' in response.get_data(as_text=True):
-            print("   ✅ Submission form accessible")
-        else:
-            print(f"   ❌ Submission form failed: {response.status_code}")
-            return False
+        assert response.status_code == 200
+        assert 'Submit a Meta-Layer Draft' in response.get_data(as_text=True)
+        print("   ✅ Submission form accessible")
 
-        response = client.get('/submit/')
-        if 'Submit Internet-Draft' in response.get_data(as_text=True):
-            print("   ✅ Submission form accessible")
-        else:
-            print("   ❌ Submission form failed")
-            return False
-
-        # 8. Working Groups
-        print("8. 🏢 Testing Working Groups...")
+        # 8. Workgroups (route: /group/)
+        print("8. 🏢 Testing Workgroups...")
         response = client.get('/group/')
-        if 'Working Groups' in response.get_data(as_text=True):
-            print("   ✅ Working groups page works")
-        else:
-            print("   ❌ Working groups page failed")
-            return False
+        text_group = response.get_data(as_text=True)
+        assert response.status_code == 200
+        assert 'Workgroup' in text_group  # page title uses "Workgroups"
+        print("   ✅ Workgroups page works")
 
-        # 9. Chair Management
-        print("9. 👑 Testing Chair Management...")
-        # Test chair management page access
+        # 9. Coordinator / chairs admin
+        print("9. 👑 Testing coordinator management...")
         response = client.get('/admin/chairs/')
-        if response.status_code == 200 and 'Chair Management' in response.get_data(as_text=True):
-            print("   ✅ Chair management accessible")
-        else:
-            print(f"   ❌ Chair management failed: {response.status_code}")
-            return False
+        assert response.status_code == 200
+        assert 'Coordinator Management' in response.get_data(as_text=True)
+        print("   ✅ Coordinator management accessible")
 
         # 10. Theme System
         print("10. 🌙 Testing Theme System...")
@@ -182,8 +148,8 @@ def test_critical_features():
         print("=" * 50)
         print("🎉 ALL CRITICAL FEATURES WORKING!")
         print("\n💡 Safe to commit - no regressions detected")
-        return True
 
 if __name__ == '__main__':
-    success = test_critical_features()
-    sys.exit(0 if success else 1)
+    import pytest
+    # Run as a pytest test (assertions + skip) when executed directly
+    raise SystemExit(pytest.main([__file__, '-v']))

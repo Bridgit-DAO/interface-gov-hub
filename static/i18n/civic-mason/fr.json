@@ -1,0 +1,90 @@
+{
+  "lang": {
+    "en": "English",
+    "ar": "العربية",
+    "fr": "Français",
+    "pt": "Português",
+    "zh_Hans": "简体中文",
+    "ja": "日本語",
+    "ru": "Русский"
+  },
+  "page": {
+    "breadcrumb": {
+      "home": "Accueil",
+      "recognition": "Reconnaissance",
+      "active": "Civic Mason"
+    },
+    "title": "Civic Mason",
+    "tagline": "Les contributeurs avec le badge Civic Mason laissent une brique sur le mur."
+  },
+  "dev": {
+    "label": "Dev uniquement : règles Civic Mason",
+    "demoSwitch": "Mode démo — pas de badge requis, placements illimités"
+  },
+  "a11y": {
+    "demoMode": "Mode démo",
+    "close": "Fermer",
+    "loading": "Chargement…",
+    "muralAlt": "Fresque Civic Mason",
+    "brickColors": "Couleur de la brique",
+    "configureBrick": "Configurer la brique",
+    "editBrick": "Modifier la brique"
+  },
+  "ineligible": {
+    "loginTitle": "Connexion",
+    "loginBody": "Connectez-vous pour voir les options de placement sur le mur Civic Mason.",
+    "badgeTitle": "Obtenez le badge Civic Mason",
+    "badgeBody": "Placez une brique permanente sur ce mur en obtenant un badge éligible Civic Mason grâce à la participation civique.",
+    "badgeButton": "Voir les badges et comment les obtenir",
+    "yearTitle": "Une brique par an",
+    "yearBody": "Vous avez déjà placé une brique en {{year}} (UTC). Vous pourrez en placer une autre en {{nextYear}}."
+  },
+  "config": {
+    "title": "Configurer la brique",
+    "hint": "Choisissez une couleur — double-cliquez pour valider et fermer.",
+    "message": "Message",
+    "optional": "(facultatif)",
+    "placeholder": "Laissez un message…"
+  },
+  "edit": {
+    "title": "Modifier la brique",
+    "hint": "Modifiez la couleur ou le message, puis Accepter — ou annulez ce placement.",
+    "cancelPlacement": "Annuler le placement",
+    "accept": "Accepter"
+  },
+  "palette": {
+    "colorN": "Couleur {{n}}"
+  },
+  "toast": {
+    "placed": "Brique placée ! Cliquez dans les 5 secondes pour modifier ou annuler.",
+    "placedAt": "Brique placée en ({{x}}, {{y}})",
+    "failedPlace": "Échec du placement de la brique",
+    "updated": "Brique mise à jour",
+    "removed": "Brique retirée",
+    "removeFailed": "Échec du retrait de la brique",
+    "removeError": "Erreur lors du retrait de la brique"
+  },
+  "grid": {
+    "loadError": "Impossible de charger les briques."
+  },
+  "brick": {
+    "anonymous": "Anonyme",
+    "unknown": "Inconnu"
+  },
+  "api": {
+    "errors": {
+      "AUTHENTICATION_REQUIRED": "Authentification requise",
+      "BADGE_REQUIRED": "Obtenez un badge éligible Civic Mason pour placer des briques",
+      "ALREADY_PLACED_THIS_YEAR": "Une seule brique par année civile",
+      "NOT_OWNER": "Seul le propriétaire de la brique peut faire cela",
+      "GRID_REQUIRED": "grid_x et grid_y requis",
+      "GRID_INVALID": "grid_x et grid_y doivent être des nombres",
+      "POSITION_OCCUPIED": "Position déjà occupée",
+      "NO_SUPPORT_BELOW": "Doit reposer sur au moins une brique en dessous",
+      "ROW_FULL": "Rangée pleine (max 12 briques par rangée)",
+      "NOT_AVAILABLE": "Non disponible",
+      "MESSAGE_REQUIRED": "message requis",
+      "UNKNOWN": "Une erreur s’est produite"
+    }
+  }
+}

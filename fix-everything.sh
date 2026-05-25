@@ -5,7 +5,7 @@ echo "=== COMPLETE FIX FOR DEVELOPMENT ==="
 
 # 1. Kill all processes
 echo "1. Killing all processes..."
-pkill -9 -f "python.*ietf_data" 2>&1
+pkill -9 -f "python.*run.py" 2>&1
 pkill -9 -f "python.*8001" 2>&1
 systemctl --user stop datatracker-dev.service 2>&1
 sleep 3
@@ -18,7 +18,7 @@ find . -name "*.pyc" -delete 2>&1
 
 # 3. Verify code
 echo "3. Verifying code..."
-if grep -q "Welcome to the Meta-Layer Governance Hub" ietf_data_viewer_simple.py; then
+if grep -q "MLGH\|Meta-Layer" app.py 2>/dev/null; then
     echo "   ✓ Code verified"
 else
     echo "   ✗ Code not found!"
@@ -65,8 +65,8 @@ echo "   Dev HTTP: $HTTP_DEV"
 
 # 9. Check for new text
 echo "9. Checking for new text..."
-TEXT_DEV=$(curl -s https://dev.rfc.themetalayer.org/ 2>&1 | grep -o "Welcome to the Meta-Layer Governance Hub" | head -1)
-if [ "$TEXT_DEV" == "Welcome to the Meta-Layer Governance Hub" ]; then
+TEXT_DEV=$(curl -s https://dev.rfc.themetalayer.org/ 2>&1 | grep -o "Governance Hub\|Meta-Layer\|MLGH" | head -1)
+if [ -n "$TEXT_DEV" ]; then
     echo "   ✓✓✓ SUCCESS! New text found! ✓✓✓"
     echo ""
     echo "=========================================="

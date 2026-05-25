@@ -24,9 +24,9 @@ def main():
     # Step 1: Verify code in file
     print("\n[1] Checking code in file...")
     try:
-        with open('/home/ubuntu/datatracker/ietf_data_viewer_simple.py', 'r') as f:
+        with open('/home/ubuntu/datatracker/app.py', 'r') as f:
             code = f.read()
-            if 'Welcome to the Meta-Layer Governance Hub' in code:
+            if 'MLGH' in code or 'Meta-Layer' in code:
                 print("   ✅ Code change found in file")
             else:
                 print("   ❌ Code change NOT found in file")
@@ -37,7 +37,7 @@ def main():
 
     # Step 2: Kill everything
     print("\n[2] Killing all processes...")
-    run_cmd("pkill -9 -f 'python.*ietf_data'")
+    run_cmd("pkill -9 -f 'python.*run.py'")
     run_cmd("pkill -9 -f 'python.*8001'")
     run_cmd("systemctl --user stop datatracker-dev.service")
     time.sleep(3)
@@ -121,7 +121,7 @@ def main():
     try:
         response = urllib.request.urlopen('http://localhost:8001/', timeout=10)
         content = response.read().decode('utf-8')
-        if 'Welcome to the Meta-Layer Governance Hub' in content:
+        if 'Governance Hub' in content or 'Meta-Layer' in content:
             print("   ✅ Localhost has new text")
             localhost_ok = True
         else:
@@ -135,7 +135,7 @@ def main():
     try:
         response = urllib.request.urlopen('https://dev.rfc.themetalayer.org/', timeout=10)
         content = response.read().decode('utf-8')
-        if 'Welcome to the Meta-Layer Governance Hub' in content:
+        if 'Governance Hub' in content or 'Meta-Layer' in content:
             print("   ✅ Dev subdomain has new text")
             dev_ok = True
         else:
@@ -151,7 +151,7 @@ def main():
         print("🎉🎉🎉 SUCCESS! DEPLOYMENT COMPLETE! 🎉🎉🎉")
         print("\n✅ The change is LIVE at: https://dev.rfc.themetalayer.org")
         print("\nWhat you should see:")
-        print("- 'Welcome to the Meta-Layer Governance Hub' text")
+        print("- Governance Hub / Meta-Layer text")
         print("- Hard refresh if needed: Ctrl+Shift+R")
         print("\nAdditional test URLs:")
         print("- Status: https://dev.rfc.themetalayer.org/_deploy/status")

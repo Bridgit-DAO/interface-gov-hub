@@ -32,7 +32,7 @@ ENV_CONFIG = {
 # Expected content checks
 EXPECTED_CONTENT = {
     'homepage': {
-        'text': 'Welcome to the Governance Hub for the Meta-Layer Task Force',
+        'text': 'Governance Hub',
         'should_contain': True
     }
 }

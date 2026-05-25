@@ -168,27 +168,17 @@ def verify_environment(env):
 
 ### 5. Database Migration System
 
-**Migration Format**:
+**Migration Format** (example — app uses imperative migrations in `migrations/__init__.py`):
 ```python
-# migrations/001_add_field.py
+# Example: user_event_subscription replaces legacy user_follow (see migrate_user_follow_to_event_subscriptions)
 """
-Migration: Add notification_level to user_follow
-Date: 2026-01-17
+Migration: Create user_event_subscription; copy user_follow rows; drop user_follow
 """
 
-def up(db):
-    """Apply migration"""
-    db.execute("""
-        ALTER TABLE user_follow 
-        ADD COLUMN notification_level VARCHAR(20) DEFAULT 'all'
-    """)
-
-def down(db):
-    """Rollback migration"""
-    db.execute("""
-        ALTER TABLE user_follow 
-        DROP COLUMN notification_level
-    """)
+def up(conn):
+    conn.execute("CREATE TABLE IF NOT EXISTS user_event_subscription (...)")
+    # ... copy expanded event_type rows from user_follow.notification_level ...
+    conn.execute("DROP TABLE IF EXISTS user_follow")
 ```
 
 **Migration Tracking**:

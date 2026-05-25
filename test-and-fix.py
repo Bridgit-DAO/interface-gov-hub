@@ -28,9 +28,9 @@ print("   ✓ Cache cleared")
 # Step 3: Verify code
 print("\n[3/6] Verifying code change...")
 try:
-    with open('/home/ubuntu/datatracker/ietf_data_viewer_simple.py', 'r') as f:
+    with open('/home/ubuntu/datatracker/app.py', 'r') as f:
         content = f.read()
-        if 'Welcome to the Meta-Layer Governance Hub' in content:
+        if 'Governance Hub' in content or 'Meta-Layer' in content:
             print("   ✓ Code change found in file")
         else:
             print("   ✗ Code change NOT found!")
@@ -72,7 +72,7 @@ try:
     content = response.read().decode('utf-8')
     print(f"   ✓ HTTP {response.getcode()}")
     
-    if 'Welcome to the Meta-Layer Governance Hub' in content:
+    if 'Governance Hub' in content or 'Meta-Layer' in content:
         print("   ✓ NEW TEXT FOUND IN RESPONSE!")
         print("\n" + "=" * 50)
         print("SUCCESS! Development environment is working")

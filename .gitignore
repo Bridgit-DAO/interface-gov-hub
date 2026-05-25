@@ -16,6 +16,11 @@ datatracker.sublime-workspace
 /dist
 /docker/docker-compose.extend-custom.yml
 /env
+# Local secrets (never commit)
+.env
+.env.local
+.env.*.local
+
 /ghostdriver.log
 /geckodriver.log
 /htmlcov
@@ -24,7 +29,29 @@ datatracker.sublime-workspace
 /media
 /node_modules
 /release-coverage.json
-/static
+# Track Civic Mason i18n + loader; keep rest of /static untracked
+/static/*
+!/static/js/
+/static/js/*
+!/static/js/cm-i18n.js
+!/static/js/govhub-i18n.js
+!/static/i18n/
+/static/i18n/*
+!/static/i18n/civic-mason/
+/static/i18n/civic-mason/*
+!/static/i18n/civic-mason/en.json
+!/static/i18n/civic-mason/ar.json
+!/static/i18n/civic-mason/fr.json
+!/static/i18n/civic-mason/pt.json
+!/static/i18n/civic-mason/zh-Hans.json
+!/static/i18n/civic-mason/ja.json
+!/static/i18n/civic-mason/ru.json
+!/static/i18n/shell/
+/static/i18n/shell/*
+!/static/i18n/shell/*.json
+!/static/css/
+/static/css/*
+!/static/css/govhub-design.css
 /tmp-*
 /.testresult
 *.swp
@@ -42,6 +69,8 @@ __pycache__
 instance/*.db
 instance_dev/*.db
 *.db
+instance/**/*.log
+instance_dev/**/*.log
 
 # Production safety lock
 .production_lock

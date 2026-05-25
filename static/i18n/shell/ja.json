@@ -1,0 +1,60 @@
+{
+  "lang": {
+    "menuLabel": "言語",
+    "names": {
+      "en": "English",
+      "ar": "العربية",
+      "fr": "Français",
+      "pt": "Português",
+      "zh_Hans": "简体中文",
+      "ja": "日本語",
+      "ru": "Русский"
+    }
+  },
+  "nav": {
+    "participate": "参加",
+    "governance": "ガバナンス",
+    "community": "コミュニティ",
+    "recognition": "認定",
+    "learn": "学ぶ",
+    "submitDraft": "ドラフトを提出",
+    "immortalize": "不朽化",
+    "waitlists": "ウェイトリスト",
+    "people": "ピープル",
+    "guilds": "ギルド",
+    "badges": "バッジ",
+    "civicMason": "Civic Mason",
+    "docsDrafts": "ドキュメントとドラフト",
+    "toggleMenu": "ナビを切り替え"
+  },
+  "gov": {
+    "layers": "レイヤー",
+    "bridges": "ブリッジ",
+    "roles": "ロール",
+    "workgroups": "ワーキンググループ",
+    "votes": "投票",
+    "artifacts": "アーティファクト",
+    "opportunities": "機会",
+    "docs": "ドキュメント",
+    "about": "概要"
+  },
+  "user": {
+    "profile": "プロフィール",
+    "myLayers": "マイレイヤー",
+    "mySubmissions": "マイ提出",
+    "viewStandalone": "スタンドアロンで表示",
+    "viewInMLGH": "MLGH で表示",
+    "adminDashboard": "管理ダッシュボード",
+    "logout": "ログアウト",
+    "signIn": "サインイン"
+  },
+  "footer": {
+    "line": "ビルド {{build}} | Gov-Hub。",
+    "layerLine": "ビルド {{build}} | {{layer}}"
+  },
+  "theme": {
+    "switchToLight": "ライトモードに切り替え",
+    "switchToDark": "ダークモードに切り替え",
+    "toggle": "テーマを切り替え"
+  }
+}

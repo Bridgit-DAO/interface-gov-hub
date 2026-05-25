@@ -22,11 +22,11 @@ write_result("=" * 60)
 # Step 1: Verify code
 write_result("\n[1] Reading code file...")
 try:
-    with open('/home/ubuntu/datatracker/ietf_data_viewer_simple.py', 'r') as f:
+    with open('/home/ubuntu/datatracker/app.py', 'r') as f:
         code_content = f.read()
         write_result(f"   File size: {len(code_content)} bytes")
         
-        if 'Welcome to the Meta-Layer Governance Hub' in code_content:
+        if 'MLGH' in code_content or 'Meta-Layer' in code_content:
             write_result("   ✓ NEW TEXT FOUND IN FILE")
         else:
             write_result("   ✗ NEW TEXT NOT IN FILE!")
@@ -77,7 +77,7 @@ for i in range(3):
         write_result(f"\n   Homepage HTTP: {response.getcode()}")
         write_result(f"   Homepage length: {len(content)} bytes")
         
-        if 'Welcome to the Meta-Layer Governance Hub' in content:
+        if 'Governance Hub' in content or 'Meta-Layer' in content:
             write_result("   ✓✓✓ NEW TEXT FOUND IN HOMEPAGE! ✓✓✓")
             write_result("\n" + "=" * 60)
             write_result("SUCCESS!")

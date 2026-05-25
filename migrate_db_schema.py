@@ -72,7 +72,9 @@ def confirm_production_operation(env_info):
 
     return True
 
-from ietf_data_viewer_simple import app, db, User
+from app import app
+from extensions import db
+from models import User
 
 def migrate_database():
     """Add new Web3Auth columns to existing database"""

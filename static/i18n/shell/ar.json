@@ -1,0 +1,60 @@
+{
+  "lang": {
+    "menuLabel": "اللغة",
+    "names": {
+      "en": "English",
+      "ar": "العربية",
+      "fr": "Français",
+      "pt": "Português",
+      "zh_Hans": "简体中文",
+      "ja": "日本語",
+      "ru": "Русский"
+    }
+  },
+  "nav": {
+    "participate": "المشاركة",
+    "governance": "الحوكمة",
+    "community": "المجتمع",
+    "recognition": "التقدير",
+    "learn": "تعلّم",
+    "submitDraft": "إرسال مسودة",
+    "immortalize": "خلود",
+    "waitlists": "قوائم الانتظار",
+    "people": "الأشخاص",
+    "guilds": "النقابات",
+    "badges": "الشارات",
+    "civicMason": "البانٍ المدني",
+    "docsDrafts": "المستندات والمسودات",
+    "toggleMenu": "تبديل القائمة"
+  },
+  "gov": {
+    "layers": "الطبقات",
+    "bridges": "الجسور",
+    "roles": "الأدوار",
+    "workgroups": "مجموعات العمل",
+    "votes": "التصويت",
+    "artifacts": "التحف",
+    "opportunities": "الفرص",
+    "docs": "المستندات",
+    "about": "نبذة"
+  },
+  "user": {
+    "profile": "الملف الشخصي",
+    "myLayers": "طبقاتي",
+    "mySubmissions": "طلباتي",
+    "viewStandalone": "عرض مستقل",
+    "viewInMLGH": "عرض في MLGH",
+    "adminDashboard": "لوحة الإدارة",
+    "logout": "تسجيل الخروج",
+    "signIn": "تسجيل الدخول"
+  },
+  "footer": {
+    "line": "البنية {{build}} | Gov-Hub.",
+    "layerLine": "البنية {{build}} | {{layer}}"
+  },
+  "theme": {
+    "switchToLight": "التبديل إلى الوضع الفاتح",
+    "switchToDark": "التبديل إلى الوضع الداكن",
+    "toggle": "تبديل السمة"
+  }
+}

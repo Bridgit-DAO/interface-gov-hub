@@ -1,0 +1,70 @@
+"""Submission lookup helpers: get_submission_by_ref, get_next_ml_number, add_to_document_history, generate_draft_name."""
+import re
+from datetime import datetime
+
+from extensions import db
+from models import Submission
+
+# In-memory document history (used by add_to_document_history)
+DOCUMENT_HISTORY = {}
+
+
+def generate_draft_name(title, authors):
+    """Generate a draft name from title and authors"""
+    first_author = authors[0] if authors else "unknown"
+    author_last = first_author.split()[-1].lower() if first_author else "unknown"
+
+    title_slug = re.sub(r'[^a-zA-Z0-9\s-]', '', title.lower())
+    title_slug = re.sub(r'\s+', '-', title_slug.strip())
+    title_slug = title_slug[:30]  # Limit length
+
+    return f"draft-{author_last}-{title_slug}"
+
+
+def get_submission_by_ref(ref):
+    """Look up submission by id (UUID), draft_name, ml_number, or public_id."""
+    if not ref:
+        return None
+    s = Submission.query.filter_by(id=ref).first()
+    if s:
+        return s
+    s = Submission.query.filter_by(draft_name=ref).first()
+    if s:
+        return s
+    s = Submission.query.filter_by(ml_number=ref).first()
+    if s:
+        return s
+    s = Submission.query.filter_by(public_id=ref).first()
+    return s
+
+
+def add_to_document_history(draft_name, action, user, details=""):
+    """Add an entry to document history."""
+    if draft_name not in DOCUMENT_HISTORY:
+        DOCUMENT_HISTORY[draft_name] = []
+    entry = {
+        'action': action,
+        'user': user,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'details': details
+    }
+    DOCUMENT_HISTORY[draft_name].insert(0, entry)
+
+
+def get_next_ml_number(doc_type='draft'):
+    """Get the next ML number (ML-Draft-001 or ML-RFC-001)."""
+    prefix = f"ML-{doc_type.capitalize()}-"
+    max_ml = db.session.query(db.func.max(Submission.ml_number)).filter(
+        Submission.ml_number.like(f"{prefix}%")
+    ).scalar()
+    if max_ml:
+        try:
+            current_num = int(max_ml.split('-')[-1])
+            next_num = current_num + 1
+        except (ValueError, IndexError):
+            next_num = 1
+    else:
+        next_num = 1
+    if next_num < 1000:
+        return f"{prefix}{next_num:03d}"
+    return f"{prefix}{next_num:04d}"

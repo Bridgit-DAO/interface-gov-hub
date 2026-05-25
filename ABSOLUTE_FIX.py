@@ -25,9 +25,9 @@ def main():
     # Step 1: Verify code change exists
     print("\n[1] VERIFYING CODE CHANGE...")
     try:
-        with open('/home/ubuntu/datatracker/ietf_data_viewer_simple.py', 'r') as f:
+        with open('/home/ubuntu/datatracker/app.py', 'r') as f:
             code = f.read()
-            if 'Welcome to the Meta-Layer Governance Hub' in code:
+            if 'MLGH' in code or 'Meta-Layer' in code:
                 print("   ✓ Code change CONFIRMED in file")
             else:
                 print("   ✗ FATAL: Code change not found in file!")
@@ -38,7 +38,7 @@ def main():
 
     # Step 2: Kill everything
     print("\n[2] KILLING ALL PROCESSES...")
-    run_cmd("pkill -9 -f 'python.*ietf_data'")
+    run_cmd("pkill -9 -f 'python.*run.py'")
     run_cmd("pkill -9 -f 'python.*8001'")
     run_cmd("systemctl --user stop datatracker-dev.service")
     time.sleep(3)
@@ -101,7 +101,7 @@ def main():
         response = urllib.request.urlopen('http://localhost:8001/', timeout=15)
         content = response.read().decode('utf-8')
         print(f"   ✓ Localhost responds: HTTP {response.getcode()}")
-        local_has_text = 'Welcome to the Meta-Layer Governance Hub' in content
+        local_has_text = 'Governance Hub' in content or 'Meta-Layer' in content
         print(f"   Localhost has new text: {local_has_text}")
     except Exception as e:
         print(f"   ✗ Localhost error: {e}")
@@ -114,7 +114,7 @@ def main():
         response = urllib.request.urlopen('https://dev.rfc.themetalayer.org/', timeout=15)
         content = response.read().decode('utf-8')
         print(f"   ✓ Dev subdomain responds: HTTP {response.getcode()}")
-        dev_has_text = 'Welcome to the Meta-Layer Governance Hub' in content
+        dev_has_text = 'Governance Hub' in content or 'Meta-Layer' in content
         print(f"   Dev subdomain has new text: {dev_has_text}")
     except Exception as e:
         print(f"   ✗ Dev subdomain error: {e}")

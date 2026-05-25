@@ -1,0 +1,841 @@
+"""Profile page routes: /profile/<username>/, /profile/edit/."""
+import json
+from datetime import datetime
+
+from flask import Blueprint, redirect, request, session
+from sqlalchemy import text
+
+from extensions import db
+from models import User, Workgroup, Submission, Comment, LayerMember, UserLinkedAccount
+
+from services.identity import get_current_user, require_auth, get_or_create_referral_code
+from services.avatar import get_avatar_url
+from services.directory_ui import gh_page_open, gh_page_close, gh_page_header
+
+bp = Blueprint('profile_pages', __name__, url_prefix='')
+
+
+def _get_imports():
+    """Late imports from main app to avoid circular imports."""
+    from services.rendering import render_page, generate_user_menu
+    return render_page, generate_user_menu
+
+
+def _format_activity_items(projects, submissions):
+    """Helper function to format activity items"""
+    items = []
+
+    for project in projects:
+        date = project[2]
+        if isinstance(date, str):
+            try:
+                date = datetime.fromisoformat(date.replace('Z', '+00:00'))
+            except Exception:
+                date = datetime.utcnow()
+        items.append((date, 'project', f'Created project <strong>{project[0]}</strong>', f'/layers/{project[1]}/'))
+
+    for submission in submissions:
+        draft_name = submission[0]
+        date = submission[1] if submission[1] else datetime.utcnow()
+        submission_id = submission[2]
+        approved = submission[3]
+        status = "Approved" if approved else "Draft"
+        items.append((date, 'submission', f'Submitted <strong>{draft_name}</strong> <span class="badge bg-{"success" if approved else "secondary"}">{status}</span>', f'/submit/status/{submission_id}/'))
+
+    items.sort(key=lambda x: x[0], reverse=True)
+
+    html = ''
+    for date, type_, text_val, link in items[:10]:
+        icon = 'fa-folder' if type_ == 'project' else 'fa-file-alt'
+        html += f'''
+        <a href="{link}" class="list-group-item list-group-item-action">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas {icon} me-2"></i>
+                    {text_val}
+                </div>
+                <small class="text-muted">{date.strftime('%b %d, %Y') if date else ''}</small>
+            </div>
+        </a>
+        '''
+
+    return html if html else '<p class="text-muted">No recent activity.</p>'
+
+
+def _render_social_link_inputs(platforms, existing_links):
+    """Helper to render social link input fields"""
+    html = ''
+
+    for platform in platforms:
+        existing = next((link for link in existing_links if link.get('platform') == platform['name']), None)
+        value = existing['url'] if existing else ''
+
+        html += f'''
+        <div class="mb-3">
+            <label class="form-label">
+                <i class="fab fa-{platform["icon"]} me-2"></i>{platform["name"]}
+            </label>
+            <input
+                type="url"
+                class="form-control"
+                data-social-platform="{platform["name"]}"
+                data-social-icon="{platform["icon"]}"
+                placeholder="{platform["placeholder"]}"
+                value="{value}"
+            >
+        </div>
+        '''
+
+    return html
+
+
+@bp.route('/profile/<username>/')
+def user_profile(username):
+    """User profile page"""
+    render_page, generate_user_menu = _get_imports()
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+
+    profile_user = User.query.filter_by(username=username).first()
+    if not profile_user:
+        profile_user = User.query.filter_by(handle=username).first()
+
+    if not profile_user:
+        return render_page("User Not Found - MLGH", f"""
+            <div class="container mt-5">
+                <div class="alert alert-danger">
+                    <h4>User Not Found</h4>
+                    <p>The user "{username}" does not exist.</p>
+                    <a href="/" class="btn btn-primary">Back to Home</a>
+                </div>
+            </div>
+        """, theme=current_theme, user_menu=user_menu)
+
+    is_own_profile = current_user and current_user['id'] == profile_user.id
+
+    social_links = []
+    if profile_user.social_links:
+        try:
+            social_links = json.loads(profile_user.social_links)
+        except Exception:
+            social_links = []
+    linked_accounts = UserLinkedAccount.query.filter_by(user_id=profile_user.id).all()
+    _provider_icons = {'twitter': 'x-twitter'}
+    for acc in linked_accounts:
+        if acc.profile_url:
+            icon = _provider_icons.get(acc.provider, acc.provider)
+            social_links.append({'url': acc.profile_url, 'platform': acc.provider.title(), 'icon': icon})
+
+    projects_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM layer WHERE initiator_id = :user_id
+    """), {'user_id': profile_user.id}).scalar() or 0
+
+    workgroups_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM working_group WHERE coordinator_id = :user_id
+    """), {'user_id': profile_user.id}).scalar() or 0
+
+    memberships_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM working_group_member WHERE user_id = :user_id
+    """), {'user_id': profile_user.id}).scalar() or 0
+
+    chair_count = db.session.execute(text("""
+        SELECT COUNT(*) FROM working_group_chair WHERE user_id = :user_id AND approved = 1
+    """), {'user_id': profile_user.id}).scalar() or 0
+
+    name_variants = [x for x in (profile_user.name, profile_user.displayName, profile_user.oauthName, profile_user.username) if x]
+    submissions_count = Submission.query.filter(Submission.submitted_by.in_(name_variants)).count() if name_variants else 0
+    comments_count = Comment.query.filter(Comment.author.in_(name_variants)).count() if name_variants else 0
+
+    recent_projects = db.session.execute(text("""
+        SELECT name, slug, created_at FROM layer
+        WHERE initiator_id = :user_id
+        ORDER BY created_at DESC LIMIT 5
+    """), {'user_id': profile_user.id}).fetchall()
+
+    if name_variants:
+        recent_submissions_q = Submission.query.filter(
+            Submission.submitted_by.in_(name_variants)
+        ).order_by(Submission.submitted_at.desc()).limit(5).all()
+        recent_submissions = [(s.draft_name or f"Draft {s.id}", s.submitted_at, s.id, s.status == 'approved') for s in recent_submissions_q]
+        all_submissions_q = Submission.query.filter(
+            Submission.submitted_by.in_(name_variants)
+        ).order_by(Submission.submitted_at.desc()).all()
+    else:
+        recent_submissions = []
+        all_submissions_q = []
+
+    coordinated_workgroups = Workgroup.query.filter_by(coordinator_id=profile_user.id).order_by(Workgroup.created_at.desc()).all()
+
+    memberships_q = db.session.execute(text("""
+        SELECT wg.name, wg.slug, wgm.joined_at
+        FROM working_group_member wgm
+        JOIN working_group wg ON wgm.group_acronym = wg.acronym
+        WHERE wgm.user_id = :user_id
+        ORDER BY wgm.joined_at DESC
+    """), {'user_id': profile_user.id}).fetchall()
+
+    chairs_q = db.session.execute(text("""
+        SELECT wg.name, wg.slug, wgc.set_at, wgc.approved
+        FROM working_group_chair wgc
+        JOIN working_group wg ON wgc.group_acronym = wg.acronym
+        WHERE wgc.user_id = :user_id
+        ORDER BY wgc.set_at DESC
+    """), {'user_id': profile_user.id}).fetchall()
+
+    project_memberships = LayerMember.query.filter_by(user_id=profile_user.id, status='active').order_by(LayerMember.joined_at.desc()).all()
+
+    referral_code = None
+    referral_count = 0
+    if is_own_profile:
+        referral_code = get_or_create_referral_code(profile_user)
+        referral_count = LayerMember.query.filter_by(referred_by_id=profile_user.id).count()
+
+    content = f"""
+    <style>
+        .profile-banner {{
+            width: 100%;
+            height: 300px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-size: cover;
+            background-position: center;
+            position: relative;
+        }}
+
+        .profile-header {{
+            position: relative;
+            margin-top: -80px;
+            padding: 0 2rem;
+        }}
+
+        .profile-avatar {{
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            border: 6px solid var(--bg-primary);
+            background: var(--bg-secondary);
+            object-fit: cover;
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }}
+
+        .profile-stats {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }}
+
+        .stat-card {{
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }}
+
+        .stat-value {{
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: block;
+        }}
+
+        .stat-label {{
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }}
+
+        .social-links a {{
+            display: inline-block;
+            margin-right: 1rem;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            transition: color 0.2s;
+        }}
+
+        .social-links a:hover {{
+            color: var(--text-primary);
+        }}
+    </style>
+
+    <!-- Banner -->
+    <div class="profile-banner" style="{'background-image: url(' + profile_user.banner_image + ');' if profile_user.banner_image else ''}">
+    </div>
+
+    <!-- Profile Header -->
+    <div class="gh-page gh-profile-page container">
+        <div class="profile-header">
+            <div class="row">
+                <div class="col-md-8">
+                    <img
+                        src="{get_avatar_url(profile_user, 200)}"
+                        alt="{profile_user.displayName or profile_user.username}"
+                        class="profile-avatar"
+                        onerror="this.src='/static/images/default-avatar.png'"
+                    >
+                    <h1 class="mt-3">{profile_user.displayName or profile_user.username}</h1>
+                    {f'<p class="text-muted">@{profile_user.handle}</p>' if profile_user.handle else ''}
+                    {f'<p class="lead mt-2">{profile_user.headline}</p>' if profile_user.headline else ''}
+
+                    {f'''<div class="social-links mt-3">
+                        {''.join([f'<a href="{link.get("url")}" target="_blank" title="{link.get("platform")}"><i class="fab fa-{link.get("icon", "link")}"></i></a>' for link in social_links])}
+                    </div>''' if social_links else ''}
+                </div>
+                <div class="col-md-4 text-end mt-5">
+                    {'<a href="/profile/edit/" class="btn btn-primary"><i class="fas fa-edit me-2"></i>Edit Profile</a>' if is_own_profile else ''}
+                </div>
+            </div>
+
+            <!-- Stats -->
+            <div class="profile-stats mt-4">
+                <div class="stat-card">
+                    <span class="stat-value">{projects_count}</span>
+                    <span class="stat-label">Initiated</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{len(project_memberships)}</span>
+                    <span class="stat-label">Layers</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{workgroups_count}</span>
+                    <span class="stat-label">Coordinating</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{memberships_count}</span>
+                    <span class="stat-label">Workgroups</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{chair_count}</span>
+                    <span class="stat-label">Chair</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{submissions_count}</span>
+                    <span class="stat-label">Submissions</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">{comments_count}</span>
+                    <span class="stat-label">Comments</span>
+                </div>
+                {f'''<div class="stat-card">
+                    <span class="stat-value">{referral_count}</span>
+                    <span class="stat-label">Referrals</span>
+                </div>''' if is_own_profile else ''}
+            </div>
+
+            {f'''<!-- Referral Code -->
+            <div class="alert alert-info mt-3">
+                <strong><i class="fas fa-share-alt me-2"></i>Your Referral Code:</strong>
+                <code id="referral-code">{referral_code}</code>
+                <button class="btn btn-sm btn-outline-primary ms-2" onclick="copyReferralLink(this)">
+                    <i class="fas fa-copy me-1"></i>Copy Link
+                </button>
+                <small class="d-block mt-2">Share this link to get credit when people join projects!</small>
+            </div>''' if is_own_profile and referral_code else ''}
+        </div>
+
+        <!-- Content Tabs -->
+        <div class="row mt-5">
+            <div class="col-12">
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#about-tab">About</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#activity-tab">Activity</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#projects-tab">Initiated</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#my-projects-tab" id="my-projects">My Projects</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#coordinating-tab">Coordinating</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#memberships-tab">Memberships</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#chair-tab">Chair</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#submissions-tab">Submissions</button>
+                    </li>
+                </ul>
+
+                <div class="tab-content mt-4">
+                    <!-- About Tab -->
+                    <div class="tab-pane fade show active" id="about-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Bio</h5>
+                                {f'<p>{profile_user.bio}</p>' if profile_user.bio else '<p class="text-muted">No bio provided yet.</p>'}
+
+                                <h5 class="card-title mt-4">Details</h5>
+                                <p><strong>Member since:</strong> {profile_user.created_at.strftime('%B %Y') if profile_user.created_at else 'Unknown'}</p>
+                                {f'<p><strong>Email:</strong> {profile_user.email}</p>' if profile_user.email else ''}
+                                {f'<p><strong>Role:</strong> <span class="badge bg-primary">{profile_user.role}</span></p>' if profile_user.role else ''}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Activity Tab -->
+                    <div class="tab-pane fade" id="activity-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Recent Activity</h5>
+                                <div class="list-group list-group-flush">
+                                    {_format_activity_items(recent_projects, recent_submissions)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Projects Tab -->
+                    <div class="tab-pane fade" id="projects-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Initiated Projects</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/layers/{p[1]}/" class="list-group-item list-group-item-action"><strong>{p[0]}</strong><br><small class="text-muted">Created {p[2]}</small></a>' for p in recent_projects]) if recent_projects else '<p class="text-muted">No projects yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Projects Tab -->
+                    <div class="tab-pane fade" id="my-projects-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Layer Memberships</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'''<a href="/layers/{pm.layer.slug}/" class="list-group-item list-group-item-action">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <strong>{pm.layer.name}</strong>
+                                                <br><small class="text-muted">Role: {pm.role or "Member"} • Joined {pm.joined_at.strftime("%b %Y") if pm.joined_at else "Unknown"}</small>
+                                                {f'<br><small class="text-success"><i class="fas fa-user-plus me-1"></i>Referred by {pm.referred_by.displayName or pm.referred_by.username}</small>' if pm.referred_by else ''}
+                                            </div>
+                                        </div>
+                                    </a>''' for pm in project_memberships]) if project_memberships else '<p class="text-muted">Not a member of any projects yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Coordinating Tab -->
+                    <div class="tab-pane fade" id="coordinating-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Coordinating Workgroups</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/workgroups/{wg.slug}/" class="list-group-item list-group-item-action"><strong>{wg.name}</strong><br><small class="text-muted">Status: {wg.status}</small></a>' for wg in coordinated_workgroups]) if coordinated_workgroups else '<p class="text-muted">Not coordinating any workgroups yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Memberships Tab -->
+                    <div class="tab-pane fade" id="memberships-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Workgroup Memberships</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/workgroups/{m[1]}/" class="list-group-item list-group-item-action"><strong>{m[0]}</strong><br><small class="text-muted">Joined {m[2]}</small></a>' for m in memberships_q]) if memberships_q else '<p class="text-muted">Not a member of any workgroups yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chair Tab -->
+                    <div class="tab-pane fade" id="chair-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Chair Positions</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/workgroups/{c[1]}/" class="list-group-item list-group-item-action"><strong>{c[0]}</strong><br><small class="text-muted">{"Approved" if c[3] else "Pending approval"} - Set {c[2]}</small></a>' for c in chairs_q]) if chairs_q else '<p class="text-muted">No chair positions yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Submissions Tab -->
+                    <div class="tab-pane fade" id="submissions-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">All Submissions</h5>
+                                <div class="list-group list-group-flush">
+                                    {''.join([f'<a href="/submit/status/{s.id}/" class="list-group-item list-group-item-action"><strong>{s.draft_name or s.id}</strong><br><small class="text-muted">{s.status.title()} - Submitted {s.submitted_at.strftime("%Y-%m-%d") if s.submitted_at else "Unknown"}</small></a>' for s in all_submissions_q]) if all_submissions_q else '<p class="text-muted">No submissions yet.</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        var hash = window.location.hash;
+        if (hash === '#my-projects') {{
+            var tab = document.querySelector('[data-bs-target="#my-projects-tab"]');
+            if (tab) bootstrap.Tab.getOrCreateInstance(tab).show();
+        }}
+    }})();
+    function copyReferralLink(btn) {{
+        var el = document.getElementById('referral-code');
+        if (!el) return;
+        var url = window.location.origin + '/?ref=' + el.textContent;
+        navigator.clipboard.writeText(url).then(function() {{
+            if (btn) {{
+                var orig = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check me-1"></i>Copied!';
+                setTimeout(function() {{ btn.innerHTML = orig; }}, 2000);
+            }}
+        }}).catch(function() {{ alert('Failed to copy'); }});
+    }}
+    </script>
+    """
+
+    return render_page(f"{profile_user.displayName or profile_user.username} - MLGH", content, theme=current_theme, user_menu=user_menu)
+
+
+@bp.route('/profile/edit/')
+@require_auth
+def profile_edit():
+    """Profile edit page"""
+    render_page, generate_user_menu = _get_imports()
+    current_user_data = get_current_user()
+    if not current_user_data:
+        return redirect('/login')
+
+    user = User.query.get(current_user_data['id'])
+    if not user:
+        return redirect('/')
+
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+
+    social_links = []
+    if user.social_links:
+        try:
+            social_links = json.loads(user.social_links)
+        except Exception:
+            social_links = []
+
+    linked_accounts = {acc.provider: acc for acc in UserLinkedAccount.query.filter_by(user_id=user.id).all()}
+    oauth_providers = [
+        ('google', 'google', 'Google'),
+        ('github', 'github', 'GitHub'),
+        ('twitter', 'x-twitter', 'X (Twitter)'),
+        ('discord', 'discord', 'Discord'),
+    ]
+    connected_html = ''
+    for provider, icon, label in oauth_providers:
+        acc = linked_accounts.get(provider)
+        if acc:
+            connected_html += f'''
+            <div class="d-flex align-items-center justify-content-between p-2 rounded mb-2" style="background: var(--bs-secondary-bg);">
+                <div class="d-flex align-items-center">
+                    <i class="fab fa-{icon} fa-2x me-3" style="width:32px;text-align:center;"></i>
+                    <div>
+                        <strong>{label}</strong>
+                        <br><small class="text-muted">{acc.display_name or acc.provider_user_id}</small>
+                    </div>
+                </div>
+                <form method="POST" action="/profile/connect/{provider}/disconnect/" class="d-inline" onsubmit="return confirm('Disconnect {label}?');">
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Disconnect</button>
+                </form>
+            </div>'''
+        else:
+            connected_html += f'''
+            <div class="d-flex align-items-center justify-content-between p-2 rounded mb-2" style="background: var(--bs-secondary-bg);">
+                <div class="d-flex align-items-center">
+                    <i class="fab fa-{icon} fa-2x me-3" style="width:32px;text-align:center;"></i>
+                    <strong>{label}</strong>
+                </div>
+                <a href="/profile/connect/{provider}/" class="btn btn-primary btn-sm">Connect</a>
+            </div>'''
+
+    platforms = [
+        {'name': 'Website', 'icon': 'globe', 'placeholder': 'https://yourwebsite.com'},
+    ]
+
+    content = f"""
+    {gh_page_open()}
+    {gh_page_header('Edit Profile', 'Update your profile information', 'fa-user-edit')}
+    <div class="row">
+        <div class="col-lg-8 mx-auto">
+
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-image"></i></div>
+                        <h5 class="living-module-title">Profile images</h5>
+                    </div>
+                    <div class="living-module-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label class="form-label">Profile Picture</label>
+                                <div class="text-center mb-3">
+                                    <img
+                                        id="profile-image-preview"
+                                        src="{get_avatar_url(user, 150)}"
+                                        class="img-thumbnail rounded-circle"
+                                        style="width: 150px; height: 150px; object-fit: cover;"
+                                        onerror="this.src='/static/images/default-avatar.png'"
+                                    >
+                                </div>
+                                <input
+                                    type="file"
+                                    class="form-control"
+                                    id="profile-image-file"
+                                    accept="image/*"
+                                    onchange="previewImage(this, 'profile-image-preview')"
+                                >
+                                <div class="form-text">Max 600×600px, 5MB. PNG, JPG, GIF, WebP, SVG</div>
+                                <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadProfileImage()">
+                                    <i class="fas fa-upload me-2"></i>Upload Profile Picture
+                                </button>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Banner Image</label>
+                                <div class="mb-3" style="height: 150px; overflow: hidden; border-radius: 8px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                    <img
+                                        id="banner-image-preview"
+                                        src="{user.banner_image or ''}"
+                                        class="w-100"
+                                        style="height: 150px; object-fit: cover; display: {'block' if user.banner_image else 'none'};"
+                                    >
+                                </div>
+                                <input
+                                    type="file"
+                                    class="form-control"
+                                    id="banner-image-file"
+                                    accept="image/*"
+                                    onchange="previewBannerImage(this)"
+                                >
+                                <div class="form-text">Max 5MB. PNG, JPG, GIF, WebP, SVG. Recommended: wide/landscape format.</div>
+                                <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadBannerImage()">
+                                    <i class="fas fa-upload me-2"></i>Upload Banner
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-id-card"></i></div>
+                        <h5 class="living-module-title">Basic information</h5>
+                    </div>
+                    <div class="living-module-body">
+                        <form id="profile-form">
+                            <div class="mb-3">
+                                <label for="headline" class="form-label">Headline</label>
+                                <input
+                                    type="text"
+                                    class="form-control"
+                                    id="headline"
+                                    maxlength="200"
+                                    placeholder="Your professional headline..."
+                                    value="{user.headline or ''}"
+                                >
+                                <div class="form-text">A short description of what you do (max 200 characters)</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="bio" class="form-label">Bio</label>
+                                <textarea
+                                    class="form-control"
+                                    id="bio"
+                                    rows="4"
+                                    placeholder="Tell us about yourself..."
+                                >{user.bio or ''}</textarea>
+                                <div class="form-text">A longer description of your background and interests</div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-bell"></i></div>
+                        <h5 class="living-module-title">Notifications</h5>
+                    </div>
+                    <div class="living-module-body">
+                        <p class="text-muted small mb-2">In-app feed, per-draft subscriptions, and email channels (requires email opt-in).</p>
+                        <a href="/notifications/" class="btn btn-outline-primary btn-sm"><i class="fas fa-bell me-1"></i>Open notifications hub</a>
+                    </div>
+                </div>
+
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-link"></i></div>
+                        <h5 class="living-module-title">Connected accounts</h5>
+                    </div>
+                    <div class="living-module-body">
+                        <p class="text-muted small mb-3">Connect your accounts to show them on your profile. Use 32×32 or larger icons.</p>
+                        {connected_html}
+                    </div>
+                </div>
+
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-share-alt"></i></div>
+                        <h5 class="living-module-title">Social links</h5>
+                    </div>
+                    <div class="living-module-body">
+                        <p class="text-muted small mb-3">Add links to your website or other profiles.</p>
+                        <div id="social-links-container">
+                            {_render_social_link_inputs(platforms, social_links)}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between">
+                    <a href="/profile/{user.username}/" class="btn btn-secondary">
+                        <i class="fas fa-times me-2"></i>Cancel
+                    </a>
+                    <button class="btn btn-primary" onclick="saveProfile()">
+                        <i class="fas fa-save me-2"></i>Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    {gh_page_close()}
+
+    <script>
+    function previewImage(input, previewId) {{
+        if (input.files && input.files[0]) {{
+            const reader = new FileReader();
+            reader.onload = function(e) {{
+                document.getElementById(previewId).src = e.target.result;
+            }};
+            reader.readAsDataURL(input.files[0]);
+        }}
+    }}
+
+    function previewBannerImage(input) {{
+        if (input.files && input.files[0]) {{
+            const reader = new FileReader();
+            const preview = document.getElementById('banner-image-preview');
+            reader.onload = function(e) {{
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+            }};
+            reader.readAsDataURL(input.files[0]);
+        }}
+    }}
+
+    async function uploadProfileImage() {{
+        const fileInput = document.getElementById('profile-image-file');
+        if (!fileInput.files || !fileInput.files[0]) {{
+            alert('Please select an image first');
+            return;
+        }}
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('type', 'profile');
+
+        try {{
+            const response = await fetch('/api/user/upload-image', {{
+                method: 'POST',
+                credentials: 'include',
+                body: formData
+            }});
+
+            const data = await response.json();
+            if (response.ok) {{
+                alert('Profile picture uploaded successfully!');
+                location.reload();
+            }} else {{
+                alert(data.error || 'Failed to upload image');
+            }}
+        }} catch (error) {{
+            console.error('Error uploading image:', error);
+            alert('Failed to upload image');
+        }}
+    }}
+
+    async function uploadBannerImage() {{
+        const fileInput = document.getElementById('banner-image-file');
+        if (!fileInput.files || !fileInput.files[0]) {{
+            alert('Please select an image first');
+            return;
+        }}
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('type', 'banner');
+
+        try {{
+            const response = await fetch('/api/user/upload-image', {{
+                method: 'POST',
+                credentials: 'include',
+                body: formData
+            }});
+
+            const data = await response.json();
+            if (response.ok) {{
+                alert('Banner image uploaded successfully!');
+                location.reload();
+            }} else {{
+                alert(data.error || 'Failed to upload image');
+            }}
+        }} catch (error) {{
+            console.error('Error uploading image:', error);
+            alert('Failed to upload image');
+        }}
+    }}
+
+    async function saveProfile() {{
+        const headline = document.getElementById('headline').value;
+        const bio = document.getElementById('bio').value;
+
+        // Collect social links
+        const socialLinks = [];
+        document.querySelectorAll('[data-social-platform]').forEach(input => {{
+            const url = input.value.trim();
+            if (url) {{
+                socialLinks.push({{
+                    platform: input.dataset.socialPlatform,
+                    icon: input.dataset.socialIcon,
+                    url: url
+                }});
+            }}
+        }});
+
+        try {{
+            const response = await fetch('/api/user/profile/', {{
+                method: 'PUT',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    headline: headline,
+                    bio: bio,
+                    social_links: socialLinks
+                }})
+            }});
+
+            const data = await response.json();
+            if (response.ok) {{
+                alert('Profile updated successfully!');
+                window.location.href = '/profile/{user.username}/';
+            }} else {{
+                alert(data.error || 'Failed to update profile');
+            }}
+        }} catch (error) {{
+            console.error('Error updating profile:', error);
+            alert('Failed to update profile');
+        }}
+    }}
+    </script>
+    """
+
+    return render_page("Edit Profile - MLGH", content, theme=current_theme, user_menu=user_menu)

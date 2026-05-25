@@ -1,0 +1,60 @@
+{
+  "lang": {
+    "menuLabel": "Idioma",
+    "names": {
+      "en": "English",
+      "ar": "العربية",
+      "fr": "Français",
+      "pt": "Português",
+      "zh_Hans": "简体中文",
+      "ja": "日本語",
+      "ru": "Русский"
+    }
+  },
+  "nav": {
+    "participate": "Participar",
+    "governance": "Governança",
+    "community": "Comunidade",
+    "recognition": "Reconhecimento",
+    "learn": "Aprender",
+    "submitDraft": "Enviar rascunho",
+    "immortalize": "Imortalizar",
+    "waitlists": "Listas de espera",
+    "people": "Pessoas",
+    "guilds": "Guildas",
+    "badges": "Distintivos",
+    "civicMason": "Civic Mason",
+    "docsDrafts": "Documentos e rascunhos",
+    "toggleMenu": "Alternar navegação"
+  },
+  "gov": {
+    "layers": "Camadas",
+    "bridges": "Pontes",
+    "roles": "Funções",
+    "workgroups": "Grupos de trabalho",
+    "votes": "Votações",
+    "artifacts": "Artefatos",
+    "opportunities": "Oportunidades",
+    "docs": "Documentos",
+    "about": "Sobre"
+  },
+  "user": {
+    "profile": "Perfil",
+    "myLayers": "Minhas camadas",
+    "mySubmissions": "Minhas submissões",
+    "viewStandalone": "Ver autônomo",
+    "viewInMLGH": "Ver no MLGH",
+    "adminDashboard": "Painel de administração",
+    "logout": "Sair",
+    "signIn": "Entrar"
+  },
+  "footer": {
+    "line": "Build {{build}} | Gov-Hub.",
+    "layerLine": "Build {{build}} | {{layer}}"
+  },
+  "theme": {
+    "switchToLight": "Mudar para modo claro",
+    "switchToDark": "Mudar para modo escuro",
+    "toggle": "Alternar tema"
+  }
+}

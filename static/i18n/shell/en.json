@@ -1,0 +1,70 @@
+{
+  "lang": {
+    "menuLabel": "Language",
+    "names": {
+      "en": "English",
+      "ar": "العربية",
+      "fr": "Français",
+      "pt": "Português",
+      "zh_Hans": "简体中文",
+      "ja": "日本語",
+      "ru": "Русский"
+    }
+  },
+  "nav": {
+    "participate": "Participate",
+    "governance": "Governance",
+    "community": "Community",
+    "recognition": "Recognition",
+    "learn": "Learn",
+    "submitDraft": "Submit Draft",
+    "immortalize": "Immortalize",
+    "waitlists": "Waitlists",
+    "people": "People",
+    "guilds": "Guilds",
+    "badges": "Badges",
+    "civicMason": "Civic Mason",
+    "docsDrafts": "Docs & Drafts",
+    "toggleMenu": "Toggle navigation"
+  },
+  "gov": {
+    "layers": "Layers",
+    "bridges": "Bridges",
+    "roles": "Roles",
+    "workgroups": "Workgroups",
+    "votes": "Votes",
+    "artifacts": "Artifacts",
+    "opportunities": "Opportunities",
+    "docs": "Docs",
+    "about": "About"
+  },
+  "user": {
+    "profile": "Profile",
+    "myLayers": "My Layers",
+    "mySubmissions": "My Submissions",
+    "viewStandalone": "View standalone",
+    "viewInMLGH": "View in MLGH",
+    "adminDashboard": "Admin Dashboard",
+    "logout": "Logout",
+    "signIn": "Sign In"
+  },
+  "footer": {
+    "line": "Build {{build}} | Gov-Hub.",
+    "layerLine": "Build {{build}} | {{layer}}"
+  },
+  "theme": {
+    "switchToLight": "Switch to light mode",
+    "switchToDark": "Switch to dark mode",
+    "toggle": "Toggle theme"
+  },
+  "api": {
+    "errors": {
+      "UNKNOWN": "Something went wrong. Please try again.",
+      "UNAUTHORIZED": "Sign in to continue.",
+      "FORBIDDEN": "You do not have permission to do that.",
+      "NOT_FOUND": "That resource was not found.",
+      "VALIDATION_ERROR": "Check your input and try again.",
+      "BAD_REQUEST": "Invalid request."
+    }
+  }
+}

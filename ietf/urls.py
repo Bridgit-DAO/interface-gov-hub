@@ -15,6 +15,7 @@ import debug                            # pyflakes:ignore
 
 from ietf.doc import views_search
 from ietf.group.urls import group_urls, grouptype_urls, stream_urls
+from ietf.test_views import draft_digitalartifacts
 from ietf.ipr.sitemaps import IPRMap
 from ietf.liaisons.sitemaps import LiaisonMap
 from ietf.utils.urls import url
@@ -35,6 +36,8 @@ sitemaps = {
 urlpatterns = [
     url(r'^$', views_search.frontpage),
     url(r'^health/', lambda _: HttpResponse()),
+    url(r'^test/$', draft_digitalartifacts),
+    url(r'^test/digitalartifacts\.htm$', draft_digitalartifacts),
     url(r'^accounts/', include('ietf.ietfauth.urls')),
     url(r'^admin/', admin.site.urls),
     url(r'^admin/docs/', include('django.contrib.admindocs.urls')),

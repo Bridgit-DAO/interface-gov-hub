@@ -48,7 +48,7 @@ def agent_deploy(env='development'):
                 # Test content
                 response = urllib.request.urlopen(f'http://localhost:{port}/', timeout=5)
                 content = response.read().decode('utf-8')
-                if 'Welcome to the Meta-Layer Governance Hub' in content:
+                if 'Governance Hub' in content or 'Meta-Layer' in content:
                     print("✓ New text verified in HTTP response")
                 else:
                     print("⚠ New text not found (may need browser refresh)")

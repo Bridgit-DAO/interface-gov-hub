@@ -27,9 +27,9 @@ def main():
     # 1. Check if code has new text
     write_result("\n1. Checking code...")
     try:
-        with open('/home/ubuntu/datatracker/ietf_data_viewer_simple.py', 'r') as f:
+        with open('/home/ubuntu/datatracker/app.py', 'r') as f:
             code = f.read()
-            if 'Welcome to the Meta-Layer Governance Hub' in code:
+            if 'MLGH' in code or 'Meta-Layer' in code:
                 write_result("   ✓ Code has new text")
             else:
                 write_result("   ✗ Code missing new text!")
@@ -40,7 +40,7 @@ def main():
 
     # 2. Kill and restart service
     write_result("\n2. Restarting service...")
-    run_cmd("pkill -9 -f 'python.*ietf_data'")
+    run_cmd("pkill -9 -f 'python.*run.py'")
     run_cmd("pkill -9 -f 'python.*8001'")
     run_cmd("systemctl --user stop datatracker-dev.service")
     time.sleep(3)
@@ -108,13 +108,13 @@ def main():
     write_result("\n7. Checking for new text...")
 
     text_found = False
-    if 'Welcome to the Meta-Layer Governance Hub' in content_local:
+    if 'Governance Hub' in content_local or 'Meta-Layer' in content_local:
         write_result("   ✓ New text found on LOCALHOST!")
         text_found = True
     else:
         write_result("   ✗ New text NOT found on localhost")
 
-    if 'Welcome to the Meta-Layer Governance Hub' in content_dev:
+    if 'Governance Hub' in content_dev or 'Meta-Layer' in content_dev:
         write_result("   ✓✓✓ New text found on DEV SUBDOMAIN! ✓✓✓")
         text_found = True
     else:

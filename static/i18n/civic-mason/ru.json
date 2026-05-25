@@ -1,0 +1,90 @@
+{
+  "lang": {
+    "en": "English",
+    "ar": "العربية",
+    "fr": "Français",
+    "pt": "Português",
+    "zh_Hans": "简体中文",
+    "ja": "日本語",
+    "ru": "Русский"
+  },
+  "page": {
+    "breadcrumb": {
+      "home": "Главная",
+      "recognition": "Признание",
+      "active": "Civic Mason"
+    },
+    "title": "Civic Mason",
+    "tagline": "Участники со значком Civic Mason оставляют кирпич на стене."
+  },
+  "dev": {
+    "label": "Только dev: правила Civic Mason",
+    "demoSwitch": "Демо — без значка, без лимита размещений"
+  },
+  "a11y": {
+    "demoMode": "Демо",
+    "close": "Закрыть",
+    "loading": "Загрузка…",
+    "muralAlt": "Фреска Civic Mason",
+    "brickColors": "Цвет кирпича",
+    "configureBrick": "Настроить кирпич",
+    "editBrick": "Изменить кирпич"
+  },
+  "ineligible": {
+    "loginTitle": "Вход",
+    "loginBody": "Войдите, чтобы видеть варианты размещения на стене Civic Mason.",
+    "badgeTitle": "Получите значок Civic Mason",
+    "badgeBody": "Поставьте постоянный кирпич, получив подходящий значок Civic Mason через гражданское участие.",
+    "badgeButton": "Значки и как их получить",
+    "yearTitle": "Один кирпич в год",
+    "yearBody": "Вы уже поставили кирпич в {{year}} (UTC). Следующий — в {{nextYear}}."
+  },
+  "config": {
+    "title": "Настроить кирпич",
+    "hint": "Выберите цвет — двойной щелчок, чтобы применить и закрыть.",
+    "message": "Сообщение",
+    "optional": "(необязательно)",
+    "placeholder": "Оставьте сообщение…"
+  },
+  "edit": {
+    "title": "Изменить кирпич",
+    "hint": "Обновите цвет или сообщение и Подтвердить — или отмените размещение.",
+    "cancelPlacement": "Отменить размещение",
+    "accept": "Подтвердить"
+  },
+  "palette": {
+    "colorN": "Цвет {{n}}"
+  },
+  "toast": {
+    "placed": "Кирпич поставлен! Нажмите в течение 5 с, чтобы изменить или отменить.",
+    "placedAt": "Кирпич поставлен в ({{x}}, {{y}})",
+    "failedPlace": "Не удалось поставить кирпич",
+    "updated": "Кирпич обновлён",
+    "removed": "Кирпич удалён",
+    "removeFailed": "Не удалось удалить кирпич",
+    "removeError": "Ошибка при удалении кирпича"
+  },
+  "grid": {
+    "loadError": "Не удалось загрузить кирпичи."
+  },
+  "brick": {
+    "anonymous": "Аноним",
+    "unknown": "Неизвестно"
+  },
+  "api": {
+    "errors": {
+      "AUTHENTICATION_REQUIRED": "Требуется вход",
+      "BADGE_REQUIRED": "Нужен подходящий значок Civic Mason",
+      "ALREADY_PLACED_THIS_YEAR": "Один кирпич в календарный год",
+      "NOT_OWNER": "Только владелец кирпича может это сделать",
+      "GRID_REQUIRED": "Нужны grid_x и grid_y",
+      "GRID_INVALID": "grid_x и grid_y должны быть числами",
+      "POSITION_OCCUPIED": "Позиция занята",
+      "NO_SUPPORT_BELOW": "Нужна опора на кирпич снизу",
+      "ROW_FULL": "Ряд заполнен (макс. 12 кирпичей)",
+      "NOT_AVAILABLE": "Недоступно",
+      "MESSAGE_REQUIRED": "нужно сообщение",
+      "UNKNOWN": "Что-то пошло не так"
+    }
+  }
+}

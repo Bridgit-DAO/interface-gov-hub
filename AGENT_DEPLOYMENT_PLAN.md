@@ -222,12 +222,12 @@ def verify_environment(env):
 **Migration Files** (`migrations/`):
 ```
 migrations/
-  ├── 001_add_notification_level.py
-  ├── 002_add_ml_number.py
+  ├── __init__.py          # Imperative migrations (e.g. migrate_user_follow_to_event_subscriptions)
+  ├── 002_add_ml_number.py # illustrative; actual layout may vary
   └── rollback/
-      ├── 001_rollback.py
-      └── 002_rollback.py
+      └── ...
 ```
+*(Document follow is no longer `user_follow` + `notification_level`; see `UserEventSubscription` and `migrate_user_follow_to_event_subscriptions`.)*
 
 **Migration Format**:
 ```python
