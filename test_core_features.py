@@ -47,16 +47,13 @@ def test_critical_features():
         assert 'Admin Dashboard' in response.get_data(as_text=True)
         print("   ✅ Admin dashboard accessible")
 
-        # 3. User Management
-        print("3. 👥 Testing User Management...")
-        response = client.post('/register/', data={
-            'username': 'testuser',
-            'password': 'testpass123',
-            'name': 'Test User',
-            'email': 'test@example.com'
-        }, follow_redirects=True)
-        assert response.status_code == 200, f"registration: {response.status_code}"
-        print("   ✅ User registration works")
+        # 3. Registration disabled (Web3Auth-only onboarding)
+        print("3. 👥 Testing registration is disabled...")
+        response = client.get('/register/', follow_redirects=True)
+        assert response.status_code == 200, f"register redirect: {response.status_code}"
+        text_register = response.get_data(as_text=True)
+        assert 'Sign In' in text_register or 'Web3Auth' in text_register
+        print("   ✅ Public registration blocked; redirects to sign-in")
 
         # 4. Document System
         print("4. 📄 Testing Document System...")

@@ -1,9 +1,8 @@
-"""Auth routes: login, logout, register, Web3Auth, api/user/me, api/user/display-name."""
+"""Auth routes: login, logout, Web3Auth, api/user/me, api/user/display-name."""
 import re
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request, session, flash, redirect, url_for, render_template_string
-from werkzeug.security import generate_password_hash
+from flask import Blueprint, jsonify, request, session, flash, redirect, url_for
 
 from extensions import db
 from models import User
@@ -37,52 +36,6 @@ LOGIN_TEMPLATE = """
     </div>
 </div>
 """
-
-REGISTER_TEMPLATE = """
-<div class="gh-page container mt-4 gh-auth-panel">
-    <header class="gh-page-header">
-        <div class="gh-page-header-main">
-            <div class="gh-page-header-icon"><i class="fas fa-user-plus"></i></div>
-            <div><h1 class="gh-page-title">Create Account</h1><p class="gh-page-lead">Join the Meta-Layer Governance Hub</p></div>
-        </div>
-    </header>
-    <div class="row justify-content-center">
-        <div class="col-md-6 col-lg-5">
-            <div class="living-module mb-0">
-                <div class="living-module-body">
-                    <div id="flash-messages"></div>
-                    <form method="POST">
-                        <div class="mb-3">
-                            <label for="username" class="form-label">Username</label>
-                            <input type="text" class="form-control" id="username" name="username" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="name" class="form-label">Full Name</label>
-                            <input type="text" class="form-control" id="name" name="name" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="email" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="email" name="email" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="password" class="form-label">Password</label>
-                            <input type="password" class="form-control" id="password" name="password" required minlength="6">
-                        </div>
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">Create Account</button>
-                        </div>
-                    </form>
-                    <hr>
-                    <div class="text-center">
-                        <p class="mb-0">Already have an account? <a href="/login/">Sign in</a></p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-"""
-
 
 @bp.route('/login/', methods=['GET'])
 def login():
@@ -118,50 +71,11 @@ def logout():
 
 
 @bp.route('/register/', methods=['GET', 'POST'])
-def register():
-    """User registration"""
-    from services.rendering import _format_base_template
-    from config import BUILD_NUMBER
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
-        name = request.form.get('name', '').strip()
-        email = request.form.get('email', '').strip()
-
-        existing_user = User.query.filter((User.username == username) | (User.email == email)).first()
-        if existing_user:
-            if existing_user.username == username:
-                flash('Username already exists.', 'error')
-            else:
-                flash('Email already registered.', 'error')
-        elif len(password) < 6:
-            flash('Password must be at least 6 characters.', 'error')
-        else:
-            new_user = User(
-                username=username,
-                password_hash=generate_password_hash(password),
-                name=name,
-                email=email,
-                role='user',
-                theme='dark'
-            )
-            db.session.add(new_user)
-            db.session.flush()
-            from services.document_follow_notifications import ensure_notification_unsubscribe_token
-
-            ensure_notification_unsubscribe_token(new_user)
-            db.session.commit()
-
-            session['user'] = username
-            flash(f'Account created successfully! Welcome, {name}!', 'success')
-            return redirect(url_for('pages.home'))
-
-    user_menu = """
-    <li class="nav-item">
-        <a class="nav-link" href="/login/">Sign In</a>
-    </li>
-    """
-    return render_template_string(_format_base_template(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER))
+@bp.route('/register', methods=['GET', 'POST'])
+def register_disabled():
+    """Public registration is disabled; accounts are created via Web3Auth sign-in."""
+    flash('Registration is closed. Sign in with Web3Auth to continue.', 'info')
+    return redirect(url_for('auth.login'))
 
 
 @bp.route('/api/auth/web3auth', methods=['POST'])
