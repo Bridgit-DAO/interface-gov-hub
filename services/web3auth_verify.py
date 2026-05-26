@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Any, Dict, Optional
 
 import jwt
-from jwt import PyJWKClient
+from jwt import InvalidTokenError, PyJWKClient, PyJWKClientError
 
 from services.web3auth_config import web3auth_client_id
 
