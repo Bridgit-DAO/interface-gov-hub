@@ -8,6 +8,7 @@
   --gh-radius-sm: 8px;
   --gh-radius-md: 12px;
   --gh-radius-lg: 16px;
+  --gh-radius-xl: 20px;
   --gh-radius-pill: 999px;
   --gh-space-xs: 0.25rem;
   --gh-space-sm: 0.5rem;
@@ -31,26 +32,36 @@
   max-width: var(--gh-content-max-wide);
 }
 
-/* Docs directory — narrow shell, full-width cards, tidy action row */
+/* Docs directory — prod-like two-column cards with dev tokens */
 .doc-all-page .document-card {
   margin-bottom: 0;
 }
 
+.doc-all-page .document-card .card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-all-page .document-card .card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
 .doc-card-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
   align-items: center;
-  margin-top: 0.75rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
 }
 
 .doc-card-actions .btn {
   margin: 0;
   white-space: nowrap;
-}
-
-.document-card .card {
-  height: 100%;
+  flex: 0 0 auto;
 }
 
 .document-card .document-meta {
@@ -68,6 +79,7 @@
 .document-card .card-title.document-title {
   font-size: 1.05rem;
   line-height: 1.35;
+  margin-bottom: 0.5rem;
 }
 
 .document-card .card-text {
@@ -255,7 +267,7 @@
   max-height: 120px;
   max-width: 160px;
   object-fit: contain;
-  border-radius: var(--gh-radius-md);
+  border-radius: var(--gh-radius-xl);
   background: var(--card-bg);
   padding: var(--gh-space-sm);
   border: 1px solid var(--card-border);
@@ -369,7 +381,7 @@
 .living-module-icon {
   width: 36px;
   height: 36px;
-  border-radius: var(--gh-radius-md);
+  border-radius: var(--gh-radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -482,7 +494,7 @@
 .gh-page-header-icon {
   width: 48px;
   height: 48px;
-  border-radius: var(--gh-radius-md);
+  border-radius: var(--gh-radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -568,27 +580,34 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  padding: var(--gh-space-md);
 }
 
 .gh-directory-tile-visual img,
 .layer-map-tile-visual img {
-  max-height: 88%;
-  max-width: 88%;
-  object-fit: contain;
-}
-
-.gh-directory-tile-visual img {
-  width: 100%;
-  height: 100%;
   max-height: 100%;
   max-width: 100%;
-  object-fit: cover;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--gh-radius-xl);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .gh-directory-placeholder,
 .layer-map-tile-visual .layer-map-placeholder {
-  font-size: 2rem;
-  opacity: 0.35;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--gh-radius-xl);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  font-size: 1.35rem;
+  opacity: 0.55;
   color: var(--text-muted);
 }
 
@@ -710,19 +729,21 @@
 .gh-detail-hero-media {
   width: 72px;
   height: 72px;
-  border-radius: var(--gh-radius-md);
+  border-radius: var(--gh-radius-xl);
   overflow: hidden;
   background: var(--gh-gradient-map);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  border: 1px solid var(--card-border);
 }
 
 .gh-detail-hero-media img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: var(--gh-radius-xl);
 }
 
 .gh-detail-hero-body h1 {
@@ -759,6 +780,75 @@
   display: flex;
   flex-direction: column;
   gap: var(--gh-space-md);
+}
+
+/* Workgroup charter & goals — sidebar teasers with expand */
+.wg-sidebar-section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.wg-charter-text {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.wg-expandable-body.wg-charter-text {
+  margin: 0;
+}
+
+.wg-expandable--collapsed .wg-expandable-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wg-expandable--collapsed .wg-goals-list li:nth-child(n + 4) {
+  display: none;
+}
+
+.wg-goals-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.wg-goals-list li {
+  position: relative;
+  padding-left: 1rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.wg-goals-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--accent-color, #667eea);
+  opacity: 0.85;
+}
+
+.wg-expand-toggle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.wg-expand-toggle:hover,
+.wg-expand-toggle:focus-visible {
+  text-decoration: underline;
 }
 
 /* Home hub */
@@ -810,13 +900,66 @@
 .gh-home-hub-icon {
   width: 40px;
   height: 40px;
-  border-radius: var(--gh-radius-md);
+  border-radius: var(--gh-radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--gh-gradient-map);
   color: #667eea;
   margin-bottom: var(--gh-space-sm);
+}
+
+/* Shared entity thumbnails — layers, workgroups, roles, guilds */
+.gh-entity-thumb,
+.layer-hero-image,
+.layer-display-image,
+.navbar-brand-logo,
+#layer-navbar-brand-img {
+  border-radius: var(--gh-radius-xl);
+}
+
+img.gh-entity-thumb {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: var(--gh-space-xs);
+  object-fit: contain;
+}
+
+.gh-card-entity-visual {
+  height: 120px;
+  padding: var(--gh-space-md);
+  background: var(--gh-gradient-map);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gh-card-entity-visual img {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: var(--gh-radius-xl);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.card .card-img-top {
+  border-top-left-radius: var(--gh-radius-xl);
+  border-top-right-radius: var(--gh-radius-xl);
+}
+
+.gh-role-design-link {
+  padding: var(--gh-space-sm);
+  background: var(--bg-secondary) !important;
+}
+
+.gh-role-design-link img {
+  border-radius: var(--gh-radius-xl);
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
 }
 
 .gh-home-hub-card h2 {
@@ -978,4 +1121,53 @@
 /* Auth panel — hide duplicate module title inside living-module */
 .gh-auth-panel .living-module-header {
   display: none;
+}
+
+/* Styled alert / confirm dialogs */
+.gh-dialog .modal-content {
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--card-bg, var(--bg-color));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.gh-dialog .modal-header {
+  border-bottom: 1px solid var(--border-color);
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gh-dialog .modal-footer {
+  border-top: 1px solid var(--border-color);
+  gap: 0.5rem;
+}
+
+.gh-dialog-icon-wrap {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--gh-radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gh-glow-soft);
+  flex-shrink: 0;
+}
+
+.gh-dialog-icon {
+  font-size: 1.1rem;
+}
+
+.gh-dialog-icon--success { color: #198754; }
+.gh-dialog-icon--info { color: var(--accent-color, #667eea); }
+.gh-dialog-icon--warning { color: #ffc107; }
+.gh-dialog-icon--danger { color: #dc3545; }
+
+.gh-dialog-title {
+  font-weight: 700;
+  margin-bottom: 0;
+}
+
+.gh-dialog-message {
+  color: var(--text-secondary);
+  line-height: 1.5;
 }

@@ -128,7 +128,26 @@ DP_DESCRIPTIONS = {
         'title': 'Community Ownership',
         'desc': 'Ensuring community ownership through decentralized governance, shared decision-making, and equitable distribution of value and control.'
     },
+    'dp22---epistemic-continuity-digital-artifacts': {
+        'title': 'Epistemic Continuity & Digital Artifacts',
+        'desc': 'Preserving epistemic continuity through durable digital artifacts, provenance, and long-lived knowledge across the Meta-Layer.'
+    },
 }
+
+# Two-letter abbreviations from the Noospheric Design Principles infographic.
+DP_ABBREVIATIONS = {
+    1: 'Au', 2: 'Ae', 3: 'Go', 4: 'So', 5: 'Ns', 6: 'Co',
+    7: 'Si', 8: 'Cm', 9: 'In', 10: 'Ed', 21: 'Mm',
+    11: 'Ai', 12: 'Cg', 13: 'Ac', 14: 'Tt', 15: 'Sp', 16: 'Rm', 17: 'Fs', 22: 'Ep',
+    18: 'Fr', 19: 'Ap', 20: 'Ow',
+}
+
+
+def dp_image_url(dp_num: int) -> Optional[str]:
+    """Static URL for a DP workgroup card image, or None if unknown."""
+    if dp_num not in DP_ABBREVIATIONS:
+        return None
+    return f'/static/images/dp/dp{dp_num}.png'
 
 
 def _build_group_entry(group_name: str) -> dict:

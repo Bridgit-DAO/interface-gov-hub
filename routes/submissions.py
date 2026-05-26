@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, request, redirect, url_for, flash, send_fi
 from extensions import db
 from models import Submission, Layer
 from services.identity import get_current_user, require_auth, require_role
-from services.submissions import get_submission_by_ref, add_to_document_history, get_next_ml_number
+from services.submissions import get_submission_by_ref, add_to_document_history, get_next_ml_number, can_edit_submission_metadata
 from services.documents import load_draft_data, revision_notes_to_safe_html
 from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 from services.ordinals import (
@@ -19,8 +19,14 @@ from services.ordinals import (
     looks_like_html_inscription,
     format_ordinal_html_iframe_preview,
 )
+from services.utils import coerce_storage_bool
 
 bp = Blueprint('submissions', __name__, url_prefix='')
+
+
+def _submission_is_revision(submission) -> bool:
+    """SQLite may store is_revision as TEXT '0'/'1'; bool('0') is True in Python."""
+    return coerce_storage_bool(getattr(submission, 'is_revision', False), default=False)
 
 
 def _strip_immortalize_from_submit_template(template: str) -> str:
@@ -73,7 +79,7 @@ SUBMISSION_STATUS_TEMPLATE = """
                     <div class="living-module-icon"><i class="fas fa-file-alt"></i></div>
                     <h5 class="living-module-title">
                         Submission Details
-                        {% if is_revision %}
+                        {% if is_revision and revision_number %}
                         <span class="badge bg-success ms-2">Revision {{ revision_number }}</span>
                         {% endif %}
                     </h5>
@@ -94,7 +100,7 @@ SUBMISSION_STATUS_TEMPLATE = """
                             {% endif %}
                         </div>
                     </div>
-                    {% if is_revision %}
+                    {% if is_revision and revision_number and parent_draft_name %}
                     <div class="alert alert-info mb-3">
                         <strong><i class="fas fa-code-branch me-2"></i>This is a revision</strong><br>
                         Revision <strong>{{ revision_number }}</strong> of
@@ -354,427 +360,93 @@ SUBMISSION_STATUS_TEMPLATE = """
 """
 
 
-@bp.route('/submit/', methods=['GET', 'POST'])
-@require_auth
-def submit_draft():
-    from services.rendering import _format_base_template, generate_user_menu
-    from services.identity import get_current_user
-    from config import BUILD_NUMBER
-    from services.groups import GROUPS
+def _build_submit_form_template(
+    *,
+    effective_layer,
+    layers,
+    selected_group: str = '',
+    build_number: int,
+) -> str:
+    """Build submit page HTML with DB-backed workgroup options for the layer."""
     from templates.html_templates import SUBMIT_TEMPLATE
-    from services.documents import calculate_pages_and_words
+    from services.workgroup_links import (
+        submit_workgroup_layer_script,
+        workgroup_select_options_html,
+    )
+    from services.product_rollout import is_feature_enabled
 
-    user_menu = generate_user_menu()
-    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+    layer_id = effective_layer.id if effective_layer else None
+    group_options = workgroup_select_options_html(layer_id, selected_group)
+    workgroup_script = submit_workgroup_layer_script(fixed_layer_id=layer_id)
 
-    # Generate workgroup options dynamically
-    group_options = '<option value="">Select a Workgroup</option>'
-    for group in GROUPS:
-        group_options += f'<option value="{group["acronym"]}">{group["name"]}</option>'
+    submit_template = SUBMIT_TEMPLATE.replace('{{WORKGROUP_OPTIONS}}', group_options)
+    submit_template = submit_template.replace('{{WORKGROUP_LAYER_SCRIPT}}', workgroup_script)
 
-    # Replace the hardcoded options in the template (multiple occurrences for both tabs)
-    submit_template = SUBMIT_TEMPLATE
-    for _ in range(2):  # Replace in both upload and ordinal tabs
-        submit_template = submit_template.replace(
-            '''<option value="">Select a Workgroup</option>
-                                        <option value="httpbis">HTTP</option>
-                                        <option value="quic">QUIC</option>
-                                        <option value="tls">TLS</option>
-                                        <option value="dnsop">DNSOP</option>
-                                        <option value="rtgwg">RTGWG</option>''',
-            group_options,
-            1  # Replace only one occurrence at a time
-        )
-
-    # Layer selector: required for project_id. Use g.layer, ?layer= slug, ?layer_id= id, or dropdown.
-    layers = Layer.query.filter(Layer.approval_status == 'approved').order_by(Layer.name).all()
-    layer_from_param = None
-    if request.args.get('layer'):
-        layer_from_param = Layer.query.filter_by(slug=request.args.get('layer').strip()).first()
-    elif request.args.get('layer_id'):
-        layer_from_param = Layer.query.get(request.args.get('layer_id').strip())
-    effective_layer = g.get('layer') or layer_from_param
-    if not effective_layer and request.method == 'POST' and request.form.get('layer_id'):
-        effective_layer = Layer.query.get(request.form.get('layer_id').strip())
     if effective_layer:
-        layer_selector = f'''
-                                <div class="mb-3">
-                                    <label class="form-label">Layer *</label>
-                                    <p class="form-control-plaintext mb-0"><strong>{effective_layer.name}</strong> <small class="text-muted">(from layer view)</small></p>
-                                    <input type="hidden" name="layer_id" value="{effective_layer.id}">
-                                </div>'''
+        layer_selector_shared = f'''
+                    <div class="mb-3">
+                        <label class="form-label">Layer *</label>
+                        <p class="form-control-plaintext mb-0"><strong>{effective_layer.name}</strong> <small class="text-muted">(from layer view)</small></p>
+                    </div>'''
+        layer_hidden_field = (
+            f'<input type="hidden" name="layer_id" class="submit-layer-id-field" '
+            f'value="{effective_layer.id}">'
+        )
     elif layers:
         opts = '<option value="">Select a layer...</option>' + ''.join(
             f'<option value="{p.id}">{p.name}</option>' for p in layers
         )
-        layer_selector = f'''
-                                <div class="mb-3">
-                                    <label for="layer_id" class="form-label">Layer *</label>
-                                    <select class="form-select" id="layer_id" name="layer_id" required>
-                                        {opts}
-                                    </select>
-                                    <div class="form-text">Drafts are submitted to a specific layer.</div>
-                                </div>'''
+        layer_selector_shared = f'''
+                    <div class="mb-3">
+                        <label for="layer_id" class="form-label">Layer *</label>
+                        <select class="form-select" id="layer_id" required>
+                            {opts}
+                        </select>
+                        <div class="form-text">Drafts are submitted to a specific layer. Workgroups update when you change layer.</div>
+                    </div>'''
+        layer_hidden_field = (
+            '<input type="hidden" name="layer_id" class="submit-layer-id-field" value="">'
+        )
     else:
-        layer_selector = '''
-                                <div class="mb-3">
-                                    <p class="text-warning mb-0">No approved layers available. Submit from a layer subdomain (e.g. overweb.themetalayer.org) or create a layer first.</p>
-                                </div>'''
-    submit_template = submit_template.replace('{{LAYER_SELECTOR}}', layer_selector)
+        layer_selector_shared = '''
+                    <div class="mb-3">
+                        <p class="text-warning mb-0">No approved layers available. Submit from a layer subdomain (e.g. overweb.themetalayer.org) or create a layer first.</p>
+                    </div>'''
+        layer_hidden_field = ''
+
+    submit_template = submit_template.replace('{{LAYER_SELECTOR_SHARED}}', layer_selector_shared)
+    submit_template = submit_template.replace('{{LAYER_HIDDEN_FIELD}}', layer_hidden_field)
     stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
     submit_template = submit_template.replace('{{STRIPE_PK}}', stripe_pk)
     offer_tier = effective_layer and getattr(effective_layer, 'offer_tier_pricing', False)
     submit_template = submit_template.replace('{{OFFER_TIER_PRICING}}', 'true' if offer_tier else 'false')
-    submit_template = submit_template.replace('{build_number}', str(BUILD_NUMBER))
-
-    from services.product_rollout import is_feature_enabled
+    submit_template = submit_template.replace('{build_number}', str(build_number))
 
     if not is_feature_enabled('immortalize', layer=effective_layer):
         submit_template = _strip_immortalize_from_submit_template(submit_template)
-
-    if request.method == 'POST':
-        # Get common fields
-        title = request.form.get('title', '').strip()
-        authors = request.form.get('authors', '').strip()
-        abstract = request.form.get('abstract', '').strip()
-        group = request.form.get('group', '').strip()
-        source_type = request.form.get('sourceType', 'file').strip()
-        form_layer_id = request.form.get('layer_id', '').strip()
-        layer_id = form_layer_id or (effective_layer.id if effective_layer else None)
-
-        # Validate layer_id when layers exist
-        if not layer_id and layers:
-            flash('Please select a layer for this submission.', 'error')
-            return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
-
-        # Process authors (comma-separated)
-        authors_list = [a.strip() for a in authors.split(',') if a.strip()]
-
-        # Generate submission ID
-        submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-
-        # Handle based on source type
-        if source_type == 'ordinal':
-            # Ordinal submission
-            ordinal_id = request.form.get('ordinalId', '').strip()
-            ordinal_content_url = request.form.get('ordinalContentUrl', '').strip()
-            ordinal_content_type = request.form.get('ordinalContentType', '').strip()
-            inscription_number = request.form.get('inscriptionNumber', '').strip()
-            block_height = request.form.get('blockHeight', '').strip()
-            inscription_timestamp = request.form.get('inscriptionTimestamp', '').strip()
-
-            # Validation
-            if not title or not authors or not ordinal_id:
-                flash('Title, authors, and inscription ID are required', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
-
-            if not ordinal_content_url:
-                flash('Please preview the ordinal before submitting', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
-
-            # Fetch ordinal content and calculate pages/words
-            try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': '*/*',
-                    'Connection': 'keep-alive'
-                }
-                response = requests.get(ordinal_content_url, headers=headers, timeout=30)
-                response.raise_for_status()
-                content_text = response.text
-
-                # Calculate pages and words from text
-                word_count = len(content_text.split())
-                chars_per_page = 3000
-                page_count = max(1, (len(content_text) + chars_per_page - 1) // chars_per_page)
-            except Exception as e:
-                current_app.logger.error(f"Failed to fetch ordinal content for pages/words: {e}")
-                page_count = 1
-                word_count = 0
-
-            # Create submission record with ordinal data
-            current_user_info = get_current_user()
-            current_app.logger.info(f"📝 CREATING SUBMISSION:")
-            current_app.logger.info(f"   current_user_info: {current_user_info}")
-            current_app.logger.info(f"   submitted_by will be: {current_user_info['name']}")
-
-            # Get doc_type from form (default to 'draft')
-            doc_type = request.form.get('doc_type', 'draft').strip() or 'draft'
-            if doc_type not in ['draft', 'rfc']:
-                doc_type = 'draft'
-
-            submission = Submission(
-                draft_name=submission_id,
-                title=title,
-                authors=authors_list,
-                abstract=abstract,
-                group=group,
-                layer_id=layer_id,
-                submitted_by=current_user_info['name'],
-                sourceType='ordinal',
-                doc_type=doc_type,
-                ordinalId=ordinal_id,
-                ordinalContentUrl=ordinal_content_url,
-                ordinalContentType=ordinal_content_type,
-                inscriptionNumber=int(inscription_number) if inscription_number else None,
-                blockHeight=int(block_height) if block_height else None,
-                inscriptionTimestamp=datetime.strptime(inscription_timestamp.replace(' UTC', ''), '%Y-%m-%d %H:%M:%S') if inscription_timestamp else None,
-                pages=page_count,
-                words=word_count
-            )
-
-        else:
-            # File upload submission
-            file = request.files.get('file')
-
-            # Validation
-            if not title or not authors or not file:
-                flash('Title, authors, and file are required', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
-
-            # Security: Check file size (max 50MB)
-            file.seek(0, os.SEEK_END)
-            file_size = file.tell()
-            file.seek(0)  # Reset to beginning
-            max_size = 50 * 1024 * 1024  # 50MB
-            if file_size > max_size:
-                flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
-
-            # Save file
-            filename = f"{submission_id}-{file.filename}"
-            file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-
-            # Calculate pages and words
-            pages, words = calculate_pages_and_words(file_path, filename)
-
-            # Create submission record with file data
-            submission = Submission(
-                draft_name=submission_id,
-                title=title,
-                authors=authors_list,
-                abstract=abstract,
-                group=group,
-                layer_id=layer_id,
-                filename=filename,
-                file_path=file_path,
-                submitted_by=get_current_user()['name'],
-                sourceType='file',
-                pages=pages,
-                words=words
-            )
-
-        # Save to database
-        db.session.add(submission)
-        db.session.commit()
-
-        # Log the action
-        source_desc = f"from ordinal {submission.ordinalId}" if source_type == 'ordinal' else "via file upload"
-        add_to_document_history(f"draft-{submission_id}", "submitted", get_current_user()['name'], f"New draft submitted {source_desc}: {title}")
-
-        flash('Draft submitted successfully!', 'success')
-        return redirect(url_for('submissions.submission_detail', submission_id=submission.draft_name or submission.id))
-
-    return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+    return submit_template
 
 
-@bp.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
-@require_auth
-def submit_revision(draft_name):
-    """Submit a new revision of an existing draft"""
-    from services.rendering import _format_base_template, generate_user_menu
-    from services.identity import get_current_user
-    from config import BUILD_NUMBER
-    from services.groups import GROUPS
-    from services.documents import calculate_pages_and_words, load_draft_data, DRAFTS
+def _render_submit_revision_form(
+    *,
+    draft,
+    draft_name,
+    display_id,
+    new_rev,
+    revision_layer_id,
+    selected_group: str = '',
+    user_menu,
+    current_theme,
+    build_number,
+):
+    """Render revision submit form with DB-backed workgroup options."""
+    from services.rendering import _format_base_template
+    from services.workgroup_links import workgroup_select_options_html
 
-    user_menu = generate_user_menu()
-    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
-
-    # Find the current draft
-    draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
-
-    # If not found in DRAFTS, try to find as a submission
-    submission = None
-    if not draft:
-        submission = get_submission_by_ref(draft_name)
-        if submission and submission.status == 'approved':
-            draft = {
-                'name': submission.id,
-                'title': submission.title,
-                'authors': ', '.join(submission.authors) if isinstance(submission.authors, list) else submission.authors,
-                'abstract': submission.abstract or '',
-                'group': submission.group or '',
-                'rev': submission.revision_number or '00',
-                'ml_number': submission.ml_number,
-            }
-        elif submission:
-            flash('Cannot create revision of unapproved submission', 'error')
-            return redirect(url_for('submissions.submission_detail', submission_id=submission.id))
-
-    if not draft:
-        flash('Draft not found', 'error')
-        return redirect(url_for('documents.all_documents'))
-
-    # Inherit project_id from parent draft (revisions belong to same layer)
-    parent_sub = get_submission_by_ref(draft_name)
-    revision_layer_id = parent_sub.layer_id if parent_sub else (g.layer.id if g.get('layer') else None)
-
-    # Determine display ID (ML-Draft-XXX or internal ID)
-    display_id = draft.get('ml_number', draft_name) or draft_name
-
-    # Calculate new revision number
-    current_rev = int(draft.get('rev', '00'))
-    new_rev = f"{current_rev + 1:02d}"
-
-    if request.method == 'POST':
-        # Get form data
-        title = request.form.get('title', '').strip()
-        authors = request.form.get('authors', '').strip()
-        abstract = request.form.get('abstract', '').strip()
-        group = request.form.get('group', '').strip()
-        what_changed = request.form.get('what_changed', '').strip()
-        source_type = request.form.get('sourceType', 'file').strip()
-
-        # Process authors
-        authors_list = [a.strip() for a in authors.split(',') if a.strip()]
-
-        # Generate submission ID
-        submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-
-        # Handle based on source type
-        if source_type == 'ordinal':
-            # Ordinal submission
-            ordinal_id = request.form.get('ordinalId', '').strip()
-            ordinal_content_url = request.form.get('ordinalContentUrl', '').strip()
-            ordinal_content_type = request.form.get('ordinalContentType', '').strip()
-            inscription_number = request.form.get('inscriptionNumber', '').strip()
-            block_height = request.form.get('blockHeight', '').strip()
-            inscription_timestamp = request.form.get('inscriptionTimestamp', '').strip()
-
-            # Validation
-            if not title or not authors or not ordinal_id:
-                flash('Title, authors, and inscription ID are required', 'error')
-                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
-
-            if not ordinal_content_url:
-                flash('Please preview the ordinal before submitting', 'error')
-                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
-
-            # Fetch ordinal content and calculate pages/words
-            try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': '*/*',
-                    'Connection': 'keep-alive'
-                }
-                response = requests.get(ordinal_content_url, headers=headers, timeout=30)
-                response.raise_for_status()
-                content_text = response.text
-
-                word_count = len(content_text.split())
-                chars_per_page = 3000
-                page_count = max(1, (len(content_text) + chars_per_page - 1) // chars_per_page)
-            except Exception as e:
-                current_app.logger.error(f"Failed to fetch ordinal content: {e}")
-                page_count = 1
-                word_count = 0
-
-            # Create revision submission with ordinal data
-            submission = Submission(
-                draft_name=submission_id,
-                title=title,
-                authors=authors_list,
-                abstract=abstract,
-                group=group,
-                layer_id=revision_layer_id,
-                submitted_by=get_current_user()['name'],
-                sourceType='ordinal',
-                doc_type='draft',
-                ordinalId=ordinal_id,
-                ordinalContentUrl=ordinal_content_url,
-                ordinalContentType=ordinal_content_type,
-                inscriptionNumber=int(inscription_number) if inscription_number else None,
-                blockHeight=int(block_height) if block_height else None,
-                inscriptionTimestamp=datetime.strptime(inscription_timestamp.replace(' UTC', ''), '%Y-%m-%d %H:%M:%S') if inscription_timestamp else None,
-                pages=page_count,
-                words=word_count,
-                parent_draft_name=draft_name,
-                revision_number=new_rev,
-                what_changed=what_changed,
-                is_revision=True
-            )
-        else:
-            # File upload submission
-            file = request.files.get('file')
-
-            # Validation
-            if not title or not authors or not file:
-                flash('Title, authors, and file are required', 'error')
-                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
-
-            # Security: Check file size (max 50MB)
-            file.seek(0, os.SEEK_END)
-            file_size = file.tell()
-            file.seek(0)
-            max_size = 50 * 1024 * 1024
-            if file_size > max_size:
-                flash(f'File too large. Maximum size is 50MB.', 'error')
-                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
-
-            # Save file
-            filename = f"{submission_id}-{file.filename}"
-            file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-
-            # Calculate pages and words
-            pages, words = calculate_pages_and_words(file_path, filename)
-
-            # Create revision submission with file data
-            submission = Submission(
-                draft_name=submission_id,
-                title=title,
-                authors=authors_list,
-                abstract=abstract,
-                group=group,
-                layer_id=revision_layer_id,
-                filename=filename,
-                file_path=file_path,
-                submitted_by=get_current_user()['name'],
-                sourceType='file',
-                pages=pages,
-                words=words,
-                parent_draft_name=draft_name,
-                revision_number=new_rev,
-                what_changed=what_changed,
-                is_revision=True
-            )
-
-        # Save to database
-        db.session.add(submission)
-        db.session.commit()
-
-        # Log the action
-        source_desc = f"from ordinal {submission.ordinalId}" if source_type == 'ordinal' else "via file upload"
-        change_desc = f" Changes: {what_changed[:100]}" if what_changed else ""
-        add_to_document_history(
-            draft_name,
-            "revision_submitted",
-            get_current_user()['name'],
-            f"Revision {new_rev} submitted {source_desc}.{change_desc}"
-        )
-
-        flash(f'Revision {new_rev} submitted successfully!', 'success')
-        return redirect(url_for('submissions.submission_detail', submission_id=submission.draft_name or submission.id))
-
-    # GET: Show form with pre-populated data
-    # Generate workgroup options
-    group_options = '<option value="">Select a Workgroup</option>'
-    for grp in GROUPS:
-        selected = 'selected' if grp['acronym'] == draft.get('group', '') else ''
-        group_options += f'<option value="{grp["acronym"]}" {selected}>{grp["name"]}</option>'
-
+    group_options = workgroup_select_options_html(
+        revision_layer_id,
+        selected_group or draft.get('group', ''),
+    )
     draft_detail_url = url_for('documents.draft_detail', draft_name=draft_name)
     revision_form = f"""
     <div class="gh-page container mt-4">
@@ -893,14 +565,12 @@ def submit_revision(draft_name):
             return;
         }}
 
-        // Show loading
         const preview = document.getElementById('ordinalPreview');
         const content = document.getElementById('ordinalContent');
         content.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading ordinal...</div>';
         preview.style.display = 'block';
 
         try {{
-            // Use our API endpoint to fetch ordinal metadata
             const response = await fetch('/api/ordinal/preview', {{
                 method: 'POST',
                 headers: {{
@@ -916,22 +586,18 @@ def submit_revision(draft_name):
                 return;
             }}
 
-            // Fill in hidden form fields
             document.getElementById('ordinalContentUrl').value = data.contentUrl;
             document.getElementById('ordinalContentType').value = data.contentType;
             document.getElementById('inscriptionNumber').value = data.inscriptionNumber || '';
             document.getElementById('blockHeight').value = data.blockHeight || '';
             document.getElementById('inscriptionTimestamp').value = data.timestamp || '';
 
-            // Fetch and display content
             const contentResponse = await fetch(data.contentUrl);
             const contentText = await contentResponse.text();
 
-            // Check if it's markdown
             const isMarkdown = data.contentType.includes('markdown') || data.contentType.includes('text/plain');
 
             if (isMarkdown) {{
-                // Convert markdown to HTML
                 const convertResponse = await fetch('/api/ordinal/convert-markdown', {{
                     method: 'POST',
                     headers: {{
@@ -948,15 +614,11 @@ def submit_revision(draft_name):
                     infoDiv.className = 'alert alert-info mb-3';
                     infoDiv.innerHTML = `<strong>Preview:</strong> Inscription #${{data.inscriptionNumber}} | Block: ${{data.blockHeight}} | Size: ${{(data.contentSize / 1024).toFixed(2)}} KB`;
                     content.appendChild(infoDiv);
-                    const contentDiv = document.createElement('div');
-                    contentDiv.className = 'document-content';
-                    contentDiv.style.cssText = 'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 1em; line-height: 1.6; max-height: 600px; overflow-y: auto; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--input-bg); color: var(--text-primary);';
-                    contentDiv.innerHTML = convertData.html;
-                    content.appendChild(contentDiv);
-                    const images = contentDiv.querySelectorAll('img');
-                    images.forEach(img => {{
+                    const previewDiv = document.createElement('div');
+                    previewDiv.innerHTML = convertData.html;
+                    content.appendChild(previewDiv);
+                    previewDiv.querySelectorAll('img').forEach(img => {{
                         img.style.maxWidth = '100%';
-                        img.style.height = 'auto';
                         img.style.display = 'block';
                         img.style.margin = '1em 0';
                     }});
@@ -974,7 +636,487 @@ def submit_revision(draft_name):
     </script>
     """
 
-    return _format_base_template(title=f"Submit Revision - {display_id}", theme=current_theme, user_menu=user_menu, content=revision_form, build_number=BUILD_NUMBER)
+    return _format_base_template(
+        title=f"Submit Revision - {display_id}",
+        theme=current_theme,
+        user_menu=user_menu,
+        content=revision_form,
+        build_number=build_number,
+    )
+
+
+@bp.route('/submit/', methods=['GET', 'POST'])
+@require_auth
+def submit_draft():
+    from services.rendering import _format_base_template, generate_user_menu
+    from services.identity import get_current_user
+    from config import BUILD_NUMBER
+    from services.documents import calculate_pages_and_words
+    from services.workgroup_links import workgroup_belongs_to_layer
+
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+
+    layers = Layer.query.filter(Layer.approval_status == 'approved').order_by(Layer.name).all()
+    layer_from_param = None
+    if request.args.get('layer'):
+        layer_from_param = Layer.query.filter_by(slug=request.args.get('layer').strip()).first()
+    elif request.args.get('layer_id'):
+        layer_from_param = Layer.query.get(request.args.get('layer_id').strip())
+    effective_layer = g.get('layer') or layer_from_param
+    if not effective_layer and request.method == 'POST' and request.form.get('layer_id'):
+        effective_layer = Layer.query.get(request.form.get('layer_id').strip())
+
+    selected_group = request.form.get('group', '').strip() if request.method == 'POST' else ''
+    submit_template = _build_submit_form_template(
+        effective_layer=effective_layer,
+        layers=layers,
+        selected_group=selected_group,
+        build_number=BUILD_NUMBER,
+    )
+
+    if request.method == 'POST':
+        # Get common fields
+        title = request.form.get('title', '').strip()
+        authors = request.form.get('authors', '').strip()
+        abstract = request.form.get('abstract', '').strip()
+        group = request.form.get('group', '').strip()
+        source_type = request.form.get('sourceType', 'file').strip()
+        form_layer_id = request.form.get('layer_id', '').strip()
+        layer_id = form_layer_id or (effective_layer.id if effective_layer else None)
+
+        # Validate layer_id when layers exist
+        if not layer_id and layers:
+            flash('Please select a layer for this submission.', 'error')
+            return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+        if group and layer_id and not workgroup_belongs_to_layer(group, layer_id):
+            flash('Selected workgroup is not valid for this layer.', 'error')
+            return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+        from services.submission_dedup import (
+            compute_content_hash_for_file,
+            compute_content_hash_from_bytes,
+            find_submission_conflict,
+            conflict_message,
+        )
+
+        # Process authors (comma-separated)
+        authors_list = [a.strip() for a in authors.split(',') if a.strip()]
+
+        # Generate submission ID
+        submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
+        # Handle based on source type
+        if source_type == 'ordinal':
+            # Ordinal submission
+            ordinal_id = request.form.get('ordinalId', '').strip()
+            ordinal_content_url = request.form.get('ordinalContentUrl', '').strip()
+            ordinal_content_type = request.form.get('ordinalContentType', '').strip()
+            inscription_number = request.form.get('inscriptionNumber', '').strip()
+            block_height = request.form.get('blockHeight', '').strip()
+            inscription_timestamp = request.form.get('inscriptionTimestamp', '').strip()
+
+            # Validation
+            if not title or not authors or not ordinal_id:
+                flash('Title, authors, and inscription ID are required', 'error')
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+            if not ordinal_content_url:
+                flash('Please preview the ordinal before submitting', 'error')
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+            # Fetch ordinal content and calculate pages/words
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': '*/*',
+                    'Connection': 'keep-alive'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=30)
+                response.raise_for_status()
+                content_bytes = response.content
+                content_text = content_bytes.decode('utf-8', errors='replace')
+
+                # Calculate pages and words from text
+                word_count = len(content_text.split())
+                chars_per_page = 3000
+                page_count = max(1, (len(content_text) + chars_per_page - 1) // chars_per_page)
+            except Exception as e:
+                current_app.logger.error(f"Failed to fetch ordinal content for pages/words: {e}")
+                page_count = 1
+                word_count = 0
+                content_bytes = b''
+
+            content_hash = compute_content_hash_from_bytes(
+                content_bytes,
+                content_type=ordinal_content_type,
+            ) if content_bytes else None
+
+            conflict = find_submission_conflict(
+                title=title,
+                ordinal_id=ordinal_id,
+                content_hash=content_hash,
+            )
+            if conflict:
+                flash(conflict_message(conflict[0], conflict[1]), 'error')
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+            # Create submission record with ordinal data
+            current_user_info = get_current_user()
+            current_app.logger.info(f"📝 CREATING SUBMISSION:")
+            current_app.logger.info(f"   current_user_info: {current_user_info}")
+            current_app.logger.info(f"   submitted_by will be: {current_user_info['name']}")
+
+            # Get doc_type from form (default to 'draft')
+            doc_type = request.form.get('doc_type', 'draft').strip() or 'draft'
+            if doc_type not in ['draft', 'rfc']:
+                doc_type = 'draft'
+
+            submission = Submission(
+                draft_name=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                layer_id=layer_id,
+                submitted_by=current_user_info['name'],
+                sourceType='ordinal',
+                doc_type=doc_type,
+                ordinalId=ordinal_id,
+                ordinalContentUrl=ordinal_content_url,
+                ordinalContentType=ordinal_content_type,
+                inscriptionNumber=int(inscription_number) if inscription_number else None,
+                blockHeight=int(block_height) if block_height else None,
+                inscriptionTimestamp=datetime.strptime(inscription_timestamp.replace(' UTC', ''), '%Y-%m-%d %H:%M:%S') if inscription_timestamp else None,
+                pages=page_count,
+                words=word_count,
+                content_hash=content_hash,
+            )
+
+        else:
+            # File upload submission
+            file = request.files.get('file')
+
+            # Validation
+            if not title or not authors or not file:
+                flash('Title, authors, and file are required', 'error')
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+            # Security: Check file size (max 50MB)
+            file.seek(0, os.SEEK_END)
+            file_size = file.tell()
+            file.seek(0)  # Reset to beginning
+            max_size = 50 * 1024 * 1024  # 50MB
+            if file_size > max_size:
+                flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+            # Save file
+            filename = f"{submission_id}-{file.filename}"
+            file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+
+            # Calculate pages and words
+            pages, words = calculate_pages_and_words(file_path, filename)
+            content_hash = compute_content_hash_for_file(file_path, filename)
+
+            conflict = find_submission_conflict(
+                title=title,
+                content_hash=content_hash,
+            )
+            if conflict:
+                flash(conflict_message(conflict[0], conflict[1]), 'error')
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+            # Create submission record with file data
+            submission = Submission(
+                draft_name=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                layer_id=layer_id,
+                filename=filename,
+                file_path=file_path,
+                submitted_by=get_current_user()['name'],
+                sourceType='file',
+                pages=pages,
+                words=words,
+                content_hash=content_hash,
+            )
+
+        # Save to database
+        db.session.add(submission)
+        db.session.commit()
+
+        # Log the action
+        source_desc = f"from ordinal {submission.ordinalId}" if source_type == 'ordinal' else "via file upload"
+        add_to_document_history(f"draft-{submission_id}", "submitted", get_current_user()['name'], f"New draft submitted {source_desc}: {title}")
+
+        flash('Draft submitted successfully!', 'success')
+        return redirect(url_for('submissions.submission_detail', submission_id=submission.draft_name or submission.id))
+
+    return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
+
+@bp.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
+@require_auth
+def submit_revision(draft_name):
+    """Submit a new revision of an existing draft"""
+    from services.rendering import _format_base_template, generate_user_menu
+    from services.identity import get_current_user
+    from config import BUILD_NUMBER
+    from services.documents import calculate_pages_and_words, load_draft_data, DRAFTS
+    from services.workgroup_links import workgroup_belongs_to_layer, workgroup_select_options_html
+
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+
+    # Find the current draft
+    draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
+
+    # If not found in DRAFTS, try to find as a submission
+    submission = None
+    if not draft:
+        submission = get_submission_by_ref(draft_name)
+        if submission and submission.status == 'approved':
+            draft = {
+                'name': submission.id,
+                'title': submission.title,
+                'authors': ', '.join(submission.authors) if isinstance(submission.authors, list) else submission.authors,
+                'abstract': submission.abstract or '',
+                'group': submission.group or '',
+                'rev': submission.revision_number or '00',
+                'ml_number': submission.ml_number,
+            }
+        elif submission:
+            flash('Cannot create revision of unapproved submission', 'error')
+            return redirect(url_for('submissions.submission_detail', submission_id=submission.id))
+
+    if not draft:
+        flash('Draft not found', 'error')
+        return redirect(url_for('documents.all_documents'))
+
+    # Inherit project_id from parent draft (revisions belong to same layer)
+    parent_sub = get_submission_by_ref(draft_name)
+    revision_layer_id = parent_sub.layer_id if parent_sub else (g.layer.id if g.get('layer') else None)
+
+    # Determine display ID (ML-Draft-XXX or internal ID)
+    display_id = draft.get('ml_number', draft_name) or draft_name
+
+    # Calculate new revision number
+    current_rev = int(draft.get('rev', '00'))
+    new_rev = f"{current_rev + 1:02d}"
+
+    if request.method == 'POST':
+        # Get form data
+        title = request.form.get('title', '').strip()
+        authors = request.form.get('authors', '').strip()
+        abstract = request.form.get('abstract', '').strip()
+        group = request.form.get('group', '').strip()
+        what_changed = request.form.get('what_changed', '').strip()
+        source_type = request.form.get('sourceType', 'file').strip()
+
+        if group and revision_layer_id and not workgroup_belongs_to_layer(group, revision_layer_id):
+            flash('Selected workgroup is not valid for this layer.', 'error')
+            return _render_submit_revision_form(
+                draft=draft,
+                draft_name=draft_name,
+                display_id=display_id,
+                new_rev=new_rev,
+                revision_layer_id=revision_layer_id,
+                selected_group=group,
+                user_menu=user_menu,
+                current_theme=current_theme,
+                build_number=BUILD_NUMBER,
+            )
+
+        # Process authors
+        authors_list = [a.strip() for a in authors.split(',') if a.strip()]
+
+        from services.submission_dedup import (
+            compute_content_hash_for_file,
+            compute_content_hash_from_bytes,
+            find_submission_conflict,
+            conflict_message,
+        )
+
+        # Generate submission ID
+        submission_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
+        # Handle based on source type
+        if source_type == 'ordinal':
+            # Ordinal submission
+            ordinal_id = request.form.get('ordinalId', '').strip()
+            ordinal_content_url = request.form.get('ordinalContentUrl', '').strip()
+            ordinal_content_type = request.form.get('ordinalContentType', '').strip()
+            inscription_number = request.form.get('inscriptionNumber', '').strip()
+            block_height = request.form.get('blockHeight', '').strip()
+            inscription_timestamp = request.form.get('inscriptionTimestamp', '').strip()
+
+            # Validation
+            if not title or not authors or not ordinal_id:
+                flash('Title, authors, and inscription ID are required', 'error')
+                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
+
+            if not ordinal_content_url:
+                flash('Please preview the ordinal before submitting', 'error')
+                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
+
+            # Fetch ordinal content and calculate pages/words
+            content_bytes = b''
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': '*/*',
+                    'Connection': 'keep-alive'
+                }
+                response = requests.get(ordinal_content_url, headers=headers, timeout=30)
+                response.raise_for_status()
+                content_bytes = response.content
+                content_text = content_bytes.decode('utf-8', errors='replace')
+
+                word_count = len(content_text.split())
+                chars_per_page = 3000
+                page_count = max(1, (len(content_text) + chars_per_page - 1) // chars_per_page)
+            except Exception as e:
+                current_app.logger.error(f"Failed to fetch ordinal content: {e}")
+                page_count = 1
+                word_count = 0
+
+            content_hash = compute_content_hash_from_bytes(
+                content_bytes,
+                content_type=ordinal_content_type,
+            ) if content_bytes else None
+
+            conflict = find_submission_conflict(
+                title=title,
+                ordinal_id=ordinal_id,
+                content_hash=content_hash,
+                exclude_family_parent_id=draft_name,
+            )
+            if conflict:
+                flash(conflict_message(conflict[0], conflict[1]), 'error')
+                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
+
+            # Create revision submission with ordinal data
+            submission = Submission(
+                draft_name=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                layer_id=revision_layer_id,
+                submitted_by=get_current_user()['name'],
+                sourceType='ordinal',
+                doc_type='draft',
+                ordinalId=ordinal_id,
+                ordinalContentUrl=ordinal_content_url,
+                ordinalContentType=ordinal_content_type,
+                inscriptionNumber=int(inscription_number) if inscription_number else None,
+                blockHeight=int(block_height) if block_height else None,
+                inscriptionTimestamp=datetime.strptime(inscription_timestamp.replace(' UTC', ''), '%Y-%m-%d %H:%M:%S') if inscription_timestamp else None,
+                pages=page_count,
+                words=word_count,
+                content_hash=content_hash,
+                parent_draft_name=draft_name,
+                revision_number=new_rev,
+                what_changed=what_changed,
+                is_revision=True
+            )
+        else:
+            # File upload submission
+            file = request.files.get('file')
+
+            # Validation
+            if not title or not authors or not file:
+                flash('Title, authors, and file are required', 'error')
+                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
+
+            # Security: Check file size (max 50MB)
+            file.seek(0, os.SEEK_END)
+            file_size = file.tell()
+            file.seek(0)
+            max_size = 50 * 1024 * 1024
+            if file_size > max_size:
+                flash(f'File too large. Maximum size is 50MB.', 'error')
+                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
+
+            # Save file
+            filename = f"{submission_id}-{file.filename}"
+            file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+
+            # Calculate pages and words
+            pages, words = calculate_pages_and_words(file_path, filename)
+            content_hash = compute_content_hash_for_file(file_path, filename)
+
+            conflict = find_submission_conflict(
+                title=title,
+                content_hash=content_hash,
+                exclude_family_parent_id=draft_name,
+            )
+            if conflict:
+                flash(conflict_message(conflict[0], conflict[1]), 'error')
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
+                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
+
+            # Create revision submission with file data
+            submission = Submission(
+                draft_name=submission_id,
+                title=title,
+                authors=authors_list,
+                abstract=abstract,
+                group=group,
+                layer_id=revision_layer_id,
+                filename=filename,
+                file_path=file_path,
+                submitted_by=get_current_user()['name'],
+                sourceType='file',
+                pages=pages,
+                words=words,
+                content_hash=content_hash,
+                parent_draft_name=draft_name,
+                revision_number=new_rev,
+                what_changed=what_changed,
+                is_revision=True
+            )
+
+        # Save to database
+        db.session.add(submission)
+        db.session.commit()
+
+        # Log the action
+        source_desc = f"from ordinal {submission.ordinalId}" if source_type == 'ordinal' else "via file upload"
+        change_desc = f" Changes: {what_changed[:100]}" if what_changed else ""
+        add_to_document_history(
+            draft_name,
+            "revision_submitted",
+            get_current_user()['name'],
+            f"Revision {new_rev} submitted {source_desc}.{change_desc}"
+        )
+
+        flash(f'Revision {new_rev} submitted successfully!', 'success')
+        return redirect(url_for('submissions.submission_detail', submission_id=submission.draft_name or submission.id))
+
+    return _render_submit_revision_form(
+        draft=draft,
+        draft_name=draft_name,
+        display_id=display_id,
+        new_rev=new_rev,
+        revision_layer_id=revision_layer_id,
+        user_menu=user_menu,
+        current_theme=current_theme,
+        build_number=BUILD_NUMBER,
+    )
 
 
 @bp.route('/submit/status/')
@@ -1081,6 +1223,56 @@ def submission_status():
     """
 
     return _format_base_template(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+
+
+@bp.route('/api/submissions/<submission_id>/metadata/', methods=['PATCH'])
+@require_auth
+def patch_submission_metadata(submission_id):
+    """Update draft metadata (workgroup assignment, title, abstract)."""
+    from models import Workgroup
+
+    current_user = get_current_user()
+    submission = get_submission_by_ref(submission_id)
+    if not submission:
+        return jsonify({'error': 'Submission not found'}), 404
+    if not can_edit_submission_metadata(current_user, submission):
+        return jsonify({'error': 'Not allowed to edit this submission'}), 403
+
+    data = request.get_json() or {}
+    updated = False
+
+    if 'group' in data:
+        group_val = (data.get('group') or '').strip()
+        if group_val:
+            wg = Workgroup.query.filter_by(acronym=group_val).first()
+            if not wg:
+                return jsonify({'error': 'Unknown workgroup acronym'}), 400
+            if submission.layer_id and wg.layer_id != submission.layer_id:
+                return jsonify({'error': 'Workgroup must belong to the same layer as the draft'}), 400
+        submission.group = group_val or None
+        updated = True
+
+    if 'title' in data and (data.get('title') or '').strip():
+        submission.title = data['title'].strip()
+        updated = True
+
+    if 'abstract' in data:
+        submission.abstract = (data.get('abstract') or '').strip() or None
+        updated = True
+
+    if not updated:
+        return jsonify({'error': 'No supported fields to update'}), 400
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'submission': {
+            'id': submission.id,
+            'title': submission.title,
+            'abstract': submission.abstract,
+            'group': submission.group,
+        },
+    })
 
 
 @bp.route('/submit/status/<submission_id>/')
@@ -1312,10 +1504,10 @@ def submission_detail(submission_id):
         'block_height': getattr(submission, 'blockHeight', None),
         'inscription_timestamp': inscription_ts.strftime('%Y-%m-%d %H:%M:%S') if inscription_ts else None,
         'ml_number': submission.ml_number,
-        'is_revision': getattr(submission, 'is_revision', False),
+        'is_revision': _submission_is_revision(submission),
         'parent_draft_name': parent_draft_name,
         'parent_draft_url': url_for('documents.draft_detail', draft_name=parent_draft_name) if parent_draft_name else '',
-        'revision_number': getattr(submission, 'revision_number', ''),
+        'revision_number': (getattr(submission, 'revision_number', '') or '').strip() or '',
         'what_changed_html': revision_notes_to_safe_html(
             getattr(submission, 'what_changed', '') or ''
         ),
@@ -1476,6 +1668,15 @@ def approve_submission(submission_id):
         from flask import current_app
 
         current_app.logger.warning('submission notification dispatch (approve): %s', ex)
+    try:
+        from services.workgroup_links import assign_dp_workgroup_for_submission
+
+        if assign_dp_workgroup_for_submission(submission):
+            db.session.commit()
+    except Exception as ex:
+        from flask import current_app
+
+        current_app.logger.warning('DP workgroup document link (approve): %s', ex)
     action_desc = f"Approved revision {submission.revision_number} of {parent_draft_name}" if is_revision else f"Approved submission: {submission.title}"
     add_to_document_history(f"submission-{submission.id}", "approved", admin_user['name'], action_desc)
 

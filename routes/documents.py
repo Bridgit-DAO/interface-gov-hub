@@ -1,4 +1,5 @@
 """Documents routes: /doc/active, /doc/all, /doc/draft/*, comments, follow, history, revisions, /test/."""
+import json
 import os
 import re
 import html as html_mod
@@ -18,7 +19,7 @@ from services.identity import get_current_user, require_auth
 from services.events import emit_event
 from services.document_follow_notifications import dispatch_document_followers
 from services.event_subscriptions import matrix_from_subscription_post, replace_draft_subscriptions_matrix
-from services.submissions import get_submission_by_ref, add_to_document_history
+from services.submissions import get_submission_by_ref, add_to_document_history, can_edit_submission_metadata
 from services.ordinals import (
     process_ordinal_markdown,
     shorten_inscription_id,
@@ -46,7 +47,8 @@ from services.draft_reader import (
     draft_display_id,
     load_draft_document_body,
 )
-from services.directory_ui import gh_page_header, gh_living_module, gh_breadcrumb
+from services.directory_ui import gh_page_header, gh_living_module, gh_breadcrumb, gh_filter_row, gh_directory_toolbar
+from services.workgroup_links import build_document_workgroup_index, resolve_document_workgroup_meta
 
 bp = Blueprint('documents', __name__, url_prefix='')
 
@@ -54,6 +56,30 @@ bp = Blueprint('documents', __name__, url_prefix='')
 def _get_drafts():
     """Get DRAFTS list (cached in services.documents)."""
     return DRAFTS
+
+
+def _document_workgroup_table_row(draft: dict) -> str:
+    """HTML table row for linked workgroup, or empty when none."""
+    meta = resolve_document_workgroup_meta(
+        name=draft.get('name'),
+        group=draft.get('group'),
+        title=draft.get('title'),
+    )
+    label = meta.get('workgroup_name') or meta.get('group')
+    if not label:
+        return ''
+    href = meta.get('workgroup_href')
+    if href:
+        cell = (
+            f'<a href="{html_mod.escape(href, quote=True)}" class="text-decoration-none" '
+            f'style="color: var(--accent-color) !important;">{html_mod.escape(label)}</a>'
+        )
+    else:
+        cell = html_mod.escape(label)
+    return (
+        '<tr><td style="color: var(--text-secondary) !important;"><strong>Workgroup:</strong></td>'
+        f'<td style="color: var(--text-primary) !important;">{cell}</td></tr>'
+    )
 
 
 def _submission_uses_display_ordinal(submission):
@@ -151,26 +177,40 @@ def active_documents():
     return all_documents()
 
 
-@bp.route('/doc/all/')
-def all_documents():
-    from services.rendering import _format_base_template, generate_user_menu
-    from config import BUILD_NUMBER
-
-    user_menu = generate_user_menu()
-    current_theme = session.get('theme', 'dark')
+def _build_all_documents_catalog():
+    """Build JSON-serializable rows for the /doc/all/ directory (client search & sort)."""
     drafts = _get_drafts()
-    page = max(1, request.args.get('page', 1, type=int) or 1)
-    per_page = min(100, max(10, request.args.get('per_page', 20, type=int) or 20))
-    view = (request.args.get('view') or 'cards').strip().lower()
-    if view not in ('cards', 'list'):
-        view = 'cards'
-
+    wg_index = build_document_workgroup_index()
     all_docs = []
-    all_docs.extend(drafts)
+    for draft in drafts:
+        wg_meta = resolve_document_workgroup_meta(
+            name=draft.get('name'),
+            group=draft.get('group'),
+            title=draft.get('title'),
+            index=wg_index,
+        )
+        all_docs.append({
+            'name': draft.get('name'),
+            'title': draft.get('title') or '',
+            'authors': draft.get('authors') if isinstance(draft.get('authors'), list) else [],
+            'group': wg_meta.get('group'),
+            'workgroup_name': wg_meta.get('workgroup_name'),
+            'workgroup_href': wg_meta.get('workgroup_href'),
+            'status': draft.get('status'),
+            'rev': draft.get('rev', '00'),
+            'pages': draft.get('pages') or 1,
+            'words': draft.get('words') or 0,
+            'date': draft.get('date') or '',
+            'abstract': draft.get('abstract') or '',
+            'ml_number': draft.get('ml_number'),
+            'is_revision': bool(draft.get('is_revision')),
+            'revision_number': draft.get('revision_number') or '',
+            'submitted_at': draft.get('date') or '',
+        })
 
     approved_submissions = Submission.query.filter(
         Submission.status.in_(['approved', 'published']),
-        Submission.is_revision == False
+        Submission.is_revision == False,
     ).all()
 
     parent_refs = set()
@@ -184,7 +224,7 @@ def all_documents():
         revisions = Submission.query.filter(
             Submission.parent_draft_name.in_(parent_refs),
             Submission.is_revision == True,
-            Submission.status.in_(['approved', 'published'])
+            Submission.status.in_(['approved', 'published']),
         ).order_by(Submission.submitted_at.desc()).all()
         for revision in revisions:
             parent = getattr(revision, 'parent_draft_name', None)
@@ -197,187 +237,187 @@ def all_documents():
             latest_revision = latest_revisions.get(submission.draft_name)
         display_submission = latest_revision if latest_revision else submission
         is_revision = getattr(display_submission, 'is_revision', False)
-        revision_number = getattr(display_submission, 'revision_number', '')
-
+        revision_number = getattr(display_submission, 'revision_number', '') or ''
+        pages, words = submission_file_pages_words(display_submission)
+        submitted_at = (
+            display_submission.submitted_at.isoformat()
+            if display_submission.submitted_at else ''
+        )
+        wg_meta = resolve_document_workgroup_meta(
+            name=display_submission.id,
+            group=display_submission.group,
+            title=display_submission.title,
+            index=wg_index,
+        )
         all_docs.append({
             'name': display_submission.id,
-            'title': display_submission.title,
-            'authors': display_submission.authors if isinstance(display_submission.authors, list) else [display_submission.authors] if display_submission.authors else [],
-            'group': display_submission.group or 'N/A',
+            'title': display_submission.title or '',
+            'authors': (
+                display_submission.authors
+                if isinstance(display_submission.authors, list)
+                else [display_submission.authors] if display_submission.authors else []
+            ),
+            'group': wg_meta.get('group'),
+            'workgroup_name': wg_meta.get('workgroup_name'),
+            'workgroup_href': wg_meta.get('workgroup_href'),
             'status': display_submission.status,
             'rev': revision_number if is_revision else '00',
-            'pages': display_submission.pages or 1,
-            'words': display_submission.words or 0,
+            'pages': pages or 1,
+            'words': words or 0,
             'date': display_submission.submitted_at.strftime('%Y-%m-%d') if display_submission.submitted_at else '',
             'abstract': display_submission.abstract or '',
             'ml_number': display_submission.ml_number,
             'is_revision': is_revision,
             'revision_number': revision_number,
-            '_submission': display_submission,
+            'submitted_at': submitted_at,
         })
 
-    all_docs = sort_documents_by_ml_number_desc(all_docs)
-    total_docs = len(all_docs)
-    total_pages = max(1, (total_docs + per_page - 1) // per_page)
-    if page > total_pages:
-        page = total_pages
-    start = (page - 1) * per_page
-    page_docs = all_docs[start:start + per_page]
+    return sort_documents_by_ml_number_desc(all_docs)
 
-    query_suffix = f'view={view}&per_page={per_page}'
-    cards_active = 'active' if view == 'cards' else ''
-    list_active = 'active' if view == 'list' else ''
 
-    docs_html = ""
-    if view == 'list':
-        rows = []
-        for draft in page_docs:
-            submission_obj = draft.pop('_submission', None)
-            if submission_obj is not None:
-                pages, _words = submission_file_pages_words(submission_obj)
-                draft['pages'] = pages
-            raw_name = str(draft['name'])
-            display_id = str(draft.get('ml_number') or raw_name)
-            doc_href = quote(raw_name, safe='')
-            rev_label = html_mod.escape(str(draft.get('revision_number') or draft.get('rev') or '00'))
-            title_raw = str(draft.get('title') or '')
-            title_esc = html_mod.escape(title_raw)
-            rows.append(
-                f'<tr>'
-                f'<td><a href="/doc/draft/{doc_href}/">{html_mod.escape(display_id)}</a></td>'
-                f'<td class="doc-all-title-cell" title="{title_esc}">{title_esc}</td>'
-                f'<td><span class="badge bg-secondary">{html_mod.escape(str(draft.get("status")))}</span></td>'
-                f'<td>{rev_label}</td>'
-                f'<td>{int(draft.get("pages") or 1)}</td>'
-                f'<td>{html_mod.escape(str(draft.get("date") or ""))}</td>'
-                f'<td class="text-nowrap">'
-                f'<a href="/doc/draft/{doc_href}/read/" class="btn btn-sm btn-primary me-1">Read</a>'
-                f'<a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>'
-                f'</td>'
-                f'</tr>'
-            )
-        docs_html = f'''
-        <style>
-          .doc-all-list-table th,
-          .doc-all-list-table td {{ white-space: nowrap; }}
-          .doc-all-list-table .doc-all-title-cell {{
-            max-width: 22rem;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }}
-        </style>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle doc-all-list-table">
-                <thead>
-                    <tr>
-                        <th>ID</th><th>Title</th><th>Status</th><th>Rev</th>
-                        <th>Pages</th><th>Date</th><th></th>
-                    </tr>
-                </thead>
-                <tbody>{"".join(rows) if rows else '<tr><td colspan="7" class="text-muted">No documents on this page.</td></tr>'}</tbody>
-            </table>
-        </div>
-        '''
-    else:
-        for draft in page_docs:
-            submission_obj = draft.pop('_submission', None)
-            if submission_obj is not None:
-                pages, words = submission_file_pages_words(submission_obj)
-                draft['pages'] = pages
-                draft['words'] = words
+@bp.route('/doc/all/')
+def all_documents():
+    from services.rendering import _format_base_template, generate_user_menu
+    from config import BUILD_NUMBER
 
-            raw_name = str(draft['name'])
-            display_id = str(draft.get('ml_number') or raw_name)
-            is_revision = draft.get('is_revision', False)
-            revision_number = draft.get('revision_number', '')
-            revision_badge = (
-                f'<span class="badge bg-success ms-2">Revision {html_mod.escape(str(revision_number))}</span>'
-                if is_revision and revision_number else ''
-            )
-            doc_href = quote(raw_name, safe='')
-            authors = draft['authors'] if isinstance(draft.get('authors'), list) else []
-            authors_text = ', '.join(str(author) for author in authors) if authors else 'N/A'
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    catalog = _build_all_documents_catalog()
+    docs_json = json.dumps(catalog)
+    total_docs = len(catalog)
 
-            words = int(draft.get('words') or 0)
-            words_span = f'<span>{words} words</span>' if words else ''
-            docs_html += f"""
-        <div class="col-12 document-card">
-            <div class="card h-100">
-                <div class="card-body d-flex flex-column">
-                    <h5 class="card-title document-title mb-2">
-                        <a href="/doc/draft/{doc_href}/">{html_mod.escape(display_id)}</a>
-                        {revision_badge}
-                    </h5>
-                    <p class="card-text flex-grow-0">{html_mod.escape(str(draft['title'] or ''))}</p>
-                    <div class="document-meta">
-                        <span class="badge bg-secondary status-badge">{html_mod.escape(str(draft['status']))}</span>
-                        <span>Rev: {html_mod.escape(str(draft['rev']))}</span>
-                        <span>{int(draft.get('pages') or 1)} pages</span>
-                        {words_span}
-                    </div>
-                    <div class="mt-2 mb-0">
-                        <small class="text-muted">
-                            Authors: {html_mod.escape(authors_text)}<br>
-                            Group: {html_mod.escape(str(draft['group'] or 'N/A'))}<br>
-                            Date: {html_mod.escape(str(draft['date'] or ''))}
-                        </small>
-                    </div>
-                    <div class="doc-card-actions mt-auto pt-2">
-                        <a href="/doc/draft/{doc_href}/read/" class="btn btn-sm btn-primary">Read</a>
-                        <a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>
-                        <a href="/doc/draft/{doc_href}/comments/" class="btn btn-sm btn-outline-secondary">Comments</a>
-                        <a href="/doc/draft/{doc_href}/history/" class="btn btn-sm btn-outline-secondary">History</a>
-                        <a href="/doc/draft/{doc_href}/revisions/" class="btn btn-sm btn-outline-secondary">Revisions</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-        """
-
-    prev_disabled = ' disabled' if page <= 1 else ''
-    next_disabled = ' disabled' if page >= total_pages else ''
-    prev_page = max(1, page - 1)
-    next_page = min(total_pages, page + 1)
-    pagination_html = ''
-    if total_pages > 1:
-        pagination_html = f"""
-        <nav aria-label="Document pages" class="mt-3">
-            <ul class="pagination">
-                <li class="page-item{prev_disabled}">
-                    <a class="page-link" href="?page={prev_page}&{query_suffix}">Previous</a>
-                </li>
-                <li class="page-item disabled">
-                    <span class="page-link">Page {page} of {total_pages}</span>
-                </li>
-                <li class="page-item{next_disabled}">
-                    <a class="page-link" href="?page={next_page}&{query_suffix}">Next</a>
-                </li>
-            </ul>
-        </nav>
-        """
-
-    docs_wrapper_open = '<div class="row g-3">' if view == 'cards' else ''
-    docs_wrapper_close = '</div>' if view == 'cards' else ''
+    doc_view_actions = (
+        '<div class="btn-group" role="group" aria-label="View mode">'
+        '<button type="button" class="btn btn-outline-secondary btn-sm active" id="doc-view-cards" onclick="setDocView(\'cards\')">Cards</button>'
+        '<button type="button" class="btn btn-outline-secondary btn-sm" id="doc-view-list" onclick="setDocView(\'list\')">List</button>'
+        '</div>'
+    )
 
     content = f"""
     <div class="gh-page container doc-all-page mt-4">
         {gh_page_header(
             'All Documents',
-            f'Showing {len(page_docs)} of {total_docs} documents',
+            f'{total_docs} documents',
             'fa-file-alt',
-            actions_html=(
-                f'<div class="btn-group" role="group" aria-label="View mode">'
-                f'<a href="?view=cards&per_page={per_page}" class="btn btn-outline-secondary btn-sm {cards_active}">Cards</a>'
-                f'<a href="?view=list&per_page={per_page}" class="btn btn-outline-secondary btn-sm {list_active}">List</a>'
-                f'</div>'
-            ),
+            actions_html=doc_view_actions,
         )}
-
-        {docs_wrapper_open}
-            {docs_html}
-        {docs_wrapper_close}
-        {pagination_html}
+        {gh_filter_row(
+            gh_directory_toolbar(
+                search_placeholder='Search documents…',
+                search_col='col-md-5',
+                sort_col='col-md-3',
+                sort_options=(
+                    ('recent', 'ML number (newest first)'),
+                    ('name-asc', 'A–Z'),
+                    ('name-desc', 'Z–A'),
+                ),
+            )
+        )}
+        <p class="text-muted small mb-3" id="doc-all-count"></p>
+        <div id="doc-all-container"></div>
     </div>
+    <script>
+    const allDocItems = {docs_json};
+    let docViewMode = 'cards';
+
+    function setDocView(mode) {{
+        docViewMode = mode === 'list' ? 'list' : 'cards';
+        document.getElementById('doc-view-cards').classList.toggle('active', docViewMode === 'cards');
+        document.getElementById('doc-view-list').classList.toggle('active', docViewMode === 'list');
+        renderDocDirectory();
+    }}
+
+    function docHref(name) {{
+        return encodeURIComponent(String(name || ''));
+    }}
+
+    function docWorkgroupHtml(d) {{
+        const label = d.workgroup_name || d.group;
+        const inner = label
+            ? (d.workgroup_href
+                ? '<a href="' + GhDirectory.esc(d.workgroup_href) + '">' + GhDirectory.esc(label) + '</a>'
+                : GhDirectory.esc(label))
+            : '&nbsp;';
+        return '<br>Workgroup: ' + inner;
+    }}
+
+    function renderDocCards(docs) {{
+        return docs.map(function(d) {{
+            const displayId = GhDirectory.esc(d.ml_number || d.name || '');
+            const href = docHref(d.name);
+            const revBadge = (d.is_revision && d.revision_number)
+                ? '<span class="badge bg-success ms-2">Revision ' + GhDirectory.esc(d.revision_number) + '</span>' : '';
+            const authors = Array.isArray(d.authors) ? d.authors.join(', ') : (d.authors || 'N/A');
+            const words = d.words || 0;
+            return '<div class="col-md-6 document-card"><div class="card"><div class="card-body">'
+                + '<h5 class="card-title document-title"><a href="/doc/draft/' + href + '/">' + displayId + '</a>' + revBadge + '</h5>'
+                + '<p class="card-text">' + GhDirectory.esc(d.title || '') + '</p>'
+                + '<div class="document-meta"><span class="badge bg-secondary status-badge">' + GhDirectory.esc(d.status || '') + '</span>'
+                + '<span>Rev: ' + GhDirectory.esc(d.rev || '00') + '</span>'
+                + '<span>' + (d.pages || 1) + ' pages</span>'
+                + '<span>' + words + ' words</span></div>'
+                + '<div class="mt-2"><small class="text-muted">Authors: ' + GhDirectory.esc(authors)
+                + docWorkgroupHtml(d)
+                + '<br>Date: ' + GhDirectory.esc(d.date || '') + '</small></div>'
+                + '<div class="mt-2 doc-card-actions">'
+                + '<a href="/doc/draft/' + href + '/read/" class="btn btn-sm btn-primary">Read</a>'
+                + '<a href="/doc/draft/' + href + '/comments/" class="btn btn-sm btn-outline-primary">Comments</a>'
+                + '</div></div></div></div>';
+        }}).join('');
+    }}
+
+    function renderDocList(docs) {{
+        const rows = docs.map(function(d) {{
+            const displayId = GhDirectory.esc(d.ml_number || d.name || '');
+            const href = docHref(d.name);
+            return '<tr>'
+                + '<td><a href="/doc/draft/' + href + '/">' + displayId + '</a></td>'
+                + '<td class="doc-all-title-cell" title="' + GhDirectory.esc(d.title || '') + '">' + GhDirectory.esc(d.title || '') + '</td>'
+                + '<td><span class="badge bg-secondary">' + GhDirectory.esc(d.status || '') + '</span></td>'
+                + '<td>' + GhDirectory.esc(d.revision_number || d.rev || '00') + '</td>'
+                + '<td>' + (d.pages || 1) + '</td>'
+                + '<td>' + GhDirectory.esc(d.date || '') + '</td>'
+                + '<td class="text-nowrap"><a href="/doc/draft/' + href + '/read/" class="btn btn-sm btn-primary me-1">Read</a>'
+                + '<a href="/doc/draft/' + href + '/comments/" class="btn btn-sm btn-outline-primary">Comments</a></td></tr>';
+        }}).join('');
+        return '<style>.doc-all-list-table th,.doc-all-list-table td{{white-space:nowrap}}.doc-all-list-table .doc-all-title-cell{{max-width:22rem;overflow:hidden;text-overflow:ellipsis}}</style>'
+            + '<div class="table-responsive"><table class="table table-hover align-middle doc-all-list-table"><thead><tr>'
+            + '<th>ID</th><th>Title</th><th>Status</th><th>Rev</th><th>Pages</th><th>Date</th><th></th></tr></thead><tbody>'
+            + (rows || '<tr><td colspan="7" class="text-muted">No documents match your search.</td></tr>')
+            + '</tbody></table></div>';
+    }}
+
+    function renderDocDirectory() {{
+        const items = GhDirectory.filterAndSort(allDocItems, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter'),
+            searchFields: ['title', 'ml_number', 'name', 'abstract', 'group', 'workgroup_name', 'authors'],
+            nameKey: 'title',
+            dateKeys: ['submitted_at', 'date'],
+            recentSort: 'ml_number',
+        }});
+        const countEl = document.getElementById('doc-all-count');
+        if (countEl) {{
+            countEl.textContent = items.length === allDocItems.length
+                ? ('Showing ' + items.length + ' documents')
+                : ('Showing ' + items.length + ' of ' + allDocItems.length + ' documents');
+        }}
+        const container = document.getElementById('doc-all-container');
+        if (!container) return;
+        if (!items.length) {{
+            container.innerHTML = '<div class="alert alert-info">No documents match your search.</div>';
+            return;
+        }}
+        if (docViewMode === 'list') {{
+            container.innerHTML = renderDocList(items);
+        }} else {{
+            container.innerHTML = '<div class="row g-3">' + renderDocCards(items) + '</div>';
+        }}
+    }}
+
+    GhDirectory.bindControls('search-input', 'sort-filter', renderDocDirectory);
+    renderDocDirectory();
+    </script>
     """
 
     return _format_base_template(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
@@ -1281,6 +1321,78 @@ Meta-Layer Initiative
     else:
         content_style = "font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4; white-space: pre-wrap;"
 
+    workgroup_metadata_edit_html = ''
+    if _sub and current_user and can_edit_submission_metadata(current_user, _sub):
+        from models import Workgroup
+        wg_query = Workgroup.query
+        if _sub.layer_id:
+            wg_query = wg_query.filter_by(layer_id=_sub.layer_id)
+        workgroups = wg_query.order_by(Workgroup.name.asc()).all()
+        current_group = (_sub.group or '').strip()
+        wg_opts = '<option value="">— None —</option>'
+        for wg in workgroups:
+            if not wg.acronym:
+                continue
+            sel = ' selected' if wg.acronym == current_group else ''
+            wg_opts += f'<option value="{html_mod.escape(wg.acronym)}"{sel}>{html_mod.escape(wg.name or wg.acronym)}</option>'
+        sub_id_esc = html_mod.escape(_sub.id, quote=True)
+        workgroup_metadata_edit_html = f'''
+                <div class="card mt-3">
+                    <div class="card-header"><h6 class="mb-0">Workgroup assignment</h6></div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-2">Assign this draft to a workgroup (shown under Assigned documents on the workgroup page).</p>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-8">
+                                <select class="form-select form-select-sm" id="doc-workgroup-select">{wg_opts}</select>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-sm btn-primary w-100" id="doc-workgroup-save">Save</button>
+                            </div>
+                        </div>
+                        <div id="doc-workgroup-alert" class="alert d-none mt-2 mb-0" role="alert"></div>
+                    </div>
+                </div>
+                <script>
+                (function() {{
+                    const btn = document.getElementById('doc-workgroup-save');
+                    const sel = document.getElementById('doc-workgroup-select');
+                    const alertEl = document.getElementById('doc-workgroup-alert');
+                    if (!btn || !sel) return;
+                    btn.addEventListener('click', async function() {{
+                        btn.disabled = true;
+                        if (alertEl) alertEl.classList.add('d-none');
+                        try {{
+                            const r = await fetch('/api/submissions/{sub_id_esc}/metadata/', {{
+                                method: 'PATCH',
+                                headers: {{ 'Content-Type': 'application/json' }},
+                                credentials: 'same-origin',
+                                body: JSON.stringify({{ group: sel.value }})
+                            }});
+                            const d = await r.json();
+                            if (r.ok) {{
+                                if (alertEl) {{
+                                    alertEl.textContent = 'Workgroup updated.';
+                                    alertEl.className = 'alert alert-success mt-2 mb-0';
+                                    alertEl.classList.remove('d-none');
+                                }}
+                                setTimeout(function() {{ location.reload(); }}, 600);
+                            }} else if (alertEl) {{
+                                alertEl.textContent = d.error || 'Update failed';
+                                alertEl.className = 'alert alert-danger mt-2 mb-0';
+                                alertEl.classList.remove('d-none');
+                            }}
+                        }} catch (e) {{
+                            if (alertEl) {{
+                                alertEl.textContent = e.message || 'Update failed';
+                                alertEl.className = 'alert alert-danger mt-2 mb-0';
+                                alertEl.classList.remove('d-none');
+                            }}
+                        }}
+                        btn.disabled = false;
+                    }});
+                }})();
+                </script>'''
+
     content = f"""
     <div class="gh-page container mt-4">
         {gh_page_header(str(display_id), draft['title'], 'fa-file-alt', actions_html=f'<a href="/doc/draft/{quote(str(draft.get("name") or draft_name), safe="")}/read/" class="btn btn-primary btn-sm"><i class="bi bi-book"></i> Read full page</a>')}
@@ -1296,7 +1408,7 @@ Meta-Layer Initiative
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Title:</strong></td><td style="color: var(--text-primary) !important;">{draft['title']}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Status:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-secondary">{draft['status']}</span></td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Authors:</strong></td><td style="color: var(--text-primary) !important;">{', '.join(draft['authors'])}</td></tr>
-                            <tr><td style="color: var(--text-secondary) !important;"><strong>Group:</strong></td><td style="color: var(--text-primary) !important;">{draft['group'] or 'N/A'}</td></tr>
+                            {_document_workgroup_table_row(draft)}
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Date:</strong></td><td style="color: var(--text-primary) !important;">{draft['date']}</td></tr>
                             {f'<tr><td colspan="2" style="padding-top: 15px;"><hr style="border-color: var(--border-color);"></td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Source:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-info"><i class="bi bi-coin"></i> Bitcoin Ordinal</span></td></tr>' if draft.get('sourceType') == 'ordinal' else f'<tr><td style="color: var(--text-secondary) !important;"><strong>Revision:</strong></td><td style="color: var(--text-primary) !important;">{draft["rev"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Pages:</strong></td><td style="color: var(--text-primary) !important;">{draft["pages"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Words:</strong></td><td style="color: var(--text-primary) !important;">{draft["words"]}</td></tr>'}
                             {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Inscription #:</strong></td><td style="color: var(--text-primary) !important;">{draft["inscriptionNumber"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('inscriptionNumber') else ''}
@@ -1308,6 +1420,8 @@ Meta-Layer Initiative
                         </table>
                     </div>
                 </div>
+
+                {workgroup_metadata_edit_html}
 
                 <div class="card mt-3">
                     <div class="card-header">

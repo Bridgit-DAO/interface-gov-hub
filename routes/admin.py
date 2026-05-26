@@ -12,6 +12,15 @@ from services.identity import get_current_user, require_auth, require_role
 from services.avatar import avatar_url
 from services.submissions import add_to_document_history
 from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
+from services.utils import coerce_storage_bool
+from services.workgroup_positions import (
+    NOMINATION_STATUS_NOMINEE_ACCEPTED,
+    NOMINATION_STATUS_APPROVED,
+    NOMINATION_STATUS_REJECTED,
+    position_label,
+    status_label,
+)
+from services.workgroup_nomination_mail import send_admin_decision
 
 bp = Blueprint('admin', __name__, url_prefix='')
 
@@ -35,7 +44,10 @@ def admin_dashboard():
     total_groups = len(GROUPS)
     total_submissions = Submission.query.count()
     approved_drafts = Submission.query.filter(Submission.status.in_(['approved', 'published'])).count()
-    pending_chairs = WorkingGroupChair.query.filter_by(approved=False).count()
+    pending_chairs = WorkingGroupChair.query.filter(
+        WorkingGroupChair.approved.is_(False),
+        WorkingGroupChair.status == NOMINATION_STATUS_NOMINEE_ACCEPTED,
+    ).count()
 
     total_projects = Layer.query.count()
     pending_projects = Layer.query.filter_by(approval_status='pending').count()
@@ -94,7 +106,7 @@ def admin_dashboard():
         alerts_html += f"""
         <div class="alert alert-info alert-dismissible fade show" role="alert">
             <i class="fas fa-users me-2"></i>
-            <strong>{pending_chairs}</strong> chair nomination(s) pending approval
+            <strong>{pending_chairs}</strong> position nomination(s) ready for approval
             <a href="/admin/chair-nominations/" class="alert-link">Review nominations</a>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -1548,6 +1560,10 @@ def api_admin_get_chair_nominations():
             wgc.set_at,
             wgc.statement,
             wgc.is_self_nomination,
+            wgc.nominee_email,
+            wgc.nominee_profile_url,
+            wgc.position_key,
+            wgc.status,
             wgc.group_acronym,
             wg.name as workgroup_name,
             wg.slug as workgroup_slug,
@@ -1574,21 +1590,27 @@ def api_admin_get_chair_nominations():
         nominations.append({
             'id': row[0],
             'chair_name': row[1],
-            'approved': bool(row[2]),
+            'approved': coerce_storage_bool(row[2]),
             'set_at': row[3],
             'statement': row[4],
-            'is_self_nomination': bool(row[5]),
-            'workgroup_acronym': row[6],
-            'workgroup_name': row[7],
-            'workgroup_slug': row[8],
-            'layer_name': row[9],
-            'layer_slug': row[10],
-            'nominee_id': row[11],
-            'nominee_username': row[12],
-            'nominee_profile_image': avatar_url(row[13], 48) if row[13] else '/static/images/default-avatar.png',
-            'nominator_id': row[14],
-            'nominator_username': row[15],
-            'nominator_name': row[16]
+            'is_self_nomination': coerce_storage_bool(row[5]),
+            'nominee_email': row[6],
+            'nominee_profile_url': row[7],
+            'position_key': row[8] or 'chair',
+            'position_label': position_label(row[8] or 'chair'),
+            'status': row[9] or NOMINATION_STATUS_NOMINEE_ACCEPTED,
+            'status_label': status_label(row[9] or NOMINATION_STATUS_NOMINEE_ACCEPTED),
+            'workgroup_acronym': row[10],
+            'workgroup_name': row[11],
+            'workgroup_slug': row[12],
+            'layer_name': row[13],
+            'layer_slug': row[14],
+            'nominee_id': row[15],
+            'nominee_username': row[16],
+            'nominee_profile_image': avatar_url(row[17], 48) if row[17] else '/static/images/default-avatar.png',
+            'nominator_id': row[18],
+            'nominator_username': row[19],
+            'nominator_name': row[20]
         })
 
     return jsonify({'nominations': nominations, 'count': len(nominations)})
@@ -1597,36 +1619,37 @@ def api_admin_get_chair_nominations():
 @bp.route('/api/admin/chair-nominations/<nomination_id>/approve/', methods=['POST'])
 @require_role('admin')
 def api_admin_approve_chair_nomination(nomination_id):
-    """Approve a chair nomination"""
-    from sqlalchemy import text
+    """Approve a position nomination (nominee must have accepted first)."""
+    nomination = WorkingGroupChair.query.get(nomination_id)
+    if not nomination:
+        return jsonify({'error': 'Nomination not found'}), 404
+    if nomination.status != NOMINATION_STATUS_NOMINEE_ACCEPTED:
+        return jsonify({'error': 'Nominee must accept before admin approval'}), 400
 
-    update_query = text("""
-        UPDATE working_group_chair
-        SET approved = 1
-        WHERE id = :id
-    """)
-
-    db.session.execute(update_query, {'id': nomination_id})
+    nomination.approved = True
+    nomination.status = NOMINATION_STATUS_APPROVED
+    db.session.commit()
+    send_admin_decision(nomination, approved=True)
     db.session.commit()
 
-    return jsonify({'success': True, 'message': 'Chair nomination approved'})
+    return jsonify({'success': True, 'message': 'Nomination approved'})
 
 
 @bp.route('/api/admin/chair-nominations/<nomination_id>/reject/', methods=['POST'])
 @require_role('admin')
 def api_admin_reject_chair_nomination(nomination_id):
-    """Reject and delete a chair nomination"""
-    from sqlalchemy import text
+    """Reject a position nomination."""
+    nomination = WorkingGroupChair.query.get(nomination_id)
+    if not nomination:
+        return jsonify({'error': 'Nomination not found'}), 404
 
-    delete_query = text("""
-        DELETE FROM working_group_chair
-        WHERE id = :id
-    """)
-
-    db.session.execute(delete_query, {'id': nomination_id})
+    nomination.approved = False
+    nomination.status = NOMINATION_STATUS_REJECTED
+    db.session.commit()
+    send_admin_decision(nomination, approved=False)
     db.session.commit()
 
-    return jsonify({'success': True, 'message': 'Chair nomination rejected'})
+    return jsonify({'success': True, 'message': 'Nomination rejected'})
 
 
 @bp.route('/admin/chair-nominations/')
@@ -1638,10 +1661,10 @@ def admin_chair_nominations():
     current_theme = session.get('theme', 'dark')
 
     _chair_admin_header = gh_page_header(
-        'Chair/Coordinator Nominations',
-        'Review and approve workgroup chair nominations',
+        'Position Nominations',
+        'Review nominations after nominees accept',
         'fa-user-check',
-        breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Chair Nominations', None)]),
+        breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Position Nominations', None)]),
     )
     content = """
     <div class="gh-page container mt-4 gh-admin-page">
@@ -1677,8 +1700,9 @@ def admin_chair_nominations():
             const data = await response.json();
 
             // Count nominations by status
-            const pendingNoms = data.nominations.filter(n => !n.approved);
-            const approvedNoms = data.nominations.filter(n => n.approved);
+            const pendingNoms = data.nominations.filter(n => n.status === 'nominee_accepted' && !n.approved);
+            const approvedNoms = data.nominations.filter(n => n.approved || n.status === 'approved');
+            const awaitingNominee = data.nominations.filter(n => n.status === 'pending_nominee');
 
             document.getElementById('pending-count').textContent = pendingNoms.length;
             document.getElementById('approved-count').textContent = approvedNoms.length;
@@ -1692,7 +1716,14 @@ def admin_chair_nominations():
                 });
                 pendingHtml += '</div>';
             } else {
-                pendingHtml = '<div class="alert alert-info">No pending chair nominations</div>';
+                pendingHtml = '<div class="alert alert-info">No nominations ready for admin approval.</div>';
+            }
+            if (awaitingNominee.length > 0) {
+                pendingHtml += '<h6 class="mt-4 text-muted">Awaiting nominee response (' + awaitingNominee.length + ')</h6><div class="row">';
+                awaitingNominee.forEach(nom => {
+                    pendingHtml += renderNominationCard(nom, 'awaiting');
+                });
+                pendingHtml += '</div>';
             }
             document.getElementById('pending-nominations').innerHTML = pendingHtml;
 
@@ -1716,15 +1747,16 @@ def admin_chair_nominations():
     }
 
     function renderNominationCard(nom, status) {
-        const selfNomBadge = nom.is_self_nomination ? '<span class="badge bg-info ms-2">Self-Nomination</span>' : '';
-        const statusBadge = nom.approved ? '<span class="badge bg-success">Approved</span>' : '<span class="badge bg-warning">Pending</span>';
+        const selfNomBadge = nom.is_self_nomination ? '<span class="badge bg-info ms-2">Self</span>' : '';
+        const statusBadge = nom.approved ? '<span class="badge bg-success">Approved</span>' : `<span class="badge bg-secondary">${nom.status_label || 'Pending'}</span>`;
+        const posBadge = `<span class="badge bg-primary me-2">${nom.position_label || 'Chair'}</span>`;
 
         return `
             <div class="col-md-6 mb-4">
                 <div class="card">
                     <div class="card-header">
                         <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">${nom.workgroup_name}</h5>
+                            <h5 class="mb-0">${posBadge}${nom.workgroup_name}</h5>
                             ${statusBadge}
                         </div>
                     </div>
@@ -1738,9 +1770,7 @@ def admin_chair_nominations():
                             >
                             <div>
                                 <h6 class="mb-0">
-                                    <a href="/profile/${nom.nominee_username}/" target="_blank">
-                                        ${nom.chair_name}
-                                    </a>
+                                    ${nom.nominee_username ? `<a href="/profile/${nom.nominee_username}/" target="_blank">${nom.chair_name}</a>` : nom.chair_name}
                                     ${selfNomBadge}
                                 </h6>
                                 <small class="text-muted">Nominated ${new Date(nom.set_at).toLocaleDateString()}</small>
@@ -1750,6 +1780,18 @@ def admin_chair_nominations():
                         ${nom.nominator_name && !nom.is_self_nomination ? `
                             <p class="mb-2"><small><strong>Nominated by:</strong>
                                 <a href="/profile/${nom.nominator_username}/" target="_blank">${nom.nominator_name}</a>
+                            </small></p>
+                        ` : ''}
+
+                        ${nom.nominee_email ? `
+                            <p class="mb-2"><small><strong>Email:</strong>
+                                <a href="mailto:${nom.nominee_email}">${nom.nominee_email}</a>
+                            </small></p>
+                        ` : ''}
+
+                        ${nom.nominee_profile_url ? `
+                            <p class="mb-2"><small><strong>CV / LinkedIn:</strong>
+                                <a href="${nom.nominee_profile_url}" target="_blank" rel="noopener noreferrer">View profile</a>
                             </small></p>
                         ` : ''}
 
@@ -1777,7 +1819,7 @@ def admin_chair_nominations():
                                     <i class="fas fa-times me-2"></i>Reject
                                 </button>
                             </div>
-                        ` : ''}
+                        ` : (status === 'awaiting' ? '<p class="small text-muted mb-0">Nominee has not accepted yet.</p>' : '')}
                     </div>
                 </div>
             </div>

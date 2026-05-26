@@ -167,6 +167,7 @@ class Submission(db.Model):
     approved_at = db.Column(db.DateTime, nullable=True)
     rejected_at = db.Column(db.DateTime, nullable=True)
     ml_number = db.Column(db.String(20), nullable=True)
+    content_hash = db.Column(db.String(64), nullable=True, index=True)
     doc_type = db.Column(db.String(10), default='draft')
     pages = db.Column(db.Integer, default=1)
     words = db.Column(db.Integer, default=0)

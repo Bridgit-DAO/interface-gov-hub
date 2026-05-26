@@ -1,36 +1,23 @@
 #!/usr/bin/env python3
-"""Set dev-friendly product rollout flags (run from gov-hub-dev with app context)."""
-from app import create_app
-from services.product_rollout import set_rollout_config, get_rollout_config
+"""Apply config/product_rollout.json to the current database (dev or prod)."""
+import sys
+from pathlib import Path
 
-# Features to activate on dev for layer/guild/waitlist tuning
-DEV_ROLLOUT = {
-    'layers': True,
-    'docs': True,
-    'guilds': True,
-    'waitlists': True,
-    'roles': True,
-    'badges': True,
-    'workgroups': True,
-    'admin': True,
-    # Off until you want them on dev
-    'votes': False,
-    'artifacts': False,
-    'quests': False,
-    'opportunities': False,
-    'bridges': False,
-    'civic_mason': False,
-    'soft_launch': False,
-    'immortalize': False,
-}
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from app import create_app
+from services.product_rollout_seed import ensure_product_rollout_seeded, load_rollout_json
 
 
 def main():
+    force = '--force' in sys.argv
     app = create_app()
     with app.app_context():
-        set_rollout_config(DEV_ROLLOUT)
-        cfg = get_rollout_config()
-        print('Product rollout updated:')
+        written = ensure_product_rollout_seeded(force=force)
+        cfg = load_rollout_json()
+        action = 'Updated' if written else 'Already present (use --force to overwrite)'
+        print(f'{action} product_rollout from config/product_rollout.json')
         for k in sorted(cfg.keys()):
             print(f'  {k}: {cfg[k]}')
 

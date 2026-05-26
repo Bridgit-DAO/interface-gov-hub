@@ -42,6 +42,33 @@ def test_immortalize_paths_require_flag():
     assert 'immortalize' in need
 
 
+def test_ordinal_preview_not_gated_by_immortalize():
+    """Draft submit 'From Ordinal' uses preview/convert APIs; not part of Immortalize."""
+    need = path_requires_feature_flags('/api/ordinal/preview')
+    assert 'immortalize' not in need
+    need = path_requires_feature_flags('/api/ordinal/convert-markdown')
+    assert 'immortalize' not in need
+
+
+def test_ordinal_preview_allowed_when_immortalize_disabled(client):
+    with app.app_context():
+        cfg = {k: True for k in FEATURE_KEYS}
+        cfg['immortalize'] = False
+        set_rollout_config(cfg)
+    try:
+        r = client.post(
+            '/api/ordinal/preview',
+            json={'inscriptionId': 'e3edc22a4d8faefc81693775449b86a5201989224b44b7b6c8i0'},
+        )
+        assert r.status_code != 403, r.get_data(as_text=True)
+        data = r.get_json() or {}
+        assert data.get('error_code') != 'FEATURE_DISABLED'
+    finally:
+        with app.app_context():
+            SiteConfig.query.filter_by(key=PRODUCT_ROLLOUT_SITE_CONFIG_KEY).delete()
+            db.session.commit()
+
+
 def test_immortalize_blocked_when_disabled(client):
     with app.app_context():
         cfg = {k: True for k in FEATURE_KEYS}

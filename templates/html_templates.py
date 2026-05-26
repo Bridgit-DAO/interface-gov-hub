@@ -713,9 +713,17 @@ BASE_TEMPLATE = """
         .dropdown-toggle:focus {{
             box-shadow: 0 0 0 3px rgba(29, 155, 240, 0.1);
         }}
+
+        /* Desktop nav: open dropdown submenus on hover (mobile keeps click/tap) */
+        @media (min-width: 992px) {{
+            .navbar.navbar-expand-lg .nav-item.dropdown:hover > .dropdown-menu,
+            .navbar.navbar-expand-lg .nav-item.dropdown:focus-within > .dropdown-menu {{
+                display: block;
+            }}
+        }}
     </style>
     <link href="/static/css/govhub-design.css" rel="stylesheet">
-    <script src="/static/js/gh-directory.js" defer></script>
+    <script src="/static/js/gh-directory.js"></script>
 </head>
 <body data-build-number="{build_number}" {body_attrs}>
     <script>
@@ -766,7 +774,7 @@ BASE_TEMPLATE = """
         </div>
     </nav>
 
-    <div id="flash-messages"></div>
+    <div id="flash-messages">{flash_messages}</div>
     {content}
 
     <div class="container-fluid mt-5 py-3" style="border-top: 1px solid var(--border-color); background-color: var(--bg-secondary);">
@@ -776,6 +784,32 @@ BASE_TEMPLATE = """
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        (function () {{
+            var HOVER_MQ = window.matchMedia('(min-width: 992px)');
+
+            function bindNavbarHoverDropdowns() {{
+                if (!HOVER_MQ.matches || typeof bootstrap === 'undefined') return;
+                document.querySelectorAll('.navbar .nav-item.dropdown').forEach(function (el) {{
+                    if (el.dataset.ghHoverNavBound) return;
+                    var toggle = el.querySelector('[data-bs-toggle="dropdown"]');
+                    if (!toggle) return;
+                    el.dataset.ghHoverNavBound = '1';
+                    var dd = bootstrap.Dropdown.getOrCreateInstance(toggle);
+                    el.addEventListener('mouseenter', function () {{ dd.show(); }});
+                    el.addEventListener('mouseleave', function () {{ dd.hide(); }});
+                }});
+            }}
+
+            if (document.readyState === 'loading') {{
+                document.addEventListener('DOMContentLoaded', bindNavbarHoverDropdowns);
+            }} else {{
+                bindNavbarHoverDropdowns();
+            }}
+            HOVER_MQ.addEventListener('change', bindNavbarHoverDropdowns);
+        }})();
+    </script>
+    <script src="/static/js/gh-dialog.js"></script>
     <script>
         // Theme switching functionality
         const themeToggle = document.getElementById('theme-toggle');
@@ -1110,8 +1144,6 @@ SUBMIT_TEMPLATE = """
                     <h5 class="living-module-title">Draft Submission Form</h5>
                 </div>
                 <div class="living-module-body">
-                    <div id="flash-messages"></div>
-                    
                     <!-- Tabs for Upload File vs From Ordinal -->
                     <ul class="nav nav-tabs mb-3" id="submissionTabs" role="tablist">
                         <li class="nav-item" role="presentation">
@@ -1135,12 +1167,15 @@ SUBMIT_TEMPLATE = """
                         </li>
                         <!-- /GH_IMMORTALIZE_NAV -->
                     </ul>
+
+                    {{LAYER_SELECTOR_SHARED}}
                     
                     <div class="tab-content" id="submissionTabContent">
                         <!-- Upload File Tab -->
                         <div class="tab-pane fade show active" id="upload" role="tabpanel">
                             <form method="POST" enctype="multipart/form-data" id="uploadForm">
                                 <input type="hidden" name="sourceType" value="file">
+                                {{LAYER_HIDDEN_FIELD}}
                                 
                                 <div class="mb-3">
                                     <label for="title" class="form-label">Document Title *</label>
@@ -1160,17 +1195,10 @@ SUBMIT_TEMPLATE = """
                                               placeholder="Brief description of the document"></textarea>
                                 </div>
                                 
-                                {{LAYER_SELECTOR}}
-                                
                                 <div class="mb-3">
                                     <label for="group" class="form-label">Workgroup (Optional)</label>
                                     <select class="form-select" id="group" name="group">
-                                        <option value="">Select a Workgroup</option>
-                                        <option value="httpbis">HTTP</option>
-                                        <option value="quic">QUIC</option>
-                                        <option value="tls">TLS</option>
-                                        <option value="dnsop">DNSOP</option>
-                                        <option value="rtgwg">RTGWG</option>
+                                        {{WORKGROUP_OPTIONS}}
                                     </select>
                                 </div>
                                 
@@ -1185,7 +1213,7 @@ SUBMIT_TEMPLATE = """
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="terms" required>
                                         <label class="form-check-label" for="terms">
-                                            I agree to the <a href="#" target="_blank">MLGH submission terms</a>
+                                            I agree to the <a href="#" class="mlgh-terms-link" data-checkbox-id="terms">MLGH submission terms</a>
                                         </label>
                                     </div>
                                 </div>
@@ -1201,6 +1229,7 @@ SUBMIT_TEMPLATE = """
                         <div class="tab-pane fade" id="ordinal" role="tabpanel">
                             <form method="POST" id="ordinalForm">
                                 <input type="hidden" name="sourceType" value="ordinal">
+                                {{LAYER_HIDDEN_FIELD}}
                                 <input type="hidden" name="ordinalContentUrl" id="ordinalContentUrl">
                                 <input type="hidden" name="ordinalContentType" id="ordinalContentType">
                                 <input type="hidden" name="inscriptionNumber" id="inscriptionNumber">
@@ -1217,6 +1246,11 @@ SUBMIT_TEMPLATE = """
                                         </button>
                                     </div>
                                     <div class="form-text">Enter the inscription ID from ordinals.com</div>
+                                </div>
+
+                                <div id="ordinalPreviewRequired" class="alert alert-warning mb-3" style="display: none;" role="alert">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    <strong>Preview required.</strong> Click <strong>Preview</strong> to load the ordinal content before you can submit.
                                 </div>
                                 
                                 <!-- Preview Area -->
@@ -1270,17 +1304,10 @@ SUBMIT_TEMPLATE = """
                                               placeholder="Brief description of the document"></textarea>
                                 </div>
                                 
-                                {{LAYER_SELECTOR}}
-                                
                                 <div class="mb-3">
                                     <label for="ordinalGroup" class="form-label">Workgroup (Optional)</label>
                                     <select class="form-select" id="ordinalGroup" name="group">
-                                        <option value="">Select a Workgroup</option>
-                                        <option value="httpbis">HTTP</option>
-                                        <option value="quic">QUIC</option>
-                                        <option value="tls">TLS</option>
-                                        <option value="dnsop">DNSOP</option>
-                                        <option value="rtgwg">RTGWG</option>
+                                        {{WORKGROUP_OPTIONS}}
                                     </select>
                                 </div>
                                 
@@ -1288,7 +1315,7 @@ SUBMIT_TEMPLATE = """
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="ordinalTerms" required>
                                         <label class="form-check-label" for="ordinalTerms">
-                                            I agree to the <a href="#" target="_blank">MLGH submission terms</a>
+                                            I agree to the <a href="#" class="mlgh-terms-link" data-checkbox-id="ordinalTerms">MLGH submission terms</a>
                                         </label>
                                     </div>
                                 </div>
@@ -1560,10 +1587,42 @@ SUBMIT_TEMPLATE = """
     </div>
 </div>
 
+<!-- MLGH submission terms modal -->
+<div class="modal fade" id="mlghTermsModal" tabindex="-1" aria-labelledby="mlghTermsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="mlghTermsModalLabel">MLGH Submission Terms</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Draft placeholder — final legal text to be provided.</p>
+                <h6>1. Grant of submission</h6>
+                <p>By submitting a draft to the Meta-Layer Governance Hub (MLGH), you represent that you have the right to submit the work and that it does not infringe the rights of others.</p>
+                <h6>2. Review process</h6>
+                <p>Submissions are subject to technical review, workgroup consideration, and publication decisions according to MLGH governance procedures. Submission does not guarantee approval or publication.</p>
+                <h6>3. Content standards</h6>
+                <p>Submitted materials must meet MLGH formatting and content requirements. Ordinals and uploaded files must be complete, accurately described, and accompanied by correct author attribution.</p>
+                <h6>4. Licensing</h6>
+                <p>You agree that approved documents may be published and distributed under the layer’s chosen open documentation license unless otherwise agreed in writing.</p>
+                <h6>5. Ordinal submissions</h6>
+                <p>For Bitcoin Ordinal submissions, you confirm the inscription ID refers to content you intend to submit and that previewed content matches what reviewers will evaluate.</p>
+                <h6>6. Privacy</h6>
+                <p>Contact information associated with your account may be used for submission-related correspondence. See the MLGH privacy policy for details.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="mlghTermsAccept">Accept</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://js.stripe.com/v3/"></script>
 <script>
 // Ordinal preview functionality
 document.addEventListener('DOMContentLoaded', function() {
+    {{WORKGROUP_LAYER_SCRIPT}}
     console.log('🔨 BUILD {build_number} - Ordinals Module Loaded');
     
     const previewBtn = document.getElementById('previewBtn');
@@ -1574,8 +1633,59 @@ document.addEventListener('DOMContentLoaded', function() {
     const previewContent = document.getElementById('previewContent');
     const previewMetadata = document.getElementById('previewMetadata');
     const ordinalSubmitBtn = document.getElementById('ordinalSubmitBtn');
+    const ordinalPreviewRequired = document.getElementById('ordinalPreviewRequired');
+    const ordinalForm = document.getElementById('ordinalForm');
     
     let previewData = null;
+    let previewComplete = false;
+
+    function resetOrdinalPreviewState() {
+        previewData = null;
+        previewComplete = false;
+        document.getElementById('ordinalContentUrl').value = '';
+        document.getElementById('ordinalContentType').value = '';
+        document.getElementById('inscriptionNumber').value = '';
+        document.getElementById('blockHeight').value = '';
+        document.getElementById('inscriptionTimestamp').value = '';
+        previewError.style.display = 'none';
+        previewContent.innerHTML = '';
+        previewMetadata.style.display = 'none';
+        previewLoading.style.display = 'none';
+        ordinalSubmitBtn.disabled = true;
+    }
+
+    function updateOrdinalPreviewUi() {
+        const inscriptionId = ordinalIdInput.value.trim();
+        if (!inscriptionId) {
+            ordinalPreview.style.display = 'none';
+            if (ordinalPreviewRequired) ordinalPreviewRequired.style.display = 'none';
+            resetOrdinalPreviewState();
+            return;
+        }
+        ordinalPreview.style.display = 'block';
+        if (ordinalPreviewRequired) ordinalPreviewRequired.style.display = previewComplete ? 'none' : 'block';
+        if (!previewComplete) {
+            ordinalSubmitBtn.disabled = true;
+            if (!previewLoading.style.display || previewLoading.style.display === 'none') {
+                previewContent.innerHTML = '<p class="text-muted mb-0"><i class="bi bi-eye"></i> Click <strong>Preview</strong> to load ordinal content before submitting.</p>';
+            }
+        }
+    }
+
+    ordinalIdInput.addEventListener('input', function() {
+        resetOrdinalPreviewState();
+        updateOrdinalPreviewUi();
+    });
+
+    ordinalForm?.addEventListener('submit', function(e) {
+        if (!document.getElementById('ordinalContentUrl').value.trim()) {
+            e.preventDefault();
+            updateOrdinalPreviewUi();
+            if (ordinalPreviewRequired) {
+                ordinalPreviewRequired.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+    });
     
     previewBtn.addEventListener('click', async function() {
         const inscriptionId = ordinalIdInput.value.trim();
@@ -1592,6 +1702,8 @@ document.addEventListener('DOMContentLoaded', function() {
         previewContent.innerHTML = '';
         previewMetadata.style.display = 'none';
         ordinalSubmitBtn.disabled = true;
+        previewComplete = false;
+        if (ordinalPreviewRequired) ordinalPreviewRequired.style.display = 'block';
         
         try {
             const response = await fetch('/api/ordinal/preview', {
@@ -1609,11 +1721,14 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!data.success) {
                 previewError.textContent = data.error || 'Failed to load ordinal';
                 previewError.style.display = 'block';
+                previewComplete = false;
                 return;
             }
             
             // Store preview data
             previewData = data;
+            previewComplete = true;
+            if (ordinalPreviewRequired) ordinalPreviewRequired.style.display = 'none';
             
             // Populate hidden fields
             document.getElementById('ordinalContentUrl').value = data.contentUrl;
@@ -1635,6 +1750,7 @@ document.addEventListener('DOMContentLoaded', function() {
             previewLoading.style.display = 'none';
             previewError.textContent = 'Error: ' + error.message;
             previewError.style.display = 'block';
+            previewComplete = false;
         }
     });
     
@@ -1788,6 +1904,25 @@ document.addEventListener('DOMContentLoaded', function() {
         div.textContent = text;
         return div.innerHTML;
     }
+
+    // MLGH submission terms modal
+    let termsTargetCheckbox = null;
+    const mlghTermsModalEl = document.getElementById('mlghTermsModal');
+    document.querySelectorAll('.mlgh-terms-link').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            termsTargetCheckbox = document.getElementById(link.dataset.checkboxId);
+            if (mlghTermsModalEl && typeof bootstrap !== 'undefined') {
+                bootstrap.Modal.getOrCreateInstance(mlghTermsModalEl).show();
+            }
+        });
+    });
+    document.getElementById('mlghTermsAccept')?.addEventListener('click', function() {
+        if (termsTargetCheckbox) termsTargetCheckbox.checked = true;
+        if (mlghTermsModalEl && typeof bootstrap !== 'undefined') {
+            bootstrap.Modal.getInstance(mlghTermsModalEl)?.hide();
+        }
+    });
 });
 
 // Immortalize choice + Wizard logic

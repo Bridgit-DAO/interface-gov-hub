@@ -67,6 +67,44 @@ def gh_directory_grid(
     )
 
 
+def gh_directory_toolbar(
+    search_placeholder: str = 'Search…',
+    search_id: str = 'search-input',
+    sort_id: str = 'sort-filter',
+    sort_default: str = 'recent',
+    search_col: str = 'col-md-5',
+    sort_col: str = 'col-md-3',
+    extra_cols: str = '',
+    sort_options: tuple[tuple[str, str], ...] | None = None,
+) -> str:
+    """Search + sort controls shared by directory pages (recent default, A–Z, Z–A)."""
+    if sort_options is None:
+        sort_options = (
+            ('recent', 'Most recent'),
+            ('name-asc', 'A–Z'),
+            ('name-desc', 'Z–A'),
+        )
+    opts = ''.join(
+        f'<option value="{v}"{" selected" if v == sort_default else ""}>'
+        f'{html_mod.escape(label)}</option>'
+        for v, label in sort_options
+    )
+    return (
+        gh_filter_col(
+            'Search',
+            f'<input type="search" id="{html_mod.escape(search_id)}" '
+            f'class="form-control" placeholder="{html_mod.escape(search_placeholder)}" autocomplete="off">',
+            search_col,
+        )
+        + gh_filter_col(
+            'Sort',
+            f'<select id="{html_mod.escape(sort_id)}" class="form-select">{opts}</select>',
+            sort_col,
+        )
+        + extra_cols
+    )
+
+
 def gh_living_module(
     title: str,
     body_html: str,

@@ -1,34 +1,85 @@
 """Workgroups API: layer workgroups, workgroup CRUD, chairs, members."""
+import re
 from datetime import datetime, date
+from urllib.parse import urlparse
 
 from flask import Blueprint, jsonify, request
-from sqlalchemy import text
+from sqlalchemy import text, or_, func
 
 from extensions import db
-from models import Layer, Workgroup, StatusChange
+from models import Layer, Workgroup, StatusChange, WorkingGroupChair, User
 from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin
-from services.utils import create_slug
+from services.utils import create_slug, coerce_storage_bool
+from services.workgroup_links import (
+    assign_dp_draft_to_workgroup,
+    enrich_workgroup_dict,
+    list_assigned_documents_for_workgroup,
+    list_draft_documents_for_picker,
+    normalize_document_draft_ref,
+    query_workgroups_for_layer,
+    search_draft_documents,
+    workgroup_display_sort_key,
+)
+from services.workgroup_positions import (
+    WORKGROUP_POSITIONS,
+    ACTIVE_NOMINATION_STATUSES,
+    NOMINATION_STATUS_NOMINEE_ACCEPTED,
+    NOMINATION_STATUS_PENDING_NOMINEE,
+    NOMINATION_STATUS_APPROVED,
+    NOMINATION_STATUS_REJECTED,
+    positions_for_api,
+    position_label,
+    status_label,
+)
+from services.workgroup_nomination_mail import send_nomination_submitted
 
 bp = Blueprint('workgroups', __name__, url_prefix='/api')
 
 
+def _normalize_email(email):
+    return (email or '').strip().lower()
+
+
+def _is_valid_email(email):
+    return bool(re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email or ''))
+
+
+def _normalize_profile_url(url):
+    raw = (url or '').strip()
+    if not raw:
+        return ''
+    if '://' not in raw:
+        raw = 'https://' + raw
+    return raw
+
+
+def _is_valid_profile_url(url):
+    normalized = _normalize_profile_url(url)
+    if not normalized:
+        return False
+    try:
+        parsed = urlparse(normalized)
+        return bool(parsed.netloc and '.' in parsed.netloc)
+    except Exception:
+        return False
+
+
 @bp.route('/layers/<layer_id>/workgroups/', methods=['GET'])
 def list_workgroups(layer_id):
-    """List workgroups for a project."""
-    status = request.args.get('status')
+    """List workgroups for a layer (primary home + secondary links)."""
+    Layer.query.get_or_404(layer_id)
+    status = request.args.get('status') or 'active'
     approval_status = request.args.get('approval_status')
 
-    query = Workgroup.query.filter_by(layer_id=layer_id)
-    if status:
-        query = query.filter_by(status=status)
+    workgroups = query_workgroups_for_layer(layer_id, status=status if status else None)
     if approval_status:
-        query = query.filter_by(approval_status=approval_status)
+        workgroups = [wg for wg in workgroups if wg.approval_status == approval_status]
 
-    query = query.order_by(Workgroup.created_at.desc())
-    workgroups = query.all()
-
-    return jsonify({'workgroups': [wg.to_dict() for wg in workgroups], 'count': len(workgroups)})
+    return jsonify({
+        'workgroups': [enrich_workgroup_dict(wg.to_dict(), wg) for wg in workgroups],
+        'count': len(workgroups),
+    })
 
 
 @bp.route('/layers/<layer_id>/workgroups/', methods=['POST'])
@@ -44,6 +95,8 @@ def create_workgroup(layer_id):
     data = request.get_json()
     name = data.get('name', '').strip()
     description = data.get('description', '').strip()
+    charter = (data.get('charter') or '').strip() or None
+    goals = (data.get('goals') or '').strip() or None
 
     if not name:
         return jsonify({'error': 'Workgroup name is required'}), 400
@@ -69,10 +122,13 @@ def create_workgroup(layer_id):
         layer_id=layer_id,
         coordinator_id=current_user['id'],
         description=description,
+        charter=charter,
+        goals=goals,
         status='active',
         approval_status='pending'
     )
     db.session.add(workgroup)
+    assign_dp_draft_to_workgroup(workgroup)
     db.session.commit()
 
     return jsonify({'success': True, 'workgroup': workgroup.to_dict()}), 201
@@ -82,7 +138,7 @@ def create_workgroup(layer_id):
 def get_workgroup(workgroup_id):
     """Get workgroup details."""
     workgroup = Workgroup.query.get_or_404(workgroup_id)
-    d = workgroup.to_dict()
+    d = enrich_workgroup_dict(workgroup.to_dict(), workgroup)
     current_user = get_current_user()
     project = Layer.query.get(workgroup.layer_id)
     d['can_edit'] = bool(
@@ -121,8 +177,26 @@ def update_workgroup(workgroup_id):
         workgroup.name = data['name'].strip()
     if 'description' in data:
         workgroup.description = data['description']
+    if 'charter' in data:
+        val = data['charter']
+        workgroup.charter = val.strip() if val and str(val).strip() else None
+    if 'goals' in data:
+        val = data['goals']
+        workgroup.goals = val.strip() if val and str(val).strip() else None
     if 'image_url' in data:
         workgroup.image_url = data['image_url'].strip() if data['image_url'] else None
+    if 'external_url' in data:
+        val = data['external_url']
+        workgroup.external_url = val.strip() if val and str(val).strip() else None
+    if 'document_draft_name' in data:
+        val = data['document_draft_name']
+        if val is None or not str(val).strip():
+            workgroup.document_draft_name = None
+        else:
+            normalized = normalize_document_draft_ref(val)
+            if not normalized:
+                return jsonify({'error': 'Document not found. Use a draft ID, ML number, or draft name.'}), 400
+            workgroup.document_draft_name = normalized
     if 'status' in data and data['status'] in ['active', 'inactive', 'completed', 'archived']:
         old_status = workgroup.status
         workgroup.status = data['status']
@@ -167,7 +241,30 @@ def update_workgroup(workgroup_id):
     workgroup.updated_at = datetime.utcnow()
     db.session.commit()
 
-    return jsonify({'success': True, 'workgroup': workgroup.to_dict()})
+    return jsonify({'success': True, 'workgroup': enrich_workgroup_dict(workgroup.to_dict(), workgroup)})
+
+
+@bp.route('/documents/', methods=['GET'])
+def list_documents():
+    """List drafts for workgroup document dropdown."""
+    layer_id = request.args.get('layer_id') or None
+    documents = list_draft_documents_for_picker(layer_id)
+    return jsonify({'documents': documents, 'count': len(documents)})
+
+
+@bp.route('/documents/search/', methods=['GET'])
+def search_documents():
+    """Search drafts to link from workgroup edit."""
+    q = request.args.get('q', '')
+    return jsonify({'documents': search_draft_documents(q)})
+
+
+@bp.route('/workgroups/<workgroup_id>/assigned-documents/', methods=['GET'])
+def list_workgroup_assigned_documents(workgroup_id):
+    """Drafts assigned to this workgroup via submission.group (not the primary linked doc)."""
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    documents = list_assigned_documents_for_workgroup(workgroup)
+    return jsonify({'documents': documents, 'count': len(documents)})
 
 
 @bp.route('/workgroups/<workgroup_id>/approve/', methods=['POST'])
@@ -212,13 +309,20 @@ def approve_workgroup(workgroup_id):
     return jsonify({'success': True, 'workgroup': workgroup.to_dict()})
 
 
+@bp.route('/workgroups/positions/', methods=['GET'])
+def list_workgroup_positions():
+    """List nominatable workgroup position types."""
+    return jsonify({'positions': positions_for_api()})
+
+
 @bp.route('/workgroups/<workgroup_id>/chairs/', methods=['GET'])
 def list_workgroup_chairs(workgroup_id):
-    """List chairs for a workgroup."""
+    """List position nominations for a workgroup."""
     workgroup = Workgroup.query.get_or_404(workgroup_id)
 
     chairs_query = text("""
-        SELECT id, group_acronym, chair_name, approved, set_at, user_id
+        SELECT id, group_acronym, chair_name, approved, set_at, user_id,
+               position_key, status
         FROM working_group_chair
         WHERE group_acronym = :acronym
         ORDER BY set_at DESC
@@ -226,16 +330,21 @@ def list_workgroup_chairs(workgroup_id):
     result = db.session.execute(chairs_query, {'acronym': workgroup.acronym})
     chairs = []
     for row in result:
+        status = row[7] or (NOMINATION_STATUS_APPROVED if coerce_storage_bool(row[3]) else NOMINATION_STATUS_PENDING_NOMINEE)
         chairs.append({
             'id': row[0],
             'group_acronym': row[1],
             'chair_name': row[2],
-            'approved': bool(row[3]),
+            'approved': coerce_storage_bool(row[3]),
             'set_at': row[4],
-            'user_id': row[5]
+            'user_id': row[5],
+            'position_key': row[6] or 'chair',
+            'position_label': position_label(row[6] or 'chair'),
+            'status': status,
+            'status_label': status_label(status),
         })
 
-    return jsonify({'chairs': chairs, 'count': len(chairs)})
+    return jsonify({'chairs': chairs, 'nominations': chairs, 'count': len(chairs)})
 
 
 @bp.route('/workgroups/<workgroup_id>/members/', methods=['GET'])
@@ -304,51 +413,87 @@ def join_workgroup(workgroup_id):
 
 
 @bp.route('/workgroups/<workgroup_id>/nominate-chair/', methods=['POST'])
+@bp.route('/workgroups/<workgroup_id>/nominate/', methods=['POST'])
 @require_auth
 def nominate_chair(workgroup_id):
-    """Nominate yourself as a chair/coordinator for a workgroup."""
+    """Nominate a person (self or another) for a workgroup position."""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
 
-    data = request.get_json()
-    statement = data.get('statement', '').strip()
+    data = request.get_json() or {}
+    position_key = (data.get('position_key') or data.get('position') or 'chair').strip().lower()
+    if position_key not in WORKGROUP_POSITIONS:
+        return jsonify({'error': 'Invalid position type'}), 400
 
+    nominee_user_id = (data.get('nominee_user_id') or '').strip() or None
+    nominee_name = (data.get('nominee_name') or '').strip()
+    nominee_email = _normalize_email(data.get('nominee_email'))
+    nominee_profile_url = _normalize_profile_url(data.get('nominee_profile_url'))
+    statement = (data.get('statement') or '').strip()
+
+    if not nominee_name:
+        return jsonify({'error': 'Nominee name is required'}), 400
+    if not _is_valid_email(nominee_email):
+        return jsonify({'error': 'A valid nominee email is required'}), 400
+    if not _is_valid_profile_url(nominee_profile_url):
+        return jsonify({'error': 'A valid CV or LinkedIn URL is required'}), 400
     if not statement:
         return jsonify({'error': 'Statement is required'}), 400
 
     workgroup = Workgroup.query.get_or_404(workgroup_id)
-
     if workgroup.approval_status != 'approved':
-        return jsonify({'error': 'Workgroup must be approved before nominating chairs'}), 400
+        return jsonify({'error': 'Workgroup must be approved before nominating'}), 400
 
-    check_query = text("""
-        SELECT id FROM working_group_chair
-        WHERE group_acronym = :acronym AND user_id = :user_id
-    """)
-    existing = db.session.execute(check_query, {
-        'acronym': workgroup.acronym,
-        'user_id': current_user['id']
-    }).fetchone()
+    if nominee_user_id:
+        nominee_user = User.query.get(nominee_user_id)
+        if not nominee_user:
+            return jsonify({'error': 'Selected GovHub user was not found'}), 400
+        if not nominee_email and nominee_user.email:
+            nominee_email = _normalize_email(nominee_user.email)
 
+    is_self_nomination = nominee_user_id == current_user['id'] if nominee_user_id else False
+    if not nominee_user_id and nominee_email and current_user.get('email'):
+        is_self_nomination = nominee_email == _normalize_email(current_user['email'])
+
+    duplicate_filters = [func.lower(WorkingGroupChair.nominee_email) == nominee_email]
+    if nominee_user_id:
+        duplicate_filters.append(WorkingGroupChair.user_id == nominee_user_id)
+    existing = WorkingGroupChair.query.filter(
+        WorkingGroupChair.group_acronym == workgroup.acronym,
+        WorkingGroupChair.position_key == position_key,
+        WorkingGroupChair.status.in_(list(ACTIVE_NOMINATION_STATUSES)),
+        or_(*duplicate_filters),
+    ).first()
     if existing:
-        return jsonify({'error': 'You are already nominated as a chair for this workgroup'}), 400
+        return jsonify({'error': 'This person already has an active nomination for this position'}), 400
 
-    insert_query = text("""
-        INSERT INTO working_group_chair 
-        (group_acronym, user_id, chair_name, approved, set_at, statement, nominated_by_user_id, is_self_nomination)
-        VALUES (:acronym, :user_id, :chair_name, :approved, :set_at, :statement, :nominated_by, :is_self)
-    """)
-    db.session.execute(insert_query, {
-        'acronym': workgroup.acronym,
-        'user_id': current_user['id'],
-        'chair_name': current_user.get('displayName') or current_user.get('username'),
-        'approved': False,
-        'set_at': datetime.utcnow(),
-        'statement': statement,
-        'nominated_by': current_user['id'],
-        'is_self': True
-    })
+    initial_status = (
+        NOMINATION_STATUS_NOMINEE_ACCEPTED if is_self_nomination else NOMINATION_STATUS_PENDING_NOMINEE
+    )
+
+    chair = WorkingGroupChair(
+        group_acronym=workgroup.acronym,
+        position_key=position_key,
+        user_id=nominee_user_id,
+        chair_name=nominee_name,
+        approved=False,
+        set_at=datetime.utcnow(),
+        statement=statement,
+        nominated_by_user_id=current_user['id'],
+        is_self_nomination=is_self_nomination,
+        nominee_email=nominee_email,
+        nominee_profile_url=nominee_profile_url,
+        status=initial_status,
+    )
+    db.session.add(chair)
+    db.session.flush()
+    send_nomination_submitted(chair)
     db.session.commit()
 
-    return jsonify({'success': True, 'message': 'Chair nomination submitted for approval'})
+    pos_label = position_label(position_key)
+    if is_self_nomination:
+        message = f'Your {pos_label} nomination was submitted and is pending administrator approval.'
+    else:
+        message = f'Nomination sent. {nominee_name} will receive an email with your statement and a link to accept or decline.'
+    return jsonify({'success': True, 'message': message})

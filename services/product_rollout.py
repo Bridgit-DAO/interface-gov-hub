@@ -291,8 +291,8 @@ def _path_needs_immortalize(p: str) -> bool:
         return True
     if '/submit/immortalize' in p:
         return True
-    if p.startswith('/api/ordinal'):
-        return True
+    # /api/ordinal/preview and /api/ordinal/convert-markdown are used by draft submit
+    # ("From Ordinal" tab) and must stay available when only Immortalize is disabled.
     if p.startswith('/api/inscribe'):
         return True
     if p.startswith('/api/inscription'):
@@ -512,6 +512,14 @@ def apply_product_rollout_before_request() -> Any:
         tab = (request.args.get('tab') or '').strip().lower()
         if tab == 'immortalize' and not cfg.get('immortalize', True):
             blocked = 'immortalize'
+    if blocked == 'workgroups' and request.method == 'GET':
+        p = (path or '').split('?', 1)[0]
+        if p.startswith('/api/layers/') and p.endswith('/workgroups/'):
+            from services.workgroup_links import layer_has_secondary_workgroups
+
+            layer_id = layer.id if layer is not None else None
+            if layer_id and layer_has_secondary_workgroups(layer_id):
+                blocked = None
     if not blocked:
         return None
 

@@ -11,6 +11,7 @@ from models import User, Workgroup, Submission, Comment, LayerMember, UserLinked
 from services.identity import get_current_user, require_auth, get_or_create_referral_code
 from services.avatar import get_avatar_url
 from services.directory_ui import gh_page_open, gh_page_close, gh_page_header
+from services.utils import coerce_storage_bool
 
 bp = Blueprint('profile_pages', __name__, url_prefix='')
 
@@ -458,7 +459,7 @@ def user_profile(username):
                             <div class="card-body">
                                 <h5 class="card-title">Chair Positions</h5>
                                 <div class="list-group list-group-flush">
-                                    {''.join([f'<a href="/workgroups/{c[1]}/" class="list-group-item list-group-item-action"><strong>{c[0]}</strong><br><small class="text-muted">{"Approved" if c[3] else "Pending approval"} - Set {c[2]}</small></a>' for c in chairs_q]) if chairs_q else '<p class="text-muted">No chair positions yet.</p>'}
+                                    {''.join([f'<a href="/workgroups/{c[1]}/" class="list-group-item list-group-item-action"><strong>{c[0]}</strong><br><small class="text-muted">{"Approved" if coerce_storage_bool(c[3]) else "Pending approval"} - Set {c[2]}</small></a>' for c in chairs_q]) if chairs_q else '<p class="text-muted">No chair positions yet.</p>'}
                                 </div>
                             </div>
                         </div>

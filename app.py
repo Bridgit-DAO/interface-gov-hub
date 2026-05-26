@@ -109,7 +109,7 @@ def create_app():
         Layer, LayerMember, LayerAdmin,
         Waitlist, WaitlistEntry, WaitlistMilestone, EmailUnsubscribe, WaitlistEmailSignup,
         Workgroup, WorkingGroupMember, WorkingGroupChair, CoordinatorRequest, WorkgroupMemberRequest,
-        Guild, GuildMembership, GuildInvitation,
+        Guild, GuildMembership, GuildInvitation, LayerInvitation,
         Cluster, Role, RoleImage, RoleImageVote,
         Claim, Badge, BadgeSkin, BadgeCycle, OneTimeBadge,
         Vote, VoteEligibilitySnapshot, VoteCandidate, Ballot,
@@ -128,6 +128,7 @@ def create_app():
     from routes.layers_pages import bp as layers_pages_bp
     from routes.workgroups import bp as workgroups_bp
     from routes.workgroups_pages import bp as workgroups_pages_bp
+    from routes.nominations_pages import bp as nominations_pages_bp
     from routes.guilds import bp as guilds_bp
     from routes.guilds_pages import bp as guilds_pages_bp
     from routes.waitlists import bp as waitlists_bp
@@ -153,6 +154,7 @@ def create_app():
     from routes.civic_mason_pages import bp as civic_mason_pages_bp
     from routes.soft_launch import bp as soft_launch_bp
     from routes.soft_launch_pages import bp as soft_launch_pages_bp
+    from routes.layer_invitations import bp as layer_invitations_bp, bp_pages as layer_invite_pages_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -180,6 +182,7 @@ def create_app():
     app.register_blueprint(layers_pages_bp)
     app.register_blueprint(workgroups_bp)
     app.register_blueprint(workgroups_pages_bp)
+    app.register_blueprint(nominations_pages_bp)
     app.register_blueprint(guilds_bp)
     app.register_blueprint(guilds_pages_bp)
     app.register_blueprint(waitlists_bp)
@@ -208,6 +211,8 @@ def create_app():
     app.register_blueprint(civic_mason_pages_bp)
     app.register_blueprint(soft_launch_bp)
     app.register_blueprint(soft_launch_pages_bp)
+    app.register_blueprint(layer_invitations_bp)
+    app.register_blueprint(layer_invite_pages_bp)
 
     # CLI
     from cli import register_cli

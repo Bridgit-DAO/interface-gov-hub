@@ -14,6 +14,7 @@ from services.directory_ui import (
     gh_filter_row,
     gh_filter_col,
     gh_directory_grid,
+    gh_directory_toolbar,
     gh_breadcrumb,
     gh_living_module,
 )
@@ -43,9 +44,9 @@ def roles_directory():
     {gh_page_open()}
     {gh_page_header('Roles Directory', 'Browse and claim roles across all layers', 'fa-user-tag')}
     {gh_filter_row(
-        gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadRoles()"><option value="">All Layers</option></select>')
-        + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadRoles()"><option value="">All Statuses</option><option value="approved">Approved</option><option value="draft">Draft</option><option value="deprecated">Deprecated</option></select>')
-        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">')
+        gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadRoles()"><option value="">All Layers</option></select>', 'col-md-3')
+        + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadRoles()"><option value="">All Statuses</option><option value="approved" selected>Active</option><option value="draft">Draft</option><option value="deprecated">Deprecated</option></select>', 'col-md-3')
+        + gh_directory_toolbar(search_placeholder='Search roles…', search_col='col-md-4', sort_col='col-md-2')
     )}
     {gh_directory_grid('roles-container')}
     {gh_page_close()}
@@ -98,7 +99,7 @@ def roles_directory():
                 }}
             }}
 
-            displayRoles(allRoles);
+            filterRoles();
         }} catch (error) {{
             console.error('Error loading roles:', error);
             document.getElementById('roles-container').innerHTML = GhDirectory.emptyState('Error loading roles', 'danger');
@@ -106,12 +107,14 @@ def roles_directory():
     }}
 
     function filterRoles() {{
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-        const filtered = allRoles.filter(r =>
-            (r.title_guild || '').toLowerCase().includes(searchTerm) ||
-            (r.description && r.description.toLowerCase().includes(searchTerm))
-        );
-        displayRoles(filtered);
+        const items = GhDirectory.filterAndSort(allRoles, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter'),
+            searchFields: ['title_guild', 'title_operational', 'description', 'slug', 'layer_name'],
+            nameKey: 'title_guild',
+            dateKeys: ['updated_at', 'created_at'],
+        }});
+        displayRoles(items);
     }}
 
     function displayRoles(roles) {{
@@ -150,7 +153,10 @@ def roles_directory():
         container.innerHTML = html;
     }}
 
-    loadProjects().then(() => loadRoles());
+    loadProjects().then(() => {{
+        loadRoles();
+        GhDirectory.bindControls('search-input', 'sort-filter', filterRoles);
+    }});
     </script>
     """
 
@@ -178,12 +184,12 @@ def role_images_directory():
             <ul class="nav gh-badge-tabs" id="badgeTabs">
                 <li class="nav-item"><button class="nav-link" data-tab="all" onclick="switchTab('all',this)">All</button></li>
                 <li class="nav-item"><button class="nav-link" data-tab="upcoming" onclick="switchTab('upcoming',this)">Upcoming</button></li>
-                <li class="nav-item"><button class="nav-link" data-tab="current" onclick="switchTab('current',this)">Current</button></li>
+                <li class="nav-item"><button class="nav-link active" data-tab="current" onclick="switchTab('current',this)">Active</button></li>
                 <li class="nav-item"><button class="nav-link" data-tab="past" onclick="switchTab('past',this)">Past</button></li>
             </ul>
             {gh_filter_row(
-                gh_filter_col('Layer', '<select id="project-filter" class="form-select form-select-sm" onchange="filterAndDisplay()"><option value="">All Layers</option></select>', 'col-md-6')
-                + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search roles..." oninput="filterAndDisplay()">', 'col-md-6')
+                gh_filter_col('Layer', '<select id="project-filter" class="form-select form-select-sm" onchange="filterAndDisplay()"><option value="">All Layers</option></select>', 'col-md-4')
+                + gh_directory_toolbar(search_placeholder='Search badges…', search_col='col-md-5', sort_col='col-md-3')
             )}
             {gh_directory_grid('badges-container')}
         </div>
@@ -327,15 +333,18 @@ def role_images_directory():
     }}
 
     function filterAndDisplay() {{
-        const search = document.getElementById('search-input').value.toLowerCase();
-        let filtered = allRoles.filter(role => {{
-            const matchesSearch = !search ||
-                (role.title_guild || '').toLowerCase().includes(search) ||
-                (role.title_operational || '').toLowerCase().includes(search) ||
-                (role.description || '').toLowerCase().includes(search);
+        const search = GhDirectory.getSearchValue('search-input');
+        const sort = GhDirectory.getSortValue('sort-filter');
+        let filtered = GhDirectory.filterAndSort(allRoles, {{
+            searchTerm: search,
+            sort: sort,
+            searchFields: ['title_guild', 'title_operational', 'description', 'layer_name'],
+            nameKey: 'title_guild',
+            dateKeys: ['badge_earliest_start', 'updated_at', 'created_at'],
+        }});
+        filtered = filtered.filter(role => {{
             const phase = badgePhase(role);
-            const matchesTab = currentTab === 'all' || phase === currentTab;
-            return matchesSearch && matchesTab;
+            return currentTab === 'all' || phase === currentTab;
         }});
         displayBadges(filtered);
     }}
@@ -448,7 +457,10 @@ def role_images_directory():
     }}
 
     document.getElementById('project-filter').addEventListener('change', loadAllBadges);
-    loadProjects().then(() => loadAllBadges());
+    loadProjects().then(() => {{
+        loadAllBadges();
+        GhDirectory.bindControls('search-input', 'sort-filter', filterAndDisplay);
+    }});
     </script>
     """
 
@@ -699,7 +711,7 @@ def _render_role_detail(role_slug, layer_slug=None, layer_id=None, use_layer_sta
         const mediaHtml = role.image_url ? '<div class="gh-detail-hero-media"><img src="' + role.image_url + '" alt=""></div>' : '<div class="gh-detail-hero-media"><i class="fas fa-user-tag fa-2x text-muted opacity-50"></i></div>';
         document.getElementById('role-header').innerHTML = '<div class="gh-detail-hero-inner">' + mediaHtml + '<div class="gh-detail-hero-body flex-grow-1">' + bc + '<h1>' + role.title_guild + '</h1>' + (role.title_operational ? '<p class="text-muted mb-2">' + role.title_operational + '</p>' : '') + '<div class="mb-0">' + statusBadge + (role.public_visible ? '<span class="badge bg-info ms-2">Public</span>' : '') + '</div></div><div class="gh-detail-hero-actions">' + editBtn + '<a href="/roles/' + roleSlug + '/images/" class="btn btn-outline-primary btn-sm"><i class="fas fa-images me-2"></i>Images</a></div></div>'; }}
     function displayRoleDescription() {{ document.getElementById('role-description').innerHTML = `<p>${{role.description}}</p>`; }}
-    function displayRoleDetails() {{ const layerHref = layerSlug ? '/layer/' + layerSlug + '/' : '/layers/' + project.slug + '/'; const clusterLine = role.cluster_name ? `<p><strong>Cluster:</strong> <a href="${{layerHref}}#clusters">${{role.cluster_name}}</a></p>` : (role.cluster_id ? '<p><strong>Cluster:</strong> <span class="text-muted">—</span></p>' : ''); const imageHtml = role.image_url ? `<div class="mb-3 text-center"><img src="${{role.image_url}}" alt="${{role.title_guild}}" class="img-fluid rounded" style="max-height: 200px;"></div>` : ''; document.getElementById('role-details').innerHTML = `${{imageHtml}}<p><strong>Layer:</strong> <a href="${{layerHref}}">${{project.name}}</a></p>${{clusterLine}}<p><strong>Status:</strong> ${{role.status}}</p><p><strong>Visibility:</strong> ${{role.public_visible ? 'Public' : 'Private'}}</p><p><strong>Active Claims:</strong> ${{role.active_claims_count || 0}}</p><p><strong>Created:</strong> ${{new Date(role.created_at).toLocaleDateString()}}</p>`; }}
+    function displayRoleDetails() {{ const layerHref = layerSlug ? '/layer/' + layerSlug + '/' : '/layers/' + project.slug + '/'; const clusterLine = role.cluster_name ? `<p><strong>Cluster:</strong> <a href="${{layerHref}}#clusters">${{role.cluster_name}}</a></p>` : (role.cluster_id ? '<p><strong>Cluster:</strong> <span class="text-muted">—</span></p>' : ''); const imageHtml = role.image_url ? `<div class="mb-3 text-center"><img src="${{role.image_url}}" alt="${{role.title_guild}}" class="img-fluid gh-entity-thumb" style="max-height: 200px;"></div>` : ''; document.getElementById('role-details').innerHTML = `${{imageHtml}}<p><strong>Layer:</strong> <a href="${{layerHref}}">${{project.name}}</a></p>${{clusterLine}}<p><strong>Status:</strong> ${{role.status}}</p><p><strong>Visibility:</strong> ${{role.public_visible ? 'Public' : 'Private'}}</p><p><strong>Active Claims:</strong> ${{role.active_claims_count || 0}}</p><p><strong>Created:</strong> ${{new Date(role.created_at).toLocaleDateString()}}</p>`; }}
     function displayRoleConfig() {{ document.getElementById('role-config').innerHTML = `<p><strong>Claim Approval:</strong> ${{role.claim_requires_approval ? 'Required' : 'Not Required'}}</p><p><strong>Badges:</strong> ${{role.badge_enabled ? 'Enabled' : 'Disabled'}}</p>${{role.badge_enabled ? `<p><strong>Badge Approval:</strong> ${{role.badge_requires_approval ? 'Required' : 'Not Required'}}</p>` : ''}}`; }}
     function getClaimPopoverContent(claim) {{ const intent = claim.intent ? '<p class="mb-2"><strong>Intent:</strong><br><span style="white-space: pre-wrap; word-wrap: break-word;">' + (claim.intent || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></p>' : ''; const links = (claim.evidence_links || []).filter(u => u && u.trim()); const evidenceHtml = links.length ? links.map(u => '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>').join('<br>') : '<span class="text-muted">No evidence yet</span>'; const termStr = claim.term_duration_days ? (claim.term_duration_days + ' days' + (claim.term_end ? ', until ' + new Date(claim.term_end).toLocaleDateString() : '')) : 'Indefinite'; return '<div class="text-start" style="min-width: 280px; max-width: 480px; white-space: normal; word-wrap: break-word;">' + intent + '<p class="mb-2"><strong>Supporting work:</strong><br>' + evidenceHtml + '</p>' + '<p class="mb-2"><strong>Term:</strong> ' + termStr + '</p>' + '<p class="mb-0 small text-muted">Claimed: ' + new Date(claim.created_at).toLocaleDateString() + '</p></div>'; }}
     async function loadClaims() {{ const container = document.getElementById('role-claims'); const btnPlaceholder = document.getElementById('role-claim-btn-placeholder');
@@ -1196,7 +1208,7 @@ def role_images_gallery(role_slug):
                 return `
                 <div class="col-md-6 mb-3">
                     <div class="card h-100">
-                        <a href="/roles/${{roleSlug}}/images/${{img.id}}/" class="d-block bg-dark"
+                        <a href="/roles/${{roleSlug}}/images/${{img.id}}/" class="d-block gh-role-design-link"
                            onclick="previewImageSrc='${{imgSrc}}'; if(previewSkinSlug) {{ event.preventDefault(); renderSkinPreview(); }}">
                             <img src="${{imgSrc}}" class="card-img-top" alt="Design" style="width:100%;height:auto;display:block;object-fit:contain;"
                                  onerror="this.src='${{fallbackSvg}}'">

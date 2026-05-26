@@ -464,30 +464,57 @@ def inscription_network_fee():
 
 @bp.route('/inscription/search-duplicate/text', methods=['POST'])
 def inscription_search_duplicate_text():
-    """Search for duplicate text content. Placeholder until API access."""
+    """Search for duplicate text content in GovHub submissions."""
     try:
+        from services.submission_dedup import find_submission_conflict, hash_text_content
+
         data = request.get_json() or {}
-        return jsonify({
-            'placeholder': True,
-            'message': 'Duplicate search (text): API access pending. Proceeding without check.',
-            'found': False
-        })
+        text = (data.get('text') or '').strip()
+        if not text:
+            return jsonify({'found': False})
+        content_hash = hash_text_content(text)
+        conflict = find_submission_conflict(title='', content_hash=content_hash)
+        if conflict:
+            _, sub = conflict
+            return jsonify({
+                'found': True,
+                'inscriptionId': getattr(sub, 'ordinalId', None),
+                'ml_number': sub.ml_number,
+                'title': sub.title,
+            })
+        return jsonify({'found': False})
     except Exception:
-        return jsonify({'placeholder': True, 'message': 'Search unavailable', 'found': False})
+        return jsonify({'found': False, 'message': 'Search unavailable'})
 
 
 @bp.route('/inscription/search-duplicate/image', methods=['POST'])
 def inscription_search_duplicate_image():
-    """Search for duplicate image by content hash. Placeholder until API access."""
+    """Search for duplicate binary/image content by hash in GovHub submissions."""
     try:
+        from services.submission_dedup import find_submission_conflict, hash_binary_content
+        import base64
+
         data = request.get_json() or {}
-        return jsonify({
-            'placeholder': True,
-            'message': 'Duplicate search (image/hash): API access pending. Proceeding without check.',
-            'found': False
-        })
+        content_hash = (data.get('contentHash') or '').strip().lower()
+        if not content_hash and data.get('dataUrl'):
+            raw = data['dataUrl']
+            if ',' in raw:
+                raw = raw.split(',', 1)[1]
+            content_hash = hash_binary_content(base64.b64decode(raw))
+        if not content_hash:
+            return jsonify({'found': False})
+        conflict = find_submission_conflict(title='', content_hash=content_hash)
+        if conflict:
+            _, sub = conflict
+            return jsonify({
+                'found': True,
+                'inscriptionId': getattr(sub, 'ordinalId', None),
+                'ml_number': sub.ml_number,
+                'title': sub.title,
+            })
+        return jsonify({'found': False})
     except Exception:
-        return jsonify({'placeholder': True, 'message': 'Search unavailable', 'found': False})
+        return jsonify({'found': False, 'message': 'Search unavailable'})
 
 
 # Page routes for inscription wizard

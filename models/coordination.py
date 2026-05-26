@@ -34,12 +34,24 @@ class WorkgroupMemberRequest(db.Model):
 
 
 class WorkingGroupChair(db.Model):
+    """Workgroup position nomination (chair, editor, presenter, etc.)."""
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     group_acronym = db.Column(db.String(50), index=True)
+    position_key = db.Column(db.String(40), default='chair', index=True)
     chair_name = db.Column(db.String(100))
-    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)  # set when created from CoordinatorRequest
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     approved = db.Column(db.Boolean, default=False)
     set_at = db.Column(db.DateTime, default=datetime.utcnow)
+    statement = db.Column(db.Text, nullable=True)
+    nominated_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    is_self_nomination = db.Column(db.Boolean, default=False)
+    nominee_email = db.Column(db.String(200), nullable=True)
+    nominee_profile_url = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(30), default='pending_nominee', index=True)
+    nominee_response_token = db.Column(db.String(64), unique=True, nullable=True, index=True)
+    nominee_token_expires_at = db.Column(db.DateTime, nullable=True)
+    nominee_responded_at = db.Column(db.DateTime, nullable=True)
+    nominee_decline_reason = db.Column(db.Text, nullable=True)
 
 
 class WorkingGroupMember(db.Model):
@@ -482,6 +494,8 @@ class Workgroup(db.Model):
     name = db.Column(db.String(255), nullable=False)
     slug = db.Column(db.String(255), index=True)
     description = db.Column(db.Text, nullable=True)
+    charter = db.Column(db.Text, nullable=True)
+    goals = db.Column(db.Text, nullable=True)
     type = db.Column(db.String(50), nullable=True)  # Legacy field
     state = db.Column(db.String(20), nullable=True)  # Legacy field
     
@@ -490,6 +504,10 @@ class Workgroup(db.Model):
     
     # Image
     image_url = db.Column(db.String(500), nullable=True)
+
+    # Optional links
+    external_url = db.Column(db.String(500), nullable=True)
+    document_draft_name = db.Column(db.String(255), nullable=True, index=True)
 
     # Badge settings
     badge_enabled = db.Column(db.Boolean, default=False)
@@ -541,7 +559,11 @@ class Workgroup(db.Model):
             'status': self.status,
             'approval_status': self.approval_status,
             'description': self.description,
+            'charter': self.charter,
+            'goals': self.goals,
             'image_url': self.image_url,
+            'external_url': self.external_url,
+            'document_draft_name': self.document_draft_name,
             'type': self.type,
             'state': self.state,
             'badge_enabled': self.badge_enabled,
@@ -559,6 +581,27 @@ class Workgroup(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class WorkgroupLayerLink(db.Model):
+    """Secondary layer associations. Primary home layer is ``working_group.layer_id``."""
+    __tablename__ = 'workgroup_layer_link'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    workgroup_id = db.Column(
+        db.String(36), db.ForeignKey('working_group.id'), nullable=False, index=True
+    )
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('workgroup_id', 'layer_id', name='uq_workgroup_layer_link'),
+    )
+
+    workgroup = db.relationship(
+        'Workgroup', backref=db.backref('secondary_layer_links', lazy='dynamic')
+    )
+    layer = db.relationship('Layer', backref=db.backref('workgroup_layer_links', lazy='dynamic'))
 
 
 class Guild(db.Model):
@@ -668,6 +711,50 @@ class GuildInvitation(db.Model):
         db.Index('idx_guild_invitation_status', 'status'),
         db.Index('idx_guild_invitation_token', 'token'),
     )
+
+
+class LayerInvitation(db.Model):
+    """Email invitation to join a layer (any active member may invite)."""
+    __tablename__ = 'layer_invitation'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    inviter_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
+    invitee_email = db.Column(db.String(255), nullable=False, index=True)
+    invitee_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    message = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), default='pending', index=True)
+    # pending, accepted, declined, expired, duplicate
+    outcome_note = db.Column(db.String(255), nullable=True)
+    token = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    responded_at = db.Column(db.DateTime, nullable=True)
+
+    layer = db.relationship('Layer', backref=db.backref('invitations', lazy='dynamic'))
+    inviter = db.relationship('User', foreign_keys=[inviter_id], backref='sent_layer_invitations')
+    invitee = db.relationship('User', foreign_keys=[invitee_id], backref='received_layer_invitations')
+
+    __table_args__ = (
+        db.Index('idx_layer_invitation_layer', 'layer_id'),
+        db.Index('idx_layer_invitation_status', 'status'),
+        db.Index('idx_layer_invitation_email', 'layer_id', 'invitee_email'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'layer_id': self.layer_id,
+            'inviter_id': self.inviter_id,
+            'invitee_email': self.invitee_email,
+            'invitee_id': self.invitee_id,
+            'message': self.message,
+            'status': self.status,
+            'outcome_note': self.outcome_note,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'responded_at': self.responded_at.isoformat() if self.responded_at else None,
+        }
 
 
 class GuildLayerLink(db.Model):

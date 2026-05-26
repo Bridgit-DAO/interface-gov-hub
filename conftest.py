@@ -11,6 +11,7 @@ def ensure_schema_migrations():
             migrate_guild_unified_phase1,
             migrate_access_control_v1,
             migrate_notifications_stack_v1,
+            migrate_layer_invitations,
         )
         from extensions import db
 
@@ -18,3 +19,4 @@ def ensure_schema_migrations():
         migrate_guild_unified_phase1(app)
         migrate_access_control_v1(app)
         migrate_notifications_stack_v1(app)
+        migrate_layer_invitations(app)
