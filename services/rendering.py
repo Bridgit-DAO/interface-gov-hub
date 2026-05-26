@@ -390,6 +390,11 @@ def _format_base_template(**kwargs):
         kwargs.setdefault('csrf_token', get_or_create_csrf_token())
     else:
         kwargs.setdefault('csrf_token', '')
+    from services.web3auth_config import get_web3auth_settings
+    web3auth = get_web3auth_settings()
+    kwargs.setdefault('web3auth_client_id', web3auth['client_id'])
+    kwargs.setdefault('web3auth_network', web3auth['network'])
+    kwargs.setdefault('web3auth_google_verifier', web3auth['google_verifier'])
     try:
         kwargs.setdefault('govhub_i18n_js', url_for('static', filename='js/govhub-i18n.js'))
     except RuntimeError:

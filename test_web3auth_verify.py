@@ -89,3 +89,19 @@ def test_web3auth_login_rejects_email_collision(monkeypatch):
     assert response.status_code == 409
     with app.app_context():
         assert User.query.filter_by(web3authVerifierId=other_verifier).first() is None
+
+
+def test_production_defaults_to_devnet_client_for_jwt_audience(monkeypatch):
+    from services import web3auth_config
+
+    devnet = 'BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk'
+    mainnet = 'BKauYfCPme6fKX3P25DwcBr_AcyO-DRDTxge5t99IlAU_NYjxyOY0aPvAN0v7d8GaJLl7SDyFHveWQG3bNcIyQo'
+    monkeypatch.setenv('WEB3AUTH_CLIENT_ID', mainnet)
+    monkeypatch.setenv('WEB3AUTH_CLIENT_ID_DEVNET', devnet)
+    monkeypatch.delenv('WEB3AUTH_USE_MAINNET', raising=False)
+    monkeypatch.setattr(web3auth_config, 'IS_DEVELOPMENT', False, raising=False)
+
+    settings = web3auth_config.get_web3auth_settings()
+    assert settings['client_id'] == devnet
+    assert settings['network'] == 'sapphire_devnet'
+    assert web3auth_config.web3auth_client_id() == devnet

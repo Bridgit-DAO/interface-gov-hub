@@ -49,7 +49,6 @@ joinInProgress=false;
 };
 })();"""
 
-# Embed auth: Web3Auth modal inline (no popup/tab - avoids blockers)
 EMBED_AUTH_JS = r"""(function(){
 var web3auth=null, authInProgress=false;
 function loadScript(src){return new Promise(function(r,e){var s=document.createElement('script');s.src=src;s.onload=r;s.onerror=e;document.head.appendChild(s);});}
@@ -64,7 +63,7 @@ await loadScript('https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js');
 await loadScript('https://unpkg.com/@web3auth/modal@10.13.1/dist/modal.umd.min.js');
 await new Promise(function(r){var c=function(){if(window.Modal&&window.Modal.Web3Auth)r();else setTimeout(c,100);};c();});
 var C=window.Modal.Web3Auth;
-web3auth=new C({clientId:"BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk",web3AuthNetwork:'sapphire_devnet',redirectUrl:location.href,chainConfig:{chainNamespace:'eip155',chainId:'0x1',rpcTarget:'https://rpc.ankr.com/eth',displayName:'Ethereum',blockExplorerUrl:'https://etherscan.io',ticker:'ETH',tickerName:'Ethereum'},uiConfig:{mode:'dark',theme:{primary:'#1d9bf0'},loginMethodsOrder:['google','twitter','email_passwordless','wallet'],defaultLanguage:'en'}});
+web3auth=new C({clientId:"{client_id}",web3AuthNetwork:'{network}',redirectUrl:location.href,chainConfig:{chainNamespace:'eip155',chainId:'0x1',rpcTarget:'https://rpc.ankr.com/eth',displayName:'Ethereum',blockExplorerUrl:'https://etherscan.io',ticker:'ETH',tickerName:'Ethereum'},uiConfig:{mode:'dark',theme:{primary:'#1d9bf0'},loginMethodsOrder:['google','twitter','email_passwordless','wallet'],defaultLanguage:'en'}});
 await web3auth.init();
 }
 await doConnect(onSuccess,fail);
@@ -85,6 +84,15 @@ var res=await fetch(location.origin+'/api/auth/web3auth',{method:'POST',headers:
 if(res.ok){if(typeof onSuccess==='function')onSuccess();}else{postSent=false;var j=await res.json().catch(function(){});alert('Login failed: '+(j.error||'Unknown error'));if(typeof onFailure==='function')onFailure();}
 }
 })();"""
+
+
+def _embed_auth_js():
+    from services.web3auth_config import get_web3auth_settings
+    settings = get_web3auth_settings()
+    return EMBED_AUTH_JS.format(
+        client_id=settings['client_id'],
+        network=settings['network'],
+    )
 
 
 def _embed_widget_params():
@@ -579,7 +587,7 @@ def embed_widget_js():
 @bp.route('/embed/static/embed-auth.js')
 def embed_auth_js():
     """Web3Auth for embed - modal inline, no popup/tab."""
-    return EMBED_AUTH_JS, 200, {'Content-Type': 'application/javascript; charset=utf-8'}
+    return _embed_auth_js(), 200, {'Content-Type': 'application/javascript; charset=utf-8'}
 
 
 @bp.route('/embed/waitlist/<waitlist_id>/')
