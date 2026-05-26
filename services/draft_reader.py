@@ -34,14 +34,16 @@ def _load_ordinal_body(url: str, content_type: str, draft: dict) -> Tuple[str, b
     if url and ('text/' in octype or 'application/json' in octype):
         try:
             import requests
+            from services.url_safety import validate_ordinals_fetch_url
 
+            safe_url = validate_ordinals_fetch_url(url)
             headers = {
                 'User-Agent': (
                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                     '(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 )
             }
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(safe_url, headers=headers, timeout=10)
             if response.status_code == 200:
                 raw_content = response.text
                 words = len(raw_content.split())

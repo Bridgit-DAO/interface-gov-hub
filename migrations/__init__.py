@@ -1451,29 +1451,38 @@ def migrate_submission_content_hash(app):
 
 
 def migrate_hardcoded_users(app):
-    """Migrate hardcoded users to database"""
+    """Migrate legacy bootstrap users. Passwords are random — use reset-password.py to set one."""
+    import secrets
+
     hardcoded_users = {
-        'admin': {'password': 'admin123', 'name': 'Admin User', 'email': 'admin@metalayer.org', 'role': 'admin', 'theme': 'dark'},
-        'daveed': {'password': 'admin123', 'name': 'Daveed', 'email': 'daveed@bridgit.io', 'role': 'admin', 'theme': 'dark'},
-        'john': {'password': 'password123', 'name': 'John Doe', 'email': 'john@example.com', 'role': 'editor', 'theme': 'dark'},
-        'jane': {'password': 'password123', 'name': 'Jane Smith', 'email': 'jane@example.com', 'role': 'user', 'theme': 'dark'},
-        'shiftshapr': {'password': 'mynewpassword123', 'name': 'Shift Shapr', 'email': 'shiftshapr@example.com', 'role': 'editor', 'theme': 'dark'}
+        'admin': {'name': 'Admin User', 'email': 'admin@metalayer.org', 'role': 'admin', 'theme': 'dark'},
+        'daveed': {'name': 'Daveed', 'email': 'daveed@bridgit.io', 'role': 'admin', 'theme': 'dark'},
+        'john': {'name': 'John Doe', 'email': 'john@example.com', 'role': 'editor', 'theme': 'dark'},
+        'jane': {'name': 'Jane Smith', 'email': 'jane@example.com', 'role': 'user', 'theme': 'dark'},
+        'shiftshapr': {'name': 'Shift Shapr', 'email': 'shiftshapr@example.com', 'role': 'editor', 'theme': 'dark'},
     }
 
+    created = 0
     for username, user_data in hardcoded_users.items():
-        if not User.query.filter_by(username=username).first():
-            user = User(
-                username=username,
-                password_hash=generate_password_hash(user_data['password']),
-                name=user_data['name'],
-                email=user_data['email'],
-                role=user_data.get('role', 'user'),
-                theme=user_data.get('theme', 'dark')
-            )
-            db.session.add(user)
+        if User.query.filter_by(username=username).first():
+            continue
+        user = User(
+            username=username,
+            password_hash=generate_password_hash(secrets.token_urlsafe(32)),
+            name=user_data['name'],
+            email=user_data['email'],
+            role=user_data.get('role', 'user'),
+            theme=user_data.get('theme', 'dark'),
+        )
+        db.session.add(user)
+        created += 1
 
-    db.session.commit()
-    print(f"Migrated {len(hardcoded_users)} hardcoded users to database")
+    if created:
+        db.session.commit()
+        print(
+            f"Migrated {created} bootstrap user(s) with random passwords "
+            f"(use reset-password.py to set a known password)"
+        )
 
 
 def migrate_layer_invitations(app):

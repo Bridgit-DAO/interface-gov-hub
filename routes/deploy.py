@@ -1,5 +1,6 @@
 """Deployment and health check routes. Uses current_app.config for env vars."""
 import os
+import secrets
 import shutil
 import subprocess
 from datetime import datetime
@@ -10,9 +11,22 @@ from extensions import db
 bp = Blueprint('deploy', __name__, url_prefix='')
 
 
+def _deploy_debug_allowed():
+    """Debug/status deploy routes: dev only, or X-Deploy-Secret when DEPLOY_STATUS_SECRET is set."""
+    if current_app.config.get('IS_DEVELOPMENT', False):
+        return True
+    secret = os.environ.get('DEPLOY_STATUS_SECRET', '').strip()
+    if not secret:
+        return False
+    supplied = request.headers.get('X-Deploy-Secret', '')
+    return bool(supplied) and secrets.compare_digest(supplied, secret)
+
+
 @bp.route('/_deploy/reload', methods=['POST'])
 def reload_app():
     """Reload the application - development only."""
+    if not _deploy_debug_allowed():
+        return jsonify({'error': 'Not found'}), 404
     if not current_app.config.get('IS_DEVELOPMENT', False):
         return jsonify({'error': 'Not available in production'}), 403
 
@@ -44,6 +58,9 @@ def reload_app():
 @bp.route('/_deploy/status', methods=['GET'])
 def deployment_status():
     """Check deployment status - comprehensive status endpoint."""
+    if not _deploy_debug_allowed():
+        return jsonify({'error': 'Not found'}), 404
+
     is_dev = current_app.config.get('IS_DEVELOPMENT', False)
     db_path = current_app.config.get('DB_PATH', '')
     env = current_app.config.get('ENV', 'production')
@@ -146,6 +163,9 @@ def health_check():
 @bp.route('/_deploy/host-info', methods=['GET'])
 def host_info():
     """Debug: Host header and layer resolution (for subdomain redirect troubleshooting)."""
+    if not _deploy_debug_allowed():
+        return jsonify({'error': 'Not found'}), 404
+
     host = request.host
     xfh = request.headers.get('X-Forwarded-Host', '')
     layer = getattr(g, 'layer', None)
@@ -163,6 +183,9 @@ def host_info():
 @bp.route('/_deploy/test', methods=['GET'])
 def deployment_test():
     """Show a visible test page."""
+    if not _deploy_debug_allowed():
+        return jsonify({'error': 'Not found'}), 404
+
     env = current_app.config.get('ENV', 'production')
     port = current_app.config.get('PORT', 8000)
     db_path = current_app.config.get('DB_PATH', '')

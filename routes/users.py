@@ -59,8 +59,12 @@ def serve_entity_image(filename):
 # ============================================================================
 
 @bp.route('/api/users/search/', methods=['GET'])
+@require_auth
 def api_search_users():
-    """Search users by username or display name (for adding project admins)."""
+    """Search users by username or display name (authenticated; for admin/coordinator UI)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
     q = request.args.get('q', '').strip()
     if not q or len(q) < 2:
         return jsonify({'users': [], 'count': 0})

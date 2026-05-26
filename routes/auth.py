@@ -1,9 +1,8 @@
-"""Auth routes: login, logout, register, Web3Auth, api/user/me, api/user/display-name."""
+"""Auth routes: login, logout, Web3Auth, api/user/me, api/user/display-name."""
 import re
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request, session, flash, redirect, url_for, render_template_string
-from werkzeug.security import generate_password_hash
+from flask import Blueprint, jsonify, request, session, flash, redirect, url_for
 
 from extensions import db
 from models import User
@@ -25,7 +24,7 @@ LOGIN_TEMPLATE = """
                 <div class="living-module-body text-center py-2">
                     <div id="flash-messages"></div>
                     <p class="text-muted mb-3">Web3Auth — Google, email, or wallet</p>
-                    <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" onclick="loginWithWeb3Auth()">
+                    <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" disabled aria-busy="true" onclick="loginWithWeb3Auth()">
                         <svg width="20" height="20" class="me-2" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;">
                             <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
                         </svg>
@@ -37,52 +36,6 @@ LOGIN_TEMPLATE = """
     </div>
 </div>
 """
-
-REGISTER_TEMPLATE = """
-<div class="gh-page container mt-4 gh-auth-panel">
-    <header class="gh-page-header">
-        <div class="gh-page-header-main">
-            <div class="gh-page-header-icon"><i class="fas fa-user-plus"></i></div>
-            <div><h1 class="gh-page-title">Create Account</h1><p class="gh-page-lead">Join the Meta-Layer Governance Hub</p></div>
-        </div>
-    </header>
-    <div class="row justify-content-center">
-        <div class="col-md-6 col-lg-5">
-            <div class="living-module mb-0">
-                <div class="living-module-body">
-                    <div id="flash-messages"></div>
-                    <form method="POST">
-                        <div class="mb-3">
-                            <label for="username" class="form-label">Username</label>
-                            <input type="text" class="form-control" id="username" name="username" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="name" class="form-label">Full Name</label>
-                            <input type="text" class="form-control" id="name" name="name" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="email" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="email" name="email" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="password" class="form-label">Password</label>
-                            <input type="password" class="form-control" id="password" name="password" required minlength="6">
-                        </div>
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">Create Account</button>
-                        </div>
-                    </form>
-                    <hr>
-                    <div class="text-center">
-                        <p class="mb-0">Already have an account? <a href="/login/">Sign in</a></p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-"""
-
 
 @bp.route('/login/', methods=['GET'])
 def login():
@@ -118,55 +71,20 @@ def logout():
 
 
 @bp.route('/register/', methods=['GET', 'POST'])
-def register():
-    """User registration"""
-    from services.rendering import _format_base_template
-    from config import BUILD_NUMBER
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
-        name = request.form.get('name', '').strip()
-        email = request.form.get('email', '').strip()
-
-        existing_user = User.query.filter((User.username == username) | (User.email == email)).first()
-        if existing_user:
-            if existing_user.username == username:
-                flash('Username already exists.', 'error')
-            else:
-                flash('Email already registered.', 'error')
-        elif len(password) < 6:
-            flash('Password must be at least 6 characters.', 'error')
-        else:
-            new_user = User(
-                username=username,
-                password_hash=generate_password_hash(password),
-                name=name,
-                email=email,
-                role='user',
-                theme='dark'
-            )
-            db.session.add(new_user)
-            db.session.flush()
-            from services.document_follow_notifications import ensure_notification_unsubscribe_token
-
-            ensure_notification_unsubscribe_token(new_user)
-            db.session.commit()
-
-            session['user'] = username
-            flash(f'Account created successfully! Welcome, {name}!', 'success')
-            return redirect(url_for('pages.home'))
-
-    user_menu = """
-    <li class="nav-item">
-        <a class="nav-link" href="/login/">Sign In</a>
-    </li>
-    """
-    return render_template_string(_format_base_template(title="Register - MLGH", theme="light", user_menu=user_menu, content=REGISTER_TEMPLATE, build_number=BUILD_NUMBER))
+@bp.route('/register', methods=['GET', 'POST'])
+def register_disabled():
+    """Public registration is disabled; accounts are created via Web3Auth sign-in."""
+    flash('Registration is closed. Sign in with Web3Auth to continue.', 'info')
+    return redirect(url_for('auth.login'))
 
 
 @bp.route('/api/auth/web3auth', methods=['POST'])
 def web3auth_login():
-    """Web3Auth login endpoint"""
+    """Web3Auth login — requires a verified idToken from Web3Auth getIdentityToken()."""
+    from flask import current_app
+    from jwt.exceptions import InvalidTokenError
+    from services.web3auth_verify import identity_from_web3auth_claims, verify_web3auth_id_token
+
     client_ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
     if not check_rate_limit(f"web3auth_{client_ip}", max_requests=50, window_seconds=600):
         return jsonify({'error': 'Too many sign-in attempts. Please wait a few minutes and try again.'}), 429
@@ -176,72 +94,58 @@ def web3auth_login():
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        verifierId = data.get('verifierId')
-        typeOfLogin = data.get('typeOfLogin')
-        email = data.get('email')
-        name = data.get('name')
-        profileImage = data.get('profileImage')
-        evmAddress = data.get('evmAddress')
-        solanaAddress = data.get('solanaAddress')
+        id_token = (data.get('idToken') or data.get('id_token') or '').strip()
+        if not id_token:
+            return jsonify({'error': 'idToken required'}), 400
 
-        if not verifierId:
-            return jsonify({'error': 'verifierId required'}), 400
+        try:
+            claims = verify_web3auth_id_token(id_token)
+            identity = identity_from_web3auth_claims(claims)
+        except InvalidTokenError:
+            return jsonify({'error': 'Invalid or expired sign-in token'}), 401
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 401
 
-        user = User.query.filter_by(web3authVerifierId=verifierId).first()
-        if not user and email:
-            user = User.query.filter_by(email=email).first()
+        verifier_id = identity['verifierId']
+        type_of_login = identity['typeOfLogin']
+        email = identity['email']
+        name = identity['name']
+        profile_image = identity['profileImage']
+        # Wallet addresses are optional UX metadata; never used for authentication.
+        evm_address = (data.get('evmAddress') or '').strip() or None
+        solana_address = (data.get('solanaAddress') or '').strip() or None
 
+        user = User.query.filter_by(web3authVerifierId=verifier_id).first()
         if user:
-            user.web3authVerifierId = verifierId
-            user.typeOfLogin = typeOfLogin
-            user.last_login = datetime.utcnow()
-            if name:
-                user.displayName = name
-                user.displayNameSetAt = datetime.utcnow()
-                user.oauthName = name
-            if profileImage:
-                user.profileImage = profileImage
-            if evmAddress:
-                user.evmAddress = evmAddress
-            if solanaAddress:
-                user.solanaAddress = solanaAddress
+            _update_user_from_web3auth(
+                user,
+                type_of_login=type_of_login,
+                email=email,
+                name=name,
+                profile_image=profile_image,
+                evm_address=evm_address,
+                solana_address=solana_address,
+            )
             db.session.commit()
         else:
-            existing_handles = db.session.query(User.username).all()
-            existing_handles = [h[0] for h in existing_handles]
-            if typeOfLogin == 'wallet' and evmAddress:
-                short_address = f"{evmAddress[:6]}...{evmAddress[-4:]}"
-                handle = f"wallet_{short_address}"
-                counter = 1
-                while handle in existing_handles:
-                    handle = f"wallet_{short_address}_{counter}"
-                    counter += 1
-            else:
-                base_handle = email.split('@')[0] if email else 'user'
-                base_handle = re.sub(r'[^a-zA-Z0-9_]', '', base_handle)
-                if len(base_handle) < 3:
-                    base_handle = 'user'
-                handle = base_handle
-                counter = 1
-                while handle in existing_handles:
-                    handle = f"{base_handle}{counter}"
-                    counter += 1
+            if email:
+                email_owner = User.query.filter_by(email=email).first()
+                if email_owner:
+                    return jsonify({
+                        'error': (
+                            'This email is already linked to another account. '
+                            'Sign in with the method you used originally or contact support.'
+                        ),
+                    }), 409
 
-            user = User(
-                web3authVerifierId=verifierId,
-                typeOfLogin=typeOfLogin,
-                displayName=name if name else None,
-                displayNameSetAt=datetime.utcnow() if name else None,
-                oauthName=name,
+            user = _create_user_from_web3auth(
+                verifier_id=verifier_id,
+                type_of_login=type_of_login,
                 email=email,
-                profileImage=profileImage,
-                evmAddress=evmAddress,
-                solanaAddress=solanaAddress,
-                username=handle,
-                handle=handle,
-                role='user',
-                theme='dark',
-                last_login=datetime.utcnow()
+                name=name,
+                profile_image=profile_image,
+                evm_address=evm_address,
+                solana_address=solana_address,
             )
             db.session.add(user)
             db.session.flush()
@@ -263,17 +167,89 @@ def web3auth_login():
             'evmAddress': user.evmAddress,
             'solanaAddress': user.solanaAddress,
             'typeOfLogin': user.typeOfLogin,
-            'theme': user.theme
+            'theme': user.theme,
         }
         return jsonify({'success': True, 'user': safe_user_data})
 
     except Exception as e:
         import traceback
-        error_details = traceback.format_exc()
-        from flask import current_app
-        current_app.logger.error(f"Web3Auth login error: {e}\n{error_details}")
+
+        current_app.logger.error("Web3Auth login error: %s\n%s", e, traceback.format_exc())
         db.session.rollback()
-        return jsonify({'error': f'Authentication failed: {str(e)}'}), 500
+        return jsonify({'error': 'Authentication failed'}), 500
+
+
+def _update_user_from_web3auth(
+    user,
+    *,
+    type_of_login,
+    email,
+    name,
+    profile_image,
+    evm_address,
+    solana_address,
+):
+    user.typeOfLogin = type_of_login
+    user.last_login = datetime.utcnow()
+    if email and not user.email:
+        user.email = email
+    if name:
+        user.displayName = name
+        user.displayNameSetAt = datetime.utcnow()
+        user.oauthName = name
+    if profile_image:
+        user.profileImage = profile_image
+    if evm_address:
+        user.evmAddress = evm_address
+    if solana_address:
+        user.solanaAddress = solana_address
+
+
+def _create_user_from_web3auth(
+    *,
+    verifier_id,
+    type_of_login,
+    email,
+    name,
+    profile_image,
+    evm_address,
+    solana_address,
+):
+    existing_handles = [row[0] for row in db.session.query(User.username).all()]
+    if type_of_login == 'wallet' and evm_address:
+        short_address = f"{evm_address[:6]}...{evm_address[-4:]}"
+        handle = f"wallet_{short_address}"
+        counter = 1
+        while handle in existing_handles:
+            handle = f"wallet_{short_address}_{counter}"
+            counter += 1
+    else:
+        base_handle = email.split('@')[0] if email else 'user'
+        base_handle = re.sub(r'[^a-zA-Z0-9_]', '', base_handle)
+        if len(base_handle) < 3:
+            base_handle = 'user'
+        handle = base_handle
+        counter = 1
+        while handle in existing_handles:
+            handle = f"{base_handle}{counter}"
+            counter += 1
+
+    return User(
+        web3authVerifierId=verifier_id,
+        typeOfLogin=type_of_login,
+        displayName=name if name else None,
+        displayNameSetAt=datetime.utcnow() if name else None,
+        oauthName=name,
+        email=email,
+        profileImage=profile_image,
+        evmAddress=evm_address,
+        solanaAddress=solana_address,
+        username=handle,
+        handle=handle,
+        role='user',
+        theme='dark',
+        last_login=datetime.utcnow(),
+    )
 
 
 @bp.route('/api/user/me', methods=['GET'])
