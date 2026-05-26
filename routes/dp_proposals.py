@@ -7,6 +7,7 @@ from extensions import db
 from models import DpProposal
 from services.dp_proposals import (
     accept_proposal,
+    can_accept_amendments,
     can_manage_amendments,
     create_dp_proposal,
     dashboard_dp_activity,
@@ -108,9 +109,8 @@ def accept_proposal_route(draft_ref, proposal_id):
     if err:
         return jsonify({'error': err}), 404 if err == 'Document not found' else 400
 
-    wg = workgroup_for_submission(submission)
-    if not can_manage_amendments(current_user, wg):
-        return jsonify({'error': 'Not authorized to accept amendments for this DP'}), 403
+    if not can_accept_amendments(current_user):
+        return jsonify({'error': 'Only site administrators can accept amendments'}), 403
 
     proposal = DpProposal.query.filter_by(id=proposal_id, submission_id=submission.id).first()
     if not proposal:

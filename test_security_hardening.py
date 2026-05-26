@@ -85,3 +85,11 @@ def test_session_json_csrf_required_without_pytest_bypass():
 
     assert bad.status_code == 403
     assert ok.status_code != 403
+
+
+def test_base_template_fetch_wrapper_scopes_csrf_to_same_origin():
+    from templates.html_templates import BASE_TEMPLATE
+
+    assert 'sameOrigin' in BASE_TEMPLATE
+    assert 'window.location.origin' in BASE_TEMPLATE
+    assert "if (sameOrigin)" in BASE_TEMPLATE

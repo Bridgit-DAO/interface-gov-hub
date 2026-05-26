@@ -4,17 +4,67 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from extensions import db
 from models import DpProposal, Submission, User, Workgroup, WorkingGroupChair
 from services.coordination import is_layer_admin, is_site_moderation_staff
 from services.submissions import get_submission_by_ref
+
+
+def resolve_canonical_submission(submission: Optional[Submission]) -> Optional[Submission]:
+    """Prefer the current approved row for an ML number (after renumber / duplicate rows)."""
+    if not submission:
+        return None
+    ml = (submission.ml_number or '').strip()
+    if ml:
+        canonical = get_submission_by_ref(ml)
+        if canonical:
+            return canonical
+    return submission
+
+
+def canonical_doc_group_key(submission: Optional[Submission]) -> str:
+    if not submission:
+        return ''
+    ml = (submission.ml_number or '').strip()
+    if ml:
+        return f'ml:{ml}'
+    draft = (submission.draft_name or '').strip()
+    if draft:
+        return f'draft:{draft}'
+    return f'id:{submission.id}'
+
+
+def reassign_proposals_to_canonical_submissions() -> int:
+    """
+    Move proposals off stale submission rows onto the current row for the same ML number.
+    Returns number of proposals updated.
+    """
+    moved = 0
+    for proposal in DpProposal.query.all():
+        submission = Submission.query.get(proposal.submission_id)
+        if not submission:
+            continue
+        canonical = resolve_canonical_submission(submission)
+        if not canonical or canonical.id == proposal.submission_id:
+            continue
+        proposal.submission_id = canonical.id
+        proposal.anchor_hash = compute_anchor_hash(
+            canonical.id,
+            canonical.content_hash,
+            proposal.original_text,
+        )
+        moved += 1
+    if moved:
+        db.session.commit()
+    return moved
 from services.workgroup_links import extract_dp_number_from_title, is_dp_workgroup
 from services.workgroup_positions import NOMINATION_STATUS_APPROVED
 
 _NBSP_RE = re.compile('\u00a0')
+_SENTENCE_RE = re.compile(r'[^.!?\u3002\n]+[.!?\u3002\n]+|[^.!?\u3002\n]+$')
 
 
 def normalize_proposal_text(text: str) -> str:
@@ -22,6 +72,82 @@ def normalize_proposal_text(text: str) -> str:
     if not text:
         return ''
     return _NBSP_RE.sub(' ', str(text)).replace('\r\n', '\n').strip()
+
+
+def _collapse_sentence(text: str) -> str:
+    return ' '.join((text or '').split())
+
+
+def segment_sentences(text: str) -> List[Dict[str, Any]]:
+    """Heuristic sentence boundaries (aligned with proposal-display.js)."""
+    raw = text or ''
+    parts: List[Dict[str, Any]] = []
+    for match in _SENTENCE_RE.finditer(raw):
+        parts.append({'start': match.start(), 'end': match.end(), 'text': match.group(0)})
+    if not parts and raw:
+        parts.append({'start': 0, 'end': len(raw), 'text': raw})
+    return parts
+
+
+def focused_passage_core(original: str, proposed: str) -> Tuple[str, str]:
+    """
+    Return only the contiguous changed sentence(s) at the start/end of a passage.
+    Unchanged leading/trailing sentences are removed (no ellipsis).
+    """
+    o_s = segment_sentences(original)
+    p_s = segment_sentences(proposed)
+    start = 0
+    while (
+        start < len(o_s)
+        and start < len(p_s)
+        and _collapse_sentence(o_s[start]['text']) == _collapse_sentence(p_s[start]['text'])
+    ):
+        start += 1
+    o_end = len(o_s) - 1
+    p_end = len(p_s) - 1
+    while (
+        o_end >= start
+        and p_end >= start
+        and _collapse_sentence(o_s[o_end]['text']) == _collapse_sentence(p_s[p_end]['text'])
+    ):
+        o_end -= 1
+        p_end -= 1
+    if start > o_end:
+        return original.strip(), proposed.strip()
+    return (
+        original[o_s[start]['start']: o_s[o_end]['end']].strip(),
+        proposed[p_s[start]['start']: p_s[p_end]['end']].strip(),
+    )
+
+
+def align_context_anchor_to_original(context_anchor: Any, original_text: str) -> Any:
+    """Keep stored textQuote.exact in sync with truncated original_text."""
+    if not original_text:
+        return context_anchor
+    anchor: Dict[str, Any]
+    if context_anchor is None:
+        anchor = {}
+    elif isinstance(context_anchor, str):
+        try:
+            anchor = json.loads(context_anchor.strip())
+        except json.JSONDecodeError:
+            return context_anchor
+        if not isinstance(anchor, dict):
+            return context_anchor
+    elif isinstance(context_anchor, dict):
+        anchor = dict(context_anchor)
+    else:
+        return context_anchor
+
+    text_quote = anchor.get('textQuote')
+    if not isinstance(text_quote, dict):
+        text_quote = {'type': 'TextQuoteSelector'}
+    else:
+        text_quote = dict(text_quote)
+    text_quote['type'] = text_quote.get('type') or 'TextQuoteSelector'
+    text_quote['exact'] = original_text
+    anchor['textQuote'] = text_quote
+    return anchor
 
 
 def compute_anchor_hash(
@@ -62,8 +188,13 @@ def workgroup_for_submission(submission: Submission) -> Optional[Workgroup]:
     return None
 
 
+def can_accept_amendments(user: Optional[dict]) -> bool:
+    """Only site admins may accept a DP proposal as an amendment."""
+    return bool(user and user.get('role') == 'admin')
+
+
 def can_manage_amendments(user: Optional[dict], workgroup: Optional[Workgroup]) -> bool:
-    """Chair/coordinator (and admins) may accept or decline DP Proposals."""
+    """Chair/coordinator (and admins) may decline DP proposals; accept is admin-only."""
     if not user:
         return False
     if is_site_moderation_staff(user):
@@ -124,9 +255,17 @@ def validate_create_payload(data: Any) -> Tuple[Optional[dict], Optional[str]]:
         return None, 'original_text is required'
     if not proposed:
         return None, 'proposed_text is required'
+    original, proposed = focused_passage_core(original, proposed)
+    if not original:
+        return None, 'original_text is required'
+    if not proposed:
+        return None, 'proposed_text is required'
     if original == proposed:
         return None, 'proposed_text must differ from original_text'
-    context_anchor = data.get('context_anchor')
+    context_anchor = align_context_anchor_to_original(
+        data.get('context_anchor'),
+        original,
+    )
     if context_anchor is not None and not isinstance(context_anchor, (dict, str)):
         return None, 'context_anchor must be a JSON object or string'
     scope = (data.get('scope') or 'dp').strip().lower()
@@ -181,6 +320,80 @@ def proposal_counts(proposals: List[DpProposal]) -> Dict[str, Any]:
     }
 
 
+def parse_stored_context_anchor(raw: Optional[str]) -> Optional[dict]:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def retrim_stored_proposal(proposal: DpProposal) -> Tuple[bool, Optional[str]]:
+    """
+    Trim stored original/proposed text and refresh anchor_hash and context_anchor.
+    Returns (changed, error_message). error_message is set when the row is left unchanged.
+    """
+    orig = normalize_proposal_text(proposal.original_text or '')
+    prop = normalize_proposal_text(proposal.proposed_text or '')
+    new_orig, new_prop = focused_passage_core(orig, prop)
+    if not new_orig or not new_prop:
+        return False, 'empty text after trim'
+    if new_orig == new_prop:
+        return False, 'no differing sentences after trim'
+
+    new_anchor = align_context_anchor_to_original(
+        parse_stored_context_anchor(proposal.context_anchor),
+        new_orig,
+    )
+    new_hash = compute_anchor_hash(
+        proposal.submission_id,
+        proposal.content_hash_at_create,
+        new_orig,
+    )
+    serialized_anchor = serialize_context_anchor(new_anchor)
+
+    changed = (
+        new_orig != orig
+        or new_prop != prop
+        or new_hash != (proposal.anchor_hash or '')
+        or serialized_anchor != proposal.context_anchor
+    )
+    proposal.original_text = new_orig
+    proposal.proposed_text = new_prop
+    proposal.context_anchor = serialized_anchor
+    proposal.anchor_hash = new_hash
+    return changed, None
+
+
+def retrim_all_dp_proposals(*, dry_run: bool = False) -> Dict[str, Any]:
+    """One-off / maintenance: trim all stored DP proposals to changed sentences only."""
+    rows = DpProposal.query.order_by(DpProposal.created_at.asc()).all()
+    stats: Dict[str, Any] = {
+        'total': len(rows),
+        'updated': 0,
+        'unchanged': 0,
+        'skipped': 0,
+        'errors': [],
+    }
+    for row in rows:
+        changed, err = retrim_stored_proposal(row)
+        if err:
+            stats['skipped'] += 1
+            stats['errors'].append({'id': row.id, 'error': err})
+            continue
+        if changed:
+            stats['updated'] += 1
+        else:
+            stats['unchanged'] += 1
+    if dry_run:
+        db.session.rollback()
+    else:
+        db.session.commit()
+    return stats
+
+
 def create_dp_proposal(
     submission: Submission,
     *,
@@ -224,8 +437,65 @@ def decline_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
     return proposal
 
 
+def submission_draft_ref(submission: Optional[Submission]) -> str:
+    """URL ref for /doc/draft/<ref>/read/ (ml_number preferred)."""
+    if not submission:
+        return ''
+    return (submission.ml_number or submission.draft_name or submission.id or '').strip()
+
+
+def user_profile_path(user: Optional[User]) -> Optional[str]:
+    if not user or not user.username:
+        return None
+    return f'/profile/{user.username}/'
+
+
+def user_display_label(user: Optional[User]) -> str:
+    if not user:
+        return 'Anonymous'
+    return (user.displayName or user.username or 'Participant').strip()
+
+
+def list_approved_dp_submissions() -> List[Submission]:
+    """Approved DP drafts, one row per ML number (canonical read target)."""
+    subs = Submission.query.filter_by(status='approved', doc_type='draft').all()
+    seen_ml: set = set()
+    out: List[Submission] = []
+    for sub in sorted(
+        [s for s in subs if is_dp_submission(s)],
+        key=lambda s: ((s.ml_number or ''), (s.title or '')),
+    ):
+        ml = (sub.ml_number or '').strip()
+        if ml:
+            if ml in seen_ml:
+                continue
+            seen_ml.add(ml)
+            canonical = get_submission_by_ref(ml) or sub
+            out.append(canonical)
+        else:
+            out.append(sub)
+    return out
+
+
+def dashboard_dp_challenge_stats() -> Dict[str, Any]:
+    from sqlalchemy import func
+
+    total = db.session.query(func.count(DpProposal.id)).scalar() or 0
+    contributors = (
+        db.session.query(func.count(func.distinct(DpProposal.author_user_id)))
+        .filter(DpProposal.author_user_id.isnot(None))
+        .scalar()
+    ) or 0
+    docs = len(dashboard_dp_activity(limit=500))
+    return {
+        'total_proposals': int(total),
+        'contributors': int(contributors),
+        'documents': int(docs),
+    }
+
+
 def dashboard_dp_activity(limit: int = 100) -> List[dict]:
-    """Rows for /admin/dp-proposals/ sorted by recent activity (most active first)."""
+    """Rows for dashboards by document (ML number), not duplicate submission rows."""
     from sqlalchemy import case, func
 
     activity_expr = func.max(DpProposal.created_at)
@@ -242,30 +512,187 @@ def dashboard_dp_activity(limit: int = 100) -> List[dict]:
         )
         .group_by(DpProposal.submission_id)
         .order_by(activity_expr.desc())
+        .all()
+    )
+    merged: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        submission = Submission.query.get(row.submission_id)
+        if not submission or not is_dp_submission(submission):
+            continue
+        canonical = resolve_canonical_submission(submission)
+        if not canonical:
+            continue
+        key = canonical_doc_group_key(canonical)
+        if key not in merged:
+            wg = workgroup_for_submission(canonical)
+            title = canonical.title or ''
+            merged[key] = {
+                'submission_ids': {row.submission_id},
+                'draft_ref': submission_draft_ref(canonical),
+                'title': title,
+                'title_short': _short_dp_title(title),
+                'ml_number': canonical.ml_number,
+                'dp_number': extract_dp_number_from_title(title),
+                'workgroup_acronym': wg.acronym if wg else (canonical.group or None),
+                'workgroup_name': wg.name if wg else None,
+                'counts': {
+                    'total': 0,
+                    'pending': 0,
+                    'accepted': 0,
+                    'declined': 0,
+                    'incorporated': 0,
+                    'orphaned': 0,
+                },
+                'last_activity': None,
+            }
+        entry = merged[key]
+        entry['submission_ids'].add(row.submission_id)
+        for field in ('total', 'pending', 'accepted', 'declined', 'incorporated', 'orphaned'):
+            entry['counts'][field] += int(getattr(row, field) or 0)
+        last = row.last_activity.isoformat() if row.last_activity else None
+        if last and (not entry['last_activity'] or last > entry['last_activity']):
+            entry['last_activity'] = last
+
+    out: List[dict] = []
+    for entry in merged.values():
+        sub_ids = list(entry.pop('submission_ids'))
+        contributors = (
+            db.session.query(func.count(func.distinct(DpProposal.author_user_id)))
+            .filter(
+                DpProposal.submission_id.in_(sub_ids),
+                DpProposal.author_user_id.isnot(None),
+            )
+            .scalar()
+        ) or 0
+        entry['contributors'] = int(contributors)
+        out.append(entry)
+
+    out.sort(key=lambda r: r.get('last_activity') or '', reverse=True)
+    return out[:limit]
+
+
+def _short_dp_title(title: str) -> str:
+    """Strip leading 'DP11 - ' style prefix for a compact title column."""
+    t = (title or '').strip()
+    m = re.match(r'^DP\s*\d+\s*[-–—:]\s*(.+)$', t, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return t
+
+
+def dashboard_dp_by_participant(limit: int = 100) -> List[dict]:
+    """Contributor activity for DP Challenge (most proposals first)."""
+    from sqlalchemy import case, func
+
+    activity_expr = func.max(DpProposal.created_at)
+    rows = (
+        db.session.query(
+            DpProposal.author_user_id,
+            func.count(DpProposal.id).label('total'),
+            func.count(func.distinct(DpProposal.submission_id)).label('docs'),
+            func.sum(case((DpProposal.status == 'accepted', 1), else_=0)).label('accepted'),
+            func.sum(case((DpProposal.status == 'pending', 1), else_=0)).label('pending'),
+            activity_expr.label('last_activity'),
+        )
+        .filter(DpProposal.author_user_id.isnot(None))
+        .group_by(DpProposal.author_user_id)
+        .order_by(activity_expr.desc())
         .limit(limit)
         .all()
     )
     out: List[dict] = []
     for row in rows:
-        submission = Submission.query.get(row.submission_id)
-        wg = workgroup_for_submission(submission) if submission else None
+        user = User.query.get(row.author_user_id)
         out.append({
-            'submission_id': row.submission_id,
-            'title': submission.title if submission else None,
-            'ml_number': submission.ml_number if submission else None,
-            'workgroup_acronym': wg.acronym if wg else (submission.group if submission else None),
-            'workgroup_name': wg.name if wg else None,
+            'author_user_id': row.author_user_id,
+            'display_name': user_display_label(user),
+            'username': user.username if user else None,
+            'profile_href': user_profile_path(user),
             'counts': {
                 'total': int(row.total or 0),
-                'pending': int(row.pending or 0),
+                'docs': int(row.docs or 0),
                 'accepted': int(row.accepted or 0),
-                'declined': int(row.declined or 0),
-                'incorporated': int(row.incorporated or 0),
-                'orphaned': int(row.orphaned or 0),
+                'pending': int(row.pending or 0),
             },
             'last_activity': row.last_activity.isoformat() if row.last_activity else None,
         })
     return out
+
+
+def parse_challenge_since_param(raw: Optional[str]) -> Optional[datetime]:
+    if not raw:
+        return None
+    text = str(raw).strip().replace('Z', '')
+    if '+' in text:
+        text = text.split('+', 1)[0]
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def challenge_recent_events(
+    since: Optional[datetime] = None,
+    *,
+    limit: int = 20,
+) -> List[dict]:
+    """Recent proposal created + accepted events for live toasts."""
+    if since is None:
+        since = datetime.utcnow() - timedelta(hours=24)
+
+    created_rows = (
+        DpProposal.query.filter(DpProposal.created_at > since)
+        .order_by(DpProposal.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    accepted_rows = (
+        DpProposal.query.filter(
+            DpProposal.status == 'accepted',
+            DpProposal.reviewed_at.isnot(None),
+            DpProposal.reviewed_at > since,
+        )
+        .order_by(DpProposal.reviewed_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    events: List[dict] = []
+    for p in created_rows:
+        sub = Submission.query.get(p.submission_id)
+        author = User.query.get(p.author_user_id) if p.author_user_id else None
+        draft_ref = submission_draft_ref(sub)
+        events.append({
+            'type': 'created',
+            'at': p.created_at.isoformat() if p.created_at else None,
+            'proposal_id': p.id,
+            'author_user_id': p.author_user_id,
+            'author_name': user_display_label(author),
+            'author_profile_href': user_profile_path(author),
+            'doc_title': sub.title if sub else 'DP draft',
+            'doc_href': f'/doc/draft/{draft_ref}/read/' if draft_ref else None,
+            'ml_number': sub.ml_number if sub else None,
+        })
+    for p in accepted_rows:
+        sub = Submission.query.get(p.submission_id)
+        author = User.query.get(p.author_user_id) if p.author_user_id else None
+        draft_ref = submission_draft_ref(sub)
+        events.append({
+            'type': 'accepted',
+            'at': p.reviewed_at.isoformat() if p.reviewed_at else None,
+            'proposal_id': p.id,
+            'author_user_id': p.author_user_id,
+            'author_name': user_display_label(author),
+            'author_profile_href': user_profile_path(author),
+            'doc_title': sub.title if sub else 'DP draft',
+            'doc_href': f'/doc/draft/{draft_ref}/read/' if draft_ref else None,
+            'ml_number': sub.ml_number if sub else None,
+        })
+
+    events.sort(key=lambda e: e.get('at') or '', reverse=True)
+    return events[:limit]
 
 
 def user_from_session(current_user: dict) -> Optional[User]:

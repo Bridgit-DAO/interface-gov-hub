@@ -1,0 +1,178 @@
+/* DP Challenge public hub */
+
+.dp-challenge-cta-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.dp-challenge-picker {
+  flex: 1 1 16rem;
+  max-width: 28rem;
+}
+
+.dp-challenge-table-wrap {
+  overflow-x: auto;
+}
+
+.dp-challenge-doc-table {
+  width: 100%;
+  min-width: 42rem;
+}
+
+.dp-challenge-doc-table .dp-challenge-col-dp {
+  width: 4.5rem;
+  white-space: nowrap;
+}
+
+.dp-challenge-doc-table .dp-challenge-col-title {
+  min-width: 12rem;
+  max-width: 28rem;
+  width: 40%;
+}
+
+.dp-challenge-doc-link {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dp-challenge-doc-link:hover {
+  color: #8ea2ff;
+}
+
+.dp-challenge-doc-table .dp-challenge-col-ml {
+  width: 8.5rem;
+  white-space: nowrap;
+}
+
+.dp-challenge-doc-table .dp-challenge-col-num {
+  width: 5.5rem;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.dp-challenge-doc-table thead .dp-challenge-col-num {
+  text-align: center;
+}
+
+.dp-challenge-doc-table .dp-challenge-col-action {
+  width: 9rem;
+  white-space: nowrap;
+}
+
+.dp-challenge-page .dp-challenge-hero {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.dp-challenge-hero-banner {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid rgba(102, 126, 234, 0.28);
+  background: var(--bg-tertiary, #16181c);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.dp-challenge-hero-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+.dp-challenge-hero .btn {
+  margin-top: 1rem;
+}
+
+@media (max-width: 575.98px) {
+  .dp-challenge-hero-banner {
+    border-radius: 0.5rem;
+  }
+}
+
+.dp-challenge-stat-card {
+  text-align: center;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color, #333);
+  background: var(--bg-secondary, #141414);
+}
+
+.dp-challenge-stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dp-challenge-stat-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.dp-challenge-tabs .nav-link {
+  font-weight: 600;
+}
+
+.dp-challenge-toast-host {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 1080;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(22rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.dp-challenge-toast {
+  pointer-events: auto;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(102, 126, 234, 0.4);
+  background: var(--bg-secondary, #1a1a1a);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.dp-challenge-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.dp-challenge-toast.is-fading {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.dp-challenge-toast a {
+  color: #8ea2ff;
+  font-weight: 600;
+}
+
+.dp-challenge-toast-type {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.dp-challenge-toast-type.is-accepted {
+  color: #4ade80;
+}

@@ -579,6 +579,9 @@ def draft_reader(draft_name):
         )
 
     from services.dp_proposal_reader import render_dp_proposal_reader_assets
+    from services.read_navigation import draft_reader_back_href
+
+    back_href = html_mod.escape(draft_reader_back_href(request.args.get('return_to')))
 
     dp_proposal_assets = render_dp_proposal_reader_assets(
         submission,
@@ -689,7 +692,7 @@ def draft_reader(draft_name):
       <div class="draft-reader-toolbar">
         <div class="draft-reader-toolbar-inner">
           <div class="draft-reader-nav">
-            <a href="/doc/all/" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+            <a href="{back_href}" class="btn btn-sm btn-outline-secondary" id="draftReaderBack">&larr; Back</a>
             <a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>
           </div>
           <div class="draft-reader-meta">

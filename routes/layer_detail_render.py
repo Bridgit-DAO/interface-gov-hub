@@ -2584,14 +2584,14 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             '<input type="search" id="layer-wg-search" class="form-control form-control-sm" placeholder="Search workgroups..." oninput="filterLayerWorkgroups()">' +
             '</div><div class="col-md-4">' +
             '<select id="layer-wg-sort" class="form-select form-select-sm" onchange="filterLayerWorkgroups()">' +
-            '<option value="recent" selected>Most recent</option><option value="name-asc">A–Z</option><option value="name-desc">Z–A</option>' +
+            '<option value="name-asc" selected>A–Z</option><option value="name-desc">Z–A</option><option value="recent">Most recent</option>' +
             '</select></div></div>' +
             '<div id="workgroups-list"></div>';
     }}
 
     function renderLayerWorkgroupsList() {{
         const term = (document.getElementById('layer-wg-search')?.value || '').trim();
-        const sort = document.getElementById('layer-wg-sort')?.value || 'recent';
+        const sort = document.getElementById('layer-wg-sort')?.value || 'name-asc';
         let items = GhDirectory.filterAndSort(layerWorkgroupsList, {{
             searchTerm: term,
             sort: sort,

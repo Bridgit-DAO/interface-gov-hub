@@ -233,7 +233,7 @@ def layer_standalone_workgroups(layer_ref):
         {gh_page_header('Workgroups', f'Workgroups in {layer_name_esc}', 'fa-users-cog', actions_html=f'<a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li><li class="breadcrumb-item active">Workgroups</li></ol></nav>')}
         {gh_filter_row(
             gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>', 'col-md-3')
-            + gh_directory_toolbar(search_placeholder='Search workgroups…', search_col='col-md-5', sort_col='col-md-2')
+            + gh_directory_toolbar(search_placeholder='Search workgroups…', search_col='col-md-5', sort_col='col-md-2', sort_default='name-asc')
         )}
         <div id="workgroups-container" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
             <div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>
@@ -259,7 +259,7 @@ def layer_standalone_workgroups(layer_ref):
     function filterWorkgroups() {{
         const items = GhDirectory.filterAndSort(allWorkgroups, {{
             searchTerm: GhDirectory.getSearchValue('search-input'),
-            sort: GhDirectory.getSortValue('sort-filter'),
+            sort: GhDirectory.getSortValue('sort-filter') || 'name-asc',
             searchFields: ['name', 'description', 'acronym', 'slug'],
             nameKey: 'name',
             dateKeys: ['updated_at', 'created_at'],

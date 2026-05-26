@@ -23,6 +23,8 @@ from models.artifact import (
 )
 from models.dp_proposal import DpProposal
 from models.collection import ArtifactCollection, ArtifactCollectionItem
+from models.layer_tag import LayerTag, LayerTagLink, SUBJECT_ARTIFACT, SUBJECT_SUBMISSION
+# Legacy tables (migrated to layer_tag); models kept for old DB rows if present
 from models.artifact_tag import ArtifactTag, ArtifactTagLink
 from models.bridge import Bridge, BridgeSession
 
@@ -43,6 +45,7 @@ __all__ = [
     'Artifact', 'ArtifactRelation',
     'DpProposal',
     'ArtifactCollection', 'ArtifactCollectionItem',
+    'LayerTag', 'LayerTagLink', 'SUBJECT_ARTIFACT', 'SUBJECT_SUBMISSION',
     'ArtifactTag', 'ArtifactTagLink',
     'Bridge', 'BridgeSession',
 ]

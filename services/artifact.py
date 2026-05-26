@@ -44,6 +44,11 @@ def _ensure_artifact_for_submission(submission):
     submission.artifact_id = art.id
     emit_event('artifact_created', subject_type='artifact', subject_id=art.id,
                layer_id=art.layer_id, payload={'submission_id': submission.id, 'artifact_type': 'submission'})
+    try:
+        from services.layer_tags import sync_submission_tags_to_artifact
+        sync_submission_tags_to_artifact(submission)
+    except Exception:
+        pass
 
 
 def get_artifact_by_ref(layer_id, ref):

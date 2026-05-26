@@ -24,7 +24,7 @@ LOGIN_TEMPLATE = """
                 <div class="living-module-body text-center py-2">
                     <div id="flash-messages"></div>
                     <p class="text-muted mb-3">Web3Auth — Google, email, or wallet</p>
-                    <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" onclick="loginWithWeb3Auth()">
+                    <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" disabled aria-busy="true" onclick="loginWithWeb3Auth()">
                         <svg width="20" height="20" class="me-2" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;">
                             <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
                         </svg>

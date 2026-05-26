@@ -35,6 +35,10 @@ datatracker.sublime-workspace
 /static/js/*
 !/static/js/cm-i18n.js
 !/static/js/govhub-i18n.js
+!/static/js/dp-challenge.js
+!/static/js/gh-return-nav.js
+!/static/js/dp-proposals/
+!/static/js/dp-proposals/**
 !/static/i18n/
 /static/i18n/*
 !/static/i18n/civic-mason/
@@ -52,6 +56,10 @@ datatracker.sublime-workspace
 !/static/css/
 /static/css/*
 !/static/css/govhub-design.css
+!/static/css/dp-challenge.css
+!/static/css/dp-proposals-reader.css
+!/static/images/
+!/static/images/dp-challenge-hero.png
 /tmp-*
 /.testresult
 *.swp
