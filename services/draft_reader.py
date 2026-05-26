@@ -34,14 +34,16 @@ def _load_ordinal_body(url: str, content_type: str, draft: dict) -> Tuple[str, b
     if url and ('text/' in octype or 'application/json' in octype):
         try:
             import requests
+            from services.url_safety import validate_ordinals_fetch_url
 
+            safe_url = validate_ordinals_fetch_url(url)
             headers = {
                 'User-Agent': (
                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                     '(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 )
             }
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(safe_url, headers=headers, timeout=10)
             if response.status_code == 200:
                 raw_content = response.text
                 words = len(raw_content.split())
@@ -134,7 +136,14 @@ def build_draft_context(draft_name: str) -> Tuple[Optional[Dict[str, Any]], Opti
                 'displayBodySource': dbs,
                 'displayOrdinalId': getattr(submission, 'displayOrdinalId', None),
                 'displayingLinkedOrdinal': displaying_linked,
+                'document_category': getattr(submission, 'document_category', None) or 'document',
             }
+            try:
+                from services.layer_tags import tags_for_subject
+                from models.layer_tag import SUBJECT_SUBMISSION
+                draft['tags'] = tags_for_subject(SUBJECT_SUBMISSION, submission.id)
+            except Exception:
+                draft['tags'] = []
 
     if not draft:
         return None, None
@@ -149,6 +158,15 @@ def build_draft_context(draft_name: str) -> Tuple[Optional[Dict[str, Any]], Opti
                 dbs.strip().lower() == 'ordinal'
                 and bool(getattr(submission, 'displayOrdinalContentUrl', None))
             )
+            draft['document_category'] = getattr(submission, 'document_category', None) or draft.get(
+                'document_category', 'document'
+            )
+            try:
+                from services.layer_tags import tags_for_subject
+                from models.layer_tag import SUBJECT_SUBMISSION
+                draft['tags'] = tags_for_subject(SUBJECT_SUBMISSION, submission.id)
+            except Exception:
+                draft['tags'] = draft.get('tags') or []
 
     return draft, submission
 

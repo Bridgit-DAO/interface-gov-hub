@@ -30,7 +30,13 @@ DEFAULT_CSP = (
 )
 
 UNSAFE_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
-CSRF_EXEMPT_PREFIXES = ('/api/', '/_deploy/', '/auth/', '/static/')
+CSRF_EXEMPT_PREFIXES = ('/_deploy/', '/auth/', '/static/')
+# Exact paths and suffixes exempt from CSRF (webhooks, public sign-in, embed waitlist join).
+CSRF_EXEMPT_EXACT = frozenset({
+    '/api/auth/web3auth',
+    '/api/inscribe/stripe-webhook',
+})
+CSRF_EXEMPT_SUFFIXES = ('/join-email', '/join-email/')
 CSRF_FIELD_RE = re.compile(
     r'(<form\b(?=[^>]*\bmethod=["\']?post["\']?)[^>]*>)',
     flags=re.IGNORECASE,
@@ -38,15 +44,21 @@ CSRF_FIELD_RE = re.compile(
 
 
 def _csrf_token():
-    token = session.get('_csrf_token')
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session['_csrf_token'] = token
-    return token
+    from services.csrf import get_or_create_csrf_token
+    return get_or_create_csrf_token()
 
 
 def _csrf_exempt_path(path):
-    return any((path or '').startswith(prefix) for prefix in CSRF_EXEMPT_PREFIXES)
+    p = path or ''
+    if any(p.startswith(prefix) for prefix in CSRF_EXEMPT_PREFIXES):
+        return True
+    normalized = p.rstrip('/') or '/'
+    if normalized in CSRF_EXEMPT_EXACT:
+        return True
+    for suffix in CSRF_EXEMPT_SUFFIXES:
+        if normalized.endswith(suffix.rstrip('/')) or p.endswith(suffix):
+            return True
+    return False
 
 
 def _request_looks_like_browser_form():
@@ -100,20 +112,38 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
             return jsonify({'error': 'Data modifications disabled during deployment'}), 403
 
     @app.before_request
-    def csrf_form_check():
-        """Protect browser form submissions without disrupting JSON APIs."""
-        if current_app.config.get('TESTING'):
+    def csrf_check():
+        """Protect form POSTs and session-authenticated JSON API calls."""
+        import sys
+
+        from services.csrf import csrf_token_valid, get_or_create_csrf_token
+
+        if current_app.config.get('TESTING') or 'pytest' in sys.modules:
             return None
         if request.method not in UNSAFE_METHODS:
             return None
         if _csrf_exempt_path(request.path):
             return None
-        if not _request_looks_like_browser_form():
+
+        expected = session.get('_csrf_token') or get_or_create_csrf_token()
+
+        if _request_looks_like_browser_form():
+            supplied = request.form.get('csrf_token') or request.headers.get('X-CSRFToken')
+            if not csrf_token_valid(supplied, expected):
+                return jsonify({'error': 'Invalid CSRF token'}), 400
             return None
-        expected = session.get('_csrf_token')
-        supplied = request.form.get('csrf_token') or request.headers.get('X-CSRFToken')
-        if not expected or not supplied or not secrets.compare_digest(expected, supplied):
-            return jsonify({'error': 'Invalid CSRF token'}), 400
+
+        # Cookie-session JSON APIs: require X-CSRFToken (see BASE_TEMPLATE fetch wrapper).
+        if 'user' not in session:
+            return None
+
+        ctype = (request.content_type or '').split(';', 1)[0].strip().lower()
+        if ctype not in ('application/json', 'application/vnd.api+json'):
+            return None
+
+        supplied = request.headers.get('X-CSRFToken') or request.headers.get('X-CSRF-Token')
+        if not csrf_token_valid(supplied, expected):
+            return jsonify({'error': 'Invalid CSRF token'}), 403
         return None
 
     @app.after_request

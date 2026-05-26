@@ -20,6 +20,8 @@ from services.ordinals import (
     format_ordinal_html_iframe_preview,
 )
 from services.utils import coerce_storage_bool
+from services.submission_uploads import save_submission_upload
+from services.url_safety import validate_ordinals_fetch_url
 
 bp = Blueprint('submissions', __name__, url_prefix='')
 
@@ -726,6 +728,12 @@ def submit_draft():
                 flash('Please preview the ordinal before submitting', 'error')
                 return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
+            try:
+                ordinal_content_url = validate_ordinals_fetch_url(ordinal_content_url)
+            except ValueError:
+                flash('Invalid ordinal content URL', 'error')
+                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+
             # Fetch ordinal content and calculate pages/words
             try:
                 headers = {
@@ -803,19 +811,11 @@ def submit_draft():
                 flash('Title, authors, and file are required', 'error')
                 return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
-            # Security: Check file size (max 50MB)
-            file.seek(0, os.SEEK_END)
-            file_size = file.tell()
-            file.seek(0)  # Reset to beginning
-            max_size = 50 * 1024 * 1024  # 50MB
-            if file_size > max_size:
-                flash(f'File too large. Maximum size is 50MB. Your file is {file_size / (1024*1024):.1f}MB.', 'error')
+            stored_name, file_path, upload_err = save_submission_upload(file, submission_id)
+            if upload_err:
+                flash(upload_err, 'error')
                 return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
-
-            # Save file
-            filename = f"{submission_id}-{file.filename}"
-            file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
+            filename = stored_name
 
             # Calculate pages and words
             pages, words = calculate_pages_and_words(file_path, filename)
@@ -968,6 +968,12 @@ def submit_revision(draft_name):
                 flash('Please preview the ordinal before submitting', 'error')
                 return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
 
+            try:
+                ordinal_content_url = validate_ordinals_fetch_url(ordinal_content_url)
+            except ValueError:
+                flash('Invalid ordinal content URL', 'error')
+                return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
+
             # Fetch ordinal content and calculate pages/words
             content_bytes = b''
             try:
@@ -1038,19 +1044,11 @@ def submit_revision(draft_name):
                 flash('Title, authors, and file are required', 'error')
                 return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
 
-            # Security: Check file size (max 50MB)
-            file.seek(0, os.SEEK_END)
-            file_size = file.tell()
-            file.seek(0)
-            max_size = 50 * 1024 * 1024
-            if file_size > max_size:
-                flash(f'File too large. Maximum size is 50MB.', 'error')
+            stored_name, file_path, upload_err = save_submission_upload(file, submission_id)
+            if upload_err:
+                flash(upload_err, 'error')
                 return redirect(url_for('submissions.submit_revision', draft_name=draft_name))
-
-            # Save file
-            filename = f"{submission_id}-{file.filename}"
-            file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
+            filename = stored_name
 
             # Calculate pages and words
             pages, words = calculate_pages_and_words(file_path, filename)
@@ -1317,10 +1315,11 @@ def submission_detail(submission_id):
             file_content = ""
         elif 'text/' in ordinal_content_type or 'application/json' in ordinal_content_type:
             try:
+                safe_ordinal_url = validate_ordinals_fetch_url(ordinal_content_url)
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
-                response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                response = requests.get(safe_ordinal_url, headers=headers, timeout=10)
                 response.raise_for_status()
                 text_content = response.text
 

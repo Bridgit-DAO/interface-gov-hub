@@ -379,6 +379,11 @@ def _format_base_template(**kwargs):
     kwargs.setdefault('civic_mason_nav_li', generate_civic_mason_nav_li())
     kwargs.setdefault('lang_menu', generate_lang_menu_html())
     kwargs.setdefault('flash_messages', render_flash_messages_html())
+    if has_request_context():
+        from services.csrf import get_or_create_csrf_token
+        kwargs.setdefault('csrf_token', get_or_create_csrf_token())
+    else:
+        kwargs.setdefault('csrf_token', '')
     try:
         kwargs.setdefault('govhub_i18n_js', url_for('static', filename='js/govhub-i18n.js'))
     except RuntimeError:

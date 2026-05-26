@@ -6,7 +6,28 @@ BASE_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{csrf_token}">
     <title>{title}</title>
+    <script>
+    (function() {{
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        var token = meta ? meta.getAttribute('content') : '';
+        if (!token) return;
+        var origFetch = window.fetch;
+        window.fetch = function(input, init) {{
+            init = init || {{}};
+            if (init.credentials === 'omit') {{
+                return origFetch.call(this, input, init);
+            }}
+            var headers = new Headers(init.headers || {{}});
+            if (!headers.has('X-CSRFToken')) {{
+                headers.set('X-CSRFToken', token);
+            }}
+            init.headers = headers;
+            return origFetch.call(this, input, init);
+        }};
+    }})();
+    </script>
     <link rel="icon" type="image/png" href="/static/images/overweb_logo.png">
     <link rel="shortcut icon" type="image/png" href="/static/images/overweb_logo.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
