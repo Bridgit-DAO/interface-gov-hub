@@ -6,8 +6,9 @@ from models.identity import User, UserLinkedAccount
 from models.coordination import (
     Layer, LayerMember, LayerAdmin,
     Waitlist, WaitlistEntry, WaitlistMilestone, EmailUnsubscribe, WaitlistEmailSignup,
-    Workgroup, WorkingGroupMember, WorkingGroupChair, CoordinatorRequest, WorkgroupMemberRequest,
+    Workgroup, WorkgroupLayerLink, WorkingGroupMember, WorkingGroupChair, CoordinatorRequest, WorkgroupMemberRequest,
     Guild, GuildMembership, GuildInvitation, GuildLayerLink, GuildArtifactLink, GuildQuestLink,
+    LayerInvitation,
     Cluster, Role, RoleImage, RoleImageVote,
     Claim, Badge, BadgeSkin, BadgeCycle, OneTimeBadge,
     Vote, VoteEligibilitySnapshot, VoteCandidate, Ballot,
@@ -20,6 +21,7 @@ from models.artifact import (
     Comment, DocumentHistory,
     Artifact, ArtifactRelation,
 )
+from models.dp_proposal import DpProposal
 from models.collection import ArtifactCollection, ArtifactCollectionItem
 from models.artifact_tag import ArtifactTag, ArtifactTagLink
 from models.bridge import Bridge, BridgeSession
@@ -30,8 +32,8 @@ __all__ = [
     'EventLog', 'StatusChange',
     'Layer', 'LayerMember', 'LayerAdmin',
     'Waitlist', 'WaitlistEntry', 'WaitlistMilestone', 'EmailUnsubscribe', 'WaitlistEmailSignup',
-    'Workgroup', 'WorkingGroupMember', 'WorkingGroupChair', 'CoordinatorRequest', 'WorkgroupMemberRequest',
-    'Guild', 'GuildMembership', 'GuildInvitation', 'GuildLayerLink', 'GuildArtifactLink', 'GuildQuestLink',
+    'Workgroup', 'WorkgroupLayerLink', 'WorkingGroupMember', 'WorkingGroupChair', 'CoordinatorRequest', 'WorkgroupMemberRequest',
+    'Guild', 'GuildMembership', 'GuildInvitation', 'LayerInvitation', 'GuildLayerLink', 'GuildArtifactLink', 'GuildQuestLink',
     'Cluster', 'Role', 'RoleImage', 'RoleImageVote',
     'Claim', 'Badge', 'BadgeSkin', 'BadgeCycle', 'OneTimeBadge',
     'Vote', 'VoteEligibilitySnapshot', 'VoteCandidate', 'Ballot',
@@ -39,6 +41,7 @@ __all__ = [
     'Submission', 'SiteConfig', 'InscriptionOrder',
     'Comment', 'DocumentHistory',
     'Artifact', 'ArtifactRelation',
+    'DpProposal',
     'ArtifactCollection', 'ArtifactCollectionItem',
     'ArtifactTag', 'ArtifactTagLink',
     'Bridge', 'BridgeSession',

@@ -10,7 +10,7 @@ from models import User, Submission, Layer, Vote, Role, Claim, Badge, EmailUnsub
 from services.identity import get_current_user, require_auth
 from services.utils import _is_uuid_like
 from services.email import verify_unsubscribe_token
-from services.directory_ui import gh_page_header, gh_breadcrumb, gh_filter_row, gh_filter_col, gh_directory_grid, gh_living_module
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_filter_row, gh_filter_col, gh_directory_grid, gh_directory_toolbar, gh_living_module
 
 bp = Blueprint('pages', __name__, url_prefix='')
 
@@ -254,8 +254,8 @@ def layer_standalone_workgroups(layer_ref):
     <div class="gh-page container mt-4">
         {gh_page_header('Workgroups', f'Workgroups in {layer_name_esc}', 'fa-users-cog', actions_html=f'<a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li><li class="breadcrumb-item active">Workgroups</li></ol></nav>')}
         {gh_filter_row(
-            gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>', 'col-md-6')
-            + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search workgroups..." onkeyup="filterWorkgroups()">', 'col-md-6')
+            gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>', 'col-md-3')
+            + gh_directory_toolbar(search_placeholder='Search workgroups…', search_col='col-md-5', sort_col='col-md-2')
         )}
         <div id="workgroups-container" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
             <div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>
@@ -273,15 +273,20 @@ def layer_standalone_workgroups(layer_ref):
             const res = await fetch(url);
             const data = await res.json();
             allWorkgroups = data.workgroups || [];
-            displayWorkgroups(allWorkgroups);
+            filterWorkgroups();
         }} catch (e) {{
             document.getElementById("workgroups-container").innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading workgroups</div></div>';
         }}
     }}
     function filterWorkgroups() {{
-        const term = (document.getElementById("search-input").value || "").toLowerCase();
-        const filtered = allWorkgroups.filter(w => (w.name || "").toLowerCase().includes(term) || (w.description || "").toLowerCase().includes(term));
-        displayWorkgroups(filtered);
+        const items = GhDirectory.filterAndSort(allWorkgroups, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter'),
+            searchFields: ['name', 'description', 'acronym', 'slug'],
+            nameKey: 'name',
+            dateKeys: ['updated_at', 'created_at'],
+        }});
+        displayWorkgroups(items);
     }}
     function displayWorkgroups(workgroups) {{
         const c = document.getElementById("workgroups-container");
@@ -295,6 +300,7 @@ def layer_standalone_workgroups(layer_ref):
         c.innerHTML = html;
     }}
     loadWorkgroups();
+    GhDirectory.bindControls('search-input', 'sort-filter', filterWorkgroups);
     </script>
     '''
     return render_layer_standalone_page(
@@ -325,8 +331,8 @@ def layer_standalone_roles(layer_ref):
     <div class="gh-page container mt-4">
         {gh_page_header('Roles', f'Roles in {layer_name_esc}', 'fa-user-tag', actions_html=f'<a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li><li class="breadcrumb-item active">Roles</li></ol></nav>')}
         {gh_filter_row(
-            gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadRoles()"><option value="">All</option><option value="approved">Approved</option><option value="draft">Draft</option></select>', 'col-md-6')
-            + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search roles..." onkeyup="filterRoles()">', 'col-md-6')
+            gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadRoles()"><option value="">All</option><option value="approved" selected>Active</option><option value="draft">Draft</option></select>', 'col-md-3')
+            + gh_directory_toolbar(search_placeholder='Search roles…', search_col='col-md-5', sort_col='col-md-2')
         )}
         <div id="roles-container" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
             <div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>
@@ -344,19 +350,20 @@ def layer_standalone_roles(layer_ref):
             const res = await fetch(url);
             const data = await res.json();
             allRoles = data.roles || [];
-            displayRoles(allRoles);
+            filterRoles();
         }} catch (e) {{
             document.getElementById("roles-container").innerHTML = '<div class="col-12"><div class="alert alert-danger">Error loading roles</div></div>';
         }}
     }}
     function filterRoles() {{
-        const term = (document.getElementById("search-input").value || "").toLowerCase();
-        const filtered = allRoles.filter(r =>
-            (r.title_guild || "").toLowerCase().includes(term) ||
-            (r.title_operational || "").toLowerCase().includes(term) ||
-            (r.description || "").toLowerCase().includes(term)
-        );
-        displayRoles(filtered);
+        const items = GhDirectory.filterAndSort(allRoles, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter'),
+            searchFields: ['title_guild', 'title_operational', 'description', 'slug'],
+            nameKey: 'title_guild',
+            dateKeys: ['updated_at', 'created_at'],
+        }});
+        displayRoles(items);
     }}
     function displayRoles(roles) {{
         const c = document.getElementById("roles-container");
@@ -372,6 +379,7 @@ def layer_standalone_roles(layer_ref):
         c.innerHTML = html;
     }}
     loadRoles();
+    GhDirectory.bindControls('search-input', 'sort-filter', filterRoles);
     </script>
     '''
     return render_layer_standalone_page(

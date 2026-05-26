@@ -21,6 +21,24 @@ def generate_draft_name(title, authors):
     return f"draft-{author_last}-{title_slug}"
 
 
+def can_edit_submission_metadata(user, submission) -> bool:
+    """Submitter, layer admin, or site staff may update draft metadata."""
+    if not user or not submission:
+        return False
+    if user.get('role') in ('admin', 'editor'):
+        return True
+    uname = (user.get('name') or '').strip()
+    if uname and uname == (submission.submitted_by or '').strip():
+        return True
+    if submission.layer_id:
+        from models import Layer
+        from services.coordination import is_layer_admin
+        layer = Layer.query.get(submission.layer_id)
+        if layer and is_layer_admin(layer, user):
+            return True
+    return False
+
+
 def get_submission_by_ref(ref):
     """Look up submission by id (UUID), draft_name, ml_number, or public_id."""
     if not ref:
@@ -55,7 +73,8 @@ def get_next_ml_number(doc_type='draft'):
     """Get the next ML number (ML-Draft-001 or ML-RFC-001)."""
     prefix = f"ML-{doc_type.capitalize()}-"
     max_ml = db.session.query(db.func.max(Submission.ml_number)).filter(
-        Submission.ml_number.like(f"{prefix}%")
+        Submission.ml_number.like(f"{prefix}%"),
+        Submission.status.in_(['submitted', 'approved', 'published']),
     ).scalar()
     if max_ml:
         try:

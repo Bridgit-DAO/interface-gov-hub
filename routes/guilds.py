@@ -71,7 +71,7 @@ def list_guilds():
     """List all guilds."""
     status = request.args.get('status')
     query = Guild.query.filter_by(status=status) if status else Guild.query
-    query = query.order_by(Guild.created_at.desc())
+    query = query.order_by(Guild.name.asc())
     guilds = query.all()
     viewer = get_current_user()
     result = []

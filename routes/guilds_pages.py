@@ -221,7 +221,7 @@ def guild_detail(guild_slug):
 
         // Add image at the top if available
         if (guild.image_url) {{
-            html += '<div class="mb-3 text-center"><img src="' + guild.image_url + '" alt="' + (guild.name || '') + '" class="img-fluid rounded" style="max-height: 180px;"></div>';
+            html += '<div class="mb-3 text-center"><img src="' + guild.image_url + '" alt="' + (guild.name || '') + '" class="img-fluid gh-entity-thumb" style="max-height: 180px;"></div>';
         }}
 
         if (!isAuthenticated) {{

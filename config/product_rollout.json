@@ -1,0 +1,19 @@
+{
+  "admin": true,
+  "artifacts": false,
+  "badges": true,
+  "bridges": false,
+  "civic_mason": false,
+  "docs": true,
+  "guilds": true,
+  "immortalize": false,
+  "layers": true,
+  "opportunities": false,
+  "quests": false,
+  "roles": true,
+  "soft_launch": false,
+  "votes": false,
+  "waitlists": true,
+  "workgroups": true,
+  "dp_proposals": false
+}

@@ -17,6 +17,27 @@ def configure_rendering(base_template, font_awesome_link, build_number):
     _build_number = build_number
 
 
+def render_flash_messages_html():
+    """Render flashed messages for injection into BASE_TEMPLATE."""
+    if not has_request_context():
+        return ''
+    from flask import get_flashed_messages
+
+    category_class = {
+        'success': 'flash-success',
+        'error': 'flash-error',
+        'warning': 'flash-info',
+        'info': 'flash-info',
+    }
+    parts = []
+    for category, message in get_flashed_messages(with_categories=True):
+        css = category_class.get(category, 'flash-info')
+        parts.append(
+            f'<div class="flash-message {css}">{html.escape(message)}</div>'
+        )
+    return ''.join(parts)
+
+
 def generate_lang_menu_html():
     """Language dropdown items: ?lang= on current path."""
     from flask import request
@@ -267,6 +288,7 @@ def _format_base_template(**kwargs):
     kwargs.setdefault('learn_nav_html', generate_learn_nav_html(layer_slug))
     kwargs.setdefault('civic_mason_nav_li', generate_civic_mason_nav_li())
     kwargs.setdefault('lang_menu', generate_lang_menu_html())
+    kwargs.setdefault('flash_messages', render_flash_messages_html())
     try:
         kwargs.setdefault('govhub_i18n_js', url_for('static', filename='js/govhub-i18n.js'))
     except RuntimeError:

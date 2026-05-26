@@ -243,6 +243,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 </div>
             </div>
         </div>
+        <div id="layer-invite-banner" class="d-none mb-3"></div>
         <div id="project-header" class="mb-4"></div>
         <div id="overview-content"></div>
     </div>
@@ -257,6 +258,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 </div>
             </div>
         </div>
+        
+        <div id="layer-invite-banner" class="d-none mb-3"></div>
         
         <div class="layer-feature-tabs-wrap mb-4{tabs_hidden_class}" id="projectTabsWrap">
             {tabs_nav_html}
@@ -288,6 +291,35 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" id="join-project-confirm-btn" onclick="submitJoinProjectModal()"><i class="fas fa-check me-2"></i>Join</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="inviteMemberModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-user-plus me-2"></i>Invite by email</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="invite-member-alert" class="alert d-none" role="alert"></div>
+                    <p class="text-muted small">Send an invitation link to join this layer. If they are already a member, we will note it and skip the email.</p>
+                    <form id="inviteMemberForm" onsubmit="return false;">
+                        <div class="mb-3">
+                            <label for="invite-member-email" class="form-label">Email address *</label>
+                            <input type="email" class="form-control" id="invite-member-email" required placeholder="colleague@example.com">
+                        </div>
+                        <div class="mb-0">
+                            <label for="invite-member-message" class="form-label">Personal note (optional)</label>
+                            <textarea class="form-control" id="invite-member-message" rows="3" placeholder="Why you are inviting them…"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="invite-member-submit-btn" onclick="submitLayerInvite()"><i class="fas fa-paper-plane me-2"></i>Send invitation</button>
                 </div>
             </div>
         </div>
@@ -576,6 +608,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     
     <script>
     let project = null;
+    let layerWorkgroupsList = [];
+    let layerRolesList = [];
     const projectSlug = {json.dumps(project_slug)};
     const initialWaitlistId = {json.dumps(initial_waitlist_id)};
     const isAuthenticated = {'true' if current_user else 'false'};
@@ -795,6 +829,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             
             displayProjectHeader();
             syncLayerBrandImages();
+            await maybeShowLayerInviteBanner();
             loadOverview();
             if (isLayerFeatureOn('waitlists')) {{
                 const wlResp = await fetch('/api/layers/' + project.id + '/waitlists/');
@@ -858,6 +893,101 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }} catch (e) {{ alert('Failed to leave project'); }}
     }}
     
+    function showInviteMemberModal() {{
+        if (!isAuthenticated) {{ alert('Please sign in to invite members'); return; }}
+        const alertEl = document.getElementById('invite-member-alert');
+        if (alertEl) {{
+            alertEl.classList.add('d-none');
+            alertEl.innerHTML = '';
+        }}
+        const form = document.getElementById('inviteMemberForm');
+        if (form) form.reset();
+        const modal = new bootstrap.Modal(document.getElementById('inviteMemberModal'));
+        modal.show();
+    }}
+
+    function renderInviteLinkAlert(alertEl, baseMsg, link, alertClass) {{
+        if (!alertEl) return;
+        alertEl.className = 'alert alert-' + alertClass;
+        if (!link) {{
+            alertEl.textContent = baseMsg;
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        const trunc = link.length > 52 ? (link.slice(0, 30) + '…' + link.slice(-18)) : link;
+        alertEl.innerHTML = escapeHtml(baseMsg) +
+            '<div class="input-group input-group-sm mt-2">' +
+            '<input type="text" class="form-control font-monospace small" value="' + escapeHtmlBasic(link) + '" readonly title="' + escapeHtmlBasic(link) + '">' +
+            '<button type="button" class="btn btn-outline-secondary" onclick="copyText(\\'' + escapeForJsAttr(link) + '\\')" title="Copy invite link"><i class="fas fa-copy"></i></button>' +
+            '</div>' +
+            '<div class="small text-muted mt-1 text-truncate" title="' + escapeHtmlBasic(link) + '">' + escapeHtmlBasic(trunc) + '</div>';
+        alertEl.classList.remove('d-none');
+    }}
+    
+    async function submitLayerInvite() {{
+        const emailEl = document.getElementById('invite-member-email');
+        const msgEl = document.getElementById('invite-member-message');
+        const alertEl = document.getElementById('invite-member-alert');
+        const btn = document.getElementById('invite-member-submit-btn');
+        const email = emailEl && emailEl.value ? emailEl.value.trim() : '';
+        const message = msgEl && msgEl.value ? msgEl.value.trim() : '';
+        if (alertEl) alertEl.classList.add('d-none');
+        if (!email) {{
+            if (alertEl) {{
+                alertEl.textContent = 'Email address is required';
+                alertEl.className = 'alert alert-danger';
+                alertEl.classList.remove('d-none');
+            }}
+            return;
+        }}
+        if (btn) {{
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Sending…';
+        }}
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/invitations/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'same-origin',
+                body: JSON.stringify({{ email: email, message: message || null }})
+            }});
+            const data = await res.json();
+            if (res.ok) {{
+                let msg = data.message || (data.duplicate ? 'Already a member — no email sent.' : (data.resent ? 'Invitation email resent.' : 'Invitation sent.'));
+                let alertClass = data.duplicate ? 'secondary' : 'success';
+                let inviteLink = '';
+                if (!data.duplicate) {{
+                    const path = data.invite_path || (data.invitation && data.invitation.token ? '/layer/invite/' + data.invitation.token + '/' : '');
+                    inviteLink = path ? (window.location.origin + path) : '';
+                }}
+                if (!data.duplicate && data.email_sent === false) {{
+                    msg = 'Invitation saved, but email could not be sent (Resend is in test mode or the domain is not verified). Share this link manually:';
+                    alertClass = 'warning';
+                }}
+                renderInviteLinkAlert(alertEl, msg, inviteLink, alertClass);
+                if (!data.duplicate && emailEl) emailEl.value = '';
+                if (msgEl) msgEl.value = '';
+            }} else {{
+                if (alertEl) {{
+                    alertEl.textContent = data.error || 'Failed to send invitation';
+                    alertEl.className = 'alert alert-danger';
+                    alertEl.classList.remove('d-none');
+                }}
+            }}
+        }} catch (e) {{
+            if (alertEl) {{
+                alertEl.textContent = e.message || 'Failed to send invitation';
+                alertEl.className = 'alert alert-danger';
+                alertEl.classList.remove('d-none');
+            }}
+        }} finally {{
+            if (btn) {{
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send invitation';
+            }}
+        }}
+    }}
+    
     function displayProjectHeader() {{
         const statusMap = {{'proposed':'<span class="badge bg-info ms-2">Proposed</span>','active':'<span class="badge bg-success ms-2">Active</span>','stabilizing':'<span class="badge bg-primary ms-2">Stabilizing</span>','maintaining':'<span class="badge bg-secondary ms-2">Maintaining</span>','dormant':'<span class="badge bg-warning ms-2">Dormant</span>','concluded':'<span class="badge bg-dark ms-2">Concluded</span>','archived':'<span class="badge bg-secondary ms-2">Archived</span>'}};
         const approvalMap = {{'pending':'<span class="badge bg-warning ms-2">Pending Approval</span>','approved':'<span class="badge bg-success ms-2">Approved</span>','rejected':'<span class="badge bg-danger ms-2">Rejected</span>'}};
@@ -869,6 +999,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         if (isAuthenticated) {{
             if (isJoined) {{
                 actionsHtml += '<div class="mb-3"><span class="badge bg-success">Joined</span></div>';
+                actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showInviteMemberModal()"><i class="fas fa-user-plus me-2"></i>Invite by email</button></div>';
             }} else {{
                 actionsHtml += '<div class="mb-3"><button class="btn btn-primary btn-sm w-100" onclick="showJoinProjectModal()"><i class="fas fa-plus me-2"></i>Join Layer</button></div>';
             }}
@@ -881,7 +1012,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
         actionsHtml += '<div class="mb-2"><a href="' + (showCarousel ? layerBase : '/layers/') + '" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>' + (showCarousel ? 'Back to Layer' : 'Back to Layers') + '</a></div>';
         if (isProjectAdmin) {{
-            actionsHtml += '<button class="btn btn-secondary btn-sm w-100" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>';
+            actionsHtml += '<button type="button" class="btn btn-secondary btn-sm w-100" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>';
         }}
         const layerImgSrc = project.image_url ? layerImageUrl(project.image_url, project) : '';
         const mediaHtml = layerImgSrc
@@ -1919,7 +2050,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             const dateStarted = w.start_date ? new Date(w.start_date).toLocaleDateString() : '-';
             const visibility = w.public ? 'Public' : 'Private';
             
-            const wImg = (w.image_url) ? '<div class="mb-3"><img src="' + w.image_url + '" alt="' + wName + '" class="img-fluid rounded" style="max-height: 180px;"></div>' : '';
+            const wImg = (w.image_url) ? '<div class="mb-3"><img src="' + w.image_url + '" alt="' + wName + '" class="img-fluid gh-entity-thumb" style="max-height: 180px;"></div>' : '';
             const html = '<div class="card mb-4"><div class="card-body">' +
                 '<nav aria-label="breadcrumb"><ol class="breadcrumb mb-2"><li class="breadcrumb-item"><a href="' + (showCarousel ? layerBase : '/layers/') + '">' + (showCarousel ? escapeHtmlBasic(project.name) : 'Layers') + '</a></li>' + (showCarousel ? '' : '<li class="breadcrumb-item"><a href="/layers/' + projectSlug + '/">' + escapeHtmlBasic(project.name) + '</a></li>') + '<li class="breadcrumb-item active">' + wName + ' Waitlist</li></ol></nav>' +
                 wImg +
@@ -2027,7 +2158,21 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             
             const ownerUserEsc = escapeHtmlBasic(data.owner.username || '');
             const ownerNameEsc = escapeHtml(data.owner.display_name || '');
-            let html = '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Product features</h5></div><div class="card-body">';
+            const curStatus = project.status || 'proposed';
+            const statusReasonEsc = escapeHtmlBasic(project.status_reason || '');
+            const approvalEsc = escapeHtml(String(project.approval_status || 'pending'));
+            let html = '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Layer lifecycle status</h5></div><div class="card-body">';
+            html += '<p class="text-muted small mb-3">Operational status (separate from site approval). Set to <strong>Active</strong> when the layer is ready to operate publicly.</p>';
+            html += '<div class="row g-3 align-items-end"><div class="col-md-4"><label class="form-label" for="admin-layer-status">Status</label><select class="form-select" id="admin-layer-status">';
+            [['proposed','Proposed'],['active','Active'],['stabilizing','Stabilizing'],['maintaining','Maintaining'],['dormant','Dormant'],['concluded','Concluded'],['archived','Archived']].forEach(function(pair) {{
+                html += '<option value="' + pair[0] + '"' + (curStatus === pair[0] ? ' selected' : '') + '>' + pair[1] + '</option>';
+            }});
+            html += '</select></div><div class="col-md-5"><label class="form-label" for="admin-layer-status-reason">Status reason (optional)</label>';
+            html += '<input type="text" class="form-control" id="admin-layer-status-reason" value="' + statusReasonEsc + '" placeholder="Reason for change"></div>';
+            html += '<div class="col-md-3"><button type="button" class="btn btn-primary w-100" onclick="saveLayerStatus()"><i class="fas fa-save me-1"></i>Save status</button></div></div>';
+            html += '<p class="small text-muted mt-2 mb-0">Site approval: <strong>' + approvalEsc + '</strong> (site admins only — <a href="/admin/layers/">Admin → Layers</a>).</p>';
+            html += '<p class="small mb-0 mt-1" id="admin-layer-status-msg"></p></div></div>';
+            html += '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Product features</h5></div><div class="card-body">';
             html += '<p class="text-muted small mb-3">Turn off capabilities for this layer only (among features enabled site-wide). Disabled areas are removed from navigation, tabs, and admin sections.</p>';
             html += '<div class="row g-2">';
             const siteKeys = layerFeatKeysSiteEnabled();
@@ -2141,6 +2286,49 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
+    async function saveLayerStatus() {{
+        if (!project) return;
+        const statusEl = document.getElementById('admin-layer-status');
+        const reasonEl = document.getElementById('admin-layer-status-reason');
+        const msgEl = document.getElementById('admin-layer-status-msg');
+        if (!statusEl) return;
+        const payload = {{
+            status: statusEl.value,
+            status_reason: reasonEl ? reasonEl.value.trim() : ''
+        }};
+        if (msgEl) {{
+            msgEl.textContent = 'Saving…';
+            msgEl.className = 'small text-muted mt-1 mb-0';
+        }}
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/', {{
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify(payload)
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (!r.ok) {{
+                if (msgEl) {{
+                    msgEl.textContent = d.error || 'Save failed';
+                    msgEl.className = 'small text-danger mt-1 mb-0';
+                }}
+                return;
+            }}
+            if (d.project) project = d.project;
+            displayProjectHeader();
+            if (msgEl) {{
+                msgEl.textContent = 'Status saved.';
+                msgEl.className = 'small text-success mt-1 mb-0';
+            }}
+        }} catch (e) {{
+            if (msgEl) {{
+                msgEl.textContent = e.message || 'Save failed';
+                msgEl.className = 'small text-danger mt-1 mb-0';
+            }}
+        }}
+    }}
+
     async function saveLayerFeatures() {{
         if (!project) return;
         const payload = {{}};
@@ -2373,31 +2561,74 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         try {{
             const response = await fetch('/api/layers/' + project.id + '/workgroups/');
             const data = await response.json();
-            
-            const wgBtn = isAuthenticated ? '<button class="btn btn-primary btn-sm" onclick="createWorkgroup()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>' : '';
-            let html = '<div class="d-flex justify-content-between mb-3"><h4>Workgroups (' + (data.count || 0) + ')</h4>' + wgBtn + '</div>';
-            
-            if (data.workgroups.length === 0) {{
-                html += '<div class="alert alert-info">No workgroups yet</div>';
-            }} else {{
-                html += '<div class="row">';
-                data.workgroups.forEach(wg => {{
-                    const approvalBadge = wg.approval_status === 'pending' ? '<span class="badge bg-warning ms-2">Pending Approval</span>' : (wg.approval_status === 'rejected' ? '<span class="badge bg-danger ms-2">Rejected</span>' : '');
-                    const wgImg = wg.image_url ? '<div class="card-img-top overflow-hidden" style="height: 120px; background: var(--bg-secondary, #f8f9fa);"><img src="' + escapeHtmlBasic(wg.image_url) + '" alt="' + escapeHtmlBasic(wg.name) + '" class="w-100 h-100 object-fit-cover"></div>' : '';
-                    const wgNameEsc = escapeHtml(wg.name || '');
-                    const wgDescEsc = escapeHtml(wg.description || 'No description');
-                    const wgSlugEsc = escapeHtmlBasic(wg.slug || '');
-                    const wgStatusEsc = escapeHtml(String(wg.status || ''));
-                    html += '<div class="col-md-6 mb-3"><div class="card">' + wgImg + '<div class="card-body"><h5 class="card-title"><a href="/workgroups/' + wgSlugEsc + '/">' + wgNameEsc + '</a></h5><p class="card-text text-muted">' + wgDescEsc + '</p><span class="badge bg-' + (wg.status === 'active' ? 'success' : 'secondary') + '">' + wgStatusEsc + '</span>' + approvalBadge + '</div></div></div>';
-                }});
-                html += '</div>';
-            }}
-            
-            document.getElementById('workgroups-content').innerHTML = html;
+            layerWorkgroupsList = data.workgroups || [];
+            renderLayerWorkgroupsChrome();
+            renderLayerWorkgroupsList();
         }} catch (error) {{
             console.error('Error loading workgroups:', error);
             document.getElementById('workgroups-content').innerHTML = '<div class="alert alert-danger">Error loading workgroups</div>';
         }}
+    }}
+
+    function filterLayerWorkgroups() {{
+        renderLayerWorkgroupsList();
+    }}
+
+    function renderLayerWorkgroupsChrome() {{
+        const wgBtn = isAuthenticated ? '<button class="btn btn-primary btn-sm" onclick="createWorkgroup()"><i class="fas fa-plus me-2"></i>Create Workgroup</button>' : '';
+        document.getElementById('workgroups-content').innerHTML =
+            '<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">' +
+            '<h4 class="mb-0">Workgroups (<span id="layer-wg-count">0</span>)</h4>' + wgBtn + '</div>' +
+            '<div class="row g-2 mb-3">' +
+            '<div class="col-md-5">' +
+            '<input type="search" id="layer-wg-search" class="form-control form-control-sm" placeholder="Search workgroups..." oninput="filterLayerWorkgroups()">' +
+            '</div><div class="col-md-4">' +
+            '<select id="layer-wg-sort" class="form-select form-select-sm" onchange="filterLayerWorkgroups()">' +
+            '<option value="recent" selected>Most recent</option><option value="name-asc">A–Z</option><option value="name-desc">Z–A</option>' +
+            '</select></div></div>' +
+            '<div id="workgroups-list"></div>';
+    }}
+
+    function renderLayerWorkgroupsList() {{
+        const term = (document.getElementById('layer-wg-search')?.value || '').trim();
+        const sort = document.getElementById('layer-wg-sort')?.value || 'recent';
+        let items = GhDirectory.filterAndSort(layerWorkgroupsList, {{
+            searchTerm: term,
+            sort: sort,
+            searchFields: ['name', 'description', 'acronym', 'slug'],
+            nameKey: 'name',
+            dateKeys: ['updated_at', 'created_at'],
+        }});
+
+        const countEl = document.getElementById('layer-wg-count');
+        if (countEl) {{
+            countEl.textContent = items.length === layerWorkgroupsList.length
+                ? String(items.length)
+                : (items.length + ' of ' + layerWorkgroupsList.length);
+        }}
+
+        const listEl = document.getElementById('workgroups-list');
+        if (!listEl) return;
+
+        if (items.length === 0) {{
+            listEl.innerHTML = layerWorkgroupsList.length === 0
+                ? '<div class="alert alert-info">No workgroups yet</div>'
+                : '<div class="alert alert-info">No workgroups match your search</div>';
+            return;
+        }}
+
+        let html = '<div class="row">';
+        items.forEach(wg => {{
+            const approvalBadge = wg.approval_status === 'pending' ? '<span class="badge bg-warning ms-2">Pending Approval</span>' : (wg.approval_status === 'rejected' ? '<span class="badge bg-danger ms-2">Rejected</span>' : '');
+            const wgImg = wg.image_url ? '<div class="gh-card-entity-visual"><img src="' + escapeHtmlBasic(wg.image_url) + '" alt="' + escapeHtmlBasic(wg.name) + '"></div>' : '';
+            const wgNameEsc = escapeHtml(wg.name || '');
+            const wgDescEsc = escapeHtml(wg.description || 'No description');
+            const wgSlugEsc = escapeHtmlBasic(wg.slug || '');
+            const wgStatusEsc = escapeHtml(String(wg.status || ''));
+            html += '<div class="col-md-6 mb-3"><div class="card">' + wgImg + '<div class="card-body"><h5 class="card-title"><a href="/workgroups/' + wgSlugEsc + '/">' + wgNameEsc + '</a></h5><p class="card-text text-muted">' + wgDescEsc + '</p><span class="badge bg-' + (wg.status === 'active' ? 'success' : 'secondary') + '">' + wgStatusEsc + '</span>' + approvalBadge + '</div></div></div>';
+        }});
+        html += '</div>';
+        listEl.innerHTML = html;
     }}
     
     async function loadClusters() {{
@@ -2444,32 +2675,75 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         try {{
             const response = await fetch('/api/layers/' + project.id + '/roles/');
             const data = await response.json();
-            
-            const roleBtn = isProjectAdmin ? '<button class="btn btn-primary btn-sm" onclick="createRole()"><i class="fas fa-plus me-2"></i>Create Role</button>' : '';
-            let html = '<div class="d-flex justify-content-between mb-3"><h4>Roles (' + (data.count || 0) + ')</h4>' + roleBtn + '</div>';
-            
-            if (data.roles.length === 0) {{
-                html += '<div class="alert alert-info">No roles yet</div>';
-            }} else {{
-                html += '<div class="row">';
-                data.roles.forEach(role => {{
-                    const roleSlugEsc = escapeHtmlBasic(role.role_slug || '');
-                    const titleGuildEsc = escapeHtml(role.title_guild || '');
-                    const titleOpEsc = role.title_operational ? '<h6 class="card-subtitle mb-2 text-muted">' + escapeHtml(role.title_operational) + '</h6>' : '';
-                    const descEsc = escapeHtml((role.description || '').substring(0, 150));
-                    const statusEsc = escapeHtml(String(role.status || ''));
-                    const statusClass = role.status === 'approved' ? 'success' : 'warning';
-                    const publicBadge = role.public_visible ? '<span class="badge bg-info ms-2">Public</span>' : '';
-                    html += '<div class="col-md-6 mb-3"><div class="card"><div class="card-body"><h5 class="card-title"><a href="/layer/' + (project.slug || project.id || '') + '/roles/' + roleSlugEsc + '/">' + titleGuildEsc + '</a></h5>' + titleOpEsc + '<p class="card-text">' + descEsc + '...</p><span class="badge bg-' + statusClass + '">' + statusEsc + '</span>' + publicBadge + '</div></div></div>';
-                }});
-                html += '</div>';
-            }}
-            
-            document.getElementById('roles-content').innerHTML = html;
+            layerRolesList = data.roles || [];
+            renderLayerRolesChrome();
+            renderLayerRolesList();
         }} catch (error) {{
             console.error('Error loading roles:', error);
             document.getElementById('roles-content').innerHTML = '<div class="alert alert-danger">Error loading roles</div>';
         }}
+    }}
+
+    function filterLayerRoles() {{
+        renderLayerRolesList();
+    }}
+
+    function renderLayerRolesChrome() {{
+        const roleBtn = isProjectAdmin ? '<button class="btn btn-primary btn-sm" onclick="createRole()"><i class="fas fa-plus me-2"></i>Create Role</button>' : '';
+        document.getElementById('roles-content').innerHTML =
+            '<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">' +
+            '<h4 class="mb-0">Roles (<span id="layer-roles-count">0</span>)</h4>' + roleBtn + '</div>' +
+            '<div class="row g-2 mb-3">' +
+            '<div class="col-md-5">' +
+            '<input type="search" id="layer-roles-search" class="form-control form-control-sm" placeholder="Search roles..." oninput="filterLayerRoles()">' +
+            '</div><div class="col-md-4">' +
+            '<select id="layer-roles-sort" class="form-select form-select-sm" onchange="filterLayerRoles()">' +
+            '<option value="recent" selected>Most recent</option><option value="name-asc">A–Z</option><option value="name-desc">Z–A</option>' +
+            '</select></div></div>' +
+            '<div id="roles-list"></div>';
+    }}
+
+    function renderLayerRolesList() {{
+        const term = (document.getElementById('layer-roles-search')?.value || '').trim();
+        const sort = document.getElementById('layer-roles-sort')?.value || 'recent';
+        let items = GhDirectory.filterAndSort(layerRolesList, {{
+            searchTerm: term,
+            sort: sort,
+            searchFields: ['title_guild', 'title_operational', 'description', 'role_slug', 'slug'],
+            nameKey: 'title_guild',
+            dateKeys: ['updated_at', 'created_at'],
+        }});
+
+        const countEl = document.getElementById('layer-roles-count');
+        if (countEl) {{
+            countEl.textContent = items.length === layerRolesList.length
+                ? String(items.length)
+                : (items.length + ' of ' + layerRolesList.length);
+        }}
+
+        const listEl = document.getElementById('roles-list');
+        if (!listEl) return;
+
+        if (items.length === 0) {{
+            listEl.innerHTML = layerRolesList.length === 0
+                ? '<div class="alert alert-info">No roles yet</div>'
+                : '<div class="alert alert-info">No roles match your search</div>';
+            return;
+        }}
+
+        let html = '<div class="row">';
+        items.forEach(role => {{
+            const roleSlugEsc = escapeHtmlBasic(role.role_slug || role.slug || '');
+            const titleGuildEsc = escapeHtml(role.title_guild || '');
+            const titleOpEsc = role.title_operational ? '<h6 class="card-subtitle mb-2 text-muted">' + escapeHtml(role.title_operational) + '</h6>' : '';
+            const descEsc = escapeHtml((role.description || '').substring(0, 150));
+            const statusEsc = escapeHtml(String(role.status || ''));
+            const statusClass = role.status === 'approved' ? 'success' : 'warning';
+            const publicBadge = role.public_visible ? '<span class="badge bg-info ms-2">Public</span>' : '';
+            html += '<div class="col-md-6 mb-3"><div class="card"><div class="card-body"><h5 class="card-title"><a href="/layer/' + (project.slug || project.id || '') + '/roles/' + roleSlugEsc + '/">' + titleGuildEsc + '</a></h5>' + titleOpEsc + '<p class="card-text">' + descEsc + '...</p><span class="badge bg-' + statusClass + '">' + statusEsc + '</span>' + publicBadge + '</div></div></div>';
+        }});
+        html += '</div>';
+        listEl.innerHTML = html;
     }}
     
     async function loadClaims() {{
@@ -2607,6 +2881,152 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             const btn = event.target.closest('button');
             if (btn) {{ const o = btn.innerHTML; btn.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => btn.innerHTML = o, 1500); }}
         }});
+    }}
+
+    const layerInviteStorageKey = 'gh_layer_invite';
+
+    function getPendingLayerInvite() {{
+        try {{
+            const raw = sessionStorage.getItem(layerInviteStorageKey);
+            if (raw) {{
+                const parsed = JSON.parse(raw);
+                if (parsed && parsed.token) return parsed;
+            }}
+        }} catch (e) {{}}
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('invite');
+        if (token) {{
+            return {{ token: token, layerSlug: projectSlug }};
+        }}
+        return null;
+    }}
+
+    function persistLayerInviteFromPreview(token, layer, inviterName) {{
+        try {{
+            sessionStorage.setItem(layerInviteStorageKey, JSON.stringify({{
+                token: token,
+                layerSlug: layer.slug,
+                layerId: layer.id,
+                layerName: layer.name || '',
+                inviterName: inviterName || '',
+                savedAt: Date.now()
+            }}));
+        }} catch (e) {{}}
+    }}
+
+    function clearPendingLayerInvite() {{
+        try {{ sessionStorage.removeItem(layerInviteStorageKey); }} catch (e) {{}}
+    }}
+
+    async function maybeShowLayerInviteBanner() {{
+        const banner = document.getElementById('layer-invite-banner');
+        if (!banner || !project) return;
+        if (project.is_member) {{
+            clearPendingLayerInvite();
+            banner.classList.add('d-none');
+            banner.innerHTML = '';
+            return;
+        }}
+        const pending = getPendingLayerInvite();
+        if (!pending || !pending.token) {{
+            banner.classList.add('d-none');
+            banner.innerHTML = '';
+            return;
+        }}
+        if (pending.layerSlug && pending.layerSlug !== projectSlug) {{
+            banner.classList.add('d-none');
+            banner.innerHTML = '';
+            return;
+        }}
+        try {{
+            const r = await fetch('/api/layer-invitations/by-token/' + encodeURIComponent(pending.token) + '/');
+            const d = await r.json();
+            if (!r.ok) {{
+                clearPendingLayerInvite();
+                banner.classList.add('d-none');
+                banner.innerHTML = '';
+                return;
+            }}
+            const layer = d.layer || {{}};
+            if (layer.slug && layer.slug !== projectSlug) {{
+                banner.classList.add('d-none');
+                banner.innerHTML = '';
+                return;
+            }}
+            persistLayerInviteFromPreview(pending.token, layer, d.inviter_name);
+            const inviter = escapeHtml(d.inviter_name || 'A member');
+            const inviteUrl = '/layer/invite/' + encodeURIComponent(pending.token) + '/';
+            banner.innerHTML =
+                '<div class="alert alert-success mb-0 d-flex flex-wrap align-items-center justify-content-between gap-3">' +
+                '<div><strong>You\\'re invited!</strong> ' + inviter + ' invited you to join this layer.</div>' +
+                '<div class="d-flex flex-wrap gap-2">' +
+                (isAuthenticated
+                    ? '<button type="button" class="btn btn-success btn-sm" id="layer-invite-accept-btn">Accept invitation</button>' +
+                      '<button type="button" class="btn btn-outline-secondary btn-sm" id="layer-invite-decline-btn">Decline</button>'
+                    : '<a href="/login/?next=' + encodeURIComponent(window.location.pathname + window.location.search) + '" class="btn btn-success btn-sm">Log in to accept</a>') +
+                '<a href="' + inviteUrl + '" class="btn btn-link btn-sm">Invitation details</a>' +
+                '</div></div>';
+            banner.classList.remove('d-none');
+            const acceptBtn = document.getElementById('layer-invite-accept-btn');
+            const declineBtn = document.getElementById('layer-invite-decline-btn');
+            if (acceptBtn) {{
+                acceptBtn.addEventListener('click', async function() {{
+                    acceptBtn.disabled = true;
+                    try {{
+                        const ar = await fetch('/api/layer-invitations/by-token/' + encodeURIComponent(pending.token) + '/accept/', {{
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            body: '{{}}'
+                        }});
+                        const ad = await ar.json();
+                        if (ar.ok) {{
+                            clearPendingLayerInvite();
+                            project.is_member = true;
+                            displayProjectHeader();
+                            banner.innerHTML = '<div class="alert alert-success mb-0">' +
+                                escapeHtml(ad.duplicate || ad.already_member ? 'You are already a member of this layer.' : 'You joined the layer!') +
+                                '</div>';
+                            await refreshProjectFromApi();
+                        }} else {{
+                            alert(ad.error || 'Failed to accept invitation');
+                            acceptBtn.disabled = false;
+                        }}
+                    }} catch (e) {{
+                        alert(e.message || 'Failed to accept invitation');
+                        acceptBtn.disabled = false;
+                    }}
+                }});
+            }}
+            if (declineBtn) {{
+                declineBtn.addEventListener('click', async function() {{
+                    if (!confirm('Decline this invitation?')) return;
+                    declineBtn.disabled = true;
+                    try {{
+                        const dr = await fetch('/api/layer-invitations/by-token/' + encodeURIComponent(pending.token) + '/decline/', {{
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            body: '{{}}'
+                        }});
+                        const dd = await dr.json();
+                        if (dr.ok) {{
+                            clearPendingLayerInvite();
+                            banner.classList.add('d-none');
+                            banner.innerHTML = '';
+                        }} else {{
+                            alert(dd.error || 'Failed to decline invitation');
+                            declineBtn.disabled = false;
+                        }}
+                    }} catch (e) {{
+                        alert(e.message || 'Failed to decline invitation');
+                        declineBtn.disabled = false;
+                    }}
+                }});
+            }}
+        }} catch (e) {{
+            console.warn('maybeShowLayerInviteBanner:', e);
+        }}
     }}
     
     function showEmbedCodeFromEl(el) {{
@@ -2892,7 +3312,14 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
     
     function editProject() {{
-        if (!project) return;
+        if (!project) {{
+            alert('Layer details are still loading. Please wait a moment and try again.');
+            return;
+        }}
+        if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {{
+            alert('Unable to open the edit dialog (page scripts did not load). Try refreshing the page.');
+            return;
+        }}
         document.getElementById('edit-project-name').value = project.name || '';
         document.getElementById('edit-project-mission').value = project.mission || '';
         document.getElementById('edit-project-description').value = project.description || '';

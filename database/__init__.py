@@ -28,11 +28,22 @@ def init_db(app):
             migrate_public_id,
             migrate_entity_image_url,
             migrate_badge_system,
+            migrate_workgroup_links,
             migrate_bridge,
             migrate_civic_mason,
             migrate_civic_mason_seed_daveed,
             migrate_user_linked_account,
             migrate_coordinator_and_member_requests,
+            migrate_chair_nomination_fields,
+            migrate_workgroup_nomination_flow,
+            migrate_workgroup_charter_goals,
+            sync_dp_workgroup_documents,
+            sync_sequential_ml_draft_numbers,
+            migrate_submission_content_hash,
+            migrate_layer_invitations,
+            migrate_product_rollout_seed,
+            migrate_workgroup_layer_links,
+            migrate_dp_proposals,
             migrate_hardcoded_users,
         )
 
@@ -55,6 +66,7 @@ def init_db(app):
         db.create_all()  # Ensure layer_member, waitlist, etc. exist
         migrate_entity_image_url(app)
         migrate_badge_system(app)
+        migrate_workgroup_links(app)
         migrate_bridge(app)
         migrate_civic_mason(app)
         migrate_user_linked_account(app)
@@ -63,5 +75,15 @@ def init_db(app):
             migrate_hardcoded_users(app)
         migrate_civic_mason_seed_daveed(app)
         migrate_coordinator_and_member_requests(app)
+        migrate_chair_nomination_fields(app)
+        migrate_workgroup_nomination_flow(app)
+        migrate_workgroup_charter_goals(app)
+        sync_dp_workgroup_documents(app)
+        sync_sequential_ml_draft_numbers(app)
+        migrate_submission_content_hash(app)
+        migrate_layer_invitations(app)
+        migrate_product_rollout_seed(app)
+        migrate_workgroup_layer_links(app)
+        migrate_dp_proposals(app)
 
         print(f"Database initialized: {User.query.count()} users")

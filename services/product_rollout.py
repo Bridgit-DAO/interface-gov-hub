@@ -35,10 +35,11 @@ FEATURE_KEYS: List[str] = [
     'quests',
     'bridges',
     'opportunities',
+    'dp_proposals',
 ]
 
 # Features off until explicitly enabled in Product rollout (site-wide).
-_FEATURE_OFF_BY_DEFAULT = frozenset({'immortalize'})
+_FEATURE_OFF_BY_DEFAULT = frozenset({'immortalize', 'dp_proposals'})
 
 # When no `product_rollout` row exists, legacy features stay on; new gated features stay off.
 _LEGACY_ALL_ENABLED: Dict[str, bool] = {
@@ -291,8 +292,8 @@ def _path_needs_immortalize(p: str) -> bool:
         return True
     if '/submit/immortalize' in p:
         return True
-    if p.startswith('/api/ordinal'):
-        return True
+    # /api/ordinal/preview and /api/ordinal/convert-markdown are used by draft submit
+    # ("From Ordinal" tab) and must stay available when only Immortalize is disabled.
     if p.startswith('/api/inscribe'):
         return True
     if p.startswith('/api/inscription'):
@@ -376,6 +377,14 @@ def _path_needs_artifacts(p: str) -> bool:
     return False
 
 
+def _path_needs_dp_proposals(p: str) -> bool:
+    if p.startswith('/admin/dp-proposals'):
+        return True
+    if p.startswith('/api/doc/draft/') and '/proposals/' in p:
+        return True
+    return False
+
+
 def _path_needs_admin(p: str) -> bool:
     if p in ('/admin', '/admin/'):
         return True
@@ -421,6 +430,8 @@ def path_requires_feature_flags(path: str) -> set:
         need.add('waitlists')
     if _path_needs_immortalize(p):
         need.add('immortalize')
+    if _path_needs_dp_proposals(p):
+        need.add('dp_proposals')
     is_layer = p.startswith('/layer/') or p.startswith('/layers/') or p.startswith('/api/layers/')
     if is_layer:
         need.add('layers')
@@ -512,6 +523,14 @@ def apply_product_rollout_before_request() -> Any:
         tab = (request.args.get('tab') or '').strip().lower()
         if tab == 'immortalize' and not cfg.get('immortalize', True):
             blocked = 'immortalize'
+    if blocked == 'workgroups' and request.method == 'GET':
+        p = (path or '').split('?', 1)[0]
+        if p.startswith('/api/layers/') and p.endswith('/workgroups/'):
+            from services.workgroup_links import layer_has_secondary_workgroups
+
+            layer_id = layer.id if layer is not None else None
+            if layer_id and layer_has_secondary_workgroups(layer_id):
+                blocked = None
     if not blocked:
         return None
 

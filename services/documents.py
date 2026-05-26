@@ -69,6 +69,44 @@ def load_draft_data():
 DRAFTS = load_draft_data()
 
 
+def extract_text_from_file(file_path, filename, max_size_mb=50):
+    """
+    Extract plain text from an uploaded draft file for word count / content hashing.
+    Returns empty string when extraction fails or format is unsupported.
+    """
+    try:
+        file_size = os.path.getsize(file_path)
+        max_size_bytes = max_size_mb * 1024 * 1024
+        if file_size > max_size_bytes:
+            return ''
+
+        _, ext = os.path.splitext(filename.lower())
+        content = ''
+
+        if ext in ['.txt', '.xml', '.md', '.markdown']:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+
+        elif ext == '.docx' and DOCX_SUPPORT:
+            doc = docx.Document(file_path)
+            content_parts = [p.text for p in doc.paragraphs if p.text.strip()]
+            content = '\n\n'.join(content_parts)
+
+        elif ext == '.pdf' and PDF_SUPPORT:
+            reader = PyPDF2.PdfReader(file_path)
+            content_parts = []
+            for page in reader.pages:
+                text = page.extract_text()
+                if text and text.strip():
+                    content_parts.append(text)
+            content = '\n\n'.join(content_parts)
+
+        return content or ''
+    except Exception as e:
+        print(f"[WARNING] Failed to extract text from {filename}: {e}")
+        return ''
+
+
 def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_seconds=30):
     """
     Calculate pages and words from a file.
@@ -89,38 +127,19 @@ def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_secon
             print(f"[WARNING] File too large: {file_size} bytes (max {max_size_bytes})")
             return (1, 0)
 
+        content = extract_text_from_file(file_path, filename, max_size_mb=max_size_mb)
+        if content:
+            words = len(content.split())
+            pages = max(1, (words + 499) // 500)
+            return (pages, words)
+
         _, ext = os.path.splitext(filename.lower())
-        words = 0
-        pages = 1
-
-        if ext in ['.txt', '.xml', '.md', '.markdown']:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read()
-            words = len(content.split())
-            pages = max(1, (words + 499) // 500)
-
-        elif ext == '.docx' and DOCX_SUPPORT:
-            doc = docx.Document(file_path)
-            content_parts = []
-            for paragraph in doc.paragraphs:
-                if paragraph.text.strip():
-                    content_parts.append(paragraph.text)
-            content = '\n\n'.join(content_parts)
-            words = len(content.split())
-            pages = max(1, (words + 499) // 500)
-
-        elif ext == '.pdf' and PDF_SUPPORT:
+        if ext == '.pdf' and PDF_SUPPORT:
             reader = PyPDF2.PdfReader(file_path)
-            content_parts = []
-            for page in reader.pages:
-                text = page.extract_text()
-                if text.strip():
-                    content_parts.append(text)
-            content = '\n\n'.join(content_parts)
-            words = len(content.split())
-            pages = len(reader.pages) if reader.pages else max(1, (words + 499) // 500)
+            pages = len(reader.pages) if reader.pages else 1
+            return (pages, 0)
 
-        return (pages, words)
+        return (1, 0)
 
     except Exception as e:
         print(f"[WARNING] Failed to calculate pages/words for {filename}: {e}")

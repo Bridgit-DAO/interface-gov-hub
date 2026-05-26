@@ -16,6 +16,7 @@ from services.directory_ui import (
     gh_filter_row,
     gh_filter_col,
     gh_directory_grid,
+    gh_directory_toolbar,
 )
 
 bp = Blueprint('directory', __name__, url_prefix='')
@@ -192,9 +193,9 @@ def projects_directory():
     {gh_page_open()}
     {gh_page_header('Layers Map', 'Discover layers — status, activity, and community at a glance', 'fa-layer-group', create_btn)}
     {gh_filter_row(
-        gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadProjects()"><option value="">All Statuses</option><option value="proposed">Proposed</option><option value="active">Active</option><option value="stabilizing">Stabilizing</option><option value="maintaining">Maintaining</option><option value="dormant">Dormant</option><option value="concluded">Concluded</option><option value="archived">Archived</option></select>')
+        gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadProjects()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="proposed">Proposed</option><option value="stabilizing">Stabilizing</option><option value="maintaining">Maintaining</option><option value="dormant">Dormant</option><option value="concluded">Concluded</option><option value="archived">Archived</option></select>')
         + gh_filter_col('Approval', '<select id="approval-filter" class="form-select" onchange="loadProjects()"><option value="active" selected>Active</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>')
-        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search layers..." onkeyup="filterProjects()">')
+        + gh_directory_toolbar(search_placeholder='Search layers…', search_col='col-md-4', sort_col='col-md-2')
     )}
     {gh_directory_grid('projects-container', 'row row-cols-2 row-cols-sm-3 row-cols-md-3 row-cols-lg-4 g-3')}
     {gh_page_close()}
@@ -236,20 +237,21 @@ def projects_directory():
                 const data = await response.json();
                 allProjects = data.layers || [];
             }}
-            displayProjects(allProjects);
+            filterProjects();
         }} catch (error) {{
             console.error('Error loading projects:', error);
             document.getElementById('projects-container').innerHTML = GhDirectory.emptyState('Error loading layers', 'danger');
         }}
     }}
     function filterProjects() {{
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-        const approvalFilter = document.getElementById('approval-filter').value;
-        const filtered = allProjects.filter(p => {{
-            const blob = (p.name + ' ' + (p.description || '') + ' ' + (p.mission || '')).toLowerCase();
-            return blob.includes(searchTerm);
+        const items = GhDirectory.filterAndSort(allProjects, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter'),
+            searchFields: ['name', 'description', 'mission', 'slug'],
+            nameKey: 'name',
+            dateKeys: ['last_activity_at', 'updated_at', 'created_at'],
         }});
-        displayProjects(orderProjectsByApproval(filtered, approvalFilter));
+        displayProjects(items);
     }}
     function layerCardImageUrl(project) {{
         if (!project || !project.image_url) return '';
@@ -292,6 +294,7 @@ def projects_directory():
         container.innerHTML = html;
     }}
     loadProjects();
+    GhDirectory.bindControls('search-input', 'sort-filter', filterProjects);
     </script>
     """
     return render_page("Layers Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
@@ -317,9 +320,13 @@ def workgroups_directory():
     {gh_page_open()}
     {gh_page_header('Workgroups Directory', 'Browse workgroups across all layers', 'fa-users-cog', wg_actions)}
     {gh_filter_row(
-        gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Layers</option></select>')
-        + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>')
-        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search workgroups..." onkeyup="filterWorkgroups()">')
+        gh_directory_toolbar(
+            search_placeholder='Search workgroups…',
+            extra_cols=(
+                gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Layers</option></select>')
+                + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>', 'col-md-2')
+            ),
+        )
     )}
     {gh_directory_grid('workgroups-container')}
     {gh_page_close()}
@@ -360,7 +367,7 @@ def workgroups_directory():
                 
                 const response = await fetch(url);
                 const data = await response.json();
-                allWorkgroups = (response.ok && data.workgroups) ? data.workgroups : [];
+                allWorkgroups = (response.ok && data.workgroups) ? data.workgroups.map(wg => ({{...wg, layer_name: (allProjects.find(p => p.id === wg.layer_id) || {{}}).name || ''}})) : [];
             }} else {{
                 // Load workgroups from all projects
                 for (const project of allProjects) {{
@@ -370,11 +377,11 @@ def workgroups_directory():
                     const response = await fetch(url);
                     const data = await response.json();
                     const wgs = (response.ok && Array.isArray(data.workgroups)) ? data.workgroups : [];
-                    allWorkgroups = allWorkgroups.concat(wgs);
+                    allWorkgroups = allWorkgroups.concat(wgs.map(wg => ({{...wg, layer_name: project.name}})));
                 }}
             }}
             
-            displayWorkgroups(allWorkgroups);
+            filterWorkgroups();
         }} catch (error) {{
             console.error('Error loading workgroups:', error);
             document.getElementById('workgroups-container').innerHTML = GhDirectory.emptyState('Error loading workgroups', 'danger');
@@ -382,12 +389,14 @@ def workgroups_directory():
     }}
     
     function filterWorkgroups() {{
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-        const filtered = allWorkgroups.filter(wg => 
-            wg.name.toLowerCase().includes(searchTerm) ||
-            (wg.description && wg.description.toLowerCase().includes(searchTerm))
-        );
-        displayWorkgroups(filtered);
+        const items = GhDirectory.filterAndSort(allWorkgroups, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter'),
+            searchFields: ['name', 'description', 'acronym', 'slug', 'layer_name'],
+            nameKey: 'name',
+            dateKeys: ['updated_at', 'created_at'],
+        }});
+        displayWorkgroups(items);
     }}
     
     function displayWorkgroups(workgroups) {{
@@ -564,7 +573,10 @@ def workgroups_directory():
         }};
     }}
     
-    loadProjects().then(() => loadWorkgroups());
+    loadProjects().then(() => {{
+        loadWorkgroups();
+        GhDirectory.bindControls('search-input', 'sort-filter', filterWorkgroups);
+    }});
     </script>
     """
     
@@ -645,8 +657,8 @@ def build_waitlists_content(layer_slug=None):
     {gh_page_header('Waitlists Directory', 'Join waitlists for upcoming projects, features, and opportunities', 'fa-list-alt', breadcrumb_html=layer_title_html)}
     {gh_filter_row(
         (layer_filter_html or '')
-        + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWaitlists()"><option value="">All</option><option value="active">Active</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option></select>', 'col-md-4' if layer_scoped else 'col-md-4')
-        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search waitlists..." onkeyup="filterWaitlists()">', 'col-md-4' if layer_scoped else 'col-md-4')
+        + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWaitlists()"><option value="active" selected>Active</option><option value="">All</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option></select>', 'col-md-3')
+        + gh_directory_toolbar(search_placeholder='Search waitlists…', search_col='col-md-4', sort_col='col-md-2')
     )}
     {gh_directory_grid('waitlists-container')}
     {gh_page_close()}
@@ -677,9 +689,14 @@ def build_waitlists_content(layer_slug=None):
         }}
     }}
     
+    function waitlistStatusFilter() {{
+        const el = document.getElementById('status-filter');
+        return el ? el.value : 'active';
+    }}
+
     async function loadWaitlists() {{
         const projectFilter = layerScopedId ? layerScopedId : (document.getElementById('project-filter') ? document.getElementById('project-filter').value : '');
-        const statusFilter = document.getElementById('status-filter').value;
+        const statusFilter = waitlistStatusFilter();
         
         try {{
             allWaitlists = [];
@@ -687,13 +704,13 @@ def build_waitlists_content(layer_slug=None):
             if (projectFilter) {{
                 const response = await fetch(`/api/layers/${{projectFilter}}/waitlists/`);
                 const data = await response.json();
-                allWaitlists = data.waitlists || [];
+                allWaitlists = (data.waitlists || []).map(wl => ({{...wl, layer_name: (allProjects.find(p => p.id === wl.layer_id) || {{}}).name || ''}}));
             }} else {{
                 for (const project of allProjects) {{
                     const response = await fetch(`/api/layers/${{project.id}}/waitlists/`);
                     const data = await response.json();
                     if (data.waitlists) {{
-                        allWaitlists = allWaitlists.concat(data.waitlists);
+                        allWaitlists = allWaitlists.concat(data.waitlists.map(wl => ({{...wl, layer_name: project.name}})));
                     }}
                 }}
             }}
@@ -719,7 +736,7 @@ def build_waitlists_content(layer_slug=None):
             if (layerScopedId && allProjects.length === 0) {{
                 allProjects = [{{ id: layerScopedId, slug: {json.dumps(layer_obj.slug if layer_obj else "")}, name: {json.dumps(layer_name_esc)} }}];
             }}
-            displayWaitlists(allWaitlists);
+            filterWaitlists();
         }} catch (error) {{
             console.error('Error loading waitlists:', error);
             document.getElementById('waitlists-container').innerHTML = GhDirectory.emptyState('Error loading waitlists', 'danger');
@@ -727,12 +744,14 @@ def build_waitlists_content(layer_slug=None):
     }}
     
     function filterWaitlists() {{
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-        const filtered = allWaitlists.filter(wl => 
-            wl.name.toLowerCase().includes(searchTerm) ||
-            (wl.description && wl.description.toLowerCase().includes(searchTerm))
-        );
-        displayWaitlists(filtered);
+        const items = GhDirectory.filterAndSort(allWaitlists, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter'),
+            searchFields: ['name', 'description', 'slug', 'layer_name'],
+            nameKey: 'name',
+            dateKeys: ['created_at', 'start_date', 'updated_at'],
+        }});
+        displayWaitlists(items);
     }}
     
     function displayWaitlists(waitlists) {{
@@ -791,7 +810,15 @@ def build_waitlists_content(layer_slug=None):
         container.innerHTML = html;
     }}
     
-    loadProjects().then(() => loadWaitlists());
+    (function initWaitlistStatusDefault() {{
+        const statusEl = document.getElementById('status-filter');
+        if (statusEl && !statusEl.value) statusEl.value = 'active';
+    }})();
+
+    loadProjects().then(() => {{
+        loadWaitlists();
+        GhDirectory.bindControls('search-input', 'sort-filter', filterWaitlists);
+    }});
     </script>
     """
 
@@ -834,8 +861,8 @@ def guilds_directory():
     {gh_page_open()}
     {gh_page_header('Guilds Directory', 'Cross-project collaboration groups', 'fa-shield-halved', guild_create)}
     {gh_filter_row(
-        gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadGuilds()"><option value="">All Statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>', 'col-md-6')
-        + gh_filter_col('Search', '<input type="text" id="search-input" class="form-control" placeholder="Search guilds..." onkeyup="filterGuilds()">', 'col-md-6')
+        gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadGuilds()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="archived">Archived</option></select>', 'col-md-3')
+        + gh_directory_toolbar(search_placeholder='Search guilds…', search_col='col-md-5', sort_col='col-md-2')
     )}
     {gh_directory_grid('guilds-container')}
     {gh_page_close()}
@@ -853,7 +880,7 @@ def guilds_directory():
             const response = await fetch(url);
             const data = await response.json();
             allGuilds = data.guilds;
-            displayGuilds(allGuilds);
+            filterGuilds();
         }} catch (error) {{
             console.error('Error loading guilds:', error);
             document.getElementById('guilds-container').innerHTML = GhDirectory.emptyState('Error loading guilds', 'danger');
@@ -861,12 +888,14 @@ def guilds_directory():
     }}
     
     function filterGuilds() {{
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-        const filtered = allGuilds.filter(g => 
-            g.name.toLowerCase().includes(searchTerm) ||
-            (g.description && g.description.toLowerCase().includes(searchTerm))
-        );
-        displayGuilds(filtered);
+        const items = GhDirectory.filterAndSort(allGuilds, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter'),
+            searchFields: ['name', 'description', 'slug'],
+            nameKey: 'name',
+            dateKeys: ['updated_at', 'created_at'],
+        }});
+        displayGuilds(items);
     }}
     
     function displayGuilds(guilds) {{
@@ -900,6 +929,7 @@ def guilds_directory():
     
     // Load guilds on page load
     loadGuilds();
+    GhDirectory.bindControls('search-input', 'sort-filter', filterGuilds);
     </script>
     """
     return render_page("Guilds Directory - MLGH", content, theme=current_theme, user_menu=user_menu)

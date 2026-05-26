@@ -1040,3 +1040,27 @@ def api_project_send_email(layer_id):
             sent += 1
 
     return jsonify({'sent': sent, 'total': len(recipients)}), 200
+
+
+@bp.route('/<layer_id>/invitations/', methods=['GET', 'POST'])
+@require_auth
+def layer_invitations(layer_id):
+    """List or create email invitations (any active layer member)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    from services.layer_invitations import create_layer_invitation, list_layer_invitations
+
+    if request.method == 'GET':
+        body, status = list_layer_invitations(layer_id, current_user['id'])
+        return jsonify(body), status
+
+    data = request.get_json() or {}
+    body, status = create_layer_invitation(
+        layer_id=layer_id,
+        inviter_id=current_user['id'],
+        invitee_email=data.get('email', ''),
+        message=data.get('message'),
+    )
+    return jsonify(body), status

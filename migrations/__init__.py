@@ -209,6 +209,29 @@ def migrate_badge_system(app):
         print(f"⚠️  Error adding badge system columns: {e}")
 
 
+def migrate_workgroup_links(app):
+    """Add optional external_url and document_draft_name to working_group."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        link_cols = {
+            'external_url': 'VARCHAR(500)',
+            'document_draft_name': 'VARCHAR(255)',
+        }
+        cursor.execute("PRAGMA table_info(working_group)")
+        wg_cols = [c[1] for c in cursor.fetchall()]
+        for col, col_type in link_cols.items():
+            if col not in wg_cols:
+                cursor.execute(f"ALTER TABLE working_group ADD COLUMN {col} {col_type}")
+                conn.commit()
+                print(f"✅ Added working_group.{col}")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error adding workgroup link columns: {e}")
+
+
 def migrate_coordinator_and_member_requests(app):
     """Ensure coordinator_request, workgroup_member_request tables exist; add user_id to working_group_chair and working_group_member."""
     try:
@@ -1152,6 +1175,170 @@ def migrate_notifications_stack_v1(app):
         print(f"⚠️  Error in migrate_notifications_stack_v1: {e}")
 
 
+def migrate_chair_nomination_fields(app):
+    """Add nomination contact fields to working_group_chair."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(working_group_chair)")
+        columns = {c[1] for c in cursor.fetchall()}
+        additions = [
+            ('statement', 'TEXT'),
+            ('nominated_by_user_id', 'VARCHAR(36)'),
+            ('is_self_nomination', 'BOOLEAN DEFAULT 0'),
+            ('nominee_email', 'VARCHAR(200)'),
+            ('nominee_profile_url', 'VARCHAR(500)'),
+        ]
+        for col, col_type in additions:
+            if col not in columns:
+                cursor.execute(f"ALTER TABLE working_group_chair ADD COLUMN {col} {col_type}")
+                conn.commit()
+                print(f"✅ Added working_group_chair.{col}")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_chair_nomination_fields: {e}")
+
+
+def migrate_workgroup_nomination_flow(app):
+    """Add position_key, status, nominee response token columns; backfill existing rows."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(working_group_chair)")
+        columns = {c[1] for c in cursor.fetchall()}
+        additions = [
+            ('position_key', "VARCHAR(40) DEFAULT 'chair'"),
+            ('status', "VARCHAR(30) DEFAULT 'pending_nominee'"),
+            ('nominee_response_token', 'VARCHAR(64)'),
+            ('nominee_token_expires_at', 'DATETIME'),
+            ('nominee_responded_at', 'DATETIME'),
+            ('nominee_decline_reason', 'TEXT'),
+        ]
+        for col, col_type in additions:
+            if col not in columns:
+                cursor.execute(f"ALTER TABLE working_group_chair ADD COLUMN {col} {col_type}")
+                conn.commit()
+                print(f"✅ Added working_group_chair.{col}")
+
+        cursor.execute("UPDATE working_group_chair SET position_key = 'chair' WHERE position_key IS NULL OR position_key = ''")
+        cursor.execute("""
+            UPDATE working_group_chair
+            SET status = CASE
+                WHEN approved IN ('1', 1, 'true', 'TRUE') THEN 'approved'
+                ELSE 'nominee_accepted'
+            END
+            WHERE status IS NULL OR status = ''
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_workgroup_nomination_flow: {e}")
+
+
+def migrate_workgroup_charter_goals(app):
+    """Add charter and goals text columns to working_group."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(working_group)")
+        columns = {c[1] for c in cursor.fetchall()}
+        for col in ('charter', 'goals'):
+            if col not in columns:
+                cursor.execute(f"ALTER TABLE working_group ADD COLUMN {col} TEXT")
+                conn.commit()
+                print(f"✅ Added working_group.{col}")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_workgroup_charter_goals: {e}")
+
+
+def sync_dp_workgroup_documents(app):
+    """Link DP workgroups ↔ DP draft submissions (fills unset links only)."""
+    try:
+        from extensions import db
+        from services.workgroup_links import (
+            sync_all_dp_submission_groups,
+            sync_all_dp_workgroup_documents,
+        )
+
+        with app.app_context():
+            wg_stats = sync_all_dp_workgroup_documents(force=False)
+            sub_stats = sync_all_dp_submission_groups(force=False)
+            if wg_stats['updated'] or sub_stats['updated']:
+                db.session.commit()
+            if wg_stats['updated']:
+                print(
+                    f"✅ Linked {wg_stats['updated']} DP workgroup(s) to draft documents "
+                    f"(skipped {wg_stats['skipped']}, missing draft {wg_stats['missing_draft']})"
+                )
+            if sub_stats['updated']:
+                print(
+                    f"✅ Set workgroup on {sub_stats['updated']} DP document(s) "
+                    f"(skipped {sub_stats['skipped']}, missing workgroup {sub_stats['missing_wg']})"
+                )
+    except Exception as e:
+        print(f"⚠️  Error syncing DP workgroup documents: {e}")
+
+
+def sync_sequential_ml_draft_numbers(app):
+    """Renumber ML-Draft-* by creation order when out of sequence (skipped when sealed)."""
+    try:
+        from extensions import db
+        from services.ml_numbering import (
+            apply_ml_renumber_plan,
+            build_ml_renumber_plan,
+            is_ml_numbering_sealed,
+            needs_ml_renumber,
+        )
+
+        with app.app_context():
+            if is_ml_numbering_sealed():
+                return
+            if not needs_ml_renumber():
+                return
+            plan = build_ml_renumber_plan()
+            updated = apply_ml_renumber_plan(plan)
+            if updated:
+                db.session.commit()
+                print(f"✅ Renumbered {updated} ML-Draft document families into creation order")
+    except Exception as e:
+        print(f"⚠️  Error renumbering ML draft numbers: {e}")
+
+
+def migrate_submission_content_hash(app):
+    """Add content_hash column and backfill hashes for existing submissions."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(submission)")
+        columns = {c[1] for c in cursor.fetchall()}
+        if 'content_hash' not in columns:
+            cursor.execute("ALTER TABLE submission ADD COLUMN content_hash VARCHAR(64)")
+            conn.commit()
+            print("✅ Added submission.content_hash")
+        conn.close()
+
+        from services.submission_dedup import backfill_submission_content_hashes
+
+        with app.app_context():
+            stats = backfill_submission_content_hashes(commit=True)
+            if stats['updated']:
+                print(
+                    f"✅ Backfilled content_hash for {stats['updated']} submission(s) "
+                    f"(skipped {stats['skipped']}, failed {stats['failed']})"
+                )
+    except Exception as e:
+        print(f"⚠️  Error in migrate_submission_content_hash: {e}")
+
+
 def migrate_hardcoded_users(app):
     """Migrate hardcoded users to database"""
     hardcoded_users = {
@@ -1176,3 +1363,173 @@ def migrate_hardcoded_users(app):
 
     db.session.commit()
     print(f"Migrated {len(hardcoded_users)} hardcoded users to database")
+
+
+def migrate_layer_invitations(app):
+    """Create layer_invitation table for member email invites."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='layer_invitation'")
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE layer_invitation (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    inviter_id VARCHAR(36) NOT NULL REFERENCES user(id),
+                    invitee_email VARCHAR(255) NOT NULL,
+                    invitee_id VARCHAR(36) REFERENCES user(id),
+                    message TEXT,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    outcome_note VARCHAR(255),
+                    token VARCHAR(100) NOT NULL UNIQUE,
+                    created_at DATETIME,
+                    expires_at DATETIME NOT NULL,
+                    responded_at DATETIME
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_invitation_layer ON layer_invitation(layer_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_invitation_status ON layer_invitation(status)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_invitation_email ON layer_invitation(layer_id, invitee_email)"
+            )
+            conn.commit()
+            print("✅ Created layer_invitation table")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_layer_invitations: {e}")
+
+
+def migrate_product_rollout_seed(app):
+    """Seed site_config.product_rollout from config/product_rollout.json when missing."""
+    try:
+        from services.product_rollout_seed import ensure_product_rollout_seeded
+
+        if ensure_product_rollout_seeded():
+            print("✅ Seeded product_rollout from config/product_rollout.json")
+    except Exception as e:
+        print(f"⚠️  Error in migrate_product_rollout_seed: {e}")
+
+
+def migrate_workgroup_layer_links(app):
+    """Create workgroup_layer_link table; link all DP workgroups to The Overweb."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workgroup_layer_link (
+                id VARCHAR(36) PRIMARY KEY,
+                workgroup_id VARCHAR(36) NOT NULL,
+                layer_id VARCHAR(36) NOT NULL,
+                created_at DATETIME,
+                UNIQUE(workgroup_id, layer_id)
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wg_layer_link_wg ON workgroup_layer_link(workgroup_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wg_layer_link_layer ON workgroup_layer_link(layer_id)"
+        )
+        conn.commit()
+        conn.close()
+
+        from models import Layer, Workgroup
+        from services.workgroup_links import is_dp_workgroup, link_workgroup_secondary_layer
+
+        with app.app_context():
+            overweb = Layer.query.filter_by(slug='the-overweb').first()
+            if not overweb:
+                print("⚠️  migrate_workgroup_layer_links: layer the-overweb not found")
+                return
+            linked = 0
+            for wg in Workgroup.query.filter_by(status='active').all():
+                if not is_dp_workgroup(wg):
+                    continue
+                if wg.layer_id == overweb.id:
+                    continue
+                if link_workgroup_secondary_layer(wg, overweb.id):
+                    linked += 1
+            if linked:
+                db.session.commit()
+                print(f"✅ Linked {linked} DP workgroup(s) to The Overweb (secondary layer)")
+    except Exception as e:
+        print(f"⚠️  Error in migrate_workgroup_layer_links: {e}")
+
+
+def migrate_dp_proposals(app):
+    """Create dp_proposal table; enable dp_proposals rollout flag on dev checkout."""
+    try:
+        import sqlite3
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dp_proposal (
+                id VARCHAR(36) PRIMARY KEY,
+                submission_id VARCHAR(36) NOT NULL,
+                scope VARCHAR(20) NOT NULL DEFAULT 'dp',
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                anchor_hash VARCHAR(64) NOT NULL,
+                context_anchor TEXT,
+                original_text TEXT NOT NULL,
+                proposed_text TEXT NOT NULL,
+                content_hash_at_create VARCHAR(64),
+                author_user_id VARCHAR(36),
+                reviewed_by_user_id VARCHAR(36),
+                reviewed_at DATETIME,
+                incorporated_submission_id VARCHAR(36),
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY (submission_id) REFERENCES submission(id),
+                FOREIGN KEY (author_user_id) REFERENCES user(id),
+                FOREIGN KEY (reviewed_by_user_id) REFERENCES user(id),
+                FOREIGN KEY (incorporated_submission_id) REFERENCES submission(id)
+            )
+        """)
+        for idx_sql in (
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_submission ON dp_proposal(submission_id)',
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_status ON dp_proposal(status)',
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_anchor ON dp_proposal(anchor_hash)',
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_author ON dp_proposal(author_user_id)',
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_created ON dp_proposal(created_at)',
+        ):
+            cursor.execute(idx_sql)
+        conn.commit()
+        conn.close()
+        print('✅ dp_proposal table ready')
+
+        from config import IS_DEVELOPMENT
+        if IS_DEVELOPMENT:
+            import json
+            from extensions import db
+            from models import SiteConfig
+            from services.product_rollout import PRODUCT_ROLLOUT_SITE_CONFIG_KEY
+
+            with app.app_context():
+                row = SiteConfig.query.filter_by(key=PRODUCT_ROLLOUT_SITE_CONFIG_KEY).first()
+                cfg = {}
+                if row and row.value:
+                    try:
+                        cfg = json.loads(row.value)
+                    except json.JSONDecodeError:
+                        cfg = {}
+                if 'dp_proposals' not in cfg:
+                    cfg['dp_proposals'] = True
+                    payload = json.dumps(cfg, sort_keys=True)
+                    if row:
+                        row.value = payload
+                    else:
+                        db.session.add(SiteConfig(key=PRODUCT_ROLLOUT_SITE_CONFIG_KEY, value=payload))
+                    db.session.commit()
+                    print('✅ Enabled dp_proposals in product_rollout (dev)')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_dp_proposals: {e}')
