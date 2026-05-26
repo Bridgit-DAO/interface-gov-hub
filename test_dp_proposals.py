@@ -52,6 +52,97 @@ def test_compute_anchor_hash_stable():
     assert h1 != h3
 
 
+def test_focused_passage_core_trims_unchanged_sentences():
+    from services.dp_proposals import focused_passage_core
+
+    original = (
+        'This draft articulates DP11. '
+        'The central claim is ethical AI at the interface. '
+        'In such conditions, trust collapses.'
+    )
+    proposed = (
+        'This draft articulates DP11. '
+        'The central claim is ethical AI at the interface. '
+        'In such conditions, trust collapses and semantic chaos ensues.'
+    )
+    o, p = focused_passage_core(original, proposed)
+    assert o == 'In such conditions, trust collapses.'
+    assert p == 'In such conditions, trust collapses and semantic chaos ensues.'
+
+
+def test_retrim_stored_proposal_backfill():
+    from app import app
+    from extensions import db
+    from models import DpProposal, Submission, User
+    from services.dp_proposals import (
+        compute_anchor_hash,
+        retrim_all_dp_proposals,
+        retrim_stored_proposal,
+        serialize_context_anchor,
+    )
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        if not sub:
+            return
+        user = User.query.first()
+        if not user:
+            return
+
+        original = 'Lead sentence. Changed sentence here.'
+        proposed = 'Lead sentence. Changed sentence there.'
+        row = DpProposal(
+            submission_id=sub.id,
+            scope='dp',
+            status='pending',
+            anchor_hash=compute_anchor_hash(sub.id, sub.content_hash, original),
+            context_anchor=serialize_context_anchor({
+                'textQuote': {'type': 'TextQuoteSelector', 'exact': original},
+            }),
+            original_text=original,
+            proposed_text=proposed,
+            content_hash_at_create=sub.content_hash,
+            author_user_id=user.id,
+        )
+        db.session.add(row)
+        db.session.commit()
+        pid = row.id
+
+        changed, err = retrim_stored_proposal(row)
+        assert err is None
+        assert changed is True
+        assert row.original_text == 'Changed sentence here.'
+        assert row.proposed_text == 'Changed sentence there.'
+        db.session.commit()
+
+        row2 = DpProposal.query.get(pid)
+        assert row2.original_text == 'Changed sentence here.'
+        db.session.delete(row2)
+        db.session.commit()
+
+
+def test_validate_create_payload_trims_and_aligns_anchor():
+    from services.dp_proposals import validate_create_payload
+
+    payload, err = validate_create_payload({
+        'original_text': 'Alpha one. Beta two. Gamma three.',
+        'proposed_text': 'Alpha one. Beta two. Gamma changed.',
+        'context_anchor': {
+            'textQuote': {
+                'type': 'TextQuoteSelector',
+                'exact': 'Alpha one. Beta two. Gamma three.',
+                'prefix': '…',
+                'suffix': '…',
+            },
+        },
+    })
+    assert err is None
+    assert payload['original_text'] == 'Gamma three.'
+    assert payload['proposed_text'] == 'Gamma changed.'
+    assert payload['context_anchor']['textQuote']['exact'] == 'Gamma three.'
+
+
 def test_list_proposals_requires_feature():
     from app import app
 
@@ -105,26 +196,16 @@ def test_create_and_list_proposal():
     assert listed['counts_by_status'].get('pending', 0) >= 1
 
 
-def test_accept_proposal_requires_chair():
+def test_accept_proposal_requires_site_admin():
     from app import app
     from models import User
-    from services.dp_proposals import can_manage_amendments, workgroup_for_submission
 
     _enable_dp_proposals(app)
     with app.app_context():
         sub = _find_approved_dp_submission()
         if not sub:
             return
-        wg = workgroup_for_submission(sub)
-        outsider = None
-        for user in User.query.all():
-            if user.role in ('admin', 'editor'):
-                continue
-            fake_user = {'id': user.id, 'username': user.username, 'role': user.role}
-            if can_manage_amendments(fake_user, wg):
-                continue
-            outsider = user
-            break
+        outsider = User.query.filter(User.role == 'user').first()
         if not outsider:
             return
         ref = sub.id
@@ -162,6 +243,54 @@ def test_read_meta_for_dp():
         data = r.get_json()
         assert data['is_dp'] is True
         assert data['proposals_enabled'] is True
+
+
+def test_dp_challenge_page_loads():
+    from app import app
+
+    _enable_dp_proposals(app)
+    with app.test_client() as client:
+        r = client.get('/dp-challenge/')
+        assert r.status_code == 200, r.get_data(as_text=True)
+        assert b'DP Challenge' in r.data
+        assert b'Your line can become the standard' in r.data
+        assert b'Contributors' in r.data
+
+
+def test_dp_challenge_recent_api():
+    from app import app
+    from extensions import db
+    from models import DpProposal, Submission, User
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        if not sub:
+            return
+        user = User.query.first()
+        if not user:
+            return
+        from services.dp_proposals import compute_anchor_hash
+
+        original = 'One.'
+        row = DpProposal(
+            submission_id=sub.id,
+            scope='dp',
+            status='pending',
+            anchor_hash=compute_anchor_hash(sub.id, sub.content_hash, original),
+            original_text=original,
+            proposed_text='Two.',
+            author_user_id=user.id,
+        )
+        db.session.add(row)
+        db.session.commit()
+
+    with app.test_client() as client:
+        r = client.get('/api/dp-challenge/recent')
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data.get('enabled') is True
+        assert isinstance(data.get('events'), list)
 
 
 def test_admin_dashboard_loads():

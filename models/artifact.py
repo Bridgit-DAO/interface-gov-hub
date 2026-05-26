@@ -185,6 +185,8 @@ class Submission(db.Model):
     rfc_number = db.Column(db.Integer, nullable=True)
     inscription_order_id = db.Column(db.String(36), nullable=True, index=True)
     artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)
+    # Model C category: document | template | tool | guide | glossary | policy
+    document_category = db.Column(db.String(32), nullable=True, index=True)
 
     # File-backed submission may show a linked ordinal body in the reader while keeping file + revision history.
     displayBodySource = db.Column(db.String(20), default='file')  # 'file' | 'ordinal'

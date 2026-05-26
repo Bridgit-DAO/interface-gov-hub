@@ -370,6 +370,8 @@ def _path_needs_artifacts(p: str) -> bool:
         for x in (
             '/artifacts/',
             '/artifact-relations/',
+            '/artifact-tags/',
+            '/layer-tags/',
             '/monuments/',
         )
     ):
@@ -379,6 +381,10 @@ def _path_needs_artifacts(p: str) -> bool:
 
 def _path_needs_dp_proposals(p: str) -> bool:
     if p.startswith('/admin/dp-proposals'):
+        return True
+    if p.startswith('/dp-challenge'):
+        return True
+    if p.startswith('/api/dp-challenge'):
         return True
     if p.startswith('/api/doc/draft/') and ('/proposals/' in p or p.endswith('/read-meta/')):
         return True

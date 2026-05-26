@@ -25,6 +25,9 @@ from config import (
     KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED,
     KNOWLEDGE_SCAFFOLD_ENABLED,
     KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED,
+    LAYER_TAGS_ENABLED,
+    LAYER_TAG_FILTERS_ENABLED,
+    DOCUMENT_TAGS_ENABLED,
     ARTIFACT_TAGS_ENABLED,
     ARTIFACT_TAG_FILTERS_ENABLED,
     PUBLIC_BASE_URL,
@@ -72,6 +75,9 @@ def create_app():
     app.config['KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED'] = KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED
     app.config['KNOWLEDGE_SCAFFOLD_ENABLED'] = KNOWLEDGE_SCAFFOLD_ENABLED
     app.config['KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED'] = KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED
+    app.config['LAYER_TAGS_ENABLED'] = LAYER_TAGS_ENABLED
+    app.config['LAYER_TAG_FILTERS_ENABLED'] = LAYER_TAG_FILTERS_ENABLED
+    app.config['DOCUMENT_TAGS_ENABLED'] = DOCUMENT_TAGS_ENABLED
     app.config['ARTIFACT_TAGS_ENABLED'] = ARTIFACT_TAGS_ENABLED
     app.config['ARTIFACT_TAG_FILTERS_ENABLED'] = ARTIFACT_TAG_FILTERS_ENABLED
     app.config['PUBLIC_BASE_URL'] = PUBLIC_BASE_URL
@@ -156,6 +162,7 @@ def create_app():
     from routes.soft_launch_pages import bp as soft_launch_pages_bp
     from routes.layer_invitations import bp as layer_invitations_bp, bp_pages as layer_invite_pages_bp
     from routes.dp_proposals import bp as dp_proposals_bp, admin_bp as dp_proposals_admin_bp
+    from routes.dp_challenge_pages import bp as dp_challenge_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -216,6 +223,7 @@ def create_app():
     app.register_blueprint(layer_invite_pages_bp)
     app.register_blueprint(dp_proposals_bp)
     app.register_blueprint(dp_proposals_admin_bp)
+    app.register_blueprint(dp_challenge_bp)
 
     # CLI
     from cli import register_cli

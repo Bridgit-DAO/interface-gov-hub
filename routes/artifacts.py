@@ -33,7 +33,7 @@ from services.knowledge_layer import (
     public_schema_dict,
     validate_knowledge_for_create,
 )
-from services.artifact_tags import (
+from services.layer_tags import (
     tags_enabled,
     tag_filters_enabled,
     parse_tag_slugs,
@@ -644,9 +644,7 @@ def update_artifact(artifact_id):
     return jsonify({'success': True, 'artifact': payload})
 
 
-@bp.route('/layers/<layer_id>/artifact-tags/', methods=['GET'])
-def list_layer_artifact_tags(layer_id):
-    """List tags defined on a layer (with artifact counts)."""
+def _list_layer_tags_response(layer_id):
     Layer.query.get_or_404(layer_id)
     if not tags_enabled(current_app.config):
         return jsonify({'tags': [], 'enabled': False}), 200
@@ -654,6 +652,57 @@ def list_layer_artifact_tags(layer_id):
         'tags': list_layer_tags(layer_id, with_counts=True),
         'enabled': True,
     }), 200
+
+
+@bp.route('/layers/<layer_id>/layer-tags/', methods=['GET'])
+def list_layer_tags_api(layer_id):
+    """List unified layer tags (artifact + submission link counts)."""
+    return _list_layer_tags_response(layer_id)
+
+
+@bp.route('/layers/<layer_id>/artifact-tags/', methods=['GET'])
+def list_layer_artifact_tags(layer_id):
+    """Back-compat alias for layer-tags."""
+    return _list_layer_tags_response(layer_id)
+
+
+@bp.route('/artifacts/directory/', methods=['GET'])
+def artifacts_directory_api():
+    """Cross-layer artifact list for /artifacts/ directory (optional layer_id, tags)."""
+    if not tags_enabled(current_app.config):
+        pass
+    layer_id = (request.args.get('layer_id') or '').strip()
+    q = Artifact.query
+    if layer_id:
+        q = q.filter_by(layer_id=layer_id)
+    kf = request.args.get('knowledge_form')
+    if kf and current_app.config.get('KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED', True):
+        kf_norm = canonical_knowledge_form(kf)
+        if kf_norm:
+            q = q.filter(Artifact.knowledge_form == kf_norm)
+    if tag_filters_enabled(current_app.config):
+        tags_and = request.args.get('tags')
+        tags_any = request.args.get('tags_any')
+        if tags_and:
+            q = apply_tag_filter(q, tags_and.split(','), match_any=False)
+        elif tags_any:
+            q = apply_tag_filter(q, tags_any.split(','), match_any=True)
+    arts = q.order_by(Artifact.created_at.desc()).limit(200).all()
+    if tags_enabled(current_app.config):
+        artifacts = enrich_artifact_dicts(arts)
+    else:
+        artifacts = [a.to_dict() for a in arts]
+    from models import Layer
+    layer_names = {}
+    if arts:
+        lids = {a.layer_id for a in arts if a.layer_id}
+        for layer in Layer.query.filter(Layer.id.in_(list(lids))).all():
+            layer_names[layer.id] = {'id': layer.id, 'name': layer.name, 'slug': layer.slug}
+    for d in artifacts:
+        lid = d.get('layer_id')
+        if lid and lid in layer_names:
+            d['layer'] = layer_names[lid]
+    return jsonify({'artifacts': artifacts}), 200
 
 
 @bp.route('/layers/<layer_id>/artifacts/', methods=['GET'])

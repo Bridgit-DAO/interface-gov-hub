@@ -202,11 +202,7 @@ def user_profile(username):
             f'<i class="fas fa-shield-alt me-1"></i>Visible to site administrators only.</p>'
         )
     else:
-        email_details_html = (
-            '<p class="text-muted small mb-0">'
-            '<i class="fas fa-envelope me-1"></i>Email is not shown publicly. '
-            'Only site administrators can view it.</p>'
-        )
+        email_details_html = ''
 
     content = f"""
     <style>

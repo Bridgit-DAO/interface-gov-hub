@@ -945,6 +945,117 @@ def migrate_artifact_tags(app):
         print(f"⚠️  Error in migrate_artifact_tags: {e}")
 
 
+def migrate_layer_tags(app):
+    """Unified layer_tag / layer_tag_link; migrate data from artifact_tag tables."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='layer_tag'")
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE layer_tag (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    slug VARCHAR(48) NOT NULL,
+                    label VARCHAR(64) NOT NULL,
+                    description TEXT,
+                    color VARCHAR(7),
+                    created_by_user_id VARCHAR(36) REFERENCES user(id),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(layer_id, slug)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_tag_layer ON layer_tag(layer_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_tag_layer_slug ON layer_tag(layer_id, slug)"
+            )
+            conn.commit()
+            print("✅ Created layer_tag table")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='layer_tag_link'")
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE layer_tag_link (
+                    id VARCHAR(36) PRIMARY KEY,
+                    tag_id VARCHAR(36) NOT NULL REFERENCES layer_tag(id),
+                    subject_type VARCHAR(32) NOT NULL,
+                    subject_id VARCHAR(36) NOT NULL,
+                    created_by_user_id VARCHAR(36) REFERENCES user(id),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(subject_type, subject_id, tag_id)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_tag_link_tag ON layer_tag_link(tag_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_tag_link_subject "
+                "ON layer_tag_link(subject_type, subject_id)"
+            )
+            conn.commit()
+            print("✅ Created layer_tag_link table")
+
+        cursor.execute("SELECT COUNT(*) FROM layer_tag")
+        lt_count = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_tag'"
+        )
+        if cursor.fetchone() and lt_count == 0:
+            cursor.execute("""
+                INSERT INTO layer_tag (id, layer_id, slug, label, description, color,
+                    created_by_user_id, created_at)
+                SELECT id, layer_id, slug, label, description, color,
+                    created_by_user_id, created_at FROM artifact_tag
+            """)
+            n = cursor.rowcount
+            if n:
+                print(f"✅ Migrated {n} row(s) artifact_tag → layer_tag")
+
+        cursor.execute("SELECT COUNT(*) FROM layer_tag_link")
+        ltl_count = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_tag_link'"
+        )
+        if cursor.fetchone() and ltl_count == 0:
+            cursor.execute("""
+                INSERT INTO layer_tag_link (id, tag_id, subject_type, subject_id,
+                    created_by_user_id, created_at)
+                SELECT id, tag_id, 'artifact', artifact_id,
+                    created_by_user_id, created_at FROM artifact_tag_link
+            """)
+            n = cursor.rowcount
+            if n:
+                print(f"✅ Migrated {n} row(s) artifact_tag_link → layer_tag_link")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_layer_tags: {e}")
+
+
+def migrate_submission_document_category(app):
+    """Model C document_category on submission."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(submission)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'document_category' not in cols:
+            cursor.execute(
+                "ALTER TABLE submission ADD COLUMN document_category VARCHAR(32)"
+            )
+            conn.commit()
+            print("✅ Added submission.document_category")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_submission_document_category: {e}")
+
+
 def migrate_guild_unified_phase1(app):
     """Unified Phase I: guild_layer_link, guild_artifact_link, guild_membership.membership_state."""
     try:

@@ -6,7 +6,37 @@ BASE_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{csrf_token}">
     <title>{title}</title>
+    <script>
+    (function() {{
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        var token = meta ? meta.getAttribute('content') : '';
+        if (!token) return;
+        var origFetch = window.fetch;
+        window.fetch = function(input, init) {{
+            init = init || {{}};
+            if (init.credentials === 'omit') {{
+                return origFetch.call(this, input, init);
+            }}
+            var url = typeof input === 'string'
+                ? input
+                : (input && input.url ? input.url : String(input));
+            var sameOrigin = false;
+            try {{
+                sameOrigin = new URL(url, window.location.href).origin === window.location.origin;
+            }} catch (_e) {{}}
+            if (sameOrigin) {{
+                var headers = new Headers(init.headers || {{}});
+                if (!headers.has('X-CSRFToken')) {{
+                    headers.set('X-CSRFToken', token);
+                }}
+                init.headers = headers;
+            }}
+            return origFetch.call(this, input, init);
+        }};
+    }})();
+    </script>
     <link rel="icon" type="image/png" href="/static/images/overweb_logo.png">
     <link rel="shortcut icon" type="image/png" href="/static/images/overweb_logo.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -784,6 +814,7 @@ BASE_TEMPLATE = """
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/gh-return-nav.js"></script>
     <script>
         (function () {{
             var HOVER_MQ = window.matchMedia('(min-width: 992px)');
@@ -859,6 +890,8 @@ BASE_TEMPLATE = """
 
         // Web3Auth Integration
         let web3auth = null;
+        let web3authInitPromise = null;
+        let web3authLoginInProgress = false;
 
         // Function to load script dynamically
         function loadScript(src) {{
@@ -871,9 +904,26 @@ BASE_TEMPLATE = """
             }});
         }}
 
-        // Initialize Web3Auth after ensuring scripts are loaded
-        async function initWeb3Auth() {{
-            try {{
+        function setWeb3AuthUiState(state) {{
+            const btn = document.getElementById('web3auth-signin-btn');
+            if (!btn) return;
+            if (state === 'loading') {{
+                btn.disabled = true;
+                btn.setAttribute('aria-busy', 'true');
+            }} else {{
+                btn.disabled = false;
+                btn.removeAttribute('aria-busy');
+            }}
+        }}
+
+        // Initialize Web3Auth after ensuring scripts are loaded (single shared promise)
+        function startWeb3AuthInit() {{
+            if (web3authInitPromise) {{
+                return web3authInitPromise;
+            }}
+
+            web3authInitPromise = (async () => {{
+                setWeb3AuthUiState('loading');
                 await loadScript('https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js');
                 await loadScript('https://unpkg.com/@web3auth/modal@10.13.1/dist/modal.umd.min.js');
 
@@ -924,25 +974,21 @@ BASE_TEMPLATE = """
                     }},
                 }};
 
-                web3auth = new Web3AuthConstructor(web3AuthConfig);
-                await web3auth.init();
+                const instance = new Web3AuthConstructor(web3AuthConfig);
+                await instance.init();
+                web3auth = instance;
                 console.log('Web3Auth initialized successfully');
-
-                // Check if we should trigger login modal
-                const urlParams = new URLSearchParams(window.location.search);
-                const returnPath = getReturnPathFromQuery();
-                if (returnPath) {{
-                    storePostLoginReturnPath(returnPath);
-                }}
-                if (urlParams.get('show_login') === '1') {{
-                    // Remove the parameter from URL
-                    window.history.replaceState({{}}, '', window.location.pathname);
-                    // Show login modal
-                    await loginWithWeb3Auth();
-                }}
-            }} catch (error) {{
+                setWeb3AuthUiState('ready');
+                return web3auth;
+            }})().catch((error) => {{
+                web3authInitPromise = null;
+                web3auth = null;
+                setWeb3AuthUiState('ready');
                 console.error('Web3Auth initialization failed:', error);
-            }}
+                throw error;
+            }});
+
+            return web3authInitPromise;
         }}
 
         function isSafeReturnPath(url) {{
@@ -998,23 +1044,28 @@ BASE_TEMPLATE = """
         }}
 
         async function loginWithWeb3Auth() {{
+            if (web3authLoginInProgress) {{
+                return;
+            }}
+
+            try {{
+                await startWeb3AuthInit();
+            }} catch (error) {{
+                alert('Web3Auth failed to load. Please refresh the page and try again.');
+                return;
+            }}
+
             if (!web3auth) {{
                 alert("Web3Auth not initialized. Please refresh the page.");
                 return;
             }}
 
+            web3authLoginInProgress = true;
             try {{
                 // Preserve return path when signing in from a content page (navbar modal).
                 if (window.location.pathname !== '/login/') {{
                     const here = window.location.pathname + window.location.search + window.location.hash;
                     storePostLoginReturnPath(here);
-                }}
-
-                // Logout first to ensure clean state
-                try {{
-                    await web3auth.logout();
-                }} catch (e) {{
-                    // Ignore if not logged in
                 }}
 
                 // Connect without specifying a provider - shows modal with all options
@@ -1040,22 +1091,25 @@ BASE_TEMPLATE = """
                     // Not critical for social logins
                 }}
 
-                // Build the payload - handle different structures
-                // For email_passwordless, verifierId might be different
-                const finalVerifierId = userInfo.verifierId || userInfo.email || evmAddress || 'unknown';
-                const finalTypeOfLogin = userInfo.typeOfLogin || 'unknown';
-                
+                // Identity token — required for server-side verification
+                let idToken = '';
+                try {{
+                    const identity = await web3auth.getIdentityToken();
+                    idToken = (identity && identity.idToken) || web3auth.idToken || '';
+                }} catch (tokenError) {{
+                    console.warn('Could not get identity token:', tokenError);
+                }}
+                if (!idToken) {{
+                    alert('Sign-in verification failed: no identity token. Please try again.');
+                    return;
+                }}
+
                 const payload = {{
-                    verifierId: finalVerifierId,
-                    typeOfLogin: finalTypeOfLogin,
-                    email: userInfo.email || '',
-                    name: userInfo.name || userInfo.email?.split('@')[0] || '',
-                    profileImage: userInfo.profileImage || '',
+                    idToken: idToken,
                     evmAddress: evmAddress || '',
                 }};
 
-                console.log('Sending payload:', payload);
-                console.log('typeOfLogin:', finalTypeOfLogin);
+                console.log('Sending verified Web3Auth login');
 
                 // Send to backend
                 const response = await fetch('/api/auth/web3auth', {{
@@ -1077,14 +1131,33 @@ BASE_TEMPLATE = """
                 if (error.message && !error.message.includes('user closed')) {{
                     alert('Login failed: ' + error.message);
                 }}
+            }} finally {{
+                web3authLoginInProgress = false;
             }}
         }}
 
         // Initialize Web3Auth on page load
+        function bootWeb3Auth() {{
+            const returnPath = getReturnPathFromQuery();
+            if (returnPath) {{
+                storePostLoginReturnPath(returnPath);
+            }}
+
+            startWeb3AuthInit()
+                .then(async () => {{
+                    const urlParams = new URLSearchParams(window.location.search);
+                    if (urlParams.get('show_login') === '1') {{
+                        window.history.replaceState({{}}, '', window.location.pathname);
+                        await loginWithWeb3Auth();
+                    }}
+                }})
+                .catch(() => {{}});
+        }}
+
         if (document.readyState === 'loading') {{
-            document.addEventListener('DOMContentLoaded', initWeb3Auth);
+            document.addEventListener('DOMContentLoaded', bootWeb3Auth);
         }} else {{
-            initWeb3Auth();
+            bootWeb3Auth();
         }}
 
         // Make loginWithWeb3Auth available globally
@@ -1260,6 +1333,7 @@ SUBMIT_TEMPLATE = """
                                         {{WORKGROUP_OPTIONS}}
                                     </select>
                                 </div>
+                                {{DOCUMENT_META_FIELDS}}
                                 
                                 <div class="mb-3">
                                     <label for="file" class="form-label">Document File *</label>
@@ -1369,6 +1443,7 @@ SUBMIT_TEMPLATE = """
                                         {{WORKGROUP_OPTIONS}}
                                     </select>
                                 </div>
+                                {{DOCUMENT_META_FIELDS}}
                                 
                                 <div class="mb-3">
                                     <div class="form-check">

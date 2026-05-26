@@ -134,7 +134,14 @@ def build_draft_context(draft_name: str) -> Tuple[Optional[Dict[str, Any]], Opti
                 'displayBodySource': dbs,
                 'displayOrdinalId': getattr(submission, 'displayOrdinalId', None),
                 'displayingLinkedOrdinal': displaying_linked,
+                'document_category': getattr(submission, 'document_category', None) or 'document',
             }
+            try:
+                from services.layer_tags import tags_for_subject
+                from models.layer_tag import SUBJECT_SUBMISSION
+                draft['tags'] = tags_for_subject(SUBJECT_SUBMISSION, submission.id)
+            except Exception:
+                draft['tags'] = []
 
     if not draft:
         return None, None
@@ -149,6 +156,15 @@ def build_draft_context(draft_name: str) -> Tuple[Optional[Dict[str, Any]], Opti
                 dbs.strip().lower() == 'ordinal'
                 and bool(getattr(submission, 'displayOrdinalContentUrl', None))
             )
+            draft['document_category'] = getattr(submission, 'document_category', None) or draft.get(
+                'document_category', 'document'
+            )
+            try:
+                from services.layer_tags import tags_for_subject
+                from models.layer_tag import SUBJECT_SUBMISSION
+                draft['tags'] = tags_for_subject(SUBJECT_SUBMISSION, submission.id)
+            except Exception:
+                draft['tags'] = draft.get('tags') or []
 
     return draft, submission
 

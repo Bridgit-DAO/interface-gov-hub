@@ -1,0 +1,306 @@
+/* DP Proposal read-page overlays */
+
+.draft-reader-proposals-controls {
+  flex-shrink: 0;
+  min-width: 12rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.draft-reader-proposals-controls .dp-proposal-toolbar-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.draft-reader-proposals-controls .form-select-sm {
+  font-size: 0.8rem;
+  min-width: 9.5rem;
+}
+
+/* Overlay highlights — do not alter document layout */
+#dp-reader-selectable-body,
+.draft-reader-body#dp-reader-selectable-body {
+  position: relative;
+}
+
+.dp-proposal-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+.dp-proposal-highlight-rect {
+  position: absolute;
+  pointer-events: auto;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+[data-theme="light"] .dp-proposal-highlight-rect {
+  background: rgba(255, 193, 7, 0.44);
+  outline: 2px solid rgba(230, 162, 0, 0.75);
+  outline-offset: -1px;
+}
+
+[data-theme="dark"] .dp-proposal-highlight-rect {
+  background: rgba(255, 193, 7, 0.38);
+  outline: 2px solid rgba(255, 213, 79, 0.8);
+  outline-offset: -1px;
+}
+
+.dp-proposal-highlight-rect:hover {
+  background: rgba(255, 213, 79, 0.48);
+}
+
+[data-theme="dark"] .dp-proposal-highlight-rect:hover {
+  background: rgba(255, 213, 79, 0.42);
+}
+
+.dp-proposal-highlight-layer.dp-proposal-highlight-layer-hidden {
+  display: none !important;
+}
+
+.dp-proposal-highlight-rect.dp-proposal-highlight-hidden {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  outline: none !important;
+  background: transparent !important;
+}
+
+mark.dp-proposal-mark.dp-proposal-mark-hidden {
+  background: transparent !important;
+  outline: none !important;
+  color: inherit;
+}
+
+.dp-proposal-highlight-rect.dp-proposal-highlight-dim {
+  opacity: 0.35;
+}
+
+/* Fixed pin anchored to highlight (Canopi-style) */
+.dp-proposal-pin {
+  position: fixed;
+  z-index: 1040;
+  pointer-events: none;
+}
+
+.dp-proposal-pin .dp-proposal-badge,
+.dp-proposal-pin .dp-proposal-hover-panel {
+  pointer-events: auto;
+}
+
+/* Canopi-style proximity badge (periwinkle blue) */
+.dp-proposal-badge {
+  min-width: 1.35rem;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: 999px;
+  border: 1px solid rgba(102, 126, 234, 0.55);
+  background: linear-gradient(135deg, #667eea 0%, #5a6fd6 100%);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(102, 126, 234, 0.45);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dp-proposal-badge:hover,
+.dp-proposal-badge:focus {
+  background: linear-gradient(135deg, #7588ee 0%, #667eea 100%);
+  border-color: rgba(102, 126, 234, 0.85);
+  color: #fff;
+  box-shadow: 0 3px 14px rgba(102, 126, 234, 0.55);
+}
+
+.dp-proposal-pin .dp-proposal-badge {
+  position: relative;
+  display: block;
+  transition: opacity 0.12s ease;
+  transform: translateY(-50%);
+}
+
+.dp-proposal-pin.dp-proposal-pin-near .dp-proposal-badge {
+  opacity: 1;
+}
+
+.dp-proposal-pin.dp-proposal-pin-far .dp-proposal-badge {
+  opacity: 0.22;
+}
+
+.dp-proposal-badge-floating {
+  position: fixed;
+  z-index: 1040;
+}
+
+.dp-proposal-hover-panel {
+  position: fixed;
+  z-index: 1060;
+  min-width: 14rem;
+  max-width: min(18rem, calc(100vw - 1.5rem));
+  max-height: min(14rem, calc(100vh - 1.5rem));
+  overflow-y: auto;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(102, 126, 234, 0.35);
+  background: var(--bg-secondary, #1a1a1a);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.dp-proposal-hover-panel.is-open,
+.dp-proposal-hover-panel.is-fading-out {
+  display: block;
+}
+
+.dp-proposal-hover-panel.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dp-proposal-hover-panel.is-fading-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dp-proposal-hover-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dp-proposal-hover-links li + li {
+  margin-top: 0.35rem;
+}
+
+.dp-proposal-hover-link {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #8ea2ff;
+  text-decoration: none;
+  padding: 0.25rem 0.15rem;
+  border-radius: 0.25rem;
+}
+
+.dp-proposal-hover-link:hover {
+  color: #b8c4ff;
+  background: rgba(102, 126, 234, 0.12);
+}
+
+.dp-proposal-hover-link-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dp-proposal-char-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.dp-proposal-char-plus {
+  color: #4ade80;
+}
+
+.dp-proposal-char-minus {
+  color: #f87171;
+}
+
+.dp-proposal-char-neutral {
+  color: var(--text-muted, #888);
+}
+
+#dpProposalListModal .dp-proposal-item-focused {
+  outline: 2px solid rgba(102, 126, 234, 0.55);
+  outline-offset: 2px;
+}
+
+.dp-proposal-pre,
+.dp-proposal-pre-block {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+#dpProposalComposeModal textarea[readonly] {
+  background: var(--bg-tertiary, #1a1a1a);
+  color: var(--text-secondary);
+}
+
+#dpProposalListModal .modal-header {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#dpProposalListModal .modal-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dp-proposal-card-original {
+  color: var(--text-primary);
+  background: var(--bg-tertiary, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.dp-proposal-card-original.dp-proposal-plain-original {
+  color: var(--text-secondary);
+}
+
+.dp-proposal-card-proposed {
+  color: var(--text-primary);
+  background: var(--bg-secondary, #141414);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.dp-proposal-card-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.dp-diff-del {
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 120, 120, 0.95);
+  color: var(--text-secondary);
+  opacity: 0.95;
+}
+
+mark.dp-diff-ins {
+  background: rgba(255, 235, 59, 0.45);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}

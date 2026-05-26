@@ -316,6 +316,7 @@ def workgroups_directory():
     {gh_filter_row(
         gh_directory_toolbar(
             search_placeholder='Search workgroups…',
+            sort_default='name-asc',
             extra_cols=(
                 gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Layers</option></select>')
                 + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>', 'col-md-2')
@@ -386,7 +387,7 @@ def workgroups_directory():
     function filterWorkgroups() {{
         const items = GhDirectory.filterAndSort(allWorkgroups, {{
             searchTerm: GhDirectory.getSearchValue('search-input'),
-            sort: GhDirectory.getSortValue('sort-filter'),
+            sort: GhDirectory.getSortValue('sort-filter') || 'name-asc',
             searchFields: ['name', 'description', 'acronym', 'slug', 'layer_name'],
             nameKey: 'name',
             dateKeys: ['updated_at', 'created_at'],
@@ -594,14 +595,129 @@ def votes_directory():
 
 @bp.route('/artifacts/')
 def artifacts_directory():
-    """Artifacts directory: browse layers to find artifacts."""
+    """Artifacts directory: cross-layer list with type, knowledge form, and tag filters."""
     generate_user_menu, render_page, _ = _get_imports()
+    from services.directory_ui import gh_filter_row, gh_directory_toolbar, gh_page_open, gh_page_close
+
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
+    layers = Layer.query.filter(Layer.approval_status == 'approved').order_by(Layer.name.asc()).all()
+    layer_opts = '<option value="">All layers</option>' + ''.join(
+        f'<option value="{html_mod.escape(p.id)}">{html_mod.escape(p.name or "")}</option>'
+        for p in layers
+    )
     content = f"""
     {gh_page_open()}
-    {gh_page_header('Artifacts', 'Proposals, evidence, and submissions organized by layer', 'fa-cube', actions_html='<a href="/layers/" class="btn btn-primary btn-sm"><i class="fas fa-layer-group me-1"></i>Browse Layers</a>')}
+    {gh_page_header('Artifacts', 'Proposals, evidence, and knowledge contributions', 'fa-cube', actions_html='<a href="/layers/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-layer-group me-1"></i>Layers</a>')}
+    {gh_filter_row(
+        '<div class="col-md-3"><label class="form-label small text-muted">Layer</label>'
+        f'<select id="art-layer-filter" class="form-select">{layer_opts}</select></div>'
+        + gh_directory_toolbar(
+            search_placeholder='Search artifacts…',
+            search_col='col-md-5',
+            sort_col='col-md-2',
+        )
+    )}
+    <div id="art-tag-filter-row" class="d-flex flex-wrap gap-1 align-items-center mb-2"></div>
+    <p class="text-muted small mb-3" id="art-all-count"></p>
+    <div id="art-all-container"><p class="text-muted">Loading…</p></div>
     {gh_page_close()}
+    <script>
+    let allArtItems = [];
+    let artTagFilters = [];
+    let artLayerFilter = '';
+
+    async function loadArtifactsDirectory() {{
+        const params = [];
+        if (artLayerFilter) params.push('layer_id=' + encodeURIComponent(artLayerFilter));
+        if (artTagFilters.length) params.push('tags=' + encodeURIComponent(artTagFilters.join(',')));
+        let url = '/api/artifacts/directory/';
+        if (params.length) url += '?' + params.join('&');
+        const res = await fetch(url, {{ credentials: 'same-origin' }});
+        const data = await res.json();
+        allArtItems = data.artifacts || [];
+        buildArtTagChips();
+        renderArtDirectory();
+    }}
+
+    function buildArtTagChips() {{
+        const row = document.getElementById('art-tag-filter-row');
+        if (!row) return;
+        const counts = {{}};
+        allArtItems.forEach(function(a) {{
+            (a.tags || []).forEach(function(t) {{
+                const s = t.slug || '';
+                if (s) counts[s] = (counts[s] || 0) + 1;
+            }});
+        }});
+        const slugs = Object.keys(counts).sort();
+        if (!slugs.length) {{ row.innerHTML = ''; return; }}
+        let html = '<span class="small text-muted me-2">Tags:</span>';
+        html += '<button type="button" class="btn btn-sm btn-outline-secondary art-dir-tag-btn' + (artTagFilters.length ? '' : ' active') + '" data-tag="">All</button>';
+        slugs.forEach(function(slug) {{
+            const active = artTagFilters.indexOf(slug) >= 0 ? ' active' : '';
+            html += '<button type="button" class="btn btn-sm btn-outline-secondary art-dir-tag-btn' + active + '" data-tag="' + GhDirectory.esc(slug) + '">' + GhDirectory.esc(slug) + ' (' + counts[slug] + ')</button>';
+        }});
+        row.innerHTML = html;
+        row.querySelectorAll('.art-dir-tag-btn').forEach(function(btn) {{
+            btn.addEventListener('click', function() {{
+                const slug = btn.getAttribute('data-tag') || '';
+                if (!slug) artTagFilters = [];
+                else {{
+                    const i = artTagFilters.indexOf(slug);
+                    if (i >= 0) artTagFilters.splice(i, 1);
+                    else artTagFilters.push(slug);
+                }}
+                loadArtifactsDirectory();
+            }});
+        }});
+    }}
+
+    function renderArtDirectory() {{
+        const items = GhDirectory.filterAndSort(allArtItems, {{
+            searchTerm: GhDirectory.getSearchValue('search-input'),
+            sort: GhDirectory.getSortValue('sort-filter') || 'recent',
+            searchFields: ['title', 'summary', 'artifact_type', 'status', 'public_ref'],
+            nameKey: 'title',
+            dateKeys: ['created_at'],
+            recentSort: 'created_at',
+        }});
+        const countEl = document.getElementById('art-all-count');
+        if (countEl) countEl.textContent = 'Showing ' + items.length + ' artifact(s)';
+        const container = document.getElementById('art-all-container');
+        if (!items.length) {{
+            container.innerHTML = '<div class="alert alert-info mb-0">No artifacts match your filters.</div>';
+            return;
+        }}
+        let html = '<ul class="list-group list-group-flush">';
+        items.forEach(function(a) {{
+            const layer = a.layer || {{}};
+            const slug = layer.slug || '';
+            const ref = a.public_ref || a.id;
+            const href = slug ? '/layers/' + encodeURIComponent(slug) + '/artifacts/' + encodeURIComponent(ref) + '/' : '#';
+            const kf = a.knowledge_form ? '<span class="badge text-bg-info me-1">' + GhDirectory.esc(a.knowledge_form) + '</span>' : '';
+            let tags = '';
+            (a.tags || []).forEach(function(t) {{
+                tags += '<span class="badge bg-light text-dark border me-1">' + GhDirectory.esc(t.label || t.slug) + '</span>';
+            }});
+            html += '<li class="list-group-item px-0"><div class="d-flex flex-wrap align-items-center gap-2">';
+            html += kf + tags;
+            html += '<a href="' + href + '" class="text-decoration-none flex-grow-1">' + GhDirectory.esc(a.title || ref) + '</a>';
+            html += '<span class="badge bg-secondary">' + GhDirectory.esc(a.status || '') + '</span>';
+            if (layer.name) html += '<span class="small text-muted">' + GhDirectory.esc(layer.name) + '</span>';
+            html += '</div></li>';
+        }});
+        html += '</ul>';
+        container.innerHTML = html;
+    }}
+
+    document.getElementById('art-layer-filter').addEventListener('change', function() {{
+        artLayerFilter = this.value || '';
+        loadArtifactsDirectory();
+    }});
+    GhDirectory.bindControls('search-input', 'sort-filter', renderArtDirectory);
+    loadArtifactsDirectory();
+    </script>
     """
     return render_page("Artifacts - MLGH", content, theme=current_theme, user_menu=user_menu)
 

@@ -111,9 +111,15 @@ def generate_participate_nav_html(layer_slug=None):
         submit_href = '/submit/'
         immortalize_href = '/immortalize/'
         waitlists_href = '/waitlists/'
-    lines = [
-        f'<li><a class="dropdown-item" href="{submit_href}" data-gh-i18n="nav.submitDraft">Submit Draft</a></li>',
-    ]
+    lines = []
+    if r.get('dp_proposals', False):
+        lines.append(
+            '<li><a class="dropdown-item" href="/dp-challenge/" data-gh-i18n="nav.dpChallenge">'
+            'DP Challenge</a></li>'
+        )
+    lines.append(
+        f'<li><a class="dropdown-item" href="{submit_href}" data-gh-i18n="nav.submitDraft">Submit Draft</a></li>'
+    )
     if r.get('immortalize', True):
         lines.append(
             f'<li><a class="dropdown-item" href="{immortalize_href}" data-gh-i18n="nav.immortalize">Immortalize</a></li>'
@@ -379,6 +385,11 @@ def _format_base_template(**kwargs):
     kwargs.setdefault('civic_mason_nav_li', generate_civic_mason_nav_li())
     kwargs.setdefault('lang_menu', generate_lang_menu_html())
     kwargs.setdefault('flash_messages', render_flash_messages_html())
+    if has_request_context():
+        from services.csrf import get_or_create_csrf_token
+        kwargs.setdefault('csrf_token', get_or_create_csrf_token())
+    else:
+        kwargs.setdefault('csrf_token', '')
     try:
         kwargs.setdefault('govhub_i18n_js', url_for('static', filename='js/govhub-i18n.js'))
     except RuntimeError:

@@ -210,7 +210,7 @@ def render_layer_artifact_editor_and_collections(
                             p.knowledge_scaffold = laCollectScaffold(vf);
                         }}
                     }}
-                    if (klSchema && klSchema.feature_flags && klSchema.feature_flags.artifact_tags_enabled) {{
+                    if (klSchema && klSchema.feature_flags && (klSchema.feature_flags.layer_tags_enabled || klSchema.feature_flags.artifact_tags_enabled)) {{
                         const tagEl = document.getElementById('la-artifact-tags');
                         const raw = tagEl ? tagEl.value.trim() : '';
                         p.tag_slugs = raw ? raw.split(/[,\\s]+/).map(function(s) {{ return s.trim(); }}).filter(Boolean) : [];
@@ -220,7 +220,7 @@ def render_layer_artifact_editor_and_collections(
                 function laRebuildTags() {{
                     const wrap = document.getElementById('la-tags-wrap');
                     if (!wrap) return;
-                    if (!klSchema || !klSchema.feature_flags || !klSchema.feature_flags.artifact_tags_enabled) {{
+                    if (!klSchema || !klSchema.feature_flags || !(klSchema.feature_flags.layer_tags_enabled || klSchema.feature_flags.artifact_tags_enabled)) {{
                         wrap.style.display = 'none';
                         return;
                     }}

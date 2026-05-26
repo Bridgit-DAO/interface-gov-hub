@@ -193,8 +193,11 @@ def public_schema_dict(config: dict) -> dict:
             'knowledge_contribution_type_enabled': bool(config.get('KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED', True)),
             'knowledge_scaffold_enabled': bool(config.get('KNOWLEDGE_SCAFFOLD_ENABLED', False)),
             'knowledge_contribution_filters_enabled': bool(config.get('KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED', True)),
-            'artifact_tags_enabled': bool(config.get('ARTIFACT_TAGS_ENABLED', True)),
-            'artifact_tag_filters_enabled': bool(config.get('ARTIFACT_TAG_FILTERS_ENABLED', True)),
+            'layer_tags_enabled': bool(config.get('LAYER_TAGS_ENABLED', config.get('ARTIFACT_TAGS_ENABLED', True))),
+            'layer_tag_filters_enabled': bool(config.get('LAYER_TAG_FILTERS_ENABLED', config.get('ARTIFACT_TAG_FILTERS_ENABLED', True))),
+            'document_tags_enabled': bool(config.get('DOCUMENT_TAGS_ENABLED', True)),
+            'artifact_tags_enabled': bool(config.get('LAYER_TAGS_ENABLED', config.get('ARTIFACT_TAGS_ENABLED', True))),
+            'artifact_tag_filters_enabled': bool(config.get('LAYER_TAG_FILTERS_ENABLED', config.get('ARTIFACT_TAG_FILTERS_ENABLED', True))),
         },
         'knowledge_forms': sorted(KNOWLEDGE_FORM_VALUES),
         'knowledge_form_core_questions': {

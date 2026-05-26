@@ -118,11 +118,13 @@ def _load_ordinal_document_body(ordinal_content_url, ordinal_content_type, draft
     if ordinal_content_url and ('text/' in octype or 'application/json' in octype):
         try:
             import requests
+            from services.url_safety import validate_ordinals_fetch_url
 
+            safe_url = validate_ordinals_fetch_url(ordinal_content_url)
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
-            response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+            response = requests.get(safe_url, headers=headers, timeout=10)
             if response.status_code == 200:
                 raw_content = response.text
                 words = len(raw_content.split())
@@ -577,6 +579,9 @@ def draft_reader(draft_name):
         )
 
     from services.dp_proposal_reader import render_dp_proposal_reader_assets
+    from services.read_navigation import draft_reader_back_href
+
+    back_href = html_mod.escape(draft_reader_back_href(request.args.get('return_to')))
 
     dp_proposal_assets = render_dp_proposal_reader_assets(
         submission,
@@ -687,7 +692,7 @@ def draft_reader(draft_name):
       <div class="draft-reader-toolbar">
         <div class="draft-reader-toolbar-inner">
           <div class="draft-reader-nav">
-            <a href="/doc/all/" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+            <a href="{back_href}" class="btn btn-sm btn-outline-secondary" id="draftReaderBack">&larr; Back</a>
             <a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>
           </div>
           <div class="draft-reader-meta">
@@ -735,10 +740,13 @@ def draft_detail(draft_name):
                 if ordinal_content_url and ('text/' in ordinal_content_type or 'application/json' in ordinal_content_type):
                     try:
                         import requests
+                        from services.url_safety import validate_ordinals_fetch_url
+
+                        safe_url = validate_ordinals_fetch_url(ordinal_content_url)
                         headers = {
                             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                         }
-                        response = requests.get(ordinal_content_url, headers=headers, timeout=10)
+                        response = requests.get(safe_url, headers=headers, timeout=10)
                         if response.status_code == 200:
                             text_content = response.text
                             words_count = len(text_content.split())
@@ -1615,6 +1623,12 @@ def draft_display_body(draft_name):
         url = (request.form.get('display_ordinal_content_url') or '').strip()
         if not url:
             flash('Content URL is required to show an ordinal body.', 'error')
+            return redirect(url_for('documents.draft_detail', draft_name=draft_name))
+        try:
+            from services.url_safety import validate_ordinals_fetch_url
+            url = validate_ordinals_fetch_url(url)
+        except ValueError:
+            flash('Only ordinals.com content URLs are allowed.', 'error')
             return redirect(url_for('documents.draft_detail', draft_name=draft_name))
         oid = (request.form.get('display_ordinal_id') or '').strip() or None
         ct = (request.form.get('display_ordinal_content_type') or '').strip() or None
