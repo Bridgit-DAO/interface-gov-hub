@@ -1,25 +1,17 @@
 """Verify Web3Auth identity tokens server-side (JWKS / ES256)."""
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
 import jwt
 from jwt import PyJWKClient
 
+from services.web3auth_config import web3auth_client_id
+
 WEB3AUTH_JWKS_URL = 'https://api-auth.web3auth.io/jwks'
 WEB3AUTH_ISSUER = 'https://api-auth.web3auth.io'
 WEB3AUTH_ALGORITHMS = ['ES256']
-
-# Default dev project client id (override via WEB3AUTH_CLIENT_ID in .env).
-_DEFAULT_CLIENT_ID = (
-    'BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk'
-)
-
-
-def web3auth_client_id() -> str:
-    return (os.environ.get('WEB3AUTH_CLIENT_ID') or _DEFAULT_CLIENT_ID).strip()
 
 
 @lru_cache(maxsize=1)

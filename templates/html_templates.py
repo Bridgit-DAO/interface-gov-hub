@@ -944,8 +944,8 @@ BASE_TEMPLATE = """
 
                 const Web3AuthConstructor = window.Modal.Web3Auth;
                 const web3AuthConfig = {{
-                    clientId: "BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk",
-                    web3AuthNetwork: 'sapphire_devnet',
+                    clientId: "{web3auth_client_id}",
+                    web3AuthNetwork: '{web3auth_network}',
                     chainConfig: {{
                         chainNamespace: 'eip155',
                         chainId: '0x1',
@@ -965,9 +965,9 @@ BASE_TEMPLATE = """
                     }},
                     loginConfig: {{
                         google: {{
-                            verifier: 'web3auth-google-sapphire-devnet',
+                            verifier: '{web3auth_google_verifier}',
                             typeOfLogin: 'google',
-                            clientId: 'BKvRj4akAwrNHHk4UyYCC4zt9KWigdiuosCX5-idVNclsk9hPPQ4_b8grcl0JF4NhT26oLWb3O5K949SVv6lTGk',
+                            clientId: '{web3auth_client_id}',
                             extraLoginOptions: {{ prompt: 'login select_account', access_type: 'offline' }},
                             queryParameters: {{ prompt: 'login select_account', access_type: 'offline' }}
                         }}
