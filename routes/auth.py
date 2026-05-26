@@ -80,7 +80,11 @@ def register_disabled():
 
 @bp.route('/api/auth/web3auth', methods=['POST'])
 def web3auth_login():
-    """Web3Auth login endpoint"""
+    """Web3Auth login — requires a verified idToken from Web3Auth getIdentityToken()."""
+    from flask import current_app
+    from jwt.exceptions import InvalidTokenError
+    from services.web3auth_verify import identity_from_web3auth_claims, verify_web3auth_id_token
+
     client_ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
     if not check_rate_limit(f"web3auth_{client_ip}", max_requests=50, window_seconds=600):
         return jsonify({'error': 'Too many sign-in attempts. Please wait a few minutes and try again.'}), 429
@@ -90,72 +94,58 @@ def web3auth_login():
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        verifierId = data.get('verifierId')
-        typeOfLogin = data.get('typeOfLogin')
-        email = data.get('email')
-        name = data.get('name')
-        profileImage = data.get('profileImage')
-        evmAddress = data.get('evmAddress')
-        solanaAddress = data.get('solanaAddress')
+        id_token = (data.get('idToken') or data.get('id_token') or '').strip()
+        if not id_token:
+            return jsonify({'error': 'idToken required'}), 400
 
-        if not verifierId:
-            return jsonify({'error': 'verifierId required'}), 400
+        try:
+            claims = verify_web3auth_id_token(id_token)
+            identity = identity_from_web3auth_claims(claims)
+        except InvalidTokenError:
+            return jsonify({'error': 'Invalid or expired sign-in token'}), 401
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 401
 
-        user = User.query.filter_by(web3authVerifierId=verifierId).first()
-        if not user and email:
-            user = User.query.filter_by(email=email).first()
+        verifier_id = identity['verifierId']
+        type_of_login = identity['typeOfLogin']
+        email = identity['email']
+        name = identity['name']
+        profile_image = identity['profileImage']
+        # Wallet addresses are optional UX metadata; never used for authentication.
+        evm_address = (data.get('evmAddress') or '').strip() or None
+        solana_address = (data.get('solanaAddress') or '').strip() or None
 
+        user = User.query.filter_by(web3authVerifierId=verifier_id).first()
         if user:
-            user.web3authVerifierId = verifierId
-            user.typeOfLogin = typeOfLogin
-            user.last_login = datetime.utcnow()
-            if name:
-                user.displayName = name
-                user.displayNameSetAt = datetime.utcnow()
-                user.oauthName = name
-            if profileImage:
-                user.profileImage = profileImage
-            if evmAddress:
-                user.evmAddress = evmAddress
-            if solanaAddress:
-                user.solanaAddress = solanaAddress
+            _update_user_from_web3auth(
+                user,
+                type_of_login=type_of_login,
+                email=email,
+                name=name,
+                profile_image=profile_image,
+                evm_address=evm_address,
+                solana_address=solana_address,
+            )
             db.session.commit()
         else:
-            existing_handles = db.session.query(User.username).all()
-            existing_handles = [h[0] for h in existing_handles]
-            if typeOfLogin == 'wallet' and evmAddress:
-                short_address = f"{evmAddress[:6]}...{evmAddress[-4:]}"
-                handle = f"wallet_{short_address}"
-                counter = 1
-                while handle in existing_handles:
-                    handle = f"wallet_{short_address}_{counter}"
-                    counter += 1
-            else:
-                base_handle = email.split('@')[0] if email else 'user'
-                base_handle = re.sub(r'[^a-zA-Z0-9_]', '', base_handle)
-                if len(base_handle) < 3:
-                    base_handle = 'user'
-                handle = base_handle
-                counter = 1
-                while handle in existing_handles:
-                    handle = f"{base_handle}{counter}"
-                    counter += 1
+            if email:
+                email_owner = User.query.filter_by(email=email).first()
+                if email_owner:
+                    return jsonify({
+                        'error': (
+                            'This email is already linked to another account. '
+                            'Sign in with the method you used originally or contact support.'
+                        ),
+                    }), 409
 
-            user = User(
-                web3authVerifierId=verifierId,
-                typeOfLogin=typeOfLogin,
-                displayName=name if name else None,
-                displayNameSetAt=datetime.utcnow() if name else None,
-                oauthName=name,
+            user = _create_user_from_web3auth(
+                verifier_id=verifier_id,
+                type_of_login=type_of_login,
                 email=email,
-                profileImage=profileImage,
-                evmAddress=evmAddress,
-                solanaAddress=solanaAddress,
-                username=handle,
-                handle=handle,
-                role='user',
-                theme='dark',
-                last_login=datetime.utcnow()
+                name=name,
+                profile_image=profile_image,
+                evm_address=evm_address,
+                solana_address=solana_address,
             )
             db.session.add(user)
             db.session.flush()
@@ -177,17 +167,89 @@ def web3auth_login():
             'evmAddress': user.evmAddress,
             'solanaAddress': user.solanaAddress,
             'typeOfLogin': user.typeOfLogin,
-            'theme': user.theme
+            'theme': user.theme,
         }
         return jsonify({'success': True, 'user': safe_user_data})
 
     except Exception as e:
         import traceback
-        error_details = traceback.format_exc()
-        from flask import current_app
-        current_app.logger.error(f"Web3Auth login error: {e}\n{error_details}")
+
+        current_app.logger.error("Web3Auth login error: %s\n%s", e, traceback.format_exc())
         db.session.rollback()
-        return jsonify({'error': f'Authentication failed: {str(e)}'}), 500
+        return jsonify({'error': 'Authentication failed'}), 500
+
+
+def _update_user_from_web3auth(
+    user,
+    *,
+    type_of_login,
+    email,
+    name,
+    profile_image,
+    evm_address,
+    solana_address,
+):
+    user.typeOfLogin = type_of_login
+    user.last_login = datetime.utcnow()
+    if email and not user.email:
+        user.email = email
+    if name:
+        user.displayName = name
+        user.displayNameSetAt = datetime.utcnow()
+        user.oauthName = name
+    if profile_image:
+        user.profileImage = profile_image
+    if evm_address:
+        user.evmAddress = evm_address
+    if solana_address:
+        user.solanaAddress = solana_address
+
+
+def _create_user_from_web3auth(
+    *,
+    verifier_id,
+    type_of_login,
+    email,
+    name,
+    profile_image,
+    evm_address,
+    solana_address,
+):
+    existing_handles = [row[0] for row in db.session.query(User.username).all()]
+    if type_of_login == 'wallet' and evm_address:
+        short_address = f"{evm_address[:6]}...{evm_address[-4:]}"
+        handle = f"wallet_{short_address}"
+        counter = 1
+        while handle in existing_handles:
+            handle = f"wallet_{short_address}_{counter}"
+            counter += 1
+    else:
+        base_handle = email.split('@')[0] if email else 'user'
+        base_handle = re.sub(r'[^a-zA-Z0-9_]', '', base_handle)
+        if len(base_handle) < 3:
+            base_handle = 'user'
+        handle = base_handle
+        counter = 1
+        while handle in existing_handles:
+            handle = f"{base_handle}{counter}"
+            counter += 1
+
+    return User(
+        web3authVerifierId=verifier_id,
+        typeOfLogin=type_of_login,
+        displayName=name if name else None,
+        displayNameSetAt=datetime.utcnow() if name else None,
+        oauthName=name,
+        email=email,
+        profileImage=profile_image,
+        evmAddress=evm_address,
+        solanaAddress=solana_address,
+        username=handle,
+        handle=handle,
+        role='user',
+        theme='dark',
+        last_login=datetime.utcnow(),
+    )
 
 
 @bp.route('/api/user/me', methods=['GET'])

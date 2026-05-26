@@ -78,9 +78,9 @@ var u=await web3auth.getUserInfo();
 if(postSent)return;
 postSent=true;
 var evm='';try{if(p){var w3=new Web3(p);var a=await w3.eth.getAccounts();if(a&&a.length)evm=a[0];}}catch(x){}
-var vid=u.verifierId||u.email||evm||'embed_user';
-var t=u.typeOfLogin||'unknown';if(u.groupedAuthConnectionId){if(u.groupedAuthConnectionId.indexOf('google')>=0)t='google';else if(u.groupedAuthConnectionId.indexOf('twitter')>=0)t='twitter';else if(u.groupedAuthConnectionId.indexOf('email')>=0)t='email';else if(u.groupedAuthConnectionId.indexOf('wallet')>=0)t='wallet';}
-var pay={verifierId:vid,typeOfLogin:t,email:u.email||'',name:u.name||(u.email?u.email.split('@')[0]:'')||'',profileImage:u.profileImage||'',evmAddress:evm};
+var idToken='';try{var ident=await web3auth.getIdentityToken();idToken=(ident&&ident.idToken)||web3auth.idToken||'';}catch(x){}
+if(!idToken){postSent=false;alert('Sign-in verification failed: no identity token.');if(typeof onFailure==='function')onFailure();return;}
+var pay={idToken:idToken,evmAddress:evm};
 var res=await fetch(location.origin+'/api/auth/web3auth',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(pay)});
 if(res.ok){if(typeof onSuccess==='function')onSuccess();}else{postSent=false;var j=await res.json().catch(function(){});alert('Login failed: '+(j.error||'Unknown error'));if(typeof onFailure==='function')onFailure();}
 }

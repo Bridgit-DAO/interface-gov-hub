@@ -817,7 +817,7 @@ def admin_analytics():
 
 
 @bp.route('/admin/chairs/')
-@require_auth
+@require_role('admin')
 def admin_chairs():
     _format_base_template, generate_user_menu, get_current_user, BUILD_NUMBER, _, _ = _get_imports()
     current_theme = session.get('theme', 'dark')
@@ -834,9 +834,20 @@ def admin_chairs():
         status_text = 'Active' if chair.approved else 'Pending'
         set_at_str = chair.set_at.strftime('%Y-%m-%d') if chair.set_at else 'N/A'
         if chair.approved:
-            actions = f'<a href="/admin/chairs/{chair.id}/delete" class="btn btn-sm btn-outline-danger" onclick="return confirm(\'Remove this coordinator?\')">Delete</a>'
+            actions = (
+                f'<form method="POST" action="/admin/chairs/{chair.id}/delete" class="d-inline">'
+                f'<button type="submit" class="btn btn-sm btn-outline-danger" '
+                f"onclick=\"return confirm('Remove this coordinator?')\">Delete</button></form>"
+            )
         else:
-            actions = f'<a href="/admin/chairs/{chair.id}/approve" class="btn btn-sm btn-outline-success" onclick="return confirm(\'Approve this coordinator?\')">Approve</a> <a href="/admin/chairs/{chair.id}/delete" class="btn btn-sm btn-outline-danger" onclick="return confirm(\'Delete this coordinator?\')">Delete</a>'
+            actions = (
+                f'<form method="POST" action="/admin/chairs/{chair.id}/approve" class="d-inline me-1">'
+                f'<button type="submit" class="btn btn-sm btn-outline-success" '
+                f"onclick=\"return confirm('Approve this coordinator?')\">Approve</button></form>"
+                f'<form method="POST" action="/admin/chairs/{chair.id}/delete" class="d-inline">'
+                f'<button type="submit" class="btn btn-sm btn-outline-danger" '
+                f"onclick=\"return confirm('Delete this coordinator?')\">Delete</button></form>"
+            )
         chair_list += f"""
         <tr>
             <td>{chair.chair_name}</td>
@@ -859,8 +870,12 @@ def admin_chairs():
             <td><code>{req.group_acronym}</code></td>
             <td>{req_at}</td>
             <td>
-                <a href="/admin/coordinator_requests/{req.id}/approve" class="btn btn-sm btn-success">Approve</a>
-                <a href="/admin/coordinator_requests/{req.id}/reject" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject this request?')">Reject</a>
+                <form method="POST" action="/admin/coordinator_requests/{req.id}/approve" class="d-inline me-1">
+                    <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                </form>
+                <form method="POST" action="/admin/coordinator_requests/{req.id}/reject" class="d-inline">
+                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject this request?')">Reject</button>
+                </form>
             </td>
         </tr>
         """
@@ -1030,7 +1045,7 @@ def add_coordinator_for_user(user_id):
     return render_page("Add as coordinator - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 
-@bp.route('/admin/coordinator_requests/<req_id>/approve')
+@bp.route('/admin/coordinator_requests/<req_id>/approve', methods=['POST'])
 @require_role('admin')
 def approve_coordinator_request(req_id):
     _, _, get_current_user, _, _, _ = _get_imports()
@@ -1054,7 +1069,7 @@ def approve_coordinator_request(req_id):
     return redirect('/admin/chairs/')
 
 
-@bp.route('/admin/coordinator_requests/<req_id>/reject')
+@bp.route('/admin/coordinator_requests/<req_id>/reject', methods=['POST'])
 @require_role('admin')
 def reject_coordinator_request(req_id):
     _, _, get_current_user, _, _, _ = _get_imports()
@@ -1071,8 +1086,8 @@ def reject_coordinator_request(req_id):
     return redirect('/admin/chairs/')
 
 
-@bp.route('/admin/chairs/<chair_id>/approve')
-@require_auth
+@bp.route('/admin/chairs/<chair_id>/approve', methods=['POST'])
+@require_role('admin')
 def approve_chair(chair_id):
     chair = WorkingGroupChair.query.get(chair_id)
     if chair:
@@ -1084,8 +1099,8 @@ def approve_chair(chair_id):
     return redirect('/admin/chairs/')
 
 
-@bp.route('/admin/chairs/<chair_id>/delete')
-@require_auth
+@bp.route('/admin/chairs/<chair_id>/delete', methods=['POST'])
+@require_role('admin')
 def delete_chair(chair_id):
     chair = WorkingGroupChair.query.get(chair_id)
     if chair:

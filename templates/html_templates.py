@@ -1040,22 +1040,25 @@ BASE_TEMPLATE = """
                     // Not critical for social logins
                 }}
 
-                // Build the payload - handle different structures
-                // For email_passwordless, verifierId might be different
-                const finalVerifierId = userInfo.verifierId || userInfo.email || evmAddress || 'unknown';
-                const finalTypeOfLogin = userInfo.typeOfLogin || 'unknown';
-                
+                // Identity token — required for server-side verification
+                let idToken = '';
+                try {{
+                    const identity = await web3auth.getIdentityToken();
+                    idToken = (identity && identity.idToken) || web3auth.idToken || '';
+                }} catch (tokenError) {{
+                    console.warn('Could not get identity token:', tokenError);
+                }}
+                if (!idToken) {{
+                    alert('Sign-in verification failed: no identity token. Please try again.');
+                    return;
+                }}
+
                 const payload = {{
-                    verifierId: finalVerifierId,
-                    typeOfLogin: finalTypeOfLogin,
-                    email: userInfo.email || '',
-                    name: userInfo.name || userInfo.email?.split('@')[0] || '',
-                    profileImage: userInfo.profileImage || '',
+                    idToken: idToken,
                     evmAddress: evmAddress || '',
                 }};
 
-                console.log('Sending payload:', payload);
-                console.log('typeOfLogin:', finalTypeOfLogin);
+                console.log('Sending verified Web3Auth login');
 
                 // Send to backend
                 const response = await fetch('/api/auth/web3auth', {{
@@ -1260,6 +1263,7 @@ SUBMIT_TEMPLATE = """
                                         {{WORKGROUP_OPTIONS}}
                                     </select>
                                 </div>
+                                {{DOCUMENT_META_FIELDS}}
                                 
                                 <div class="mb-3">
                                     <label for="file" class="form-label">Document File *</label>
@@ -1369,6 +1373,7 @@ SUBMIT_TEMPLATE = """
                                         {{WORKGROUP_OPTIONS}}
                                     </select>
                                 </div>
+                                {{DOCUMENT_META_FIELDS}}
                                 
                                 <div class="mb-3">
                                     <div class="form-check">
