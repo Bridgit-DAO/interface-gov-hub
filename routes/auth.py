@@ -82,7 +82,7 @@ def register_disabled():
 def web3auth_login():
     """Web3Auth login — requires a verified idToken from Web3Auth getIdentityToken()."""
     from flask import current_app
-    from jwt.exceptions import InvalidTokenError
+    from jwt.exceptions import InvalidTokenError, PyJWKClientError
     from services.web3auth_verify import identity_from_web3auth_claims, verify_web3auth_id_token
 
     client_ip = request.remote_addr or request.environ.get('HTTP_X_FORWARDED_FOR', 'unknown')
@@ -101,10 +101,9 @@ def web3auth_login():
         try:
             claims = verify_web3auth_id_token(id_token)
             identity = identity_from_web3auth_claims(claims)
-        except InvalidTokenError:
+        except (InvalidTokenError, PyJWKClientError, ValueError) as exc:
+            current_app.logger.warning('Web3Auth token rejected: %s', exc)
             return jsonify({'error': 'Invalid or expired sign-in token'}), 401
-        except ValueError as exc:
-            return jsonify({'error': str(exc)}), 401
 
         verifier_id = identity['verifierId']
         type_of_login = identity['typeOfLogin']

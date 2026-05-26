@@ -77,7 +77,7 @@ var u=await web3auth.getUserInfo();
 if(postSent)return;
 postSent=true;
 var evm='';try{if(p){var w3=new Web3(p);var a=await w3.eth.getAccounts();if(a&&a.length)evm=a[0];}}catch(x){}
-var idToken='';try{var ident=await web3auth.getIdentityToken();idToken=(ident&&ident.idToken)||web3auth.idToken||'';}catch(x){}
+var idToken='';try{var ident=await web3auth.getIdentityToken();idToken=(ident&&ident.idToken)||'';}catch(x){}
 if(!idToken){postSent=false;alert('Sign-in verification failed: no identity token.');if(typeof onFailure==='function')onFailure();return;}
 var pay={idToken:idToken,evmAddress:evm};
 var res=await fetch(location.origin+'/api/auth/web3auth',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(pay)});

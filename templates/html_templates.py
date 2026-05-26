@@ -1068,6 +1068,13 @@ BASE_TEMPLATE = """
                     storePostLoginReturnPath(here);
                 }}
 
+                // Force a fresh provider login (no silent reconnect from prior session).
+                try {{
+                    await web3auth.logout({{ cleanup: true }});
+                }} catch (logoutError) {{
+                    console.warn('Web3Auth logout before connect:', logoutError);
+                }}
+
                 // Connect without specifying a provider - shows modal with all options
                 const web3authProvider = await web3auth.connect();
                 const userInfo = await web3auth.getUserInfo();
@@ -1091,11 +1098,11 @@ BASE_TEMPLATE = """
                     // Not critical for social logins
                 }}
 
-                // Identity token — required for server-side verification
+                // Identity token — required for server-side verification (after connect only).
                 let idToken = '';
                 try {{
                     const identity = await web3auth.getIdentityToken();
-                    idToken = (identity && identity.idToken) || web3auth.idToken || '';
+                    idToken = (identity && identity.idToken) || '';
                 }} catch (tokenError) {{
                     console.warn('Could not get identity token:', tokenError);
                 }}
