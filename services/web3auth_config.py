@@ -25,28 +25,24 @@ def get_web3auth_settings() -> Dict[str, str]:
     """
     Return clientId, network, and google verifier for the active environment.
 
-    Development uses sapphire_devnet. Production uses WEB3AUTH_CLIENT_ID on
-    sapphire_mainnet. Set WEB3AUTH_USE_DEVNET=true only as a temporary override
-    (e.g. before govhub.live is on the mainnet Web3Auth allowlist).
+    Gov Hub uses sapphire_devnet everywhere (dev and prod) unless
+    WEB3AUTH_USE_MAINNET=true and WEB3AUTH_CLIENT_ID are set for a paid plan.
     """
     devnet_id = (
         os.environ.get('WEB3AUTH_CLIENT_ID_DEVNET') or DEFAULT_DEVNET_CLIENT_ID
     ).strip()
     mainnet_id = (os.environ.get('WEB3AUTH_CLIENT_ID') or '').strip()
-    use_devnet_override = os.environ.get('WEB3AUTH_USE_DEVNET', '').strip().lower() in (
+    use_mainnet = os.environ.get('WEB3AUTH_USE_MAINNET', '').strip().lower() in (
         '1',
         'true',
         'yes',
         'on',
     )
 
-    if IS_DEVELOPMENT or use_devnet_override:
-        return {'client_id': devnet_id, **_DEVNET}
+    if use_mainnet and mainnet_id and not IS_DEVELOPMENT:
+        return {'client_id': mainnet_id, **_MAINNET}
 
-    if not mainnet_id:
-        raise ValueError('WEB3AUTH_CLIENT_ID must be set in production')
-
-    return {'client_id': mainnet_id, **_MAINNET}
+    return {'client_id': devnet_id, **_DEVNET}
 
 
 def web3auth_client_id() -> str:
