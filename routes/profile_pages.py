@@ -1,4 +1,5 @@
 """Profile page routes: /profile/<username>/, /profile/edit/."""
+import html as html_mod
 import json
 from datetime import datetime
 
@@ -12,6 +13,7 @@ from services.identity import get_current_user, require_auth, get_or_create_refe
 from services.avatar import get_avatar_url
 from services.directory_ui import gh_page_open, gh_page_close, gh_page_header
 from services.utils import coerce_storage_bool
+from services.site_roles import site_role_label, site_role_badge_class
 
 bp = Blueprint('profile_pages', __name__, url_prefix='')
 
@@ -114,6 +116,7 @@ def user_profile(username):
         """, theme=current_theme, user_menu=user_menu)
 
     is_own_profile = current_user and current_user['id'] == profile_user.id
+    is_admin_viewer = bool(current_user and current_user.get('role') == 'admin')
 
     social_links = []
     if profile_user.social_links:
@@ -192,6 +195,19 @@ def user_profile(username):
         referral_code = get_or_create_referral_code(profile_user)
         referral_count = LayerMember.query.filter_by(referred_by_id=profile_user.id).count()
 
+    if is_admin_viewer and profile_user.email:
+        email_details_html = (
+            f'<p class="mb-1"><strong>Email:</strong> {html_mod.escape(profile_user.email)}</p>'
+            f'<p class="text-muted small mb-0">'
+            f'<i class="fas fa-shield-alt me-1"></i>Visible to site administrators only.</p>'
+        )
+    else:
+        email_details_html = (
+            '<p class="text-muted small mb-0">'
+            '<i class="fas fa-envelope me-1"></i>Email is not shown publicly. '
+            'Only site administrators can view it.</p>'
+        )
+
     content = f"""
     <style>
         .profile-banner {{
@@ -222,34 +238,6 @@ def user_profile(username):
             image-rendering: crisp-edges;
         }}
 
-        .profile-stats {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 1rem;
-            margin-top: 1.5rem;
-        }}
-
-        .stat-card {{
-            background: var(--bg-secondary);
-            padding: 1rem;
-            border-radius: 12px;
-            text-align: center;
-            border: 1px solid var(--border-color);
-        }}
-
-        .stat-value {{
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            display: block;
-        }}
-
-        .stat-label {{
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
 
         .social-links a {{
             display: inline-block;
@@ -379,8 +367,8 @@ def user_profile(username):
 
                                 <h5 class="card-title mt-4">Details</h5>
                                 <p><strong>Member since:</strong> {profile_user.created_at.strftime('%B %Y') if profile_user.created_at else 'Unknown'}</p>
-                                {f'<p><strong>Email:</strong> {profile_user.email}</p>' if profile_user.email else ''}
-                                {f'<p><strong>Role:</strong> <span class="badge bg-primary">{profile_user.role}</span></p>' if profile_user.role else ''}
+                                {email_details_html}
+                                {f'<p class="mt-2 mb-0"><strong>Role:</strong> <span class="badge bg-{site_role_badge_class(profile_user.role)}">{site_role_label(profile_user.role)}</span></p>' if profile_user.role else ''}
                             </div>
                         </div>
                     </div>

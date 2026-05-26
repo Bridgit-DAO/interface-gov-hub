@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Copy DP card images into static/ and assign image_url on DP workgroups."""
+"""Copy DP pictogram images into static/ and assign image_url on DP workgroups."""
 from __future__ import annotations
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -11,30 +10,21 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from app import app
 from extensions import db
-from services.groups import DP_ABBREVIATIONS
 from services.workgroup_links import sync_all_dp_workgroup_images
 
 DEFAULT_SOURCE = Path('/home/ubuntu/.cursor/projects/home-ubuntu/assets/dp-icons')
 STATIC_DP_DIR = REPO_ROOT / 'static' / 'images' / 'dp'
+EXTRACT_SCRIPT = REPO_ROOT / 'scripts' / 'extract_dp_icons.py'
 
 
 def copy_dp_images(source_dir: Path = DEFAULT_SOURCE) -> list[Path]:
-    """Copy DP{n}_{Abbr}.png assets to static/images/dp/dp{n}.png."""
-    if not source_dir.is_dir():
-        raise FileNotFoundError(f'DP icon source directory not found: {source_dir}')
+    """Build icon-only PNGs from card slices, written to static/images/dp/."""
+    import subprocess
 
-    STATIC_DP_DIR.mkdir(parents=True, exist_ok=True)
-    copied: list[Path] = []
-
-    for dp_num, abbr in sorted(DP_ABBREVIATIONS.items()):
-        src = source_dir / f'DP{dp_num}_{abbr}.png'
-        if not src.is_file():
-            raise FileNotFoundError(f'Missing source image: {src}')
-        dest = STATIC_DP_DIR / f'dp{dp_num}.png'
-        shutil.copy2(src, dest)
-        copied.append(dest)
-
-    return copied
+    if not EXTRACT_SCRIPT.is_file():
+        raise FileNotFoundError(f'Missing extract script: {EXTRACT_SCRIPT}')
+    subprocess.run([sys.executable, str(EXTRACT_SCRIPT)], check=True)
+    return sorted(STATIC_DP_DIR.glob('dp*.png'))
 
 
 def main(dry_run: bool = False, force: bool = False, source_dir: Path = DEFAULT_SOURCE) -> int:

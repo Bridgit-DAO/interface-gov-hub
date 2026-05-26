@@ -930,6 +930,10 @@ BASE_TEMPLATE = """
 
                 // Check if we should trigger login modal
                 const urlParams = new URLSearchParams(window.location.search);
+                const returnPath = getReturnPathFromQuery();
+                if (returnPath) {{
+                    storePostLoginReturnPath(returnPath);
+                }}
                 if (urlParams.get('show_login') === '1') {{
                     // Remove the parameter from URL
                     window.history.replaceState({{}}, '', window.location.pathname);
@@ -941,6 +945,58 @@ BASE_TEMPLATE = """
             }}
         }}
 
+        function isSafeReturnPath(url) {{
+            if (!url) return false;
+            if (url.startsWith('/') && !url.startsWith('//')) return true;
+            try {{
+                const u = new URL(url, window.location.origin);
+                return u.origin === window.location.origin;
+            }} catch (_e) {{
+                return false;
+            }}
+        }}
+
+        function normalizeReturnPath(url) {{
+            if (!url) return '/';
+            if (url.startsWith(window.location.origin + '/')) {{
+                return url.slice(window.location.origin.length) || '/';
+            }}
+            if (url.startsWith(window.location.origin)) {{
+                return '/';
+            }}
+            return url;
+        }}
+
+        function getReturnPathFromQuery() {{
+            const params = new URLSearchParams(window.location.search);
+            const candidate = params.get('redirect') || params.get('next');
+            if (candidate && isSafeReturnPath(candidate)) {{
+                return normalizeReturnPath(candidate);
+            }}
+            return null;
+        }}
+
+        function storePostLoginReturnPath(path) {{
+            try {{
+                if (path && isSafeReturnPath(path)) {{
+                    sessionStorage.setItem('ghPostLoginReturn', normalizeReturnPath(path));
+                }}
+            }} catch (_e) {{}}
+        }}
+
+        function consumePostLoginReturnPath() {{
+            const fromQuery = getReturnPathFromQuery();
+            if (fromQuery) return fromQuery;
+            try {{
+                const stored = sessionStorage.getItem('ghPostLoginReturn');
+                if (stored && isSafeReturnPath(stored)) {{
+                    sessionStorage.removeItem('ghPostLoginReturn');
+                    return normalizeReturnPath(stored);
+                }}
+            }} catch (_e) {{}}
+            return '/';
+        }}
+
         async function loginWithWeb3Auth() {{
             if (!web3auth) {{
                 alert("Web3Auth not initialized. Please refresh the page.");
@@ -948,6 +1004,12 @@ BASE_TEMPLATE = """
             }}
 
             try {{
+                // Preserve return path when signing in from a content page (navbar modal).
+                if (window.location.pathname !== '/login/') {{
+                    const here = window.location.pathname + window.location.search + window.location.hash;
+                    storePostLoginReturnPath(here);
+                }}
+
                 // Logout first to ensure clean state
                 try {{
                     await web3auth.logout();
@@ -1005,10 +1067,7 @@ BASE_TEMPLATE = """
 
                 const result = await response.json();
                 if (response.ok) {{
-                    const params = new URLSearchParams(window.location.search);
-                    const redirectTo = params.get('redirect');
-                    const allowed = redirectTo && (redirectTo.startsWith('/') || redirectTo.startsWith(window.location.origin + '/'));
-                    window.location.href = allowed ? redirectTo : '/';
+                    window.location.href = consumePostLoginReturnPath();
                 }} else {{
                     console.error('Backend error:', result);
                     alert('Login failed: ' + (result.error || 'Unknown error'));

@@ -86,10 +86,18 @@ REGISTER_TEMPLATE = """
 
 @bp.route('/login/', methods=['GET'])
 def login():
-    """Show dedicated login page with Web3Auth sign-in. Use ?redirect=URL to return after login."""
+    """Show dedicated login page with Web3Auth sign-in. Use ?next= or ?redirect= to return after login."""
     from services.rendering import _format_base_template, generate_user_menu
     from services.identity import get_current_user
+    from services.auth_redirect import safe_return_path
     from config import BUILD_NUMBER
+
+    return_to = safe_return_path(
+        request.args.get('next') or request.args.get('redirect')
+    )
+    if get_current_user():
+        return redirect(return_to or url_for('pages.home'))
+
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     return _format_base_template(

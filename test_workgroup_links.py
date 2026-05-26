@@ -74,6 +74,22 @@ def test_dp_workgroups_available_on_overweb():
             assert wg.acronym in overweb_acronyms, f'{wg.acronym} missing on Overweb'
 
 
+def test_query_workgroups_for_layer_dedupes():
+    """Primary + secondary links must not return the same workgroup twice."""
+    from app import create_app
+    from models import Layer
+    from services.workgroup_links import query_workgroups_for_layer
+
+    app = create_app()
+    with app.app_context():
+        overweb = Layer.query.filter_by(slug='the-overweb').first()
+        if not overweb:
+            return
+        rows = query_workgroups_for_layer(overweb.id, status='active')
+        ids = [wg.id for wg in rows]
+        assert len(ids) == len(set(ids)), 'duplicate workgroup ids in layer query'
+
+
 def test_overweb_workgroups_api_when_layer_feature_off():
     """GET /api/layers/<overweb>/workgroups/ works via secondary links even if workgroups off."""
     from app import create_app

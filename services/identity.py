@@ -2,10 +2,11 @@
 import hashlib
 import time
 
-from flask import session, flash, redirect, url_for
+from flask import session, flash, redirect, url_for, request
 
 from extensions import db
 from models import User
+from services.auth_redirect import login_url
 
 
 def generate_referral_code(username):
@@ -51,7 +52,7 @@ def require_auth(f):
     def decorated_function(*args, **kwargs):
         if 'user' not in session:
             flash('Please log in to access this page.', 'error')
-            return redirect(url_for('auth.login'))
+            return redirect(login_url(request.full_path.rstrip('?') or request.path))
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
@@ -63,7 +64,7 @@ def require_role(required_role):
         def decorated_function(*args, **kwargs):
             if 'user' not in session:
                 flash('Please log in to access this page.', 'error')
-                return redirect(url_for('auth.login'))
+                return redirect(login_url(request.full_path.rstrip('?') or request.path))
             current_user = get_current_user()
             if not current_user:
                 return "Access denied: Not logged in", 403

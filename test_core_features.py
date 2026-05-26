@@ -61,7 +61,8 @@ def test_critical_features():
         # 4. Document System
         print("4. 📄 Testing Document System...")
         response = client.get('/doc/all/')
-        assert 'All Documents' in response.get_data(as_text=True)
+        assert 'Documents' in response.get_data(as_text=True)
+        assert 'Submit Draft' in response.get_data(as_text=True)
         print("   ✅ Document listing works")
 
         # 5. Individual Draft Pages

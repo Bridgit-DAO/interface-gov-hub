@@ -146,6 +146,24 @@ def test_accept_proposal_requires_chair():
     assert deny.status_code == 403
 
 
+def test_read_meta_for_dp():
+    from app import app
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        if not sub:
+            return
+        ref = sub.id
+
+    with app.test_client() as client:
+        r = client.get(f'/api/doc/draft/{ref}/read-meta/')
+        assert r.status_code == 200, r.get_data(as_text=True)
+        data = r.get_json()
+        assert data['is_dp'] is True
+        assert data['proposals_enabled'] is True
+
+
 def test_admin_dashboard_loads():
     from app import app
     from models import User

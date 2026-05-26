@@ -262,6 +262,96 @@ def generate_governance_nav(layer_slug=None, standalone=False):
     return '\n'.join(lines)
 
 
+def _home_hub_card(href, icon, title, desc, btn_label, primary=False):
+    btn_cls = 'btn-primary' if primary else 'btn-outline-primary'
+    return (
+        f'<a href="{href}" class="gh-home-hub-card text-decoration-none">'
+        f'<div class="gh-home-hub-icon"><i class="fas {icon}"></i></div>'
+        f'<h2>{title}</h2>'
+        f'<p>{desc}</p>'
+        f'<span class="btn btn-sm {btn_cls}">{btn_label}</span>'
+        f'</a>'
+    )
+
+
+def build_home_hub_cards_html():
+    """Home hub grid cards, omitting sections disabled in product rollout."""
+    r = _product_rollout_flags()
+    cards = []
+    if r.get('docs', True):
+        cards.append(_home_hub_card(
+            '/doc/all/', 'fa-file-alt', 'Documents',
+            'Drafts, RFCs, and layer documentation.',
+            'View Docs', primary=True,
+        ))
+    if r.get('layers', True):
+        cards.append(_home_hub_card(
+            '/layers/', 'fa-layer-group', 'Layers',
+            'Browse MLTF layers, workgroups, and living layer maps.',
+            'View Layers', primary=True,
+        ))
+    if r.get('workgroups', True):
+        cards.append(_home_hub_card(
+            '/workgroups/', 'fa-users-cog', 'Workgroups',
+            'Find workgroups across layers and their activities.',
+            'View Workgroups', primary=True,
+        ))
+    if r.get('guilds', True):
+        cards.append(_home_hub_card(
+            '/guilds/', 'fa-shield-halved', 'Guilds',
+            'Cross-project collaboration groups and communities.',
+            'View Guilds', primary=True,
+        ))
+    if r.get('roles', True):
+        cards.append(_home_hub_card(
+            '/roles/', 'fa-user-tag', 'Roles',
+            'Explore and claim roles across all layers.',
+            'Browse Roles',
+        ))
+    cards.append(_home_hub_card(
+        '/person/', 'fa-user-friends', 'People',
+        'Directory of Meta-Layer participants and contributors.',
+        'View People',
+    ))
+    if r.get('badges', True):
+        cards.append(_home_hub_card(
+            '/badges/', 'fa-medal', 'Badges',
+            'Visual representations and galleries for roles.',
+            'View Badges',
+        ))
+    if r.get('waitlists', True):
+        cards.append(_home_hub_card(
+            '/waitlists/', 'fa-list-ol', 'Waitlists',
+            'Join waitlists for upcoming features and opportunities.',
+            'View Waitlists', primary=True,
+        ))
+    return '\n'.join(cards)
+
+
+def build_home_hero_subtitle():
+    """Hero tagline listing only rollout-enabled areas."""
+    r = _product_rollout_flags()
+    labels = []
+    for key, label in (
+        ('docs', 'docs'),
+        ('layers', 'layers'),
+        ('roles', 'roles'),
+        ('workgroups', 'workgroups'),
+        ('guilds', 'guilds'),
+    ):
+        if r.get(key, True):
+            labels.append(label)
+    if not labels:
+        return 'Welcome to the Meta-Layer Governance Hub — coordination in one place.'
+    if len(labels) == 1:
+        joined = labels[0]
+    elif len(labels) == 2:
+        joined = f'{labels[0]} and {labels[1]}'
+    else:
+        joined = ', '.join(labels[:-1]) + f', and {labels[-1]}'
+    return f'Welcome to the Meta-Layer Governance Hub — {joined}, and coordination in one place.'
+
+
 def generate_civic_mason_nav_li():
     """Recognition dropdown: Civic Mason link, hidden when `civic_mason` rollout is off."""
     r = _product_rollout_flags()
@@ -365,6 +455,7 @@ def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_i
         lang_menu=generate_lang_menu_html(),
         govhub_i18n_js=govhub_js,
         civic_mason_nav_li=generate_civic_mason_nav_li(),
+        flash_messages=render_flash_messages_html(),
         body_attrs='',
     )
 

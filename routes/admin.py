@@ -406,7 +406,7 @@ def admin_users():
                             <i class="fas fa-user-edit"></i>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="roleDropdown{user.username}">
-                            <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'user'); return false;">User</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'user'); return false;">Participant</a></li>
                             <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'editor'); return false;">Editor</a></li>
                             <li><a class="dropdown-item" href="#" onclick="changeRole('{user.username}', 'admin'); return false;">Admin</a></li>
                             <li><hr class="dropdown-divider"></li>
@@ -425,7 +425,7 @@ def admin_users():
     <option value="">All Roles</option>
     <option value="admin" {'selected' if role_filter == 'admin' else ''}>Admin</option>
     <option value="editor" {'selected' if role_filter == 'editor' else ''}>Editor</option>
-    <option value="user" {'selected' if role_filter == 'user' else ''}>User</option>
+    <option value="user" {'selected' if role_filter == 'user' else ''}>Participant</option>
     """
 
     content = f"""

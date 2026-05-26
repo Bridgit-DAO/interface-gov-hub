@@ -2,6 +2,7 @@
 import re
 from datetime import datetime, date
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy import text, or_, func
@@ -398,10 +399,11 @@ def join_workgroup(workgroup_id):
         return jsonify({'error': 'You are already a member of this workgroup'}), 400
 
     insert_query = text("""
-        INSERT INTO working_group_member (group_acronym, user_id, user_name, joined_at)
-        VALUES (:acronym, :user_id, :user_name, :joined_at)
+        INSERT INTO working_group_member (id, group_acronym, user_id, user_name, joined_at)
+        VALUES (:id, :acronym, :user_id, :user_name, :joined_at)
     """)
     db.session.execute(insert_query, {
+        'id': str(uuid4()),
         'acronym': workgroup.acronym,
         'user_id': current_user['id'],
         'user_name': current_user.get('displayName') or current_user.get('username'),

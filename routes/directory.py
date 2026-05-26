@@ -1,14 +1,10 @@
 """Directory pages: person, meeting, layers, workgroups, waitlists, guilds."""
+import html as html_mod
 import json
 from flask import Blueprint, redirect, request, session
 
-from models import (
-    User, Submission, Comment, Layer,
-    WorkingGroupChair, WorkingGroupMember,
-)
+from models import User, Layer
 from services.identity import get_current_user
-from services.avatar import get_avatar_url
-from services.event_subscriptions import count_distinct_drafts_followed
 from services.directory_ui import (
     gh_page_open,
     gh_page_close,
@@ -17,6 +13,11 @@ from services.directory_ui import (
     gh_filter_col,
     gh_directory_grid,
     gh_directory_toolbar,
+)
+from services.people_directory import (
+    build_people_lookup_tables,
+    build_person_row,
+    workgroup_filter_options,
 )
 
 bp = Blueprint('directory', __name__, url_prefix='')
@@ -31,125 +32,118 @@ def _get_imports():
 
 @bp.route('/person/')
 def people():
-    """People directory: list users; admins get Add as coordinator and other actions."""
-    generate_user_menu, render_page, GROUPS = _get_imports()
+    """People directory: discover participants, layers, workgroups, and activity."""
+    generate_user_menu, render_page, _GROUPS = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
     is_admin = current_user and current_user.get('role') == 'admin'
-    is_editor_or_admin = current_user and current_user.get('role') in ('admin', 'editor')
 
+    lookup = build_people_lookup_tables()
     users = User.query.order_by(User.username).all()
-    group_options = ''.join(
-        f'<option value="{g["acronym"]}">{g["acronym"]}</option>' for g in GROUPS
+    wg_options = ''.join(
+        f'<option value="{html_mod.escape(ac)}">{html_mod.escape(label)}</option>'
+        for ac, label in workgroup_filter_options(lookup)
     )
-    rows = []
-    for u in users:
-        display = u.name or u.displayName or u.oauthName or u.username
-        coord_groups = WorkingGroupChair.query.filter_by(user_id=u.id).all()
-        coord_acronyms = ' '.join(c.group_acronym for c in coord_groups)
-        coord_badges = ' '.join(
-            f'<span class="badge bg-secondary me-1">{c.group_acronym}</span>'
-            for c in coord_groups
-        ) if coord_groups else '<span class="text-muted">—</span>'
-        member_groups = WorkingGroupMember.query.filter_by(user_id=u.id).all()
-        member_acronyms = ' '.join(m.group_acronym for m in member_groups)
-        member_badges = ' '.join(
-            f'<span class="badge bg-info me-1">{m.group_acronym}</span>'
-            for m in member_groups
-        ) if member_groups else '<span class="text-muted">—</span>'
-        all_groups = (member_acronyms + ' ' + coord_acronyms).strip() or ''
-        role_badge = f'<span class="badge bg-{"danger" if u.role == "admin" else "warning" if u.role == "editor" else "secondary"}">{u.role or "user"}</span>'
-        if u.last_login:
-            last_active = u.last_login.strftime('%Y-%m-%d')
-        else:
-            last_active = '<span class="text-muted">Never</span>'
-        name_variants = [x for x in (u.name, u.displayName, u.oauthName, u.username) if x]
-        submissions_count = Submission.query.filter(Submission.submitted_by.in_(name_variants)).count() if name_variants else 0
-        follows_count = count_distinct_drafts_followed(u.id)
-        comments_count = Comment.query.filter(Comment.author.in_(name_variants)).count() if name_variants else 0
-        if is_admin:
-            actions_td = f'<td><a href="/admin/users/{u.id}/add-coordinator" class="btn btn-outline-primary btn-sm">Add as coordinator</a></td>'
-        else:
-            actions_td = ''
-        search_text = f"{display} {u.username}".lower()
-        role_td = f'<td>{role_badge}</td>' if is_editor_or_admin else ''
-        avatar_src = get_avatar_url(u, 36)
-        avatar_html = f'<img src="{avatar_src}" alt="" class="rounded-circle me-2" style="width:36px;height:36px;object-fit:cover" onerror="this.onerror=null;this.src=\'/static/images/default-avatar.png\'">'
-        profile_link = f'/profile/{u.username}/'
-        rows.append(f"""
-        <tr data-search="{search_text}" data-groups="{all_groups}">
-            <td><div class="d-flex align-items-center">{avatar_html}<div><a href="{profile_link}" class="fw-bold text-decoration-none">{display}</a><br><small class="text-muted">@{u.username}</small></div></div></td>
-            {role_td}
-            <td>{member_badges}</td>
-            <td>{coord_badges}</td>
-            <td>{last_active}</td>
-            <td>{submissions_count}</td>
-            <td>{follows_count}</td>
-            <td>{comments_count}</td>
-            {actions_td}
-        </tr>
-        """)
-
-    num_cols = 7 + (1 if is_editor_or_admin else 0) + (1 if is_admin else 0)
-    table_rows = ''.join(rows) if rows else f'<tr><td colspan="{num_cols}" class="text-center text-muted py-4">No users yet.</td></tr>'
-    role_th = '<th>Role</th>' if is_editor_or_admin else ''
-    actions_th = '<th>Actions</th>' if is_admin else ''
+    rows = [
+        build_person_row(u, lookup, show_admin_actions=is_admin)['row_html']
+        for u in users
+    ]
+    num_cols = 6 + (1 if is_admin else 0)
+    table_rows = (
+        ''.join(rows)
+        if rows
+        else f'<tr><td colspan="{num_cols}" class="text-center text-muted py-4">No participants yet.</td></tr>'
+    )
+    actions_th = '<th></th>' if is_admin else ''
+    sort_options = (
+        ('last-active', 'Last active'),
+        ('submissions', 'Submissions'),
+        ('activity', 'Activity'),
+        ('name-asc', 'Name A–Z'),
+        ('name-desc', 'Name Z–A'),
+        ('workgroup', 'Workgroup'),
+        ('role', 'Site role'),
+    )
+    sort_opts_html = ''.join(
+        f'<option value="{v}"{" selected" if v == "last-active" else ""}>{label}</option>'
+        for v, label in sort_options
+    )
     content = f"""
     {gh_page_open()}
-    {gh_page_header('People', 'Directory of MLGH participants — workgroups, activity, and contributions at a glance.', 'fa-user-friends')}
-    <div class="living-module">
-        <div class="living-module-header">
-            <div class="living-module-icon"><i class="fas fa-search"></i></div>
-            <h5 class="living-module-title">Find people</h5>
-        </div>
-        <div class="living-module-body">
-            {gh_filter_row(
-                gh_filter_col('Search', '<input type="text" id="people-search" class="form-control" placeholder="Name or username..." autocomplete="off">', 'col-md-6')
-                + gh_filter_col('Workgroup', f'<select id="people-workgroup" class="form-select"><option value="">All workgroups</option>{group_options}</select>', 'col-md-4')
-            )}
-            <div class="gh-people-table-wrap">
-                <table class="table table-hover mb-0" id="people-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            {role_th}
-                            <th>Member</th>
-                            <th>Coordinator</th>
-                            <th>Last active</th>
-                            <th>Submissions</th>
-                            <th>Followed</th>
-                            <th>Comments</th>
-                            {actions_th}
-                        </tr>
-                    </thead>
-                    <tbody>{table_rows}</tbody>
-                </table>
-            </div>
-        </div>
+    {gh_page_header('People', 'Discover who is active — roles, layers, workgroups, and contributions.', 'fa-user-friends')}
+    {gh_filter_row(
+        gh_filter_col('Search', '<input type="search" id="people-search" class="form-control" placeholder="Name or username…" autocomplete="off">', 'col-md-5')
+        + gh_filter_col('Workgroup', f'<select id="people-workgroup" class="form-select"><option value="">All workgroups</option>{wg_options}</select>', 'col-md-4')
+        + gh_filter_col('Sort', f'<select id="people-sort" class="form-select">{sort_opts_html}</select>', 'col-md-3')
+    )}
+    <div class="gh-people-table-wrap">
+        <table class="table table-hover mb-0" id="people-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Roles</th>
+                    <th>Layers</th>
+                    <th>Workgroups</th>
+                    <th>Last active</th>
+                    <th>Activity</th>
+                    {actions_th}
+                </tr>
+            </thead>
+            <tbody>{table_rows}</tbody>
+        </table>
     </div>
     {gh_page_close()}
     <script>
     (function() {{
         var searchEl = document.getElementById('people-search');
         var workgroupEl = document.getElementById('people-workgroup');
-        var rows = document.querySelectorAll('#people-table tbody tr[data-search]');
-        function filterPeople() {{
+        var sortEl = document.getElementById('people-sort');
+        var tbody = document.querySelector('#people-table tbody');
+        function compareRows(a, b, sort) {{
+            if (sort === 'name-asc') {{
+                return (a.getAttribute('data-name') || '').localeCompare(b.getAttribute('data-name') || '', undefined, {{ numeric: true, sensitivity: 'base' }});
+            }}
+            if (sort === 'name-desc') {{
+                return (b.getAttribute('data-name') || '').localeCompare(a.getAttribute('data-name') || '', undefined, {{ numeric: true, sensitivity: 'base' }});
+            }}
+            if (sort === 'submissions') {{
+                return (parseInt(b.getAttribute('data-submissions'), 10) || 0) - (parseInt(a.getAttribute('data-submissions'), 10) || 0);
+            }}
+            if (sort === 'activity') {{
+                return (parseInt(b.getAttribute('data-activity'), 10) || 0) - (parseInt(a.getAttribute('data-activity'), 10) || 0);
+            }}
+            if (sort === 'workgroup') {{
+                return (a.getAttribute('data-workgroup') || '').localeCompare(b.getAttribute('data-workgroup') || '', undefined, {{ numeric: true, sensitivity: 'base' }});
+            }}
+            if (sort === 'role') {{
+                return (a.getAttribute('data-role') || '').localeCompare(b.getAttribute('data-role') || '', undefined, {{ numeric: true, sensitivity: 'base' }});
+            }}
+            return (parseInt(b.getAttribute('data-last-active'), 10) || 0) - (parseInt(a.getAttribute('data-last-active'), 10) || 0);
+        }}
+        function applyPeopleView() {{
+            if (!tbody) return;
             var q = (searchEl && searchEl.value) ? searchEl.value.toLowerCase().trim() : '';
             var group = (workgroupEl && workgroupEl.value) ? workgroupEl.value.trim() : '';
+            var sort = (sortEl && sortEl.value) ? sortEl.value : 'last-active';
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-search]'));
             rows.forEach(function(tr) {{
                 var show = true;
-                if (q && tr.getAttribute('data-search').indexOf(q) === -1) show = false;
+                if (q && (tr.getAttribute('data-search') || '').indexOf(q) === -1) show = false;
                 if (group) {{
                     var groups = (tr.getAttribute('data-groups') || '').split(/\\s+/).filter(Boolean);
                     if (groups.indexOf(group) === -1) show = false;
                 }}
                 tr.style.display = show ? '' : 'none';
             }});
+            var visible = rows.filter(function(tr) {{ return tr.style.display !== 'none'; }});
+            visible.sort(function(a, b) {{ return compareRows(a, b, sort); }});
+            visible.forEach(function(tr) {{ tbody.appendChild(tr); }});
         }}
-        if (searchEl) searchEl.addEventListener('input', filterPeople);
-        if (searchEl) searchEl.addEventListener('keyup', filterPeople);
-        if (workgroupEl) workgroupEl.addEventListener('change', filterPeople);
+        if (searchEl) searchEl.addEventListener('input', applyPeopleView);
+        if (workgroupEl) workgroupEl.addEventListener('change', applyPeopleView);
+        if (sortEl) sortEl.addEventListener('change', applyPeopleView);
+        applyPeopleView();
     }})();
     </script>
     """
@@ -380,6 +374,7 @@ def workgroups_directory():
                     allWorkgroups = allWorkgroups.concat(wgs.map(wg => ({{...wg, layer_name: project.name}})));
                 }}
             }}
+            allWorkgroups = GhDirectory.dedupeById(allWorkgroups, 'id');
             
             filterWorkgroups();
         }} catch (error) {{
