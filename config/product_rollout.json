@@ -15,5 +15,5 @@
   "votes": false,
   "waitlists": true,
   "workgroups": true,
-  "dp_proposals": false
+  "dp_proposals": true
 }

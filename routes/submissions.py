@@ -4,6 +4,7 @@ import random
 import re
 import string
 from datetime import datetime
+from typing import Optional
 
 import requests
 from flask import Blueprint, jsonify, request, redirect, url_for, flash, send_file, current_app, session, render_template_string, g
@@ -362,6 +363,66 @@ SUBMISSION_STATUS_TEMPLATE = """
 """
 
 
+def _submit_document_meta_fields_html(
+    *,
+    selected_category: str = '',
+    tags_value: str = '',
+    compact: bool = False,
+) -> str:
+    from services.document_categories import document_category_options_html
+    import html as html_mod
+
+    tags_esc = html_mod.escape(tags_value or '', quote=True)
+    if compact:
+        return f'''
+            <div class="mb-3">
+                <label class="form-label">Document type</label>
+                <select class="form-select" name="document_category">
+                    {document_category_options_html(selected_category)}
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Tags <span class="text-muted">(optional)</span></label>
+                <input type="text" class="form-control" name="document_tags" value="{tags_esc}"
+                       placeholder="governance, climate-policy (comma-separated)">
+                <small class="form-text text-muted">Up to 10 layer tags (shared with artifacts).</small>
+            </div>'''
+    return f'''
+                                <div class="mb-3">
+                                    <label for="document_category" class="form-label">Document type</label>
+                                    <select class="form-select" id="document_category" name="document_category">
+                                        {document_category_options_html(selected_category)}
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="document_tags" class="form-label">Tags <span class="text-muted">(optional)</span></label>
+                                    <input type="text" class="form-control" id="document_tags" name="document_tags"
+                                           value="{tags_esc}"
+                                           placeholder="governance, climate-policy (comma-separated)">
+                                    <div class="form-text">Up to 10 layer tags. Same vocabulary as artifacts on this layer.</div>
+                                </div>'''
+
+
+def _apply_submission_document_meta(submission, form, user_id: Optional[str]) -> None:
+    from flask import current_app
+    from services.document_categories import normalize_document_category
+    from services.layer_tags import (
+        document_tags_enabled,
+        parse_tag_slugs,
+        set_submission_tags,
+        sync_submission_tags_to_artifact,
+    )
+
+    submission.document_category = normalize_document_category(
+        form.get('document_category') if hasattr(form, 'get') else None
+    )
+    if document_tags_enabled(current_app.config) and submission.layer_id:
+        raw = form.get('document_tags', '') if hasattr(form, 'get') else ''
+        slugs = parse_tag_slugs(raw)
+        set_submission_tags(submission, slugs, user_id)
+        sync_submission_tags_to_artifact(submission)
+
+
 def _build_submit_form_template(
     *,
     effective_layer,
@@ -418,6 +479,7 @@ def _build_submit_form_template(
 
     submit_template = submit_template.replace('{{LAYER_SELECTOR_SHARED}}', layer_selector_shared)
     submit_template = submit_template.replace('{{LAYER_HIDDEN_FIELD}}', layer_hidden_field)
+    submit_template = submit_template.replace('{{DOCUMENT_META_FIELDS}}', _submit_document_meta_fields_html())
     stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
     submit_template = submit_template.replace('{{STRIPE_PK}}', stripe_pk)
     offer_tier = effective_layer and getattr(effective_layer, 'offer_tier_pricing', False)
@@ -448,6 +510,16 @@ def _render_submit_revision_form(
     group_options = workgroup_select_options_html(
         revision_layer_id,
         selected_group or draft.get('group', ''),
+    )
+    tag_slugs = draft.get('tag_slugs') or []
+    if isinstance(tag_slugs, list) and tag_slugs and isinstance(tag_slugs[0], dict):
+        tags_value = ', '.join(t.get('slug') or t.get('label') or '' for t in tag_slugs)
+    else:
+        tags_value = draft.get('document_tags') or ''
+    doc_meta_html = _submit_document_meta_fields_html(
+        selected_category=draft.get('document_category') or '',
+        tags_value=tags_value,
+        compact=True,
     )
     draft_detail_url = url_for('documents.draft_detail', draft_name=draft_name)
     revision_form = f"""
@@ -486,6 +558,7 @@ def _render_submit_revision_form(
                     {group_options}
                 </select>
             </div>
+            {doc_meta_html}
 
             <div class="mb-3">
                 <label class="form-label">What changed since the last revision?</label>
@@ -852,6 +925,12 @@ def submit_draft():
 
         # Save to database
         db.session.add(submission)
+        db.session.flush()
+        _apply_submission_document_meta(
+            submission,
+            request.form,
+            get_current_user()['id'] if get_current_user() else None,
+        )
         db.session.commit()
 
         # Log the action
@@ -885,6 +964,9 @@ def submit_revision(draft_name):
     if not draft:
         submission = get_submission_by_ref(draft_name)
         if submission and submission.status == 'approved':
+            from services.layer_tags import tags_for_subject
+            from models.layer_tag import SUBJECT_SUBMISSION
+
             draft = {
                 'name': submission.id,
                 'title': submission.title,
@@ -893,6 +975,8 @@ def submit_revision(draft_name):
                 'group': submission.group or '',
                 'rev': submission.revision_number or '00',
                 'ml_number': submission.ml_number,
+                'document_category': getattr(submission, 'document_category', None) or 'document',
+                'tag_slugs': tags_for_subject(SUBJECT_SUBMISSION, submission.id),
             }
         elif submission:
             flash('Cannot create revision of unapproved submission', 'error')
@@ -1090,6 +1174,12 @@ def submit_revision(draft_name):
 
         # Save to database
         db.session.add(submission)
+        db.session.flush()
+        _apply_submission_document_meta(
+            submission,
+            request.form,
+            get_current_user()['id'] if get_current_user() else None,
+        )
         db.session.commit()
 
         # Log the action
@@ -1258,10 +1348,33 @@ def patch_submission_metadata(submission_id):
         submission.abstract = (data.get('abstract') or '').strip() or None
         updated = True
 
+    if 'document_category' in data:
+        from services.document_categories import normalize_document_category
+        submission.document_category = normalize_document_category(data.get('document_category'))
+        updated = True
+
+    if 'tag_slugs' in data or 'tags' in data or 'document_tags' in data:
+        from flask import current_app
+        from services.layer_tags import (
+            document_tags_enabled,
+            set_submission_tags,
+            sync_submission_tags_to_artifact,
+        )
+        if document_tags_enabled(current_app.config) and submission.layer_id:
+            raw = data.get('tag_slugs', data.get('tags', data.get('document_tags')))
+            set_submission_tags(submission, raw or [], current_user['id'])
+            sync_submission_tags_to_artifact(submission)
+            updated = True
+
     if not updated:
         return jsonify({'error': 'No supported fields to update'}), 400
 
     db.session.commit()
+    from services.layer_tags import tags_for_subject
+    from models.layer_tag import SUBJECT_SUBMISSION
+    from services.document_categories import document_category_label
+
+    tag_rows = tags_for_subject(SUBJECT_SUBMISSION, submission.id)
     return jsonify({
         'success': True,
         'submission': {
@@ -1269,6 +1382,9 @@ def patch_submission_metadata(submission_id):
             'title': submission.title,
             'abstract': submission.abstract,
             'group': submission.group,
+            'document_category': submission.document_category,
+            'document_category_label': document_category_label(submission.document_category or 'document'),
+            'tags': tag_rows,
         },
     })
 
