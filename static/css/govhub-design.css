@@ -742,7 +742,7 @@
 .gh-detail-hero-media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: var(--gh-radius-xl);
 }
 
@@ -879,8 +879,11 @@
 }
 
 .gh-home-hub-card {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto 1fr auto;
+  column-gap: var(--gh-space-sm);
+  row-gap: var(--gh-space-xs);
   border-radius: var(--gh-radius-lg);
   border: 1px solid var(--card-border);
   background: var(--card-bg);
@@ -906,7 +909,9 @@
   justify-content: center;
   background: var(--gh-gradient-map);
   color: #667eea;
-  margin-bottom: var(--gh-space-sm);
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
 }
 
 /* Shared entity thumbnails — layers, workgroups, roles, guilds */
@@ -965,14 +970,24 @@ img.gh-entity-thumb {
 .gh-home-hub-card h2 {
   font-size: 1rem;
   font-weight: 700;
-  margin: 0 0 var(--gh-space-xs);
+  margin: 0;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
 }
 
 .gh-home-hub-card p {
   font-size: 0.875rem;
   color: var(--text-secondary);
-  flex: 1;
   margin: 0 0 var(--gh-space-md);
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.gh-home-hub-card .btn {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  justify-self: start;
 }
 
 .gh-home-stats {
@@ -1041,6 +1056,29 @@ img.gh-entity-thumb {
   color: var(--text-muted);
   border-bottom-width: 1px;
   white-space: nowrap;
+}
+
+.gh-pill-truncate {
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.gh-people-pills-cell {
+  min-width: 8rem;
+  max-width: 14rem;
+}
+
+.gh-people-activity {
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.gh-people-activity-item {
+  display: inline-block;
 }
 
 .gh-detail-breadcrumb {
@@ -1116,6 +1154,40 @@ img.gh-entity-thumb {
 .gh-profile-page .tab-content .card,
 .gh-profile-page .tab-content .living-module {
   margin-top: var(--gh-space-md);
+}
+
+.gh-profile-page .profile-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.gh-profile-page .profile-stats .stat-card {
+  background: var(--bg-secondary);
+  padding: 0.45rem 0.35rem;
+  border-radius: 8px;
+  text-align: center;
+  border: 1px solid var(--border-color);
+  min-width: 0;
+}
+
+.gh-profile-page .profile-stats .stat-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: block;
+  line-height: 1.2;
+}
+
+.gh-profile-page .profile-stats .stat-label {
+  font-size: 0.62rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  margin-top: 0.15rem;
+  display: block;
 }
 
 /* Auth panel — hide duplicate module title inside living-module */

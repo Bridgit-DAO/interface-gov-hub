@@ -277,6 +277,7 @@ def _build_all_documents_catalog():
 
 @bp.route('/doc/all/')
 def all_documents():
+    from flask import url_for
     from services.rendering import _format_base_template, generate_user_menu
     from config import BUILD_NUMBER
 
@@ -285,6 +286,7 @@ def all_documents():
     catalog = _build_all_documents_catalog()
     docs_json = json.dumps(catalog)
     total_docs = len(catalog)
+    submit_url = url_for('submissions.submit_draft')
 
     doc_view_actions = (
         '<div class="btn-group" role="group" aria-label="View mode">'
@@ -292,11 +294,16 @@ def all_documents():
         '<button type="button" class="btn btn-outline-secondary btn-sm" id="doc-view-list" onclick="setDocView(\'list\')">List</button>'
         '</div>'
     )
+    submit_draft_col = (
+        '<div class="col-md-auto ms-md-auto d-flex align-items-end">'
+        f'<a href="{submit_url}" class="btn btn-primary">Submit Draft</a>'
+        '</div>'
+    )
 
     content = f"""
     <div class="gh-page container doc-all-page mt-4">
         {gh_page_header(
-            'All Documents',
+            'Documents',
             f'{total_docs} documents',
             'fa-file-alt',
             actions_html=doc_view_actions,
@@ -306,6 +313,7 @@ def all_documents():
                 search_placeholder='Search documents…',
                 search_col='col-md-5',
                 sort_col='col-md-3',
+                extra_cols=submit_draft_col,
                 sort_options=(
                     ('recent', 'ML number (newest first)'),
                     ('name-asc', 'A–Z'),
@@ -420,7 +428,7 @@ def all_documents():
     </script>
     """
 
-    return _format_base_template(title="All Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return _format_base_template(title="Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/doc/draft/<path:draft_name>.txt')
@@ -558,12 +566,24 @@ def draft_reader(draft_name):
     )
 
     if render_html:
-        body_block = f'<div class="draft-reader-body prose">{document_content}</div>'
+        body_block = (
+            f'<div class="draft-reader-body prose" id="dp-reader-selectable-body">'
+            f'{document_content}</div>'
+        )
     else:
         body_block = (
-            f'<pre class="draft-reader-body draft-reader-pre">'
+            f'<pre class="draft-reader-body draft-reader-pre" id="dp-reader-selectable-body">'
             f'{html_escape(document_content)}</pre>'
         )
+
+    from services.dp_proposal_reader import render_dp_proposal_reader_assets
+
+    dp_proposal_assets = render_dp_proposal_reader_assets(
+        submission,
+        draft_name,
+        render_html=render_html,
+        document_content=document_content if isinstance(document_content, str) else '',
+    )
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
@@ -681,6 +701,7 @@ def draft_reader(draft_name):
       </div>
       {body_block}
     </div>
+    {dp_proposal_assets}
     '''
 
     return _format_base_template(

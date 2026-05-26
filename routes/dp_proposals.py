@@ -1,5 +1,7 @@
 """DP Proposal API and admin dashboard (scaffolding)."""
-from flask import Blueprint, jsonify, redirect, request, url_for
+import html as html_mod
+
+from flask import Blueprint, jsonify, redirect, request, session, url_for
 
 from extensions import db
 from models import DpProposal
@@ -19,7 +21,7 @@ from services.dp_proposals import (
 )
 from services.identity import get_current_user, require_auth, require_role
 from services.rendering import generate_user_menu, render_page
-from services.directory_ui import gh_page_header, gh_breadcrumb
+from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('dp_proposals', __name__, url_prefix='/api/doc/draft')
 admin_bp = Blueprint('dp_proposals_admin', __name__, url_prefix='')
@@ -160,58 +162,113 @@ def decline_proposal_route(draft_ref, proposal_id):
     })
 
 
+@bp.route('/<path:draft_ref>/read-meta/', methods=['GET'])
+def read_meta(draft_ref):
+    guard = _feature_guard()
+    if guard:
+        return guard
+    submission, err = resolve_submission_for_proposals(draft_ref)
+    if err:
+        return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    from services.draft_reader import load_draft_document_body, build_draft_context
+    from services.dp_proposal_reader import build_read_meta
+
+    draft, sub = build_draft_context(draft_ref)
+    if not draft or not sub:
+        return jsonify({'error': 'Document not found'}), 404
+    content, render_html, _, _ = load_draft_document_body(
+        draft, sub, draft_ref, pdf_iframe_height='800px'
+    )
+    return jsonify(build_read_meta(sub, draft_ref, render_html=render_html, document_content=content))
+
+
 @admin_bp.route('/admin/dp-proposals/')
 @require_role('admin')
 def dp_proposals_dashboard():
     guard = _feature_guard()
     if guard:
         return guard
+
     rows = dashboard_dp_activity()
     user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+
     table_rows = ''
     for row in rows:
-        title = row.get('title') or row.get('submission_id') or 'Untitled'
-        ml = row.get('ml_number') or '—'
-        wg = row.get('workgroup_name') or row.get('workgroup_acronym') or '—'
+        submission_id = row.get('submission_id') or ''
+        title = html_mod.escape(row.get('title') or submission_id or 'Untitled')
+        ml = html_mod.escape(row.get('ml_number') or '—')
+        wg = html_mod.escape(row.get('workgroup_name') or row.get('workgroup_acronym') or '—')
         c = row.get('counts') or {}
-        table_rows += (
-            f'<tr>'
-            f'<td>{title}</td>'
-            f'<td>{ml}</td>'
-            f'<td>{wg}</td>'
-            f'<td>{c.get("pending", 0)}</td>'
-            f'<td>{c.get("accepted", 0)}</td>'
-            f'<td>{c.get("declined", 0)}</td>'
-            f'<td>{c.get("total", 0)}</td>'
-            f'<td>{row.get("last_activity") or "—"}</td>'
-            f'</tr>'
-        )
+        pending = int(c.get('pending', 0))
+        accepted = int(c.get('accepted', 0))
+        declined = int(c.get('declined', 0))
+        total = int(c.get('total', 0))
+        last = row.get('last_activity')
+        last_display = html_mod.escape(last[:19].replace('T', ' ') if last else '—')
+        doc_href = html_mod.escape(f'/doc/draft/{submission_id}/read/')
+        table_rows += f'''
+            <tr>
+                <td><a href="{doc_href}" class="text-decoration-none">{title}</a></td>
+                <td>{ml}</td>
+                <td>{wg}</td>
+                <td><span class="badge bg-primary">{pending}</span></td>
+                <td><span class="badge bg-success">{accepted}</span></td>
+                <td><span class="badge bg-secondary">{declined}</span></td>
+                <td>{total}</td>
+                <td class="text-muted small">{last_display}</td>
+            </tr>'''
+
     if not table_rows:
-        table_rows = (
-            '<tr><td colspan="8" class="text-muted text-center py-4">'
-            'No DP Proposals yet. Activity will appear here once readers submit proposals.'
-            '</td></tr>'
-        )
+        table_rows = '''
+            <tr>
+                <td colspan="8" class="text-center text-muted py-4">
+                    No DP Proposals yet. Activity will appear here once readers submit proposals on DP read pages.
+                </td>
+            </tr>'''
+
+    table_html = f'''
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>DP / Title</th>
+                        <th>ML #</th>
+                        <th>Workgroup</th>
+                        <th>Proposals</th>
+                        <th>Amendments</th>
+                        <th>Declined</th>
+                        <th>Total</th>
+                        <th>Last activity</th>
+                    </tr>
+                </thead>
+                <tbody>{table_rows}</tbody>
+            </table>
+        </div>'''
+
+    header = gh_page_header(
+        'DP Proposals',
+        'Activity by Desirable Property — most active first',
+        'fa-highlighter',
+        breadcrumb_html=gh_breadcrumb([
+            ('Admin Dashboard', '/admin/'),
+            ('DP Proposals', None),
+        ]),
+        actions_html=(
+            '<a href="/admin/" class="btn btn-outline-secondary btn-sm">'
+            '<i class="fas fa-arrow-left me-1"></i>Admin</a>'
+        ),
+    )
+
     content = f'''
-    {gh_breadcrumb([('Admin', '/admin/'), ('DP Proposals', None)])}
-    {gh_page_header('DP Proposals', 'Activity by Desirable Property (most active first)', 'fa-highlighter')}
-    <div class="table-responsive">
-      <table class="table table-striped align-middle">
-        <thead>
-          <tr>
-            <th>DP / Title</th>
-            <th>ML #</th>
-            <th>Workgroup</th>
-            <th>Proposals</th>
-            <th>Amendments</th>
-            <th>Declined</th>
-            <th>Total</th>
-            <th>Last activity</th>
-          </tr>
-        </thead>
-        <tbody>{table_rows}</tbody>
-      </table>
+    <div class="gh-page container mt-4 gh-admin-page">
+        {header}
+        {gh_living_module('By DP', table_html, 'fa-list', extra_class='mb-0')}
     </div>
-    <p class="text-muted small">API: <code>GET /api/doc/draft/&lt;ref&gt;/proposals/</code></p>
     '''
-    return render_page('DP Proposals — Admin', content, user_menu=user_menu)
+    return render_page(
+        'DP Proposals — Admin',
+        content,
+        theme=current_theme,
+        user_menu=user_menu,
+    )

@@ -17,18 +17,41 @@ bp = Blueprint('pages', __name__, url_prefix='')
 
 def _get_imports():
     """Late imports to avoid circular imports."""
-    from services.rendering import _format_base_template, generate_user_menu
+    from services.rendering import (
+        _format_base_template,
+        generate_user_menu,
+        build_home_hub_cards_html,
+        build_home_hero_subtitle,
+    )
     from config import BUILD_NUMBER
     from services.documents import DRAFTS
     from services.groups import GROUPS
     from templates.html_templates import PROFILE_TEMPLATE
-    return _format_base_template, generate_user_menu, BUILD_NUMBER, DRAFTS, GROUPS, PROFILE_TEMPLATE
+    return (
+        _format_base_template,
+        generate_user_menu,
+        BUILD_NUMBER,
+        DRAFTS,
+        GROUPS,
+        PROFILE_TEMPLATE,
+        build_home_hub_cards_html,
+        build_home_hero_subtitle,
+    )
 
 
 @bp.route('/')
 def home():
     """Home page."""
-    _format_base_template, generate_user_menu, BUILD_NUMBER, DRAFTS, GROUPS, _ = _get_imports()
+    (
+        _format_base_template,
+        generate_user_menu,
+        BUILD_NUMBER,
+        DRAFTS,
+        GROUPS,
+        _,
+        build_home_hub_cards_html,
+        build_home_hero_subtitle,
+    ) = _get_imports()
 
     if getattr(g, 'layer', None):
         path = url_for('layers_pages.layer_detail', layer_slug=g.layer.slug)
@@ -42,6 +65,8 @@ def home():
     doc_count = len(DRAFTS) + Submission.query.filter(
         Submission.status.in_(['approved', 'published'])
     ).count()
+    hub_cards_html = build_home_hub_cards_html()
+    hero_subtitle = build_home_hero_subtitle()
 
     return _format_base_template(
         title="MLGH",
@@ -51,59 +76,12 @@ def home():
     <div class="gh-page container mt-4">
         <div class="gh-home-hero">
             <h1>Governance Hub</h1>
-            <p>Welcome to the Meta-Layer Governance Hub — layers, roles, guilds, docs, and coordination in one place.</p>
+            <p>{hero_subtitle}</p>
         </div>
         <div class="row g-4">
             <div class="col-lg-8">
                 <div class="gh-home-hub">
-                    <a href="/layers/" class="gh-home-hub-card text-decoration-none">
-                        <div class="gh-home-hub-icon"><i class="fas fa-layer-group"></i></div>
-                        <h2>Layers</h2>
-                        <p>Browse MLTF layers, workgroups, and living layer maps.</p>
-                        <span class="btn btn-sm btn-primary">View Layers</span>
-                    </a>
-                    <a href="/workgroups/" class="gh-home-hub-card text-decoration-none">
-                        <div class="gh-home-hub-icon"><i class="fas fa-users-cog"></i></div>
-                        <h2>Workgroups</h2>
-                        <p>Find workgroups across layers and their activities.</p>
-                        <span class="btn btn-sm btn-primary">View Workgroups</span>
-                    </a>
-                    <a href="/guilds/" class="gh-home-hub-card text-decoration-none">
-                        <div class="gh-home-hub-icon"><i class="fas fa-shield-halved"></i></div>
-                        <h2>Guilds</h2>
-                        <p>Cross-project collaboration groups and communities.</p>
-                        <span class="btn btn-sm btn-primary">View Guilds</span>
-                    </a>
-                    <a href="/roles/" class="gh-home-hub-card text-decoration-none">
-                        <div class="gh-home-hub-icon"><i class="fas fa-user-tag"></i></div>
-                        <h2>Roles</h2>
-                        <p>Explore and claim roles across all layers.</p>
-                        <span class="btn btn-sm btn-outline-primary">Browse Roles</span>
-                    </a>
-                    <a href="/person/" class="gh-home-hub-card text-decoration-none">
-                        <div class="gh-home-hub-icon"><i class="fas fa-user-friends"></i></div>
-                        <h2>People</h2>
-                        <p>Directory of Meta-Layer participants and contributors.</p>
-                        <span class="btn btn-sm btn-outline-primary">View People</span>
-                    </a>
-                    <a href="/doc/all/" class="gh-home-hub-card text-decoration-none">
-                        <div class="gh-home-hub-icon"><i class="fas fa-file-alt"></i></div>
-                        <h2>Documents</h2>
-                        <p>Drafts, RFCs, and layer documentation.</p>
-                        <span class="btn btn-sm btn-outline-primary">View Docs</span>
-                    </a>
-                    <a href="/badges/" class="gh-home-hub-card text-decoration-none">
-                        <div class="gh-home-hub-icon"><i class="fas fa-medal"></i></div>
-                        <h2>Badges</h2>
-                        <p>Visual representations and galleries for roles.</p>
-                        <span class="btn btn-sm btn-outline-primary">View Badges</span>
-                    </a>
-                    <a href="/waitlists/" class="gh-home-hub-card text-decoration-none">
-                        <div class="gh-home-hub-icon"><i class="fas fa-list-ol"></i></div>
-                        <h2>Waitlists</h2>
-                        <p>Join waitlists for upcoming features and opportunities.</p>
-                        <span class="btn btn-sm btn-outline-primary">View Waitlists</span>
-                    </a>
+                    {hub_cards_html}
                 </div>
             </div>
             <div class="col-lg-4">

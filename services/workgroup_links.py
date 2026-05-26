@@ -426,6 +426,20 @@ def assign_dp_image_to_workgroup(workgroup, *, force: bool = False) -> bool:
     return True
 
 
+def clear_all_workgroup_images() -> dict[str, int]:
+    """Remove image_url from every workgroup. Returns stats (caller should commit)."""
+    from models import Workgroup
+
+    stats = {'cleared': 0, 'already_empty': 0}
+    for wg in Workgroup.query.all():
+        if not (wg.image_url or '').strip():
+            stats['already_empty'] += 1
+            continue
+        wg.image_url = None
+        stats['cleared'] += 1
+    return stats
+
+
 def sync_all_dp_workgroup_images(*, force: bool = False) -> dict[str, int]:
     """
     Assign static DP card images to every DP workgroup.
