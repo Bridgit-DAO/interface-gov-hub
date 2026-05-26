@@ -21,6 +21,7 @@ from models.artifact import (
     Comment, DocumentHistory,
     Artifact, ArtifactRelation,
 )
+from models.dp_proposal import DpProposal
 from models.collection import ArtifactCollection, ArtifactCollectionItem
 from models.artifact_tag import ArtifactTag, ArtifactTagLink
 from models.bridge import Bridge, BridgeSession
@@ -40,6 +41,7 @@ __all__ = [
     'Submission', 'SiteConfig', 'InscriptionOrder',
     'Comment', 'DocumentHistory',
     'Artifact', 'ArtifactRelation',
+    'DpProposal',
     'ArtifactCollection', 'ArtifactCollectionItem',
     'ArtifactTag', 'ArtifactTagLink',
     'Bridge', 'BridgeSession',

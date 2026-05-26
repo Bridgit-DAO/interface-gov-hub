@@ -1462,3 +1462,74 @@ def migrate_workgroup_layer_links(app):
                 print(f"✅ Linked {linked} DP workgroup(s) to The Overweb (secondary layer)")
     except Exception as e:
         print(f"⚠️  Error in migrate_workgroup_layer_links: {e}")
+
+
+def migrate_dp_proposals(app):
+    """Create dp_proposal table; enable dp_proposals rollout flag on dev checkout."""
+    try:
+        import sqlite3
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dp_proposal (
+                id VARCHAR(36) PRIMARY KEY,
+                submission_id VARCHAR(36) NOT NULL,
+                scope VARCHAR(20) NOT NULL DEFAULT 'dp',
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                anchor_hash VARCHAR(64) NOT NULL,
+                context_anchor TEXT,
+                original_text TEXT NOT NULL,
+                proposed_text TEXT NOT NULL,
+                content_hash_at_create VARCHAR(64),
+                author_user_id VARCHAR(36),
+                reviewed_by_user_id VARCHAR(36),
+                reviewed_at DATETIME,
+                incorporated_submission_id VARCHAR(36),
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY (submission_id) REFERENCES submission(id),
+                FOREIGN KEY (author_user_id) REFERENCES user(id),
+                FOREIGN KEY (reviewed_by_user_id) REFERENCES user(id),
+                FOREIGN KEY (incorporated_submission_id) REFERENCES submission(id)
+            )
+        """)
+        for idx_sql in (
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_submission ON dp_proposal(submission_id)',
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_status ON dp_proposal(status)',
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_anchor ON dp_proposal(anchor_hash)',
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_author ON dp_proposal(author_user_id)',
+            'CREATE INDEX IF NOT EXISTS idx_dp_proposal_created ON dp_proposal(created_at)',
+        ):
+            cursor.execute(idx_sql)
+        conn.commit()
+        conn.close()
+        print('✅ dp_proposal table ready')
+
+        from config import IS_DEVELOPMENT
+        if IS_DEVELOPMENT:
+            import json
+            from extensions import db
+            from models import SiteConfig
+            from services.product_rollout import PRODUCT_ROLLOUT_SITE_CONFIG_KEY
+
+            with app.app_context():
+                row = SiteConfig.query.filter_by(key=PRODUCT_ROLLOUT_SITE_CONFIG_KEY).first()
+                cfg = {}
+                if row and row.value:
+                    try:
+                        cfg = json.loads(row.value)
+                    except json.JSONDecodeError:
+                        cfg = {}
+                if 'dp_proposals' not in cfg:
+                    cfg['dp_proposals'] = True
+                    payload = json.dumps(cfg, sort_keys=True)
+                    if row:
+                        row.value = payload
+                    else:
+                        db.session.add(SiteConfig(key=PRODUCT_ROLLOUT_SITE_CONFIG_KEY, value=payload))
+                    db.session.commit()
+                    print('✅ Enabled dp_proposals in product_rollout (dev)')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_dp_proposals: {e}')

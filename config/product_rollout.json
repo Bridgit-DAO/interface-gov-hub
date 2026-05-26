@@ -14,5 +14,6 @@
   "soft_launch": false,
   "votes": false,
   "waitlists": true,
-  "workgroups": true
+  "workgroups": true,
+  "dp_proposals": false
 }

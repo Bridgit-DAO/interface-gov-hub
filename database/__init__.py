@@ -43,6 +43,7 @@ def init_db(app):
             migrate_layer_invitations,
             migrate_product_rollout_seed,
             migrate_workgroup_layer_links,
+            migrate_dp_proposals,
             migrate_hardcoded_users,
         )
 
@@ -83,5 +84,6 @@ def init_db(app):
         migrate_layer_invitations(app)
         migrate_product_rollout_seed(app)
         migrate_workgroup_layer_links(app)
+        migrate_dp_proposals(app)
 
         print(f"Database initialized: {User.query.count()} users")

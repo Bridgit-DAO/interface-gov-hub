@@ -35,10 +35,11 @@ FEATURE_KEYS: List[str] = [
     'quests',
     'bridges',
     'opportunities',
+    'dp_proposals',
 ]
 
 # Features off until explicitly enabled in Product rollout (site-wide).
-_FEATURE_OFF_BY_DEFAULT = frozenset({'immortalize'})
+_FEATURE_OFF_BY_DEFAULT = frozenset({'immortalize', 'dp_proposals'})
 
 # When no `product_rollout` row exists, legacy features stay on; new gated features stay off.
 _LEGACY_ALL_ENABLED: Dict[str, bool] = {
@@ -376,6 +377,14 @@ def _path_needs_artifacts(p: str) -> bool:
     return False
 
 
+def _path_needs_dp_proposals(p: str) -> bool:
+    if p.startswith('/admin/dp-proposals'):
+        return True
+    if p.startswith('/api/doc/draft/') and '/proposals/' in p:
+        return True
+    return False
+
+
 def _path_needs_admin(p: str) -> bool:
     if p in ('/admin', '/admin/'):
         return True
@@ -421,6 +430,8 @@ def path_requires_feature_flags(path: str) -> set:
         need.add('waitlists')
     if _path_needs_immortalize(p):
         need.add('immortalize')
+    if _path_needs_dp_proposals(p):
+        need.add('dp_proposals')
     is_layer = p.startswith('/layer/') or p.startswith('/layers/') or p.startswith('/api/layers/')
     if is_layer:
         need.add('layers')

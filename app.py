@@ -155,6 +155,7 @@ def create_app():
     from routes.soft_launch import bp as soft_launch_bp
     from routes.soft_launch_pages import bp as soft_launch_pages_bp
     from routes.layer_invitations import bp as layer_invitations_bp, bp_pages as layer_invite_pages_bp
+    from routes.dp_proposals import bp as dp_proposals_bp, admin_bp as dp_proposals_admin_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -213,6 +214,8 @@ def create_app():
     app.register_blueprint(soft_launch_pages_bp)
     app.register_blueprint(layer_invitations_bp)
     app.register_blueprint(layer_invite_pages_bp)
+    app.register_blueprint(dp_proposals_bp)
+    app.register_blueprint(dp_proposals_admin_bp)
 
     # CLI
     from cli import register_cli

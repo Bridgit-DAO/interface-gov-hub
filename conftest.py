@@ -12,6 +12,7 @@ def ensure_schema_migrations():
             migrate_access_control_v1,
             migrate_notifications_stack_v1,
             migrate_layer_invitations,
+            migrate_dp_proposals,
         )
         from extensions import db
 
@@ -20,3 +21,4 @@ def ensure_schema_migrations():
         migrate_access_control_v1(app)
         migrate_notifications_stack_v1(app)
         migrate_layer_invitations(app)
+        migrate_dp_proposals(app)
