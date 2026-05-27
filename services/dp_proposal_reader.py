@@ -1,4 +1,4 @@
-"""Read-page helpers for DP Proposals on /doc/draft/<ref>/read/."""
+"""Read-page helpers for sentence-level proposals on /doc/draft/<ref>/read/."""
 from __future__ import annotations
 
 import html as html_mod
@@ -13,7 +13,7 @@ from services.dp_proposals import (
     workgroup_for_submission,
 )
 from services.identity import get_current_user
-from services.product_rollout import is_feature_enabled
+from services.proposal_modes import is_mode_enabled, mode_labels, proposal_mode_for_submission
 
 
 def is_reader_body_selectable(*, render_html: bool, document_content: str) -> bool:
@@ -37,13 +37,17 @@ def build_read_meta(
     wg = workgroup_for_submission(submission)
     can_manage = bool(current_user and can_manage_amendments(current_user, wg))
     can_accept = bool(current_user and can_accept_amendments(current_user))
-    enabled = is_feature_enabled('dp_proposals')
+    mode = proposal_mode_for_submission(submission)
+    labels = mode_labels(mode)
+    enabled = is_mode_enabled(mode)
     is_dp = is_dp_submission(submission)
     return {
         'draft_ref': draft_ref,
         'submission_id': submission.id,
+        'mode': mode,
+        'scope': mode,
         'is_dp': is_dp,
-        'proposals_enabled': enabled and is_dp,
+        'proposals_enabled': enabled,
         'selectable': is_reader_body_selectable(
             render_html=render_html,
             document_content=document_content,
@@ -52,6 +56,7 @@ def build_read_meta(
         'can_manage_amendments': can_manage,
         'can_accept_amendments': can_accept,
         'authenticated': bool(current_user),
+        'labels': labels,
     }
 
 
@@ -74,18 +79,19 @@ def render_dp_proposal_reader_assets(
     if not meta.get('proposals_enabled') or not meta.get('selectable'):
         return ''
 
+    labels = meta.get('labels') or {}
     meta_json = html_mod.escape(json.dumps(meta), quote=True)
     draft_ref_esc = html_mod.escape(draft_ref, quote=True)
 
     return f'''
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260526g">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260526h">
     <div id="dp-proposal-reader-root" data-draft-ref="{draft_ref_esc}" data-meta="{meta_json}"></div>
 
     <div class="modal fade" id="dpProposalComposeModal" tabindex="-1" aria-labelledby="dpProposalComposeLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="dpProposalComposeLabel">Suggest a DP Proposal</h5>
+            <h5 class="modal-title" id="dpProposalComposeLabel">{html_mod.escape(labels.get("compose_title", "Suggest a change"))}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
@@ -97,7 +103,7 @@ def render_dp_proposal_reader_assets(
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button type="button" class="btn btn-primary" id="dpProposalSubmitBtn" disabled>Post proposal</button>
+            <button type="button" class="btn btn-primary" id="dpProposalSubmitBtn" disabled>{html_mod.escape(labels.get("post_button", "Post proposal"))}</button>
           </div>
         </div>
       </div>
@@ -107,7 +113,7 @@ def render_dp_proposal_reader_assets(
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="dpProposalListLabel">Proposals on this passage</h5>
+            <h5 class="modal-title" id="dpProposalListLabel">{html_mod.escape(labels.get("list_title", "Proposals on this passage"))}</h5>
             <div class="form-check form-switch ms-auto me-3 mb-0">
               <input class="form-check-input" type="checkbox" id="dpProposalShowDiffToggle">
               <label class="form-check-label small" for="dpProposalShowDiffToggle">Show changes</label>
@@ -116,14 +122,14 @@ def render_dp_proposal_reader_assets(
           </div>
           <div class="modal-body" id="dpProposalListBody"></div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline-primary" id="dpProposalListAddBtn">Suggest a DP Proposal</button>
+            <button type="button" class="btn btn-outline-primary" id="dpProposalListAddBtn">{html_mod.escape(labels.get("list_add", "Suggest a change"))}</button>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
         </div>
       </div>
     </div>
 
-    <script src="/static/js/dp-proposals/sentence-tools.js?v=20260526g"></script>
-    <script src="/static/js/dp-proposals/proposal-display.js?v=20260526g"></script>
-    <script defer src="/static/js/dp-proposals/reader.js?v=20260526g"></script>
+    <script src="/static/js/dp-proposals/sentence-tools.js?v=20260526h"></script>
+    <script src="/static/js/dp-proposals/proposal-display.js?v=20260526h"></script>
+    <script defer src="/static/js/dp-proposals/reader.js?v=20260526h"></script>
     '''

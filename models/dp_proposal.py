@@ -48,8 +48,9 @@ class DpProposal(db.Model):
     )
 
     def status_label(self) -> str:
+        pending = 'Suggested edit' if self.scope == 'document' else 'DP Proposal'
         labels = {
-            'pending': 'DP Proposal',
+            'pending': pending,
             'accepted': 'Amendment',
             'declined': 'Declined',
             'incorporated': 'Published in Revision',

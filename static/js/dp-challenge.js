@@ -1,5 +1,5 @@
 /**
- * DP Challenge hub: doc picker CTA + live activity toasts (30s poll).
+ * Proposal hub (DP Challenge / Suggest an Edit): doc picker CTA + live activity toasts.
  */
 (function () {
   'use strict';
@@ -7,6 +7,9 @@
   var cfg = window.DP_CHALLENGE_PAGE || {};
   var pollMs = cfg.pollIntervalMs || 30000;
   var currentUserId = cfg.currentUserId || null;
+  var returnTo = cfg.returnTo || '/dp-challenge/';
+  var recentApiPath = cfg.recentApiPath || '/api/dp-challenge/recent';
+  var labels = cfg.labels || {};
   var seenKeys = {};
   var toastQueue = [];
   var activeToast = null;
@@ -17,6 +20,10 @@
     var d = document.createElement('div');
     d.textContent = s == null ? '' : String(s);
     return d.innerHTML;
+  }
+
+  function label(key, fallback) {
+    return labels[key] || fallback;
   }
 
   function eventKey(ev) {
@@ -35,26 +42,26 @@
       }
       window.location.href =
         typeof window.ghReadUrl === 'function'
-          ? window.ghReadUrl(ref, '/dp-challenge/')
-          : '/doc/draft/' + encodeURIComponent(ref) + '/read/?return_to=' + encodeURIComponent('/dp-challenge/');
+          ? window.ghReadUrl(ref, returnTo)
+          : '/doc/draft/' + encodeURIComponent(ref) + '/read/?return_to=' + encodeURIComponent(returnTo);
     });
   }
 
   function toastMessage(ev) {
     var who = esc(ev.author_name || 'Someone');
-    var doc = esc(ev.doc_title || 'a DP draft');
+    var doc = esc(ev.doc_title || 'a document');
     var href = ev.doc_href ? esc(ev.doc_href) : '';
     var docLink = href
       ? '<a href="' + href + '">' + doc + '</a>'
       : doc;
     if (ev.type === 'accepted') {
       return (
-        '<div class="dp-challenge-toast-type is-accepted">Amendment accepted</div>' +
+        '<div class="dp-challenge-toast-type is-accepted">' + esc(label('toast_accepted', 'Amendment accepted')) + '</div>' +
         '<div>An edit by ' + who + ' on ' + docLink + ' was accepted.</div>'
       );
     }
     return (
-      '<div class="dp-challenge-toast-type">New proposal</div>' +
+      '<div class="dp-challenge-toast-type">' + esc(label('toast_new', 'New proposal')) + '</div>' +
       '<div><strong>' + who + '</strong> proposed an edit on ' + docLink + '.</div>'
     );
   }
@@ -117,7 +124,7 @@
   function pollRecent() {
     if (document.hidden) return;
     var since = lastPollAt;
-    var url = '/api/dp-challenge/recent?since=' + encodeURIComponent(since);
+    var url = recentApiPath + '?since=' + encodeURIComponent(since);
     fetch(url, { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -129,8 +136,7 @@
   }
 
   function startPolling() {
-    var bootUrl = '/api/dp-challenge/recent';
-    fetch(bootUrl, { credentials: 'same-origin' })
+    fetch(recentApiPath, { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.enabled) return;

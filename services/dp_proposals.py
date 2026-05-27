@@ -241,9 +241,31 @@ def resolve_submission_for_proposals(draft_ref: str) -> Tuple[Optional[Submissio
         return None, 'Document not found'
     if (submission.status or '').lower() != 'approved':
         return None, 'Proposals are only allowed on approved documents'
-    if not is_dp_submission(submission):
-        return None, 'DP Proposals are only supported for Desirable Property documents'
     return submission, None
+
+
+def expected_proposal_scope(submission: Submission) -> str:
+    from services.proposal_modes import proposal_mode_for_submission
+
+    return get_proposal_mode(proposal_mode_for_submission(submission))['scope']
+
+
+def validate_proposal_scope_for_submission(
+    submission: Submission,
+    scope: str,
+) -> Optional[str]:
+    expected = expected_proposal_scope(submission)
+    if scope != expected:
+        if expected == 'dp':
+            return 'This document requires scope=dp (DP Proposal)'
+        return 'This document requires scope=document (Suggested edit)'
+    return None
+
+
+def get_proposal_mode(mode: str):
+    from services.proposal_modes import get_proposal_mode as _get
+
+    return _get(mode)
 
 
 def validate_create_payload(data: Any) -> Tuple[Optional[dict], Optional[str]]:
@@ -456,13 +478,18 @@ def user_display_label(user: Optional[User]) -> str:
     return (user.displayName or user.username or 'Participant').strip()
 
 
-def list_approved_dp_submissions() -> List[Submission]:
-    """Approved DP drafts, one row per ML number (canonical read target)."""
+def list_approved_submissions_for_mode(mode: str = 'dp') -> List[Submission]:
+    """Approved drafts for a proposal hub mode, one row per ML number when present."""
+    want_dp = mode == 'dp'
     subs = Submission.query.filter_by(status='approved', doc_type='draft').all()
     seen_ml: set = set()
     out: List[Submission] = []
+    filtered = [
+        s for s in subs
+        if (is_dp_submission(s) if want_dp else not is_dp_submission(s))
+    ]
     for sub in sorted(
-        [s for s in subs if is_dp_submission(s)],
+        filtered,
         key=lambda s: ((s.ml_number or ''), (s.title or '')),
     ):
         ml = (sub.ml_number or '').strip()
@@ -477,16 +504,33 @@ def list_approved_dp_submissions() -> List[Submission]:
     return out
 
 
-def dashboard_dp_challenge_stats() -> Dict[str, Any]:
+def list_approved_dp_submissions() -> List[Submission]:
+    """Approved DP drafts, one row per ML number (canonical read target)."""
+    return list_approved_submissions_for_mode('dp')
+
+
+def _proposal_scope_for_mode(mode: str) -> str:
+    return get_proposal_mode(mode)['scope']
+
+
+def dashboard_dp_challenge_stats(mode: str = 'dp') -> Dict[str, Any]:
     from sqlalchemy import func
 
-    total = db.session.query(func.count(DpProposal.id)).scalar() or 0
-    contributors = (
-        db.session.query(func.count(func.distinct(DpProposal.author_user_id)))
-        .filter(DpProposal.author_user_id.isnot(None))
+    scope = _proposal_scope_for_mode(mode)
+    total = (
+        db.session.query(func.count(DpProposal.id))
+        .filter(DpProposal.scope == scope)
         .scalar()
     ) or 0
-    docs = len(dashboard_dp_activity(limit=500))
+    contributors = (
+        db.session.query(func.count(func.distinct(DpProposal.author_user_id)))
+        .filter(
+            DpProposal.author_user_id.isnot(None),
+            DpProposal.scope == scope,
+        )
+        .scalar()
+    ) or 0
+    docs = len(dashboard_dp_activity(limit=500, mode=mode))
     return {
         'total_proposals': int(total),
         'contributors': int(contributors),
@@ -494,10 +538,12 @@ def dashboard_dp_challenge_stats() -> Dict[str, Any]:
     }
 
 
-def dashboard_dp_activity(limit: int = 100) -> List[dict]:
+def dashboard_dp_activity(limit: int = 100, mode: str = 'dp') -> List[dict]:
     """Rows for dashboards by document (ML number), not duplicate submission rows."""
     from sqlalchemy import case, func
 
+    scope = _proposal_scope_for_mode(mode)
+    want_dp = mode == 'dp'
     activity_expr = func.max(DpProposal.created_at)
     rows = (
         db.session.query(
@@ -510,6 +556,7 @@ def dashboard_dp_activity(limit: int = 100) -> List[dict]:
             func.sum(case((DpProposal.status == 'orphaned', 1), else_=0)).label('orphaned'),
             activity_expr.label('last_activity'),
         )
+        .filter(DpProposal.scope == scope)
         .group_by(DpProposal.submission_id)
         .order_by(activity_expr.desc())
         .all()
@@ -517,7 +564,9 @@ def dashboard_dp_activity(limit: int = 100) -> List[dict]:
     merged: Dict[str, Dict[str, Any]] = {}
     for row in rows:
         submission = Submission.query.get(row.submission_id)
-        if not submission or not is_dp_submission(submission):
+        if not submission:
+            continue
+        if is_dp_submission(submission) != want_dp:
             continue
         canonical = resolve_canonical_submission(submission)
         if not canonical:
@@ -580,10 +629,11 @@ def _short_dp_title(title: str) -> str:
     return t
 
 
-def dashboard_dp_by_participant(limit: int = 100) -> List[dict]:
-    """Contributor activity for DP Challenge (most proposals first)."""
+def dashboard_dp_by_participant(limit: int = 100, mode: str = 'dp') -> List[dict]:
+    """Contributor activity for proposal hubs (most proposals first)."""
     from sqlalchemy import case, func
 
+    scope = _proposal_scope_for_mode(mode)
     activity_expr = func.max(DpProposal.created_at)
     rows = (
         db.session.query(
@@ -594,7 +644,10 @@ def dashboard_dp_by_participant(limit: int = 100) -> List[dict]:
             func.sum(case((DpProposal.status == 'pending', 1), else_=0)).label('pending'),
             activity_expr.label('last_activity'),
         )
-        .filter(DpProposal.author_user_id.isnot(None))
+        .filter(
+            DpProposal.author_user_id.isnot(None),
+            DpProposal.scope == scope,
+        )
         .group_by(DpProposal.author_user_id)
         .order_by(activity_expr.desc())
         .limit(limit)
@@ -637,13 +690,18 @@ def challenge_recent_events(
     since: Optional[datetime] = None,
     *,
     limit: int = 20,
+    mode: str = 'dp',
 ) -> List[dict]:
     """Recent proposal created + accepted events for live toasts."""
     if since is None:
         since = datetime.utcnow() - timedelta(hours=24)
 
+    scope = _proposal_scope_for_mode(mode)
     created_rows = (
-        DpProposal.query.filter(DpProposal.created_at > since)
+        DpProposal.query.filter(
+            DpProposal.created_at > since,
+            DpProposal.scope == scope,
+        )
         .order_by(DpProposal.created_at.desc())
         .limit(limit)
         .all()
@@ -653,6 +711,7 @@ def challenge_recent_events(
             DpProposal.status == 'accepted',
             DpProposal.reviewed_at.isnot(None),
             DpProposal.reviewed_at > since,
+            DpProposal.scope == scope,
         )
         .order_by(DpProposal.reviewed_at.desc())
         .limit(limit)

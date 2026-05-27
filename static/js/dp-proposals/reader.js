@@ -17,6 +17,11 @@
   }
   if (!meta.proposals_enabled || !meta.selectable) return;
 
+  var labels = meta.labels || {};
+  function label(key, fallback) {
+    return labels[key] || fallback;
+  }
+
   var draftRef = root.getAttribute('data-draft-ref') || meta.draft_ref;
   var bodyEl = document.getElementById('dp-reader-selectable-body');
   if (!bodyEl || !window.DpSentenceTools) return;
@@ -223,7 +228,7 @@
   }
 
   function proposalLinkTitle(p, index) {
-    return 'DP Proposal ' + (index + 1);
+    return label('link_prefix', 'Proposal') + ' ' + (index + 1);
   }
 
   function proposalCharDeltaHtml(original, proposed) {
@@ -253,7 +258,7 @@
     });
     html += '</ul>';
     html += '<button type="button" class="btn btn-primary btn-sm w-100 mt-2 dp-proposal-create-btn">' +
-      '<i class="fas fa-plus me-1"></i>Suggest a DP Proposal</button>';
+      '<i class="fas fa-plus me-1"></i>' + esc(label('create_hover', 'Suggest a change')) + '</button>';
     panel.innerHTML = html;
     panel.querySelectorAll('.dp-proposal-hover-link').forEach(function (link) {
       link.addEventListener('click', function (e) {
@@ -682,6 +687,7 @@
     var payload = {
       original_text: trimmed.original,
       proposed_text: trimmed.proposed,
+      scope: meta.scope || meta.mode || 'dp',
       context_anchor: {
         textQuote: tools.buildTextQuoteSelector(
           bodyEl.textContent || pendingSelection.blockText || '',
@@ -905,8 +911,8 @@
       return html;
     }
     body.innerHTML =
-      renderSection('DP Proposals', sections.pending) +
-      renderSection('Amendments', sections.accepted) +
+      renderSection(label('pending_plural', 'Proposals'), sections.pending) +
+      renderSection(label('accepted_plural', 'Amendments'), sections.accepted) +
       renderSection('Declined', sections.declined) +
       renderSection('Other', sections.other);
     body.querySelectorAll('.dp-proposal-accept').forEach(function (btn) {
