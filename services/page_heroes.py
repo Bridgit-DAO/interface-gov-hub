@@ -133,7 +133,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'votes': {
         'aria': 'Votes and elections',
-        'target_image': '/static/images/hero-votes.png?v=1',
+        'target_image': '/static/images/hero-votes.png?v=2',
         'messages': [
             {
                 'title': 'Decisions deserve witnesses',
