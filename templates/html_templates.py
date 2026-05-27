@@ -46,54 +46,64 @@ BASE_TEMPLATE = """
     <style>
         :root {{
             /* Light theme (default) */
-            --bg-color: #ffffff;
-            --bg-secondary: #f7f9fa;
-            --bg-tertiary: #e1e8ed;
-            --text-primary: #14171a;
-            --text-secondary: #657786;
-            --text-muted: #aab8c2;
-            --border-color: #e1e8ed;
-            --border-hover: #ccd6dd;
-            --accent-color: #1d9bf0;
-            --accent-hover: #1a8cd8;
-            --success-color: #00ba7c;
-            --warning-color: #f7b529;
-            --error-color: #f4212e;
-            --navbar-bg: #ffffff;
-            --navbar-text: #14171a;
-            --navbar-border: #e1e8ed;
-            --card-bg: #ffffff;
-            --card-border: #e1e8ed;
+            --bg-color: #f4f7fc;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #e8eef8;
+            --text-primary: #0a1628;
+            --text-secondary: #4a5d7a;
+            --text-muted: #7a8ba8;
+            --border-color: rgba(77, 159, 255, 0.18);
+            --border-hover: rgba(77, 159, 255, 0.32);
+            --accent-color: #2563eb;
+            --accent-hover: #1d4ed8;
+            --success-color: #059669;
+            --warning-color: #d97706;
+            --error-color: #dc2626;
+            --navbar-bg: rgba(244, 247, 252, 0.92);
+            --navbar-text: #0a1628;
+            --navbar-border: rgba(77, 159, 255, 0.14);
+            --card-bg: rgba(255, 255, 255, 0.92);
+            --card-border: rgba(102, 126, 234, 0.18);
             --input-bg: #ffffff;
-            --input-border: #657786;
-            --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.15);
+            --input-border: rgba(77, 159, 255, 0.25);
+            --shadow: 0 4px 20px rgba(10, 22, 40, 0.08);
+            --shadow-hover: 0 8px 28px rgba(77, 159, 255, 0.12);
+            --gh-brand-gov: #0a1628;
+            --gh-brand-hub-start: #2563eb;
+            --gh-brand-hub-end: #764ba2;
+            --gh-brand-gradient: linear-gradient(135deg, #2563eb 0%, #667eea 48%, #764ba2 100%);
+            --gh-glass-blur: blur(12px);
         }}
 
         [data-theme="dark"] {{
-            /* Dark theme */
-            --bg-color: #000000;
-            --bg-secondary: #16181c;
-            --bg-tertiary: #1d1f23;
-            --text-primary: #ffffff;
-            --text-secondary: #8b98a5;
-            --text-muted: #6c7b8a;
-            --border-color: #2f3336;
-            --border-hover: #3d4043;
-            --accent-color: #1d9bf0;
-            --accent-hover: #1a8cd8;
-            --success-color: #00ba7c;
-            --warning-color: #f7b529;
-            --error-color: #f4212e;
-            --navbar-bg: #16181c;
-            --navbar-text: #ffffff;
-            --navbar-border: #2f3336;
-            --card-bg: #16181c;
-            --card-border: #2f3336;
-            --input-bg: #16181c;
-            --input-border: #3d4043;
-            --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-            --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.4);
+            /* Gov Hub brand — deep navy civic-tech palette */
+            --bg-color: #050b1a;
+            --bg-secondary: #0a1224;
+            --bg-tertiary: #101a30;
+            --text-primary: #eef2ff;
+            --text-secondary: #94a3c4;
+            --text-muted: #6b7a99;
+            --border-color: rgba(77, 159, 255, 0.14);
+            --border-hover: rgba(77, 159, 255, 0.28);
+            --accent-color: #4d9fff;
+            --accent-hover: #6eb3ff;
+            --success-color: #34d399;
+            --warning-color: #fbbf24;
+            --error-color: #f87171;
+            --navbar-bg: rgba(5, 11, 26, 0.88);
+            --navbar-text: #eef2ff;
+            --navbar-border: rgba(77, 159, 255, 0.12);
+            --card-bg: rgba(10, 18, 36, 0.78);
+            --card-border: rgba(102, 126, 234, 0.22);
+            --input-bg: rgba(10, 18, 36, 0.92);
+            --input-border: rgba(77, 159, 255, 0.22);
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+            --shadow-hover: 0 8px 32px rgba(77, 159, 255, 0.12);
+            --gh-brand-gov: #ffffff;
+            --gh-brand-hub-start: #4d9fff;
+            --gh-brand-hub-end: #764ba2;
+            --gh-brand-gradient: linear-gradient(135deg, #4d9fff 0%, #667eea 48%, #764ba2 100%);
+            --gh-glass-blur: blur(14px);
         }}
 
         * {{
@@ -110,12 +120,26 @@ BASE_TEMPLATE = """
             transition: background-color 0.2s ease, color 0.2s ease;
         }}
 
+        [data-theme="dark"] body {{
+            background:
+                radial-gradient(ellipse 120% 70% at 50% -10%, rgba(77, 159, 255, 0.1), transparent 55%),
+                radial-gradient(ellipse 70% 50% at 100% 20%, rgba(118, 75, 162, 0.08), transparent 50%),
+                radial-gradient(ellipse 60% 40% at 0% 80%, rgba(45, 212, 191, 0.05), transparent 45%),
+                var(--bg-color);
+        }}
+
+        [data-theme="light"] body {{
+            background:
+                radial-gradient(ellipse 100% 60% at 50% -5%, rgba(77, 159, 255, 0.06), transparent 50%),
+                var(--bg-color);
+        }}
+
         /* Modern navbar similar to X — min-height only; fixed height caused overlap with main content on small screens */
         .navbar {{
             background-color: var(--navbar-bg) !important;
             border-bottom: 1px solid var(--navbar-border);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: var(--gh-glass-blur);
+            -webkit-backdrop-filter: var(--gh-glass-blur);
             box-shadow: var(--shadow);
             padding: 0;
             min-height: 52px;
@@ -152,6 +176,22 @@ BASE_TEMPLATE = """
 
         .navbar-brand:hover {{
             color: var(--accent-color) !important;
+        }}
+
+        .gh-brand-word {{
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }}
+
+        .gh-brand-gov {{
+            color: var(--gh-brand-gov, var(--navbar-text));
+        }}
+
+        .gh-brand-hub {{
+            background: var(--gh-brand-gradient, linear-gradient(135deg, #4d9fff, #764ba2));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
         }}
 
         .navbar-brand img {{
@@ -259,6 +299,8 @@ BASE_TEMPLATE = """
             border-radius: 16px;
             box-shadow: var(--shadow);
             transition: all 0.2s ease;
+            backdrop-filter: var(--gh-glass-blur);
+            -webkit-backdrop-filter: var(--gh-glass-blur);
         }}
 
         .card:hover {{
@@ -288,14 +330,16 @@ BASE_TEMPLATE = """
         }}
 
         .btn-primary {{
-            background-color: var(--accent-color);
-            border-color: var(--accent-color);
+            background: var(--gh-brand-gradient, var(--accent-color));
+            border: 1px solid rgba(77, 159, 255, 0.35);
             color: white;
+            box-shadow: 0 4px 16px rgba(77, 159, 255, 0.2);
         }}
 
         .btn-primary:hover {{
-            background-color: var(--accent-hover);
-            border-color: var(--accent-hover);
+            background: var(--gh-brand-gradient, var(--accent-hover));
+            border-color: rgba(77, 159, 255, 0.5);
+            filter: brightness(1.06);
             transform: translateY(-1px);
         }}
 
@@ -752,7 +796,7 @@ BASE_TEMPLATE = """
             }}
         }}
     </style>
-    <link href="/static/css/govhub-design.css" rel="stylesheet">
+    <link href="/static/css/govhub-design.css?v=20260527brand" rel="stylesheet">
     <script src="/static/js/gh-directory.js"></script>
 </head>
 <body data-build-number="{build_number}" {body_attrs}>
@@ -770,7 +814,7 @@ BASE_TEMPLATE = """
         <div class="container">
             <a class="navbar-brand" href="/">
                 <img class="navbar-brand-logo-invert" src="/static/images/overweb_logo.png" alt="Overweb" />
-                MLGH
+                <span class="gh-brand-word"><span class="gh-brand-gov">Gov</span> <span class="gh-brand-hub">Hub</span></span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" data-gh-i18n-aria="nav.toggleMenu">
                 <span class="navbar-toggler-icon"></span>
@@ -1180,7 +1224,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
         <div class="container">
             <a class="navbar-brand" href="/">
                 <img class="navbar-brand-logo-invert" src="/static/images/overweb_logo.png" alt="Overweb" />
-                MLGH
+                <span class="gh-brand-word"><span class="gh-brand-gov">Gov</span> <span class="gh-brand-hub">Hub</span></span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" data-gh-i18n-aria="nav.toggleMenu">
                 <span class="navbar-toggler-icon"></span>

@@ -1,4 +1,4 @@
-/* DP Challenge public hub */
+/* DP Challenge public hub — uses Gov Hub brand tokens */
 
 .dp-challenge-cta-bar {
   display: flex;
@@ -42,7 +42,7 @@
 }
 
 .dp-challenge-doc-link:hover {
-  color: #8ea2ff;
+  color: var(--gh-link-hover, #6eb3ff);
 }
 
 .dp-challenge-doc-table .dp-challenge-col-ml {
@@ -76,9 +76,9 @@
 .dp-challenge-hero-banner {
   border-radius: 0.75rem;
   overflow: hidden;
-  border: 1px solid rgba(102, 126, 234, 0.28);
-  background: var(--bg-tertiary, #16181c);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--gh-glass-border, rgba(102, 126, 234, 0.28));
+  background: var(--bg-tertiary);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
 }
 
 .dp-challenge-hero-img {
@@ -101,9 +101,11 @@
 .dp-challenge-stat-card {
   text-align: center;
   padding: 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border-color, #333);
-  background: var(--bg-secondary, #141414);
+  border-radius: var(--gh-radius-md, 0.5rem);
+  border: 1px solid var(--gh-glass-border, var(--border-color));
+  background: var(--card-bg);
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
 }
 
 .dp-challenge-stat-value {
@@ -125,6 +127,11 @@
   font-weight: 600;
 }
 
+.dp-challenge-tabs .nav-link.active {
+  color: var(--gh-accent-blue, var(--accent-color)) !important;
+  border-bottom-color: var(--gh-accent-blue, var(--accent-color));
+}
+
 .dp-challenge-toast-host {
   position: fixed;
   bottom: 1rem;
@@ -141,14 +148,16 @@
   pointer-events: auto;
   padding: 0.65rem 0.85rem;
   border-radius: 0.5rem;
-  border: 1px solid rgba(102, 126, 234, 0.4);
-  background: var(--bg-secondary, #1a1a1a);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--gh-glass-border, rgba(102, 126, 234, 0.4));
+  background: var(--card-bg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   font-size: 0.85rem;
   line-height: 1.45;
   opacity: 0;
   transform: translateY(8px);
   transition: opacity 0.25s ease, transform 0.25s ease;
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
 }
 
 .dp-challenge-toast.is-visible {
@@ -162,7 +171,7 @@
 }
 
 .dp-challenge-toast a {
-  color: #8ea2ff;
+  color: var(--gh-link-hover, #6eb3ff);
   font-weight: 600;
 }
 
@@ -174,5 +183,5 @@
 }
 
 .dp-challenge-toast-type.is-accepted {
-  color: #4ade80;
+  color: var(--gh-accent-green, #34d399);
 }

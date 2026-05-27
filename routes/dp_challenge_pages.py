@@ -227,7 +227,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
         hero_section = f'<div class="mb-4">{login_cta}</div>'
 
     content = f'''
-    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=3">
+    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=4">
     <div class="gh-page container mt-4 dp-challenge-page">
         {gh_page_header(
             mode_cfg['page_title'],
