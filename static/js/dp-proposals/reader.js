@@ -22,6 +22,11 @@
     return labels[key] || fallback;
   }
 
+  function countPhrase(n) {
+    var word = label('count_word', 'proposal');
+    return String(n) + ' ' + word + (n === 1 ? '' : 's');
+  }
+
   var draftRef = root.getAttribute('data-draft-ref') || meta.draft_ref;
   var bodyEl = document.getElementById('dp-reader-selectable-body');
   if (!bodyEl || !window.DpSentenceTools) return;
@@ -474,7 +479,7 @@
     }
     var hoverTargets = [badge, panel, pin];
     entry.boxes.forEach(function (box) {
-      box.setAttribute('title', group.length + ' proposal(s) — hover to preview');
+      box.setAttribute('title', countPhrase(group.length) + ' — hover to preview');
       hoverTargets.push(box);
     });
     hoverTargets.forEach(function (el) {
@@ -510,8 +515,8 @@
       badge.className = 'dp-proposal-badge';
       badge.dataset.dpAnchorHash = hash;
       badge.textContent = String(group.length);
-      badge.title = group.length + ' proposal(s) — hover to preview';
-      badge.setAttribute('aria-label', group.length + ' proposals on this passage');
+      badge.title = countPhrase(group.length) + ' — hover to preview';
+      badge.setAttribute('aria-label', countPhrase(group.length) + ' on this passage');
       var panel = document.createElement('div');
       panel.className = 'dp-proposal-hover-panel';
       panel.setAttribute('role', 'dialog');
@@ -530,7 +535,7 @@
     floatingBadge.className = 'dp-proposal-badge dp-proposal-badge-floating';
     floatingBadge.dataset.dpAnchorHash = hash;
     floatingBadge.textContent = String(group.length);
-    floatingBadge.title = group.length + ' proposal(s) — location not found in document';
+    floatingBadge.title = countPhrase(group.length) + ' — ' + label('location_not_found', 'location not found in document');
     floatingBadge.addEventListener('click', function () { openListModal(hash); });
     document.body.appendChild(floatingBadge);
     entry.floatingBadge = floatingBadge;
@@ -548,7 +553,7 @@
     var suffix = ' (' + n + ')';
     var modes = [
       { value: 'hidden', label: 'Hide all' + suffix },
-      { value: 'attention', label: 'Near proposal' + suffix },
+      { value: 'attention', label: label('display_near', 'Near proposal') + suffix },
       { value: 'showAll', label: 'Show all' + suffix },
     ];
     sel.innerHTML = modes.map(function (m) {
@@ -564,9 +569,9 @@
     wrap.id = 'dpProposalToolbarControls';
     wrap.className = 'draft-reader-proposals-controls ms-auto';
     wrap.innerHTML =
-      '<span class="dp-proposal-toolbar-label">DP Props</span>' +
-      '<label class="visually-hidden" for="dpProposalDisplayMode">DP Props display</label>' +
-      '<select id="dpProposalDisplayMode" class="form-select form-select-sm" title="DP Props visibility">' +
+      '<span class="dp-proposal-toolbar-label">' + esc(label('toolbar_label', 'DP Props')) + '</span>' +
+      '<label class="visually-hidden" for="dpProposalDisplayMode">' + esc(label('toolbar_select_aria', 'DP Props display')) + '</label>' +
+      '<select id="dpProposalDisplayMode" class="form-select form-select-sm" title="' + esc(label('toolbar_visibility_title', 'DP Props visibility')) + '">' +
       '</select>';
     inner.appendChild(wrap);
     var sel = document.getElementById('dpProposalDisplayMode');
