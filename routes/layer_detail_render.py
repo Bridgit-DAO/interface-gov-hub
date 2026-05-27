@@ -128,7 +128,7 @@ def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='
         context_id=layer.slug if layer else '',
     )
     nav_html = (
-        f'<ul class="nav layer-feature-pills gh-nav-pills flex-wrap{container_attrs}" id="projectTabs" role="tablist">'
+        f'<ul class="nav layer-feature-pills gh-nav-pills flex-wrap"{container_attrs} id="projectTabs" role="tablist">'
         + '\n'.join(nav_items)
         + '</ul>'
     )

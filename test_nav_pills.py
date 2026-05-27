@@ -51,3 +51,17 @@ def test_nav_pills_container_attrs():
     assert 'hover-grow' in attrs
 
     assert nav_pills_container_attrs({'enabled': False}) == ''
+
+
+def test_nav_pills_container_attrs_outside_class():
+    """Regression: attrs must not be interpolated inside class=\"...\"."""
+    from services.nav_pills import nav_pills_container_attrs
+
+    attrs = nav_pills_container_attrs({
+        'enabled': True,
+        'animation': 'hover-grow',
+        'tooltips_enabled': True,
+    })
+    markup = f'<ul class="nav gh-nav-pills flex-wrap"{attrs} id="projectTabs">'
+    assert 'class="nav gh-nav-pills flex-wrap" data-gh-nav-pills' in markup
+    assert 'flex-wrap data-gh-nav-pills' not in markup
