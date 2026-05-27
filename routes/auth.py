@@ -148,31 +148,49 @@ def web3auth_login():
             )
             db.session.commit()
         else:
+            email_owner = None
             if email:
-                email_owner = User.query.filter_by(email=email).first()
-                if email_owner:
+                normalized = email.strip().lower()
+                email_owner = User.query.filter(
+                    db.func.lower(User.email) == normalized
+                ).first()
+            if email_owner:
+                existing_verifier = (email_owner.web3authVerifierId or '').strip()
+                if existing_verifier and existing_verifier != verifier_id:
                     return jsonify({
                         'error': (
                             'This email is already linked to another account. '
                             'Sign in with the method you used originally or contact support.'
                         ),
                     }), 409
+                user = email_owner
+                user.web3authVerifierId = verifier_id
+                _update_user_from_web3auth(
+                    user,
+                    type_of_login=type_of_login,
+                    email=email,
+                    name=name,
+                    profile_image=profile_image,
+                    evm_address=evm_address,
+                    solana_address=solana_address,
+                )
+                db.session.commit()
+            else:
+                user = _create_user_from_web3auth(
+                    verifier_id=verifier_id,
+                    type_of_login=type_of_login,
+                    email=email,
+                    name=name,
+                    profile_image=profile_image,
+                    evm_address=evm_address,
+                    solana_address=solana_address,
+                )
+                db.session.add(user)
+                db.session.flush()
+                from services.document_follow_notifications import ensure_notification_unsubscribe_token
 
-            user = _create_user_from_web3auth(
-                verifier_id=verifier_id,
-                type_of_login=type_of_login,
-                email=email,
-                name=name,
-                profile_image=profile_image,
-                evm_address=evm_address,
-                solana_address=solana_address,
-            )
-            db.session.add(user)
-            db.session.flush()
-            from services.document_follow_notifications import ensure_notification_unsubscribe_token
-
-            ensure_notification_unsubscribe_token(user)
-            db.session.commit()
+                ensure_notification_unsubscribe_token(user)
+                db.session.commit()
 
         session['user'] = user.username
         session['theme'] = user.theme

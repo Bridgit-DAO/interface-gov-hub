@@ -64,16 +64,23 @@ def test_web3auth_login_rejects_email_collision(monkeypatch):
     from extensions import db
     from models import User
 
+    collision_email = 'collision-test@example.com'
     with app.app_context():
-        existing = User.query.filter(User.email.isnot(None)).first()
-        if not existing:
-            pytest.skip('Need a user with email in DB')
-        email = existing.email
-        other_verifier = 'brand-new-verifier-id-for-test'
+        User.query.filter_by(email=collision_email).delete()
+        user = User(
+            username='collisiontest',
+            handle='collisiontest',
+            email=collision_email,
+            role='user',
+            web3authVerifierId='existing-linked-verifier-for-collision-test',
+        )
+        db.session.add(user)
+        db.session.commit()
 
+    other_verifier = 'brand-new-verifier-id-for-test'
     fake_claims = {
         'userId': other_verifier,
-        'email': email,
+        'email': collision_email,
         'name': 'Attacker',
         'groupedAuthConnectionId': 'web3auth-google-sapphire-devnet',
     }
@@ -89,6 +96,60 @@ def test_web3auth_login_rejects_email_collision(monkeypatch):
     assert response.status_code == 409
     with app.app_context():
         assert User.query.filter_by(web3authVerifierId=other_verifier).first() is None
+        existing = User.query.filter_by(email=collision_email).first()
+        assert existing.web3authVerifierId == 'existing-linked-verifier-for-collision-test'
+        db.session.delete(existing)
+        db.session.commit()
+
+
+def test_web3auth_login_links_orphan_email_account(monkeypatch):
+    from app import app
+    from extensions import db
+    from models import User
+
+    orphan_email = 'orphan-link-test@example.com'
+    new_verifier = 'new-google-verifier-for-orphan-test'
+    with app.app_context():
+        user = User.query.filter_by(email=orphan_email).first()
+        if user:
+            db.session.delete(user)
+            db.session.commit()
+        user = User(
+            username='orphanlinktest',
+            handle='orphanlinktest',
+            email=orphan_email,
+            role='user',
+            web3authVerifierId=None,
+        )
+        db.session.add(user)
+        db.session.commit()
+
+    fake_claims = {
+        'userId': new_verifier,
+        'email': orphan_email,
+        'name': 'Orphan User',
+        'groupedAuthConnectionId': 'web3auth-google-sapphire-devnet',
+    }
+
+    client = app.test_client()
+    with patch('services.web3auth_verify.verify_web3auth_id_token', return_value=fake_claims):
+        response = client.post(
+            '/api/auth/web3auth',
+            json={'idToken': 'fake.jwt.token'},
+            content_type='application/json',
+        )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['success'] is True
+    assert payload['user']['email'] == orphan_email
+    with app.app_context():
+        linked = User.query.filter_by(email=orphan_email).first()
+        assert linked is not None
+        assert linked.web3authVerifierId == new_verifier
+        assert linked.typeOfLogin == 'google'
+        db.session.delete(linked)
+        db.session.commit()
 
 
 def test_production_uses_devnet_by_default(monkeypatch):
