@@ -796,7 +796,7 @@ BASE_TEMPLATE = """
             }}
         }}
     </style>
-    <link href="/static/css/govhub-design.css?v=20260527people" rel="stylesheet">
+    <link href="/static/css/govhub-design.css?v=20260527home" rel="stylesheet">
     <link href="/static/css/gh-nav-pills.css?v=1" rel="stylesheet">
     <script src="/static/js/gh-nav-pills.js?v=1" defer></script>
     <script src="/static/js/gh-directory.js"></script>

@@ -86,6 +86,8 @@ def home():
                     class="gh-home-hero-img"
                 />
             </div>
+        </div>
+        <div class="gh-home-hero-tagline-box">
             <p class="gh-home-hero-tagline">{hero_subtitle}</p>
         </div>
         <div class="row g-4">

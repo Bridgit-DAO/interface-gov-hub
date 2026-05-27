@@ -1172,6 +1172,7 @@
   background: transparent;
   border: none;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+  margin-bottom: var(--gh-space-md);
 }
 
 .gh-home-hero-banner {
@@ -1187,10 +1188,20 @@
   height: auto;
 }
 
+.gh-home-hero-tagline-box {
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
+  background: var(--card-bg);
+  padding: var(--gh-space-md) var(--gh-space-lg);
+  margin-bottom: var(--gh-space-lg);
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
+  box-shadow: var(--shadow);
+}
+
 .gh-home-hero-tagline {
   color: var(--text-secondary);
-  margin: var(--gh-space-md) var(--gh-space-sm) 0;
-  max-width: 42rem;
+  margin: 0;
   font-size: 0.95rem;
   line-height: 1.55;
 }
