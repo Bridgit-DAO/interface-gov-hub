@@ -25,7 +25,7 @@ class PageHeroConfig(TypedDict, total=False):
 PAGE_HEROES: Dict[str, PageHeroConfig] = {
     'submit_draft': {
         'aria': 'Submit a draft to your layer',
-        'target_image': '/static/images/hero-submit-draft.png?v=1',
+        'target_image': '/static/images/hero-submit-draft.png?v=2',
         'messages': [
             {
                 'title': 'Put your idea on the record',
