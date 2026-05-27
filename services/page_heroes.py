@@ -77,42 +77,6 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
             },
         ],
     },
-    'suggest_edit': {
-        'aria': 'Suggest an edit on a document',
-        'target_image': '/static/images/hero-suggest-edit.png',
-        'messages': [
-            {
-                'title': 'Change the text, change the outcome',
-                'text': 'One well-placed edit can sharpen a whole document — propose it sentence by sentence.',
-            },
-            {
-                'title': 'You do not need a draft to have a voice',
-                'text': 'Read, reflect, suggest. Small edits compound into better governance.',
-            },
-            {
-                'title': 'Good governance is edited, not declared',
-                'text': 'The best layers are written together. Add your line to the story.',
-            },
-        ],
-    },
-    'dp_challenge': {
-        'aria': 'DP Challenge — propose edits on DP drafts',
-        'target_image': '/static/images/dp-challenge-hero.png',
-        'messages': [
-            {
-                'title': 'Your line can become the standard',
-                'text': 'Select a sentence. Propose something clearer. Help the draft earn its name.',
-            },
-            {
-                'title': 'Precision is a form of leadership',
-                'text': 'DP proposals are small edits with large consequences — make yours count.',
-            },
-            {
-                'title': 'Stand in the conversation',
-                'text': 'Every accepted amendment is proof that this layer listens. Be heard.',
-            },
-        ],
-    },
     'docs_drafts': {
         'aria': 'Docs and drafts directory',
         'target_image': '/static/images/hero-docs-drafts.png',
