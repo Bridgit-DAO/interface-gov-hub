@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import html as html_mod
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
 # Select_3 placeholder until per-page art is wired (see target_image on each entry).
 HERO_PLACEHOLDER_IMAGE = '/static/images/hero-placeholder.png?v=1'
+_STATIC_IMAGES_DIR = Path(__file__).resolve().parents[1] / 'static' / 'images'
 
 
 class HeroMessage(TypedDict):
@@ -131,7 +133,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'roles': {
         'aria': 'Roles directory',
-        'target_image': '/static/images/hero-roles.png',
+        'target_image': '/static/images/hero-roles.png?v=1',
         'messages': [
             {
                 'title': 'Responsibility has a name',
@@ -149,7 +151,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'guilds': {
         'aria': 'Guilds directory',
-        'target_image': '/static/images/hero-guilds.png',
+        'target_image': '/static/images/hero-guilds.png?v=1',
         'messages': [
             {
                 'title': 'Cross the boundaries that slow you down',
@@ -230,17 +232,31 @@ def hero_variant_index(page_key: str, *, hour: Optional[int] = None) -> int:
     return h % len(cfg['messages'])
 
 
+def _resolve_hero_image(target: Optional[str]) -> str:
+    """Use target art when the file exists; otherwise fall back to the placeholder."""
+    if not target:
+        return HERO_PLACEHOLDER_IMAGE
+    path_part = target.split('?', 1)[0]
+    if not path_part.startswith('/static/images/'):
+        return HERO_PLACEHOLDER_IMAGE
+    filename = path_part.rsplit('/', 1)[-1]
+    if (_STATIC_IMAGES_DIR / filename).is_file():
+        return target if '?' in target else f'{path_part}?v=1'
+    return HERO_PLACEHOLDER_IMAGE
+
+
 def pick_page_hero(page_key: str, *, hour: Optional[int] = None) -> Dict[str, Any]:
     """Return {title, text, image, aria, variant_index} for the current UTC hour."""
     cfg = PAGE_HEROES.get(page_key) or {}
     messages = cfg.get('messages') or [{'title': '', 'text': ''}]
     idx = hero_variant_index(page_key, hour=hour)
     msg = messages[idx]
+    target = cfg.get('target_image') or HERO_PLACEHOLDER_IMAGE
     return {
         'title': msg.get('title', ''),
         'text': msg.get('text', ''),
-        'image': HERO_PLACEHOLDER_IMAGE,
-        'target_image': cfg.get('target_image') or HERO_PLACEHOLDER_IMAGE,
+        'image': _resolve_hero_image(target),
+        'target_image': target,
         'aria': cfg.get('aria') or page_key.replace('_', ' '),
         'variant_index': idx,
     }

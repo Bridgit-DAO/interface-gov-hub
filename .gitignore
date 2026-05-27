@@ -63,6 +63,8 @@ datatracker.sublime-workspace
 !/static/images/
 !/static/images/dp-challenge-hero.png
 !/static/images/hero-placeholder.png
+!/static/images/hero-guilds.png
+!/static/images/hero-roles.png
 /tmp-*
 /.testresult
 *.swp

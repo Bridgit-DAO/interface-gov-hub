@@ -23,6 +23,15 @@ def test_pick_page_hero_uses_placeholder_image():
     assert hero['text']
 
 
+def test_pick_page_hero_uses_custom_art_when_present():
+    from services.page_heroes import pick_page_hero
+
+    hero = pick_page_hero('guilds', hour=0)
+    assert 'hero-guilds.png' in hero['image']
+    hero = pick_page_hero('roles', hour=0)
+    assert 'hero-roles.png' in hero['image']
+
+
 def test_all_page_heroes_have_three_messages():
     from services.page_heroes import PAGE_HEROES
 
