@@ -282,6 +282,7 @@ def all_documents():
     from flask import url_for
     from services.rendering import _format_base_template, generate_user_menu
     from config import BUILD_NUMBER
+    from services.page_heroes import render_page_hero_html
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
@@ -304,9 +305,10 @@ def all_documents():
 
     content = f"""
     <div class="gh-page container doc-all-page mt-4">
+        {render_page_hero_html('docs_drafts')}
         {gh_page_header(
-            'Documents',
-            f'{total_docs} documents',
+            'Docs & Drafts',
+            f'{total_docs} documents in the directory',
             'fa-file-alt',
             actions_html=doc_view_actions,
         )}

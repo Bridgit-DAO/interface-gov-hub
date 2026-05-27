@@ -40,8 +40,11 @@ def roles_directory():
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
 
+    from services.page_heroes import render_page_hero_html
+
     content = f"""
     {gh_page_open()}
+    {render_page_hero_html('roles')}
     {gh_page_header('Roles Directory', 'Browse and claim roles across all layers', 'fa-user-tag')}
     {gh_filter_row(
         gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadRoles()"><option value="">All Layers</option></select>', 'col-md-3')

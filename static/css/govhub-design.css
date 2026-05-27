@@ -1207,6 +1207,76 @@
   max-width: 36rem;
 }
 
+/* Page heroes — cycling copy over full-width art (Select_3 placeholder until per-page swap) */
+.gh-page-hero {
+  margin-bottom: var(--gh-space-lg);
+}
+
+.gh-page-hero-banner {
+  position: relative;
+  border-radius: var(--gh-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--gh-glass-border, rgba(102, 126, 234, 0.28));
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+  line-height: 0;
+  min-height: clamp(10rem, 28vw, 16rem);
+}
+
+.gh-page-hero-img {
+  display: block;
+  width: 100%;
+  height: clamp(10rem, 28vw, 16rem);
+  object-fit: cover;
+  object-position: right center;
+}
+
+.gh-page-hero-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: min(28rem, 72%);
+  padding: var(--gh-space-lg) var(--gh-space-xl);
+  background: linear-gradient(
+    105deg,
+    rgba(8, 14, 28, 0.92) 0%,
+    rgba(8, 14, 28, 0.78) 55%,
+    rgba(8, 14, 28, 0.15) 100%
+  );
+  pointer-events: none;
+}
+
+.gh-page-hero-title {
+  margin: 0 0 var(--gh-space-sm);
+  font-size: clamp(1.25rem, 2.8vw, 1.85rem);
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-primary, #f0f4ff);
+  text-wrap: balance;
+}
+
+.gh-page-hero-text {
+  margin: 0;
+  font-size: clamp(0.875rem, 1.6vw, 1rem);
+  line-height: 1.55;
+  color: var(--text-secondary, rgba(220, 230, 255, 0.88));
+  max-width: 26rem;
+  text-wrap: pretty;
+}
+
+@media (max-width: 575.98px) {
+  .gh-page-hero-overlay {
+    max-width: 100%;
+    padding: var(--gh-space-md);
+    background: linear-gradient(
+      180deg,
+      rgba(8, 14, 28, 0.88) 0%,
+      rgba(8, 14, 28, 0.55) 100%
+    );
+  }
+}
+
 .gh-home-hub {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

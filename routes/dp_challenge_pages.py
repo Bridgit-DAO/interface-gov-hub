@@ -206,25 +206,12 @@ def _render_proposal_hub_page(mode: ProposalMode):
             'Sign in to propose</a></p>'
         )
 
-    hero_section = ''
-    if mode_cfg.get('show_hero'):
-        hero_section = f'''
-        <section class="dp-challenge-hero living-module mb-4" aria-label="{html_mod.escape(mode_cfg["hero_aria"])}">
-            <div class="dp-challenge-hero-banner">
-                <img
-                    src="{html_mod.escape(mode_cfg["hero_image"])}"
-                    alt="{html_mod.escape(mode_cfg["hero_aria"])}"
-                    width="1024"
-                    height="576"
-                    loading="eager"
-                    decoding="async"
-                    class="dp-challenge-hero-img"
-                />
-            </div>
-            {login_cta}
-        </section>'''
-    elif login_cta:
-        hero_section = f'<div class="mb-4">{login_cta}</div>'
+    from services.page_heroes import render_page_hero_html
+
+    hero_key = 'suggest_edit' if mode == 'document' else 'dp_challenge'
+    hero_section = render_page_hero_html(hero_key)
+    if login_cta:
+        hero_section += f'<div class="mb-4">{login_cta}</div>'
 
     content = f'''
     <link rel="stylesheet" href="/static/css/dp-challenge.css?v=4">

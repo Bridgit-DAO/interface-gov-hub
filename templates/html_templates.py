@@ -796,7 +796,7 @@ BASE_TEMPLATE = """
             }}
         }}
     </style>
-    <link href="/static/css/govhub-design.css?v=20260527brand" rel="stylesheet">
+    <link href="/static/css/govhub-design.css?v=20260527heroes" rel="stylesheet">
     <link href="/static/css/gh-nav-pills.css?v=1" rel="stylesheet">
     <script src="/static/js/gh-nav-pills.js?v=1" defer></script>
     <script src="/static/js/gh-directory.js"></script>
@@ -1310,6 +1310,8 @@ SUBMIT_TEMPLATE = """
             <li class="breadcrumb-item active">Submit Draft</li>
         </ol>
     </nav>
+
+    {{PAGE_HERO}}
 
     <header class="gh-page-header">
         <div class="gh-page-header-main">
