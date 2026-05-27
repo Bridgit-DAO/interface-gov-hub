@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
-# Select_3 placeholder until per-page art is wired (see target_image on each entry).
+# Select_3 fallback when target_image file is missing (see target_image per page).
 HERO_PLACEHOLDER_IMAGE = '/static/images/hero-placeholder.png?v=1'
 _STATIC_IMAGES_DIR = Path(__file__).resolve().parents[1] / 'static' / 'images'
 
@@ -25,7 +25,7 @@ class PageHeroConfig(TypedDict, total=False):
 PAGE_HEROES: Dict[str, PageHeroConfig] = {
     'submit_draft': {
         'aria': 'Submit a draft to your layer',
-        'target_image': '/static/images/hero-submit-draft.png',
+        'target_image': '/static/images/hero-submit-draft.png?v=1',
         'messages': [
             {
                 'title': 'Put your idea on the record',
@@ -43,7 +43,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'workgroups': {
         'aria': 'Workgroups across Gov Hub layers',
-        'target_image': '/static/images/hero-workgroups.png',
+        'target_image': '/static/images/hero-workgroups.png?v=1',
         'messages': [
             {
                 'title': 'Find the people doing the work',
@@ -61,7 +61,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'layers': {
         'aria': 'Browse layers on Gov Hub',
-        'target_image': '/static/images/hero-layers.png',
+        'target_image': '/static/images/hero-layers.png?v=1',
         'messages': [
             {
                 'title': 'Governance, one layer at a time',
@@ -79,7 +79,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'docs_drafts': {
         'aria': 'Docs and drafts directory',
-        'target_image': '/static/images/hero-docs-drafts.png',
+        'target_image': '/static/images/hero-docs-drafts.png?v=1',
         'messages': [
             {
                 'title': 'Read what is being written',
@@ -133,7 +133,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'votes': {
         'aria': 'Votes and elections',
-        'target_image': '/static/images/hero-votes.png',
+        'target_image': '/static/images/hero-votes.png?v=1',
         'messages': [
             {
                 'title': 'Decisions deserve witnesses',
@@ -151,7 +151,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'artifacts': {
         'aria': 'Artifacts and knowledge objects',
-        'target_image': '/static/images/hero-artifacts.png',
+        'target_image': '/static/images/hero-artifacts.png?v=1',
         'messages': [
             {
                 'title': 'Ideas that outlive the meeting',
@@ -169,7 +169,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
     },
     'opportunities': {
         'aria': 'Ways to contribute now',
-        'target_image': '/static/images/hero-opportunities.png',
+        'target_image': '/static/images/hero-opportunities.png?v=1',
         'messages': [
             {
                 'title': 'Something here needs you',

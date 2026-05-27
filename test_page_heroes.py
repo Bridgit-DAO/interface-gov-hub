@@ -14,22 +14,27 @@ def test_hero_variant_index_cycles_three():
     assert hero_variant_index('workgroups', hour=3) == 0
 
 
-def test_pick_page_hero_uses_placeholder_image():
-    from services.page_heroes import HERO_PLACEHOLDER_IMAGE, pick_page_hero
+def test_pick_page_hero_uses_placeholder_when_art_missing():
+    from services.page_heroes import HERO_PLACEHOLDER_IMAGE, _resolve_hero_image
 
-    hero = pick_page_hero('submit_draft', hour=0)
-    assert hero['image'] == HERO_PLACEHOLDER_IMAGE
-    assert hero['title']
-    assert hero['text']
+    assert _resolve_hero_image('/static/images/does-not-exist.png') == HERO_PLACEHOLDER_IMAGE
 
 
 def test_pick_page_hero_uses_custom_art_when_present():
-    from services.page_heroes import pick_page_hero
+    from services.page_heroes import HERO_PLACEHOLDER_IMAGE, pick_page_hero
 
-    hero = pick_page_hero('guilds', hour=0)
-    assert 'hero-guilds.png' in hero['image']
-    hero = pick_page_hero('roles', hour=0)
-    assert 'hero-roles.png' in hero['image']
+    for key, fragment in (
+        ('submit_draft', 'hero-submit-draft.png'),
+        ('workgroups', 'hero-workgroups.png'),
+        ('layers', 'hero-layers.png'),
+        ('docs_drafts', 'hero-docs-drafts.png'),
+        ('guilds', 'hero-guilds.png'),
+        ('roles', 'hero-roles.png'),
+        ('artifacts', 'hero-artifacts.png'),
+    ):
+        hero = pick_page_hero(key, hour=0)
+        assert fragment in hero['image'], key
+        assert hero['image'] != HERO_PLACEHOLDER_IMAGE, key
 
 
 def test_all_page_heroes_have_three_messages():
@@ -48,7 +53,7 @@ def test_render_page_hero_html_escapes():
 
     html = render_page_hero_html('docs_drafts', hour=0)
     assert 'gh-page-hero' in html
-    assert 'hero-placeholder.png' in html
+    assert 'hero-docs-drafts.png' in html
     assert '<script' not in html
 
 
