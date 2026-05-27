@@ -175,17 +175,21 @@ def role_images_directory():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
+    from services.nav_pills import get_effective_nav_pill_settings, nav_pills_container_attrs
+
+    badge_nav = get_effective_nav_pill_settings(page='badges')
+    nav_pill_attrs = nav_pills_container_attrs(badge_nav, context_id='badges')
 
     content = f"""
     {gh_page_open()}
     {gh_page_header('Badges', 'Design galleries for roles and workgroups across all layers', 'fa-medal')}
     <div class="gh-detail-layout">
         <div class="gh-detail-main">
-            <ul class="nav gh-badge-tabs" id="badgeTabs">
-                <li class="nav-item"><button class="nav-link" data-tab="all" onclick="switchTab('all',this)">All</button></li>
-                <li class="nav-item"><button class="nav-link" data-tab="upcoming" onclick="switchTab('upcoming',this)">Upcoming</button></li>
-                <li class="nav-item"><button class="nav-link active" data-tab="current" onclick="switchTab('current',this)">Active</button></li>
-                <li class="nav-item"><button class="nav-link" data-tab="past" onclick="switchTab('past',this)">Past</button></li>
+            <ul class="nav gh-badge-tabs gh-nav-pills flex-wrap"{nav_pill_attrs} id="badgeTabs">
+                <li class="nav-item"><button class="nav-link gh-nav-pill" data-tab="all" data-gh-pill-id="all" data-gh-pill-tip="Browse every badge in the directory." onclick="switchTab('all',this)">All</button></li>
+                <li class="nav-item"><button class="nav-link gh-nav-pill" data-tab="upcoming" data-gh-pill-id="upcoming" data-gh-pill-tip="Badges scheduled for an upcoming cycle." onclick="switchTab('upcoming',this)">Upcoming</button></li>
+                <li class="nav-item"><button class="nav-link gh-nav-pill active" data-tab="current" data-gh-pill-id="current" data-gh-pill-tip="Badges in the current active cycle." onclick="switchTab('current',this)">Active</button></li>
+                <li class="nav-item"><button class="nav-link gh-nav-pill" data-tab="past" data-gh-pill-id="past" data-gh-pill-tip="Badges from completed past cycles." onclick="switchTab('past',this)">Past</button></li>
             </ul>
             {gh_filter_row(
                 gh_filter_col('Layer', '<select id="project-filter" class="form-select form-select-sm" onchange="filterAndDisplay()"><option value="">All Layers</option></select>', 'col-md-4')

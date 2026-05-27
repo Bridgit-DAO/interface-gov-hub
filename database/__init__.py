@@ -19,6 +19,7 @@ def init_db(app):
             migrate_knowledge_layer_integration,
             migrate_knowledge_form_conviction_to_claim,
             migrate_layer_enabled_features,
+            migrate_layer_nav_pill_config,
             migrate_artifact_tags,
             migrate_layer_tags,
             migrate_submission_document_category,
@@ -58,6 +59,7 @@ def init_db(app):
         migrate_knowledge_layer_integration(app)
         migrate_knowledge_form_conviction_to_claim(app)
         migrate_layer_enabled_features(app)
+        migrate_layer_nav_pill_config(app)
         migrate_artifact_tags(app)
         migrate_layer_tags(app)
         migrate_submission_document_category(app)

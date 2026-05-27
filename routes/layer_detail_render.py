@@ -12,6 +12,14 @@ from services.layer_features import (
     is_layer_tab_enabled,
 )
 from services.product_rollout import get_rollout_config
+from services.nav_pills import (
+    PILL_ANIMATIONS,
+    get_effective_nav_pill_settings,
+    layer_tab_tip,
+    nav_pill_button_attrs,
+    nav_pills_container_attrs,
+    parse_layer_nav_pill_config,
+)
 
 
 _LAYER_TAB_GROUP_LABELS = {
@@ -23,17 +31,18 @@ _LAYER_TAB_GROUP_LABELS = {
 }
 
 
-def _layer_tab_button(tab_id, label, icon_class, active=False):
+def _layer_tab_button(tab_id, label, icon_class, active=False, tip=''):
     act = ' active' if active else ''
+    attrs = nav_pill_button_attrs(tab_id, tip)
     return (
         f'<li class="nav-item" role="presentation">'
-        f'<button class="nav-link{act}" id="{tab_id}-tab" data-bs-toggle="tab" '
-        f'data-bs-target="#{tab_id}" type="button">'
+        f'<button class="nav-link gh-nav-pill{act}" id="{tab_id}-tab" data-bs-toggle="tab" '
+        f'data-bs-target="#{tab_id}" type="button"{attrs}>'
         f'<i class="fas {icon_class}" aria-hidden="true"></i><span>{label}</span></button></li>'
     )
 
 
-def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html=''):
+def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='', *, layer=None):
     """Return (nav_html, tab_panes_html, enabled_tab_ids). Single tablist so Bootstrap tabs work."""
     opp_body_hint = (
         'Drafts, quests, and ways to contribute.'
@@ -82,7 +91,10 @@ def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='
         show = ' show active' if active else ''
         first = False
         enabled_ids.append(f'{tab_id}-tab')
-        groups_nav.setdefault(group, []).append(_layer_tab_button(tab_id, label, icon, active=active))
+        tip = layer_tab_tip(tab_id)
+        groups_nav.setdefault(group, []).append(
+            _layer_tab_button(tab_id, label, icon, active=active, tip=tip)
+        )
         pane_parts.append(f'<div class="tab-pane fade{show}" id="{tab_id}" role="tabpanel">{pane_inner}</div>')
 
     show_waitlists = effective.get('waitlists', True)
@@ -110,8 +122,13 @@ def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='
         )
         nav_items.append(admin_tab_html.strip())
 
+    nav_settings = get_effective_nav_pill_settings(page='layer', layer=layer)
+    container_attrs = nav_pills_container_attrs(
+        nav_settings,
+        context_id=layer.slug if layer else '',
+    )
     nav_html = (
-        '<ul class="nav layer-feature-pills flex-wrap" id="projectTabs" role="tablist">'
+        f'<ul class="nav layer-feature-pills gh-nav-pills flex-wrap{container_attrs}" id="projectTabs" role="tablist">'
         + '\n'.join(nav_items)
         + '</ul>'
     )
@@ -144,6 +161,11 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     site_rollout_json = json.dumps({k: bool(site_rollout.get(k, True)) for k in LAYER_FEATURE_ORDER})
     layer_feat_keys_json = json.dumps(LAYER_FEATURE_ORDER)
     layer_feat_labels_json = json.dumps(LAYER_FEATURE_LABELS)
+    nav_pill_animations_json = json.dumps(
+        {k: v['label'] for k, v in PILL_ANIMATIONS.items()}
+    )
+    layer_nav_pill_json = json.dumps(parse_layer_nav_pill_config(project_obj))
+    site_nav_pill_json = json.dumps(get_effective_nav_pill_settings(page='layer', layer=project_obj))
     
     admin_tab_html = ''
     admin_tab_pane_html = ''
@@ -152,8 +174,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     if show_admin_tab and not standalone:
         admin_tab_html = (
             '<li class="nav-item" role="presentation">'
-            '<button class="nav-link" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin" type="button">'
-            '<i class="fas fa-cog" aria-hidden="true"></i><span>Admin</span></button></li>'
+            '<button class="nav-link gh-nav-pill" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin" type="button"'
+            + nav_pill_button_attrs('admin', layer_tab_tip('admin'))
+            + '><i class="fas fa-cog" aria-hidden="true"></i><span>Admin</span></button></li>'
         )
         admin_tab_pane_html = '''
             <div class="tab-pane fade" id="admin">
@@ -167,7 +190,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     enabled_layer_tab_ids_json = '[]'
     if not standalone:
         tabs_nav_html, tabs_panes_html, enabled_tab_ids = _build_layer_tabs_markup(
-            effective_features, admin_tab_html, admin_tab_pane_html
+            effective_features, admin_tab_html, admin_tab_pane_html, layer=project_obj
         )
         enabled_layer_tab_ids_json = json.dumps(enabled_tab_ids + (['admin-tab'] if show_admin_tab else []))
 
@@ -620,6 +643,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     const siteProductRollout = {site_rollout_json};
     const layerFeatKeys = {layer_feat_keys_json};
     const layerFeatLabels = {layer_feat_labels_json};
+    const navPillAnimations = {nav_pill_animations_json};
+    const layerNavPillConfig = {layer_nav_pill_json};
+    const siteNavPillSettings = {site_nav_pill_json};
 
     function layerFeatKeysSiteEnabled() {{
         return (layerFeatKeys || []).filter(function(k) {{ return siteProductRollout[k] === true; }});
@@ -2185,6 +2211,17 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }});
             html += '</div><button type="button" class="btn btn-primary btn-sm mt-2" onclick="saveLayerFeatures()"><i class="fas fa-save me-1"></i>Save features</button>';
             html += '<p class="small text-muted mt-2 mb-0" id="layer-feat-save-msg"></p></div></div>';
+            html += '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Navigation pills</h5></div><div class="card-body">';
+            html += '<p class="text-muted small mb-3">Micro-animations and newcomer tips for this layer\\'s tab pills. Site defaults apply when left blank.</p>';
+            const curAnim = (layerNavPillConfig && layerNavPillConfig.animation) || (siteNavPillSettings && siteNavPillSettings.animation) || 'hover-grow';
+            const tipsOn = layerNavPillConfig.tooltips_enabled !== undefined ? layerNavPillConfig.tooltips_enabled : (siteNavPillSettings.tooltips_enabled !== false);
+            html += '<div class="row g-3"><div class="col-md-6"><label class="form-label" for="layer-nav-pill-animation">Animation style</label><select class="form-select form-select-sm" id="layer-nav-pill-animation">';
+            Object.keys(navPillAnimations || {{}}).forEach(function(k) {{
+                html += '<option value="' + k + '"' + (curAnim === k ? ' selected' : '') + '>' + navPillAnimations[k] + '</option>';
+            }});
+            html += '</select></div><div class="col-md-6 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="layer-nav-pill-tooltips" ' + (tipsOn ? 'checked' : '') + '><label class="form-check-label" for="layer-nav-pill-tooltips">Show newcomer tips on hover</label></div></div></div>';
+            html += '<button type="button" class="btn btn-primary btn-sm mt-2" onclick="saveNavPillConfig()"><i class="fas fa-save me-1"></i>Save navigation pills</button>';
+            html += '<p class="small text-muted mt-2 mb-0" id="layer-nav-pill-save-msg"></p></div></div>';
             html += '<div class="d-flex justify-content-between align-items-center mb-3"><h4>Layer admins</h4><button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button></div><p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p><div class="list-group"><div class="list-group-item d-flex justify-content-between align-items-center"><div><a href="/profile/' + ownerUserEsc + '/" class="fw-bold text-decoration-none">' + ownerNameEsc + '</a><span class="badge bg-primary ms-2">Owner</span></div><span class="text-muted">—</span></div>';
             (data.admins || []).forEach(a => {{
                 html += '<div class="list-group-item d-flex justify-content-between align-items-center"><a href="/profile/' + escapeHtmlBasic(a.username || '') + '/" class="text-decoration-none">' + escapeHtml(a.display_name || '') + '</a><button class="btn btn-outline-danger btn-sm" onclick="removeAdmin(\\'' + (a.user_id || '') + '\\', this)">Remove</button></div>';
@@ -2326,6 +2363,37 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 msgEl.textContent = e.message || 'Save failed';
                 msgEl.className = 'small text-danger mt-1 mb-0';
             }}
+        }}
+    }}
+
+    async function saveNavPillConfig() {{
+        if (!project) return;
+        const animEl = document.getElementById('layer-nav-pill-animation');
+        const tipsEl = document.getElementById('layer-nav-pill-tooltips');
+        const msgEl = document.getElementById('layer-nav-pill-save-msg');
+        const payload = {{
+            animation: animEl ? animEl.value : 'hover-grow',
+            tooltips_enabled: tipsEl ? tipsEl.checked : true,
+        }};
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/', {{
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ nav_pill_config: payload }})
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (!r.ok) {{
+                if (msgEl) msgEl.textContent = d.error || 'Save failed';
+                return;
+            }}
+            if (msgEl) {{
+                msgEl.textContent = 'Saved. Refreshing tabs…';
+                msgEl.className = 'small text-success mt-2 mb-0';
+            }}
+            setTimeout(function() {{ window.location.reload(); }}, 600);
+        }} catch (e) {{
+            if (msgEl) msgEl.textContent = e.message || 'Save failed';
         }}
     }}
 

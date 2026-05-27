@@ -162,7 +162,8 @@ def admin_dashboard():
             '<a href="/admin/users/" class="btn btn-outline-primary btn-sm me-1"><i class="fas fa-users me-1"></i>Users</a>'
             '<a href="/admin/submissions/" class="btn btn-outline-success btn-sm me-1"><i class="fas fa-file-alt me-1"></i>Submissions</a>'
             '<a href="/admin/layers/" class="btn btn-outline-info btn-sm me-1"><i class="fas fa-project-diagram me-1"></i>Layers</a>'
-            '<a href="/admin/product-rollout/" class="btn btn-dark btn-sm"><i class="fas fa-toggle-on me-1"></i>Rollout</a>'
+            '<a href="/admin/product-rollout/" class="btn btn-dark btn-sm me-1"><i class="fas fa-toggle-on me-1"></i>Rollout</a>'
+            '<a href="/admin/nav-pills/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-circle-notch me-1"></i>Nav pills</a>'
         ))}
 
         <div class="row">

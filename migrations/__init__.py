@@ -865,6 +865,23 @@ def migrate_layer_enabled_features(app):
         print(f"⚠️  Error in migrate_layer_enabled_features: {e}")
 
 
+def migrate_layer_nav_pill_config(app):
+    """Per-layer nav pill animation + tooltip overrides."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(layer)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'nav_pill_config' not in cols:
+            cursor.execute("ALTER TABLE layer ADD COLUMN nav_pill_config TEXT")
+            conn.commit()
+            print("✅ Added nav_pill_config to layer")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_layer_nav_pill_config: {e}")
+
+
 def migrate_knowledge_form_conviction_to_claim(app):
     """Rename legacy knowledge_form conviction → claim on artifacts."""
     try:

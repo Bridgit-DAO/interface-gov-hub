@@ -1,0 +1,122 @@
+/* Gov Hub nav pills — micro-animations + newcomer tips */
+
+.gh-nav-pills .nav-link.gh-nav-pill {
+  position: relative;
+  will-change: transform, box-shadow;
+}
+
+/* --- Hover animations --- */
+.gh-nav-pills[data-gh-nav-animation="hover-grow"] .nav-link.gh-nav-pill {
+  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.gh-nav-pills[data-gh-nav-animation="hover-grow"] .nav-link.gh-nav-pill:hover {
+  transform: scale(1.05);
+}
+
+.gh-nav-pills[data-gh-nav-animation="hover-glow"] .nav-link.gh-nav-pill {
+  transition: box-shadow 0.25s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.gh-nav-pills[data-gh-nav-animation="hover-glow"] .nav-link.gh-nav-pill:hover {
+  box-shadow: 0 0 0 1px rgba(77, 159, 255, 0.35), 0 0 18px rgba(77, 159, 255, 0.28);
+}
+
+.gh-nav-pills[data-gh-nav-animation="hover-lift"] .nav-link.gh-nav-pill {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.gh-nav-pills[data-gh-nav-animation="hover-lift"] .nav-link.gh-nav-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(77, 159, 255, 0.15);
+}
+
+/* --- Continuous animations --- */
+@keyframes gh-nav-pill-breathe {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 1px var(--gh-glow-soft); }
+  50% { transform: scale(1.03); box-shadow: 0 0 0 1px rgba(77, 159, 255, 0.35), 0 0 16px rgba(77, 159, 255, 0.2); }
+}
+
+.gh-nav-pills[data-gh-nav-animation="breathing"] .nav-link.gh-nav-pill.active {
+  animation: gh-nav-pill-breathe 3.2s ease-in-out infinite;
+}
+
+.gh-nav-pills[data-gh-nav-animation="breathing"] .nav-link.gh-nav-pill:not(.active):hover {
+  animation: gh-nav-pill-breathe 2.4s ease-in-out 1;
+}
+
+@keyframes gh-nav-pill-shimmer {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.gh-nav-pills[data-gh-nav-animation="shimmer"] .nav-link.gh-nav-pill.active {
+  background: linear-gradient(
+    110deg,
+    rgba(77, 159, 255, 0.12) 0%,
+    rgba(118, 75, 162, 0.22) 25%,
+    rgba(77, 159, 255, 0.18) 50%,
+    rgba(118, 75, 162, 0.22) 75%,
+    rgba(77, 159, 255, 0.12) 100%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: gh-nav-pill-shimmer 4s linear infinite;
+}
+
+/* --- Newcomer tooltip --- */
+.gh-nav-pill-tip-host {
+  position: fixed;
+  z-index: 1090;
+  max-width: min(18rem, calc(100vw - 2rem));
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--gh-radius-md, 0.5rem);
+  border: 1px solid var(--gh-glass-border, rgba(102, 126, 234, 0.35));
+  background: var(--card-bg);
+  color: var(--text-primary);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: var(--gh-glass-blur, blur(14px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(14px));
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.gh-nav-pill-tip-host.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.gh-nav-pill-tip-text {
+  margin: 0 0 0.5rem;
+}
+
+.gh-nav-pill-tip-optout {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gh-nav-pill-tip-optout input {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gh-nav-pills[data-gh-nav-animation="breathing"] .nav-link.gh-nav-pill.active,
+  .gh-nav-pills[data-gh-nav-animation="breathing"] .nav-link.gh-nav-pill:not(.active):hover,
+  .gh-nav-pills[data-gh-nav-animation="shimmer"] .nav-link.gh-nav-pill.active {
+    animation: none;
+  }
+
+  .gh-nav-pills[data-gh-nav-animation="hover-grow"] .nav-link.gh-nav-pill:hover,
+  .gh-nav-pills[data-gh-nav-animation="hover-lift"] .nav-link.gh-nav-pill:hover {
+    transform: none;
+  }
+}

@@ -182,6 +182,8 @@ class Layer(db.Model):
 
     # Per-layer product features (JSON object); null = all layer-overridable features on
     enabled_features = db.Column(db.Text, nullable=True)
+    # Nav pill animation + tooltip overrides (JSON)
+    nav_pill_config = db.Column(db.Text, nullable=True)
     
     # Relationships
     initiator = db.relationship('User', foreign_keys=[initiator_id], backref='initiated_layers')
@@ -212,7 +214,15 @@ class Layer(db.Model):
             'listing_visibility': getattr(self, 'listing_visibility', 'public'),
             'join_policy': getattr(self, 'join_policy', 'open'),
             'enabled_features': _layer_enabled_features_dict(self),
+            'nav_pill_config': _layer_nav_pill_config_dict(self),
         }
+
+
+def _layer_nav_pill_config_dict(layer):
+    from services.nav_pills import parse_layer_nav_pill_config
+
+    cfg = parse_layer_nav_pill_config(layer)
+    return cfg if cfg else None
 
 
 def _layer_enabled_features_dict(layer):
