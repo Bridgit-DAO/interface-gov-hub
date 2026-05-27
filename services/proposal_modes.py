@@ -86,7 +86,7 @@ PROPOSAL_MODES: Dict[ProposalMode, Dict[str, Any]] = {
             'link_prefix': 'Suggested edit',
             'toast_new': 'New suggested edit',
             'toast_accepted': 'Amendment accepted',
-            'toolbar_label': 'Edits',
+            'toolbar_label': 'Suggested edits',
             'toolbar_visibility_title': 'Suggested edits visibility',
             'toolbar_select_aria': 'Suggested edits display',
             'display_near': 'Near edit',
