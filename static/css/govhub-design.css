@@ -1492,6 +1492,12 @@ img.gh-entity-thumb {
   display: inline-block;
 }
 
+.gh-people-last-active {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
 .gh-detail-breadcrumb {
   margin-bottom: var(--gh-space-sm);
 }
