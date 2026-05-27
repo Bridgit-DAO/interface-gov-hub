@@ -37,6 +37,7 @@ datatracker.sublime-workspace
 !/static/js/govhub-i18n.js
 !/static/js/dp-challenge.js
 !/static/js/gh-return-nav.js
+!/static/js/gh-nav-pills.js
 !/static/js/dp-proposals/
 !/static/js/dp-proposals/**
 !/static/i18n/
@@ -58,6 +59,7 @@ datatracker.sublime-workspace
 !/static/css/govhub-design.css
 !/static/css/dp-challenge.css
 !/static/css/dp-proposals-reader.css
+!/static/css/gh-nav-pills.css
 !/static/images/
 !/static/images/dp-challenge-hero.png
 /tmp-*
