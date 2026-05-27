@@ -31,6 +31,19 @@ def test_register_route_redirects_to_login():
     assert '/login/' in r.headers.get('Location', '')
 
 
+def test_login_admin_shortcut_redirects():
+    from app import app
+
+    client = app.test_client()
+    r = client.get('/login/product-rollout', follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers.get('Location') == '/login/?next=%2Fadmin%2Fproduct-rollout%2F'
+
+    r = client.get('/login/nav-pills', follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers.get('Location') == '/login/?next=%2Fadmin%2Fnav-pills%2F'
+
+
 def test_login_route_redirects_when_already_authed():
     from app import app
     from models import User

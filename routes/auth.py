@@ -37,6 +37,27 @@ LOGIN_TEMPLATE = """
 </div>
 """
 
+# Common mistaken paths while on /login/ (relative links or address-bar edits).
+_LOGIN_ADMIN_REDIRECTS = {
+    'product-rollout': '/admin/product-rollout/',
+    'nav-pills': '/admin/nav-pills/',
+    'admin': '/admin/',
+}
+
+
+@bp.route('/login/<path:tail>')
+def login_admin_shortcut(tail):
+    """Redirect /login/product-rollout → login with ?next=/admin/product-rollout/."""
+    from services.auth_redirect import login_url
+
+    segment = (tail or '').strip('/').split('/')[0].lower()
+    target = _LOGIN_ADMIN_REDIRECTS.get(segment)
+    if target:
+        return redirect(login_url(target))
+    from flask import abort
+    abort(404)
+
+
 @bp.route('/login/', methods=['GET'])
 def login():
     """Show dedicated login page with Web3Auth sign-in. Use ?next= or ?redirect= to return after login."""

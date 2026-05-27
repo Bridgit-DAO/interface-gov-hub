@@ -258,6 +258,7 @@ def create_app():
     import logging
     import traceback
     from flask import request
+    from werkzeug.exceptions import HTTPException
 
     _oauth_log = logging.getLogger('oauth_debug')
     _oauth_log.setLevel(logging.DEBUG)
@@ -268,6 +269,8 @@ def create_app():
 
     @app.errorhandler(Exception)
     def _log_oauth_exceptions(exc):
+        if isinstance(exc, HTTPException):
+            return exc
         if request.path and '/auth/' in request.path and '/authorized' in request.path:
             _oauth_log.error(
                 "OAuth callback error on %s: %s\nrequest.args=%s\ntraceback:\n%s",
