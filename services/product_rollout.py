@@ -181,6 +181,7 @@ EXEMPT_ROLLOUT_PATH_PREFIXES: tuple = (
     '/_deploy/',
     '/embed/',
     '/auth/',  # OAuth callback paths
+    '/api/invitations/by-token/',  # invite preview (token is secret)
 )
 
 EXEMPT_ROLLOUT_EXACT: frozenset = frozenset({'/favicon.ico'})

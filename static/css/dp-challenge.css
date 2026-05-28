@@ -12,6 +12,57 @@
   max-width: 28rem;
 }
 
+/* Searchable doc picker (DP Challenge / Suggest an Edit) */
+.dp-doc-picker {
+  position: relative;
+  flex: 1 1 18rem;
+  max-width: 36rem;
+  min-width: 14rem;
+}
+
+.dp-doc-picker-input {
+  width: 100%;
+}
+
+.dp-doc-picker-list {
+  position: absolute;
+  z-index: 1050;
+  left: 0;
+  right: 0;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  max-height: min(18rem, 50vh);
+  overflow-y: auto;
+  border-radius: 0.5rem;
+  border: 1px solid var(--gh-glass-border, rgba(102, 126, 234, 0.35));
+  background: var(--card-bg, var(--bg-secondary));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.dp-doc-picker-option {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dp-doc-picker-option:hover,
+.dp-doc-picker-option.is-active {
+  background: rgba(77, 159, 255, 0.12);
+  color: var(--gh-link-hover, #6eb3ff);
+}
+
+.dp-doc-picker-empty {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .dp-challenge-table-wrap {
   overflow-x: auto;
 }

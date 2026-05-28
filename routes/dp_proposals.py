@@ -114,6 +114,8 @@ def create_proposal(draft_ref):
         proposed_text=payload['proposed_text'],
         context_anchor=payload.get('context_anchor'),
         scope=payload['scope'],
+        rationale=payload.get('rationale'),
+        reference_url=payload.get('reference_url'),
     )
     db.session.commit()
     return jsonify({'proposal': row.to_dict(), 'status_label': row.status_label()}), 201

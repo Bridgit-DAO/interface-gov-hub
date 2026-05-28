@@ -65,7 +65,12 @@ def workgroup_detail(workgroup_slug):
                     <div class="living-module-header">
                         <div class="living-module-icon"><i class="fas fa-users"></i></div>
                         <h5 class="living-module-title">Members</h5>
-                        {'<button class="btn btn-sm btn-primary ms-auto" onclick="joinWorkgroup()" id="join-btn" style="display:none;"><i class="fas fa-user-plus me-1"></i>Join</button>' if current_user else ''}
+                        {(
+                            '<button class="btn btn-sm btn-outline-secondary ms-auto me-2" onclick="inviteWorkgroupMember()" '
+                            'id="invite-member-btn" style="display:none;"><i class="fas fa-envelope me-1"></i>Invite</button>'
+                            '<button class="btn btn-sm btn-primary" onclick="joinWorkgroup()" id="join-btn" style="display:none;">'
+                            '<i class="fas fa-user-plus me-1"></i>Join</button>'
+                        ) if current_user else ''}
                     </div>
                     <div class="living-module-body" id="workgroup-members">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
@@ -505,14 +510,20 @@ def workgroup_detail(workgroup_slug):
                 isCurrentUserMember = data.members.some(m => m.user_id === currentUserId);
             }}
 
-            // Show/hide join button
             const joinBtn = document.getElementById('join-btn');
+            const inviteBtn = document.getElementById('invite-member-btn');
             if (joinBtn) {{
                 if (isAuthenticated && !isCurrentUserMember && workgroup.approval_status === 'approved') {{
                     joinBtn.style.display = 'block';
                 }} else {{
                     joinBtn.style.display = 'none';
                 }}
+            }}
+            if (inviteBtn) {{
+                var canInvite = workgroup && workgroup.can_invite_members === true;
+                inviteBtn.style.display = (isAuthenticated && (isCurrentUserMember || canInvite))
+                    ? 'block'
+                    : 'none';
             }}
 
             let html = '';
@@ -571,6 +582,21 @@ def workgroup_detail(workgroup_slug):
             console.error('Error loading assigned documents:', error);
             container.innerHTML = '<p class="text-muted mb-0">Unable to load assigned documents.</p>';
         }}
+    }}
+
+    function inviteWorkgroupMember() {{
+        if (!window.GhInvite) {{
+            if (window.GhDialog) {{
+                GhDialog.alert({{ title: 'Invite unavailable', message: 'Please refresh the page and try again.', variant: 'warning' }});
+            }}
+            return;
+        }}
+        window.GhInvite.open({{
+            type: 'join_workgroup',
+            title: 'Invite to workgroup',
+            hint: 'They will receive an email to join ' + (workgroup.name || 'this workgroup') + '.',
+            target: {{ workgroup_id: workgroup.id }},
+        }});
     }}
 
     async function joinWorkgroup() {{

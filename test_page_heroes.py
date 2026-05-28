@@ -31,6 +31,7 @@ def test_pick_page_hero_uses_custom_art_when_present():
         ('guilds', 'hero-guilds.png'),
         ('roles', 'hero-roles.png'),
         ('artifacts', 'hero-artifacts.png'),
+        ('waitlists', 'hero-waitlists.png'),
     ):
         hero = pick_page_hero(key, hour=0)
         assert fragment in hero['image'], key
@@ -64,3 +65,15 @@ def test_workgroups_page_includes_hero():
     r = client.get('/workgroups/')
     assert r.status_code == 200
     assert 'gh-page-hero-title' in r.get_data(as_text=True)
+
+
+def test_waitlists_page_includes_hero():
+    from app import app
+
+    client = app.test_client()
+    r = client.get('/waitlists/')
+    if r.status_code == 404:
+        return  # waitlists rollout disabled in this environment
+    assert r.status_code == 200
+    assert 'gh-page-hero' in r.get_data(as_text=True)
+    assert 'hero-waitlists.png' in r.get_data(as_text=True)

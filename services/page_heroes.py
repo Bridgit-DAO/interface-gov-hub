@@ -185,6 +185,24 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
             },
         ],
     },
+    'waitlists': {
+        'aria': 'Waitlists across Gov Hub layers',
+        'target_image': '/static/images/hero-waitlists.png?v=1',
+        'messages': [
+            {
+                'title': 'Your place in line matters',
+                'text': 'Join waitlists for launches, features, and cohorts — show up early, stay informed.',
+            },
+            {
+                'title': 'Good things have a queue',
+                'text': 'Reserve your spot before the door opens. Browse waitlists across layers.',
+            },
+            {
+                'title': 'Be first when it goes live',
+                'text': 'Waitlists turn anticipation into participation. Find one worth joining today.',
+            },
+        ],
+    },
 }
 
 

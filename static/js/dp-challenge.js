@@ -30,21 +30,202 @@
     return (ev.type || '') + ':' + (ev.proposal_id || '') + ':' + (ev.at || '');
   }
 
-  function bindDocPicker() {
-    var picker = document.getElementById('dpChallengeDocPicker');
-    var btn = document.getElementById('dpChallengeGoRead');
-    if (!picker || !btn) return;
+  function inviteUnavailableMessage() {
+    if (window.GhDialog && window.GhDialog.alert) {
+      window.GhDialog.alert({
+        title: 'Invite unavailable',
+        message: 'Please wait a moment and try again, or refresh the page.',
+        variant: 'warning',
+      });
+      return;
+    }
+    window.alert('Invite is not ready yet. Please refresh and try again.');
+  }
+
+  function bindDpChallengeInvite() {
+    var btn = document.getElementById('dpChallengeInviteBtn');
+    if (!btn || btn.dataset.ghInviteBound) return;
+    btn.dataset.ghInviteBound = '1';
+    var invite = cfg.invite || {};
     btn.addEventListener('click', function () {
-      var ref = (picker.value || '').trim();
-      if (!ref) {
-        picker.focus();
+      if (!window.GhInvite) {
+        inviteUnavailableMessage();
         return;
       }
-      window.location.href =
-        typeof window.ghReadUrl === 'function'
-          ? window.ghReadUrl(ref, returnTo)
-          : '/doc/draft/' + encodeURIComponent(ref) + '/read/?return_to=' + encodeURIComponent(returnTo);
+      window.GhInvite.open({
+        type: invite.type || 'participate_dp',
+        title: invite.title || 'Invite a colleague',
+        hint: invite.hint || 'Invite a colleague to participate.',
+        target: invite.target || {},
+      });
     });
+  }
+
+  function readUrlForRef(ref) {
+    return typeof window.ghReadUrl === 'function'
+      ? window.ghReadUrl(ref, returnTo)
+      : '/doc/draft/' + encodeURIComponent(ref) + '/read/?return_to=' + encodeURIComponent(returnTo);
+  }
+
+  function bindDocPicker() {
+    var root = document.getElementById('dpChallengeDocPicker');
+    var input = document.getElementById('dpChallengeDocPickerInput');
+    var list = document.getElementById('dpChallengeDocPickerList');
+    if (!root || !input || !list) return;
+
+    var docs = cfg.pickerDocs || [];
+    var emptyMsg = cfg.pickerEmpty || root.getAttribute('data-empty') || 'No documents available';
+    var activeIndex = -1;
+    var blurTimer = null;
+
+    function docSearchText(d) {
+      return [d.label, d.ref, d.ml, d.dp].filter(Boolean).join(' ').toLowerCase();
+    }
+
+    function filteredDocs(query) {
+      var q = (query || '').trim().toLowerCase();
+      if (!q) return docs.slice();
+      return docs.filter(function (d) {
+        return docSearchText(d).indexOf(q) >= 0;
+      });
+    }
+
+    function optionLabel(d) {
+      var parts = [];
+      if (d.dp) parts.push(d.dp);
+      if (d.ml) parts.push(d.ml);
+      parts.push(d.label || d.ref);
+      return parts.join(' · ');
+    }
+
+    function setListOpen(open) {
+      input.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {
+        list.hidden = false;
+        root.classList.add('is-open');
+      } else {
+        list.hidden = true;
+        root.classList.remove('is-open');
+        activeIndex = -1;
+      }
+    }
+
+    function renderList(items) {
+      list.innerHTML = '';
+      if (!docs.length) {
+        var empty = document.createElement('li');
+        empty.className = 'dp-doc-picker-empty';
+        empty.textContent = emptyMsg;
+        empty.setAttribute('role', 'presentation');
+        list.appendChild(empty);
+        return;
+      }
+      if (!items.length) {
+        var none = document.createElement('li');
+        none.className = 'dp-doc-picker-empty';
+        none.textContent = 'No matches';
+        none.setAttribute('role', 'presentation');
+        list.appendChild(none);
+        return;
+      }
+      items.forEach(function (d, idx) {
+        var li = document.createElement('li');
+        li.className = 'dp-doc-picker-option';
+        li.setAttribute('role', 'option');
+        li.dataset.ref = d.ref;
+        li.dataset.index = String(idx);
+        li.textContent = optionLabel(d);
+        li.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+        });
+        li.addEventListener('click', function () {
+          openDoc(d.ref);
+        });
+        list.appendChild(li);
+      });
+    }
+
+    function highlightActive() {
+      var options = list.querySelectorAll('.dp-doc-picker-option');
+      options.forEach(function (el, i) {
+        el.classList.toggle('is-active', i === activeIndex);
+        if (i === activeIndex) el.setAttribute('aria-selected', 'true');
+        else el.removeAttribute('aria-selected');
+      });
+    }
+
+    function openDoc(ref) {
+      if (!ref) return;
+      window.location.href = readUrlForRef(ref);
+    }
+
+    function refreshList() {
+      var items = filteredDocs(input.value);
+      renderList(items);
+      if (activeIndex >= items.length) activeIndex = items.length - 1;
+      highlightActive();
+    }
+
+    input.addEventListener('focus', function () {
+      if (blurTimer) {
+        clearTimeout(blurTimer);
+        blurTimer = null;
+      }
+      refreshList();
+      setListOpen(true);
+    });
+
+    input.addEventListener('input', function () {
+      activeIndex = -1;
+      refreshList();
+      setListOpen(true);
+    });
+
+    input.addEventListener('keydown', function (e) {
+      var options = list.querySelectorAll('.dp-doc-picker-option');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (!list.hidden) {
+          activeIndex = Math.min(activeIndex + 1, options.length - 1);
+          highlightActive();
+          if (options[activeIndex]) options[activeIndex].scrollIntoView({ block: 'nearest' });
+        } else {
+          refreshList();
+          setListOpen(true);
+        }
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        highlightActive();
+        if (options[activeIndex]) options[activeIndex].scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (e.key === 'Escape') {
+        setListOpen(false);
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIndex >= 0 && options[activeIndex]) {
+          openDoc(options[activeIndex].dataset.ref);
+          return;
+        }
+        var items = filteredDocs(input.value);
+        if (items.length === 1) {
+          openDoc(items[0].ref);
+        }
+      }
+    });
+
+    input.addEventListener('blur', function () {
+      blurTimer = setTimeout(function () {
+        setListOpen(false);
+      }, 150);
+    });
+
+    refreshList();
   }
 
   function toastMessage(ev) {
@@ -152,6 +333,15 @@
     });
   }
 
-  bindDocPicker();
-  startPolling();
+  function init() {
+    bindDocPicker();
+    bindDpChallengeInvite();
+    startPolling();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();

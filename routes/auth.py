@@ -23,13 +23,17 @@ LOGIN_TEMPLATE = """
             <div class="living-module mb-0">
                 <div class="living-module-body text-center py-2">
                     <div id="flash-messages"></div>
-                    <p class="text-muted mb-3">Web3Auth — Google, email, or wallet</p>
-                    <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" disabled aria-busy="true" onclick="loginWithWeb3Auth()">
-                        <svg width="20" height="20" class="me-2" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;">
-                            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
-                        </svg>
-                        Sign In with Web3Auth
-                    </button>
+                    <p class="text-muted mb-3" id="web3auth-login-hint">Sign in with Google or email</p>
+                    <div id="web3auth-social-login" class="d-grid gap-2">
+                        <button type="button" class="btn btn-primary btn-lg" id="web3auth-google-btn" disabled aria-busy="true" onclick="loginWithWeb3AuthGoogle()">
+                            <i class="fab fa-google me-2" aria-hidden="true"></i>
+                            Continue with Google
+                        </button>
+                        <button type="button" class="btn btn-outline-primary btn-lg" id="web3auth-email-btn" disabled aria-busy="true" onclick="loginWithWeb3AuthEmail()">
+                            <i class="fas fa-envelope me-2" aria-hidden="true"></i>
+                            Continue with email
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -156,7 +160,17 @@ def web3auth_login():
                 ).first()
             if email_owner:
                 existing_verifier = (email_owner.web3authVerifierId or '').strip()
-                if existing_verifier and existing_verifier != verifier_id:
+                normalized_email = (email or '').strip().lower()
+                prior_is_email_verifier = bool(
+                    normalized_email
+                    and existing_verifier
+                    and existing_verifier.lower() == normalized_email
+                )
+                if (
+                    existing_verifier
+                    and existing_verifier != verifier_id
+                    and not prior_is_email_verifier
+                ):
                     return jsonify({
                         'error': (
                             'This email is already linked to another account. '
@@ -194,6 +208,8 @@ def web3auth_login():
 
         session['user'] = user.username
         session['theme'] = user.theme
+        session.permanent = True
+        session.modified = True
 
         safe_user_data = {
             'id': user.id,
@@ -212,8 +228,18 @@ def web3auth_login():
     except Exception as e:
         import traceback
 
-        current_app.logger.error("Web3Auth login error: %s\n%s", e, traceback.format_exc())
+        from sqlalchemy.exc import IntegrityError
+
         db.session.rollback()
+        if isinstance(e, IntegrityError):
+            current_app.logger.warning('Web3Auth login email conflict: %s', e)
+            return jsonify({
+                'error': (
+                    'This email is already linked to another account. '
+                    'Sign in with the method you used originally or contact support.'
+                ),
+            }), 409
+        current_app.logger.error("Web3Auth login error: %s\n%s", e, traceback.format_exc())
         return jsonify({'error': 'Authentication failed'}), 500
 
 
@@ -227,10 +253,23 @@ def _update_user_from_web3auth(
     evm_address,
     solana_address,
 ):
+    from services.web3auth_verify import normalize_user_email
+
     user.typeOfLogin = type_of_login
     user.last_login = datetime.utcnow()
-    if email and not user.email:
-        user.email = email
+    if email:
+        normalized = normalize_user_email(email)
+        if normalized:
+            if not user.email:
+                conflict = User.query.filter(
+                    db.func.lower(User.email) == normalized,
+                    User.id != user.id,
+                ).first()
+                if not conflict:
+                    user.email = normalized
+            elif user.email.strip().lower() == normalized:
+                # Fix casing only — never reassign a different mailbox on login.
+                user.email = normalized
     if name:
         user.displayName = name
         user.displayNameSetAt = datetime.utcnow()

@@ -25,6 +25,19 @@ def test_identity_from_web3auth_claims_maps_user_id():
     assert identity['typeOfLogin'] == 'google'
 
 
+def test_identity_from_web3auth_claims_normalizes_email_case():
+    from services.web3auth_verify import identity_from_web3auth_claims
+
+    claims = {
+        'userId': 'Dave@bridgit.io',
+        'email': 'Dave@bridgit.io',
+        'groupedAuthConnectionId': 'web3auth-google-sapphire-devnet',
+    }
+    identity = identity_from_web3auth_claims(claims)
+    assert identity['verifierId'] == 'Dave@bridgit.io'
+    assert identity['email'] == 'dave@bridgit.io'
+
+
 def test_identity_from_web3auth_claims_requires_user_id():
     from services.web3auth_verify import identity_from_web3auth_claims
 
@@ -99,6 +112,55 @@ def test_web3auth_login_rejects_email_collision(monkeypatch):
         existing = User.query.filter_by(email=collision_email).first()
         assert existing.web3authVerifierId == 'existing-linked-verifier-for-collision-test'
         db.session.delete(existing)
+        db.session.commit()
+
+
+def test_web3auth_login_links_email_passwordless_to_google_verifier(monkeypatch):
+    """Regression: prod used to 409 when email matched but verifier_id changed."""
+    from app import app
+    from extensions import db
+    from models import User
+
+    email = 'link-upgrade-test@example.com'
+    old_verifier = email
+    new_verifier = 'google-subject-link-upgrade-test'
+    with app.app_context():
+        user = User.query.filter(db.func.lower(User.email) == email).first()
+        if user:
+            db.session.delete(user)
+            db.session.commit()
+        user = User(
+            username='linkupgradetest',
+            handle='linkupgradetest',
+            email=email,
+            role='user',
+            web3authVerifierId=old_verifier,
+            typeOfLogin='email_passwordless',
+        )
+        db.session.add(user)
+        db.session.commit()
+
+    fake_claims = {
+        'userId': new_verifier,
+        'email': email,
+        'name': 'Link Upgrade',
+        'groupedAuthConnectionId': 'web3auth-google-sapphire-devnet',
+    }
+
+    client = app.test_client()
+    with patch('services.web3auth_verify.verify_web3auth_id_token', return_value=fake_claims):
+        response = client.post(
+            '/api/auth/web3auth',
+            json={'idToken': 'fake.jwt.token'},
+            content_type='application/json',
+        )
+
+    assert response.status_code == 200
+    with app.app_context():
+        linked = User.query.filter_by(email=email).first()
+        assert linked.web3authVerifierId == new_verifier
+        assert linked.typeOfLogin == 'google'
+        db.session.delete(linked)
         db.session.commit()
 
 

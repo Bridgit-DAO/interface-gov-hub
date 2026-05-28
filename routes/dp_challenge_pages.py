@@ -124,19 +124,25 @@ def _picker_sort_key(sub, mode: str) -> tuple:
     return ((sub.ml_number or ''), (sub.title or '').lower())
 
 
-def _build_picker_options(mode: str, mode_cfg: dict) -> str:
+def _build_picker_docs(mode: str) -> List[dict]:
+    """Approved submissions for the searchable doc picker (JSON to the client)."""
     subs = list_approved_submissions_for_mode(mode)
     subs.sort(key=lambda s: _picker_sort_key(s, mode))
-    if not subs:
-        return f'<option value="">{html_mod.escape(mode_cfg["picker_empty"])}</option>'
-    opts = [f'<option value="">{html_mod.escape(mode_cfg["picker_placeholder"])}</option>']
+    docs = []
     for sub in subs:
         ref = submission_draft_ref(sub)
-        label = (sub.title or ref).strip()
-        opts.append(
-            f'<option value="{html_mod.escape(ref)}">{html_mod.escape(label)}</option>'
-        )
-    return ''.join(opts)
+        entry = {
+            'ref': ref,
+            'label': (sub.title or ref).strip(),
+        }
+        if sub.ml_number:
+            entry['ml'] = sub.ml_number
+        if mode == 'dp':
+            dp_num = extract_dp_number_from_title(sub.title or '')
+            if dp_num is not None:
+                entry['dp'] = f'DP{dp_num}'
+        docs.append(entry)
+    return docs
 
 
 def _render_proposal_hub_page(mode: ProposalMode):
@@ -158,7 +164,9 @@ def _render_proposal_hub_page(mode: ProposalMode):
     hub_path = mode_cfg['hub_path']
     show_dp = mode_cfg.get('show_dp_column', True)
 
-    picker_options = _build_picker_options(mode, mode_cfg)
+    picker_docs = _build_picker_docs(mode)
+    picker_placeholder = html_mod.escape(mode_cfg['picker_placeholder'])
+    picker_empty = html_mod.escape(mode_cfg['picker_empty'])
     dp_header = ''
     if show_dp:
         dp_header = '<th class="dp-challenge-col-dp">DP</th>'
@@ -227,7 +235,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
         hero_section = f'<div class="mb-4">{login_cta}</div>'
 
     content = f'''
-    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=4">
+    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=5">
     <div class="gh-page container mt-4 dp-challenge-page">
         {gh_page_header(
             mode_cfg['page_title'],
@@ -237,10 +245,27 @@ def _render_proposal_hub_page(mode: ProposalMode):
         )}
 
         <div class="dp-challenge-cta-bar mb-4">
-            <select id="dpChallengeDocPicker" class="form-select form-select-sm dp-challenge-picker">
-                {picker_options}</select>
-            <button type="button" class="btn btn-primary btn-sm text-nowrap" id="dpChallengeGoRead">
-                <i class="fas fa-pen me-1"></i>{html_mod.escape(mode_cfg['cta_button'])}</button>
+            <div class="dp-doc-picker" id="dpChallengeDocPicker" data-empty="{picker_empty}">
+                <input
+                    type="text"
+                    id="dpChallengeDocPickerInput"
+                    class="form-control form-control-sm dp-doc-picker-input"
+                    placeholder="{picker_placeholder}"
+                    autocomplete="off"
+                    spellcheck="false"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded="false"
+                    aria-controls="dpChallengeDocPickerList"
+                />
+                <ul
+                    id="dpChallengeDocPickerList"
+                    class="dp-doc-picker-list"
+                    role="listbox"
+                    hidden
+                ></ul>
+            </div>
+            {'<button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" id="dpChallengeInviteBtn"><i class="fas fa-user-plus me-1"></i>Invite a colleague</button>' if current_user else ''}
         </div>
 
         {hero_section}
@@ -287,16 +312,25 @@ def _render_proposal_hub_page(mode: ProposalMode):
     </div>
 
     <div id="dpChallengeToastHost" class="dp-challenge-toast-host" aria-live="polite" aria-atomic="false"></div>
-    <script src="/static/js/dp-challenge.js?v=2" defer></script>
     <script>
     window.DP_CHALLENGE_PAGE = {{
         pollIntervalMs: 30000,
         currentUserId: {json.dumps(current_user_id)},
         returnTo: {json.dumps(hub_path)},
         recentApiPath: {json.dumps(mode_cfg['recent_api_path'])},
-        labels: {json.dumps(labels)}
+        labels: {json.dumps(labels)},
+        pickerDocs: {json.dumps(picker_docs)},
+        pickerPlaceholder: {json.dumps(mode_cfg['picker_placeholder'])},
+        pickerEmpty: {json.dumps(mode_cfg['picker_empty'])},
+        invite: {{
+            type: 'participate_dp',
+            title: {json.dumps('Invite to ' + mode_cfg['page_title'])},
+            hint: 'Invite a colleague to read DP drafts and propose sentence-level edits.',
+            target: {{}}
+        }}
     }};
     </script>
+    <script src="/static/js/dp-challenge.js?v=4" defer></script>
     '''
 
     return render_page(

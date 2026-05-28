@@ -150,6 +150,17 @@ def get_workgroup(workgroup_id):
             or current_user.get('role') == 'admin'
         )
     )
+    if current_user:
+        from services.platform_invitations import can_invite
+
+        ok, _ = can_invite(
+            current_user['id'],
+            'join_workgroup',
+            {'workgroup_id': workgroup_id},
+        )
+        d['can_invite_members'] = ok
+    else:
+        d['can_invite_members'] = False
     return jsonify(d)
 
 

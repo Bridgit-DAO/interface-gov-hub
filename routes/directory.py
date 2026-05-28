@@ -771,6 +771,7 @@ def build_waitlists_content(layer_slug=None):
     
     return f"""
     {gh_page_open()}
+    {render_page_hero_html('waitlists')}
     {gh_page_header('Waitlists Directory', 'Join waitlists for upcoming projects, features, and opportunities', 'fa-list-alt', breadcrumb_html=layer_title_html)}
     {gh_filter_row(
         (layer_filter_html or '')

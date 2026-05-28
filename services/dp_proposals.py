@@ -6,6 +6,7 @@ import json
 import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from extensions import db
 from models import DpProposal, Submission, User, Workgroup, WorkingGroupChair
@@ -72,6 +73,43 @@ def normalize_proposal_text(text: str) -> str:
     if not text:
         return ''
     return _NBSP_RE.sub(' ', str(text)).replace('\r\n', '\n').strip()
+
+
+RATIONALE_MAX_LEN = 4000
+REFERENCE_URL_MAX_LEN = 2048
+
+
+def normalize_rationale(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    cleaned = normalize_proposal_text(str(text))
+    if not cleaned:
+        return None
+    if len(cleaned) > RATIONALE_MAX_LEN:
+        cleaned = cleaned[:RATIONALE_MAX_LEN]
+    return cleaned
+
+
+def validate_reference_url(raw: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """Return (normalized_url, error). Empty input is allowed."""
+    if raw is None:
+        return None, None
+    url = str(raw).strip()
+    if not url:
+        return None, None
+    if len(url) > REFERENCE_URL_MAX_LEN:
+        return None, f'reference_url must be at most {REFERENCE_URL_MAX_LEN} characters'
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None, 'reference_url is invalid'
+    if parsed.scheme not in ('http', 'https'):
+        return None, 'reference_url must use http or https'
+    if not parsed.netloc:
+        return None, 'reference_url must include a host'
+    if parsed.username or parsed.password:
+        return None, 'reference_url must not include credentials'
+    return url, None
 
 
 def _collapse_sentence(text: str) -> str:
@@ -293,11 +331,16 @@ def validate_create_payload(data: Any) -> Tuple[Optional[dict], Optional[str]]:
     scope = (data.get('scope') or 'dp').strip().lower()
     if scope not in ('dp', 'document'):
         return None, 'scope must be dp or document'
+    reference_url, ref_err = validate_reference_url(data.get('reference_url'))
+    if ref_err:
+        return None, ref_err
     return {
         'original_text': original,
         'proposed_text': proposed,
         'context_anchor': context_anchor,
         'scope': scope,
+        'rationale': normalize_rationale(data.get('rationale')),
+        'reference_url': reference_url,
     }, None
 
 
@@ -424,6 +467,8 @@ def create_dp_proposal(
     proposed_text: str,
     context_anchor: Any = None,
     scope: str = 'dp',
+    rationale: Optional[str] = None,
+    reference_url: Optional[str] = None,
 ) -> DpProposal:
     anchor_hash = compute_anchor_hash(
         submission.id,
@@ -438,6 +483,8 @@ def create_dp_proposal(
         context_anchor=serialize_context_anchor(context_anchor),
         original_text=original_text,
         proposed_text=proposed_text,
+        rationale=rationale,
+        reference_url=reference_url,
         content_hash_at_create=submission.content_hash,
         author_user_id=author_user_id,
     )

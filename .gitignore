@@ -37,6 +37,8 @@ datatracker.sublime-workspace
 !/static/js/govhub-i18n.js
 !/static/js/dp-challenge.js
 !/static/js/gh-return-nav.js
+!/static/js/gh-invite.js
+!/static/js/gh-nav-user-name.js
 !/static/js/gh-nav-pills.js
 !/static/js/dp-proposals/
 !/static/js/dp-proposals/**

@@ -84,21 +84,29 @@ def render_dp_proposal_reader_assets(
     draft_ref_esc = html_mod.escape(draft_ref, quote=True)
 
     return f'''
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260526h">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260528c">
     <div id="dp-proposal-reader-root" data-draft-ref="{draft_ref_esc}" data-meta="{meta_json}"></div>
 
     <div class="modal fade" id="dpProposalComposeModal" tabindex="-1" aria-labelledby="dpProposalComposeLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title" id="dpProposalComposeLabel">{html_mod.escape(labels.get("compose_title", "Suggest a change"))}</h5>
+          <div class="modal-header align-items-center">
+            <h5 class="modal-title me-auto" id="dpProposalComposeLabel">{html_mod.escape(labels.get("compose_title", "Suggest a change"))}</h5>
+            <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="dpProposalComposeInviteBtn">
+              <i class="fas fa-user-plus me-1"></i>Invite to edit
+            </button>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
             <p class="text-muted small">Original sentence(s) — expanded from your selection.</p>
             <textarea id="dpProposalOriginal" class="form-control font-monospace dp-proposal-pre mb-3" rows="6" readonly></textarea>
             <label class="form-label" for="dpProposalProposed">Proposed text</label>
-            <textarea id="dpProposalProposed" class="form-control font-monospace dp-proposal-pre" rows="6"></textarea>
+            <textarea id="dpProposalProposed" class="form-control font-monospace dp-proposal-pre mb-3" rows="6"></textarea>
+            <label class="form-label" for="dpProposalRationale">Rationale <span class="text-muted fw-normal">(optional, public)</span></label>
+            <textarea id="dpProposalRationale" class="form-control mb-3" rows="3" maxlength="4000"
+              placeholder="Why this change improves the standard…"></textarea>
+            <label class="form-label" for="dpProposalReferenceUrl">Reference URL <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="url" id="dpProposalReferenceUrl" class="form-control" placeholder="https://…" inputmode="url" autocomplete="url">
             <div id="dpProposalComposeError" class="alert alert-danger mt-3 d-none" role="alert"></div>
           </div>
           <div class="modal-footer">
@@ -129,7 +137,7 @@ def render_dp_proposal_reader_assets(
       </div>
     </div>
 
-    <script src="/static/js/dp-proposals/sentence-tools.js?v=20260526h"></script>
+    <script src="/static/js/dp-proposals/sentence-tools.js?v=20260527h"></script>
     <script src="/static/js/dp-proposals/proposal-display.js?v=20260526h"></script>
-    <script defer src="/static/js/dp-proposals/reader.js?v=20260527a"></script>
+    <script defer src="/static/js/dp-proposals/reader.js?v=20260528c"></script>
     '''

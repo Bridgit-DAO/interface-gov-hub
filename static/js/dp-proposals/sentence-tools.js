@@ -5,9 +5,11 @@
   'use strict';
 
   var SENTENCE_CLOSE_RE = /[.!?…。！？]["'\u201d\u2019]?(\s|$)/;
-  var EXPANSION_MAX_CHARS = 800;
+  var EXPANSION_MAX_CHARS = 4000;
+  /** Only used by legacy expandToSentences exact-match guard, not sentence expansion. */
   var EXPANSION_MAX_LENGTH_RATIO = 4;
-  var DEFAULT_MIN_FRACTION = 0.75;
+  /** @deprecated Gate disabled — any non-empty in-block selection is accepted. */
+  var DEFAULT_MIN_FRACTION = 0;
 
   function normalizeForMatch(s) {
     return String(s || '')
@@ -36,32 +38,82 @@
     var ex = normalizeForMatch(exact).trim();
     if (!ex || !ft) return exact;
     var idx = ft.indexOf(ex);
-    if (idx < 0) return exact;
-    var before = ft.slice(0, idx);
+    if (idx < 0) {
+      var collapsed = ex.replace(/\s+/g, ' ');
+      var re = new RegExp(
+        collapsed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')
+      );
+      var m = re.exec(ft);
+      if (m) {
+        return expandSelectionToSentences(ft, m.index, m.index + m[0].length);
+      }
+      return exact;
+    }
+    return expandSelectionToSentences(ft, idx, idx + ex.length);
+  }
+
+  /**
+   * Expand a character range in fullText to all complete sentences that overlap it.
+   * Prefer this over indexOf(exact) — DOM selection text can differ from blockText offsets.
+   */
+  function expandSelectionToSentences(fullText, selStart, selEnd) {
+    var ft = normalizeForMatch(fullText);
+    selStart = Math.max(0, Math.min(selStart, ft.length));
+    selEnd = Math.max(selStart, Math.min(selEnd, ft.length));
+    if (selEnd <= selStart) return '';
+
+    var locale = (document.documentElement && document.documentElement.lang) || navigator.language || 'en';
+    var sentences = segmentSentences(ft, locale);
+    var firstIdx = -1;
+    var lastIdx = -1;
+    var i;
+    for (i = 0; i < sentences.length; i += 1) {
+      var s = sentences[i];
+      if (s.end <= selStart || s.start >= selEnd) continue;
+      if (firstIdx < 0) firstIdx = i;
+      lastIdx = i;
+    }
+
+    if (firstIdx >= 0) {
+      var expStart = sentences[firstIdx].start;
+      var expEnd = sentences[lastIdx].end;
+      return clampExpandedSentence(ft.slice(expStart, expEnd).trim(), ft, selStart, selEnd);
+    }
+
+    var before = ft.slice(0, selStart);
     var lastBreak = lastSentenceBreakEnd(before);
     var start = lastBreak >= 0 ? lastBreak : before.search(/\S/);
     if (start < 0) start = 0;
-    var after = ft.slice(idx + ex.length);
+    var after = ft.slice(selEnd);
     var relEnd = firstSentenceBreakEnd(after);
-    var end = Math.min(ft.length, idx + ex.length + relEnd);
-    var expanded = ft.slice(start, end).trim();
-    if (expanded.length > ex.length * EXPANSION_MAX_LENGTH_RATIO || expanded.length > EXPANSION_MAX_CHARS) {
-      return exact;
-    }
-    return expanded || exact;
+    var end = Math.min(ft.length, selEnd + relEnd);
+    return clampExpandedSentence(ft.slice(start, end).trim(), ft, selStart, selEnd);
+  }
+
+  function clampExpandedSentence(expanded, ft, selStart, selEnd) {
+    if (!expanded) return ft.slice(selStart, selEnd).trim();
+    if (expanded.length <= EXPANSION_MAX_CHARS) return expanded;
+    return expanded.slice(0, EXPANSION_MAX_CHARS).trim();
   }
 
   function findBlockElement(node) {
-    var blockish = {
-      P: 1, LI: 1, BLOCKQUOTE: 1, TD: 1, TH: 1, DIV: 1, SECTION: 1, ARTICLE: 1,
-      ASIDE: 1, MAIN: 1, HEADER: 1, FOOTER: 1, NAV: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, PRE: 1
+    var preferred = {
+      P: 1, LI: 1, BLOCKQUOTE: 1, TD: 1, TH: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, PRE: 1
+    };
+    var fallback = {
+      DIV: 1, SECTION: 1, ARTICLE: 1, ASIDE: 1, MAIN: 1, HEADER: 1, FOOTER: 1, NAV: 1
     };
     var n = node;
-    for (var i = 0; i < 20 && n; i += 1) {
-      if (n.nodeType === 1 && blockish[n.tagName]) return n;
+    var generic = null;
+    for (var i = 0; i < 24 && n; i += 1) {
+      if (n.nodeType === 1) {
+        var tag = n.tagName;
+        if (preferred[tag]) return n;
+        if (!generic && fallback[tag]) generic = n;
+      }
       n = n.parentNode;
     }
-    return null;
+    return generic;
   }
 
   function getSelectionCharOffsetsInBlock(block, range) {
@@ -133,31 +185,13 @@
     return out;
   }
 
-  function userSelectionMeetsMinSentenceWordFraction(range, minF) {
-    minF = minF == null ? DEFAULT_MIN_FRACTION : minF;
+  function userSelectionMeetsMinSentenceWordFraction(range, _minF) {
     if (!range || range.collapsed) return false;
     var block = findBlockElement(range.commonAncestorContainer);
     if (!block) return false;
     var off = getSelectionCharOffsetsInBlock(block, range);
     if (!off) return false;
-    var locale = (document.documentElement && document.documentElement.lang) || navigator.language || 'en';
-    var sentences = segmentSentences(off.blockText, locale);
-    for (var i = 0; i < sentences.length; i += 1) {
-      var s = sentences[i];
-      if (s.end <= off.start || s.start >= off.end) continue;
-      var words = listWordsInSlice(off.blockText, s.start, s.end, locale);
-      if (!words.length) continue;
-      var sum = 0;
-      for (var w = 0; w < words.length; w += 1) {
-        var w0 = words[w].index;
-        var w1 = w0 + words[w].segment.length;
-        var lo = Math.max(off.start, w0);
-        var hi = Math.min(off.end, w1);
-        sum += hi > lo ? (hi - lo) / (w1 - w0) : 0;
-      }
-      if (sum / words.length >= minF) return true;
-    }
-    return false;
+    return off.blockText.slice(off.start, off.end).trim().length > 0;
   }
 
   function buildTextQuoteSelector(blockText, exact) {
@@ -428,6 +462,7 @@
   global.DpSentenceTools = {
     normalizeForMatch: normalizeForMatch,
     expandToSentences: expandToSentences,
+    expandSelectionToSentences: expandSelectionToSentences,
     userSelectionMeetsMinSentenceWordFraction: userSelectionMeetsMinSentenceWordFraction,
     getSelectionCharOffsetsInBlock: getSelectionCharOffsetsInBlock,
     findBlockElement: findBlockElement,

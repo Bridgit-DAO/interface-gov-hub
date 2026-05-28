@@ -14,6 +14,14 @@ WEB3AUTH_ISSUER = 'https://api-auth.web3auth.io'
 WEB3AUTH_ALGORITHMS = ['ES256']
 
 
+def normalize_user_email(email: Optional[str]) -> Optional[str]:
+    """Canonical form for User.email — lookups and storage should use this."""
+    if not email:
+        return None
+    normalized = str(email).strip().lower()
+    return normalized or None
+
+
 @lru_cache(maxsize=1)
 def _jwks_client() -> PyJWKClient:
     return PyJWKClient(WEB3AUTH_JWKS_URL, cache_keys=True, lifespan=600)
@@ -61,7 +69,7 @@ def identity_from_web3auth_claims(claims: Dict[str, Any]) -> Dict[str, Optional[
     if not verifier_id:
         raise ValueError('Token missing userId')
 
-    email = (claims.get('email') or '').strip() or None
+    email = normalize_user_email(claims.get('email'))
     name = (claims.get('name') or '').strip() or None
     profile_image = (claims.get('profileImage') or '').strip() or None
 

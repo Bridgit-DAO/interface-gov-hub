@@ -22,6 +22,7 @@ from models.artifact import (
     Artifact, ArtifactRelation,
 )
 from models.dp_proposal import DpProposal
+from models.platform_invitation import PlatformInvitation
 from models.collection import ArtifactCollection, ArtifactCollectionItem
 from models.layer_tag import LayerTag, LayerTagLink, SUBJECT_ARTIFACT, SUBJECT_SUBMISSION
 # Legacy tables (migrated to layer_tag); models kept for old DB rows if present
@@ -35,7 +36,7 @@ __all__ = [
     'Layer', 'LayerMember', 'LayerAdmin',
     'Waitlist', 'WaitlistEntry', 'WaitlistMilestone', 'EmailUnsubscribe', 'WaitlistEmailSignup',
     'Workgroup', 'WorkgroupLayerLink', 'WorkingGroupMember', 'WorkingGroupChair', 'CoordinatorRequest', 'WorkgroupMemberRequest',
-    'Guild', 'GuildMembership', 'GuildInvitation', 'LayerInvitation', 'GuildLayerLink', 'GuildArtifactLink', 'GuildQuestLink',
+    'Guild', 'GuildMembership', 'GuildInvitation', 'LayerInvitation', 'PlatformInvitation', 'GuildLayerLink', 'GuildArtifactLink', 'GuildQuestLink',
     'Cluster', 'Role', 'RoleImage', 'RoleImageVote',
     'Claim', 'Badge', 'BadgeSkin', 'BadgeCycle', 'OneTimeBadge',
     'Vote', 'VoteEligibilitySnapshot', 'VoteCandidate', 'Ballot',
