@@ -472,6 +472,18 @@ def update_layer(layer_id):
             stored = {k: v for k, v in overrides.items() if v is False}
             project.enabled_features = layer_enabled_features_to_json(stored)
 
+    if 'nav_pill_config' in data:
+        from services.nav_pills import validate_layer_nav_pill_patch
+
+        raw_npc = data['nav_pill_config']
+        if raw_npc is None:
+            project.nav_pill_config = None
+        else:
+            normalized, err = validate_layer_nav_pill_patch(raw_npc)
+            if err:
+                return jsonify({'error': err}), 400
+            project.nav_pill_config = json.dumps(normalized, sort_keys=True) if normalized else None
+
     project.updated_at = datetime.utcnow()
     if data:
         emit_event('layer_config_changed', actor_type='user', actor_id=current_user['id'],

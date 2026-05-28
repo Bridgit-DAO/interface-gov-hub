@@ -46,54 +46,64 @@ BASE_TEMPLATE = """
     <style>
         :root {{
             /* Light theme (default) */
-            --bg-color: #ffffff;
-            --bg-secondary: #f7f9fa;
-            --bg-tertiary: #e1e8ed;
-            --text-primary: #14171a;
-            --text-secondary: #657786;
-            --text-muted: #aab8c2;
-            --border-color: #e1e8ed;
-            --border-hover: #ccd6dd;
-            --accent-color: #1d9bf0;
-            --accent-hover: #1a8cd8;
-            --success-color: #00ba7c;
-            --warning-color: #f7b529;
-            --error-color: #f4212e;
-            --navbar-bg: #ffffff;
-            --navbar-text: #14171a;
-            --navbar-border: #e1e8ed;
-            --card-bg: #ffffff;
-            --card-border: #e1e8ed;
+            --bg-color: #f4f7fc;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #e8eef8;
+            --text-primary: #0a1628;
+            --text-secondary: #4a5d7a;
+            --text-muted: #7a8ba8;
+            --border-color: rgba(77, 159, 255, 0.18);
+            --border-hover: rgba(77, 159, 255, 0.32);
+            --accent-color: #2563eb;
+            --accent-hover: #1d4ed8;
+            --success-color: #059669;
+            --warning-color: #d97706;
+            --error-color: #dc2626;
+            --navbar-bg: rgba(244, 247, 252, 0.92);
+            --navbar-text: #0a1628;
+            --navbar-border: rgba(77, 159, 255, 0.14);
+            --card-bg: rgba(255, 255, 255, 0.92);
+            --card-border: rgba(102, 126, 234, 0.18);
             --input-bg: #ffffff;
-            --input-border: #657786;
-            --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.15);
+            --input-border: rgba(77, 159, 255, 0.25);
+            --shadow: 0 4px 20px rgba(10, 22, 40, 0.08);
+            --shadow-hover: 0 8px 28px rgba(77, 159, 255, 0.12);
+            --gh-brand-gov: #0a1628;
+            --gh-brand-hub-start: #2563eb;
+            --gh-brand-hub-end: #764ba2;
+            --gh-brand-gradient: linear-gradient(135deg, #2563eb 0%, #667eea 48%, #764ba2 100%);
+            --gh-glass-blur: blur(12px);
         }}
 
         [data-theme="dark"] {{
-            /* Dark theme */
-            --bg-color: #000000;
-            --bg-secondary: #16181c;
-            --bg-tertiary: #1d1f23;
-            --text-primary: #ffffff;
-            --text-secondary: #8b98a5;
-            --text-muted: #6c7b8a;
-            --border-color: #2f3336;
-            --border-hover: #3d4043;
-            --accent-color: #1d9bf0;
-            --accent-hover: #1a8cd8;
-            --success-color: #00ba7c;
-            --warning-color: #f7b529;
-            --error-color: #f4212e;
-            --navbar-bg: #16181c;
-            --navbar-text: #ffffff;
-            --navbar-border: #2f3336;
-            --card-bg: #16181c;
-            --card-border: #2f3336;
-            --input-bg: #16181c;
-            --input-border: #3d4043;
-            --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-            --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.4);
+            /* Gov Hub brand — deep navy civic-tech palette */
+            --bg-color: #050b1a;
+            --bg-secondary: #0a1224;
+            --bg-tertiary: #101a30;
+            --text-primary: #eef2ff;
+            --text-secondary: #94a3c4;
+            --text-muted: #6b7a99;
+            --border-color: rgba(77, 159, 255, 0.14);
+            --border-hover: rgba(77, 159, 255, 0.28);
+            --accent-color: #4d9fff;
+            --accent-hover: #6eb3ff;
+            --success-color: #34d399;
+            --warning-color: #fbbf24;
+            --error-color: #f87171;
+            --navbar-bg: rgba(5, 11, 26, 0.88);
+            --navbar-text: #eef2ff;
+            --navbar-border: rgba(77, 159, 255, 0.12);
+            --card-bg: rgba(10, 18, 36, 0.78);
+            --card-border: rgba(102, 126, 234, 0.22);
+            --input-bg: rgba(10, 18, 36, 0.92);
+            --input-border: rgba(77, 159, 255, 0.22);
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+            --shadow-hover: 0 8px 32px rgba(77, 159, 255, 0.12);
+            --gh-brand-gov: #ffffff;
+            --gh-brand-hub-start: #4d9fff;
+            --gh-brand-hub-end: #764ba2;
+            --gh-brand-gradient: linear-gradient(135deg, #4d9fff 0%, #667eea 48%, #764ba2 100%);
+            --gh-glass-blur: blur(14px);
         }}
 
         * {{
@@ -110,12 +120,26 @@ BASE_TEMPLATE = """
             transition: background-color 0.2s ease, color 0.2s ease;
         }}
 
+        [data-theme="dark"] body {{
+            background:
+                radial-gradient(ellipse 120% 70% at 50% -10%, rgba(77, 159, 255, 0.1), transparent 55%),
+                radial-gradient(ellipse 70% 50% at 100% 20%, rgba(118, 75, 162, 0.08), transparent 50%),
+                radial-gradient(ellipse 60% 40% at 0% 80%, rgba(45, 212, 191, 0.05), transparent 45%),
+                var(--bg-color);
+        }}
+
+        [data-theme="light"] body {{
+            background:
+                radial-gradient(ellipse 100% 60% at 50% -5%, rgba(77, 159, 255, 0.06), transparent 50%),
+                var(--bg-color);
+        }}
+
         /* Modern navbar similar to X — min-height only; fixed height caused overlap with main content on small screens */
         .navbar {{
             background-color: var(--navbar-bg) !important;
             border-bottom: 1px solid var(--navbar-border);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: var(--gh-glass-blur);
+            -webkit-backdrop-filter: var(--gh-glass-blur);
             box-shadow: var(--shadow);
             padding: 0;
             min-height: 52px;
@@ -124,12 +148,61 @@ BASE_TEMPLATE = """
             overflow: visible !important;
         }}
 
+        /* Bootstrap .navbar sets flex-wrap:wrap; container inherits it — force single row on desktop */
         .navbar > .container {{
-            flex-wrap: wrap;
             align-items: center;
+            max-width: 100%;
+            width: 100%;
+        }}
+
+        @media (min-width: 992px) {{
+            .navbar.navbar-expand-lg > .container {{
+                display: flex !important;
+                flex-wrap: nowrap !important;
+                flex-direction: row !important;
+                align-items: center !important;
+            }}
+            .navbar.navbar-expand-lg .navbar-brand {{
+                flex: 0 0 auto;
+                margin-right: 0.25rem;
+            }}
+            .navbar.navbar-expand-lg .navbar-collapse {{
+                display: flex !important;
+                flex: 1 1 auto !important;
+                flex-basis: auto !important;
+                flex-wrap: nowrap !important;
+                width: auto !important;
+                min-width: 0;
+                justify-content: flex-end;
+                align-items: center;
+            }}
+            .navbar.navbar-expand-lg .navbar-collapse > .navbar-nav {{
+                flex-wrap: nowrap !important;
+                flex-shrink: 1;
+                min-width: 0;
+            }}
+            .navbar.navbar-expand-lg .navbar-nav.ms-auto {{
+                flex-shrink: 0;
+            }}
+            .navbar.navbar-expand-lg .navbar-nav .nav-link {{
+                padding-left: 12px;
+                padding-right: 12px;
+                white-space: nowrap;
+            }}
+            .navbar-expand-lg .navbar-nav.ms-auto .gh-user-nav-name {{
+                display: inline-block;
+                max-width: 10rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                vertical-align: middle;
+            }}
         }}
 
         @media (max-width: 991.98px) {{
+            .navbar > .container {{
+                flex-wrap: wrap;
+            }}
             .navbar-expand-lg .navbar-collapse {{
                 flex-basis: 100%;
                 width: 100%;
@@ -152,6 +225,22 @@ BASE_TEMPLATE = """
 
         .navbar-brand:hover {{
             color: var(--accent-color) !important;
+        }}
+
+        .gh-brand-word {{
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }}
+
+        .gh-brand-gov {{
+            color: var(--gh-brand-gov, var(--navbar-text));
+        }}
+
+        .gh-brand-hub {{
+            background: var(--gh-brand-gradient, linear-gradient(135deg, #4d9fff, #764ba2));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
         }}
 
         .navbar-brand img {{
@@ -259,6 +348,8 @@ BASE_TEMPLATE = """
             border-radius: 16px;
             box-shadow: var(--shadow);
             transition: all 0.2s ease;
+            backdrop-filter: var(--gh-glass-blur);
+            -webkit-backdrop-filter: var(--gh-glass-blur);
         }}
 
         .card:hover {{
@@ -288,14 +379,16 @@ BASE_TEMPLATE = """
         }}
 
         .btn-primary {{
-            background-color: var(--accent-color);
-            border-color: var(--accent-color);
+            background: var(--gh-brand-gradient, var(--accent-color));
+            border: 1px solid rgba(77, 159, 255, 0.35);
             color: white;
+            box-shadow: 0 4px 16px rgba(77, 159, 255, 0.2);
         }}
 
         .btn-primary:hover {{
-            background-color: var(--accent-hover);
-            border-color: var(--accent-hover);
+            background: var(--gh-brand-gradient, var(--accent-hover));
+            border-color: rgba(77, 159, 255, 0.5);
+            filter: brightness(1.06);
             transform: translateY(-1px);
         }}
 
@@ -752,7 +845,10 @@ BASE_TEMPLATE = """
             }}
         }}
     </style>
-    <link href="/static/css/govhub-design.css" rel="stylesheet">
+    <link href="/static/css/govhub-design.css?v=20260527invite" rel="stylesheet">
+    <link href="/static/css/gh-nav-pills.css?v=1" rel="stylesheet">
+    <script src="/static/js/gh-nav-pills.js?v=1" defer></script>
+    <script src="/static/js/gh-nav-user-name.js?v=2" defer></script>
     <script src="/static/js/gh-directory.js"></script>
 </head>
 <body data-build-number="{build_number}" {body_attrs}>
@@ -770,7 +866,7 @@ BASE_TEMPLATE = """
         <div class="container">
             <a class="navbar-brand" href="/">
                 <img class="navbar-brand-logo-invert" src="/static/images/overweb_logo.png" alt="Overweb" />
-                MLGH
+                <span class="gh-brand-word"><span class="gh-brand-gov">Gov</span> <span class="gh-brand-hub">Hub</span></span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" data-gh-i18n-aria="nav.toggleMenu">
                 <span class="navbar-toggler-icon"></span>
@@ -815,6 +911,8 @@ BASE_TEMPLATE = """
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/gh-return-nav.js"></script>
+    <script src="/static/js/gh-dialog.js"></script>
+    <script src="/static/js/gh-invite.js?v=10"></script>
     <script>
         (function () {{
             var HOVER_MQ = window.matchMedia('(min-width: 992px)');
@@ -840,7 +938,6 @@ BASE_TEMPLATE = """
             HOVER_MQ.addEventListener('change', bindNavbarHoverDropdowns);
         }})();
     </script>
-    <script src="/static/js/gh-dialog.js"></script>
     <script>
         // Theme switching functionality
         const themeToggle = document.getElementById('theme-toggle');
@@ -905,15 +1002,17 @@ BASE_TEMPLATE = """
         }}
 
         function setWeb3AuthUiState(state) {{
-            const btn = document.getElementById('web3auth-signin-btn');
-            if (!btn) return;
-            if (state === 'loading') {{
-                btn.disabled = true;
-                btn.setAttribute('aria-busy', 'true');
-            }} else {{
-                btn.disabled = false;
-                btn.removeAttribute('aria-busy');
-            }}
+            ['web3auth-signin-btn', 'web3auth-google-btn', 'web3auth-email-btn'].forEach(function(id) {{
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                if (state === 'loading') {{
+                    btn.disabled = true;
+                    btn.setAttribute('aria-busy', 'true');
+                }} else {{
+                    btn.disabled = false;
+                    btn.removeAttribute('aria-busy');
+                }}
+            }});
         }}
 
         // Initialize Web3Auth after ensuring scripts are loaded (single shared promise)
@@ -943,6 +1042,7 @@ BASE_TEMPLATE = """
                 }});
 
                 const Web3AuthConstructor = window.Modal.Web3Auth;
+                const modalCfg = ghWeb3AuthModalConfig();
                 const web3AuthConfig = {{
                     clientId: "{web3auth_client_id}",
                     web3AuthNetwork: '{web3auth_network}',
@@ -960,7 +1060,7 @@ BASE_TEMPLATE = """
                         theme: {{
                             primary: '#1d9bf0'
                         }},
-                        loginMethodsOrder: ['google', 'twitter', 'email_passwordless', 'wallet'],
+                        loginMethodsOrder: ghWeb3AuthLoginMethodsOrder(),
                         defaultLanguage: 'en',
                     }},
                     loginConfig: {{
@@ -973,7 +1073,11 @@ BASE_TEMPLATE = """
                         }}
                     }},
                 }};
+                if (modalCfg) {{
+                    web3AuthConfig.modalConfig = modalCfg;
+                }}
 
+                refreshWeb3AuthLoginHint();
                 const instance = new Web3AuthConstructor(web3AuthConfig);
                 await instance.init();
                 web3auth = instance;
@@ -1043,7 +1147,133 @@ BASE_TEMPLATE = """
             return '/';
         }}
 
-        async function loginWithWeb3Auth() {{
+        function ghAuthContextHasInvite() {{
+            try {{
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('invite')) return true;
+                const next = params.get('next') || params.get('redirect') || '';
+                if (next.indexOf('invite=') >= 0) return true;
+                const stored = sessionStorage.getItem('ghPostLoginReturn') || '';
+                if (stored.indexOf('invite=') >= 0) return true;
+            }} catch (_e) {{}}
+            return false;
+        }}
+
+        function ghIsWalletInAppBrowser() {{
+            try {{
+                const ua = navigator.userAgent || '';
+                return /MetaMask|MetaMaskMobile/i.test(ua);
+            }} catch (_e) {{}}
+            return false;
+        }}
+
+        function ghShouldUseSocialLoginOnly() {{
+            if (ghAuthContextHasInvite()) return true;
+            if (ghIsWalletInAppBrowser()) return true;
+            const path = window.location.pathname || '';
+            return path === '/login/' || path === '/login';
+        }}
+
+        function ghWeb3AuthLoginMethodsOrder() {{
+            if (ghShouldUseSocialLoginOnly()) {{
+                return ['google', 'twitter', 'email_passwordless'];
+            }}
+            return ['google', 'twitter', 'email_passwordless', 'wallet'];
+        }}
+
+        function ghWeb3AuthModalConfig() {{
+            if (!ghShouldUseSocialLoginOnly()) return null;
+            const M = window.Modal || {{}};
+            const WC = M.WALLET_CONNECTORS;
+            if (!WC) {{
+                return {{ hideWalletDiscovery: true }};
+            }}
+            const authId = WC.AUTH || 'auth';
+            const connectors = {{
+                [authId]: {{
+                    label: 'social',
+                    showOnModal: true,
+                    loginMethods: {{
+                        google: {{ name: 'Google', showOnModal: true }},
+                        twitter: {{ showOnModal: true }},
+                        email_passwordless: {{ showOnModal: true }},
+                    }},
+                }},
+            }};
+            [WC.METAMASK, WC.WALLET_CONNECT, WC.WALLET_CONNECT_V2].forEach(function(key) {{
+                if (key) connectors[key] = {{ showOnModal: false }};
+            }});
+            return {{ hideWalletDiscovery: true, connectors: connectors }};
+        }}
+
+        async function ghResolveInviteLoginHint() {{
+            try {{
+                const stored = sessionStorage.getItem('gh_invite_login_hint');
+                if (stored && stored.indexOf('@') > 0) return stored.trim().toLowerCase();
+            }} catch (_e) {{}}
+            let token = null;
+            try {{
+                const params = new URLSearchParams(window.location.search);
+                token = params.get('invite');
+                if (!token) {{
+                    const next = params.get('next') || params.get('redirect') || '';
+                    const m = next.match(/[?&]invite=([^&]+)/);
+                    if (m) token = decodeURIComponent(m[1]);
+                }}
+                if (!token) {{
+                    const ret = sessionStorage.getItem('ghPostLoginReturn') || '';
+                    const m2 = ret.match(/[?&]invite=([^&]+)/);
+                    if (m2) token = decodeURIComponent(m2[1]);
+                }}
+            }} catch (_e) {{}}
+            if (!token) return null;
+            try {{
+                const res = await fetch('/api/platform-invitations/preview/' + encodeURIComponent(token), {{
+                    credentials: 'include',
+                }});
+                const data = await res.json();
+                const email = (data.invitee_email || '').trim().toLowerCase();
+                if (email && email.indexOf('@') > 0) {{
+                    try {{ sessionStorage.setItem('gh_invite_login_hint', email); }} catch (_e) {{}}
+                    return email;
+                }}
+            }} catch (_e) {{}}
+            return null;
+        }}
+
+        async function connectWeb3AuthProvider(providerMode, loginHint) {{
+            const M = window.Modal || {{}};
+            const WC = M.WALLET_CONNECTORS;
+            if (providerMode === 'google' && WC) {{
+                return web3auth.connectTo(WC.AUTH, {{ authConnection: 'google' }});
+            }}
+            if (providerMode === 'email' && WC) {{
+                const hint = (loginHint || '').trim().toLowerCase();
+                if (!hint || hint.indexOf('@') < 1) {{
+                    throw new Error('Missing login_hint for email sign-in. Use the email address from your invitation.');
+                }}
+                return web3auth.connectTo(WC.AUTH, {{
+                    authConnection: 'email_passwordless',
+                    extraLoginOptions: {{ login_hint: hint }},
+                    loginHint: hint,
+                }});
+            }}
+            return web3auth.connect();
+        }}
+
+        function refreshWeb3AuthLoginHint() {{
+            const hint = document.getElementById('web3auth-login-hint');
+            const socialOnly = ghShouldUseSocialLoginOnly();
+            if (hint) {{
+                if (socialOnly) {{
+                    hint.textContent = 'Sign in with Google or email using the same address as your invitation.';
+                }} else {{
+                    hint.textContent = 'Web3Auth — Google, email, or wallet';
+                }}
+            }}
+        }}
+
+        async function performWeb3AuthLogin(providerMode, loginHint) {{
             if (web3authLoginInProgress) {{
                 return;
             }}
@@ -1068,15 +1298,7 @@ BASE_TEMPLATE = """
                     storePostLoginReturnPath(here);
                 }}
 
-                // Force a fresh provider login (no silent reconnect from prior session).
-                try {{
-                    await web3auth.logout({{ cleanup: true }});
-                }} catch (logoutError) {{
-                    console.warn('Web3Auth logout before connect:', logoutError);
-                }}
-
-                // Connect without specifying a provider - shows modal with all options
-                const web3authProvider = await web3auth.connect();
+                const web3authProvider = await connectWeb3AuthProvider(providerMode, loginHint);
                 const userInfo = await web3auth.getUserInfo();
                 
                 console.log('User info received:', userInfo);
@@ -1100,11 +1322,16 @@ BASE_TEMPLATE = """
 
                 // Identity token — required for server-side verification (after connect only).
                 let idToken = '';
-                try {{
-                    const identity = await web3auth.getIdentityToken();
-                    idToken = (identity && identity.idToken) || '';
-                }} catch (tokenError) {{
-                    console.warn('Could not get identity token:', tokenError);
+                for (let attempt = 0; attempt < 3 && !idToken; attempt++) {{
+                    try {{
+                        if (attempt > 0) {{
+                            await new Promise(resolve => setTimeout(resolve, 400 * attempt));
+                        }}
+                        const identity = await web3auth.getIdentityToken();
+                        idToken = (identity && identity.idToken) || '';
+                    }} catch (tokenError) {{
+                        console.warn('Could not get identity token (attempt ' + (attempt + 1) + '):', tokenError);
+                    }}
                 }}
                 if (!idToken) {{
                     alert('Sign-in verification failed: no identity token. Please try again.');
@@ -1128,7 +1355,17 @@ BASE_TEMPLATE = """
 
                 const result = await response.json();
                 if (response.ok) {{
-                    window.location.href = consumePostLoginReturnPath();
+                    const me = await fetch('/api/user/me', {{ credentials: 'include' }});
+                    if (!me.ok) {{
+                        console.error('Session not established after login', me.status);
+                        alert('Sign-in succeeded but the session was not saved. Try again or use a private window.');
+                        return;
+                    }}
+                    let dest = consumePostLoginReturnPath();
+                    if (window.GhInvite && window.GhInvite.finishLoginWithInviteAccept) {{
+                        dest = await window.GhInvite.finishLoginWithInviteAccept(dest);
+                    }}
+                    window.location.replace(dest);
                 }} else {{
                     console.error('Backend error:', result);
                     alert('Login failed: ' + (result.error || 'Unknown error'));
@@ -1136,11 +1373,37 @@ BASE_TEMPLATE = """
             }} catch (error) {{
                 console.error('Login failed:', error);
                 if (error.message && !error.message.includes('user closed')) {{
-                    alert('Login failed: ' + error.message);
+                    var msg = error.message;
+                    if (/could not verify identity/i.test(msg)) {{
+                        msg += '\\n\\nUse Google or email sign-in (same address as your invitation). Wallet login often fails for invited editors.';
+                    }}
+                    alert('Login failed: ' + msg);
                 }}
             }} finally {{
                 web3authLoginInProgress = false;
             }}
+        }}
+
+        async function loginWithWeb3Auth() {{
+            if (ghShouldUseSocialLoginOnly()) {{
+                return loginWithWeb3AuthGoogle();
+            }}
+            return performWeb3AuthLogin(null);
+        }}
+
+        async function loginWithWeb3AuthGoogle() {{
+            return performWeb3AuthLogin('google', null);
+        }}
+
+        async function loginWithWeb3AuthEmail() {{
+            let hint = await ghResolveInviteLoginHint();
+            if (!hint) {{
+                hint = (window.prompt('Enter the email address from your invitation:') || '').trim().toLowerCase();
+            }}
+            if (!hint || hint.indexOf('@') < 1) {{
+                return;
+            }}
+            return performWeb3AuthLogin('email', hint);
         }}
 
         // Initialize Web3Auth on page load
@@ -1152,10 +1415,15 @@ BASE_TEMPLATE = """
 
             startWeb3AuthInit()
                 .then(async () => {{
+                    refreshWeb3AuthLoginHint();
                     const urlParams = new URLSearchParams(window.location.search);
                     if (urlParams.get('show_login') === '1') {{
-                        window.history.replaceState({{}}, '', window.location.pathname);
-                        await loginWithWeb3Auth();
+                        window.history.replaceState({{}}, '', window.location.pathname + window.location.search);
+                        if (ghAuthContextHasInvite()) {{
+                            await loginWithWeb3AuthEmail();
+                        }} else if (!ghShouldUseSocialLoginOnly()) {{
+                            await loginWithWeb3Auth();
+                        }}
                     }}
                 }})
                 .catch(() => {{}});
@@ -1167,8 +1435,9 @@ BASE_TEMPLATE = """
             bootWeb3Auth();
         }}
 
-        // Make loginWithWeb3Auth available globally
         window.loginWithWeb3Auth = loginWithWeb3Auth;
+        window.loginWithWeb3AuthGoogle = loginWithWeb3AuthGoogle;
+        window.loginWithWeb3AuthEmail = loginWithWeb3AuthEmail;
     </script>
 </body>
 </html>
@@ -1180,7 +1449,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
         <div class="container">
             <a class="navbar-brand" href="/">
                 <img class="navbar-brand-logo-invert" src="/static/images/overweb_logo.png" alt="Overweb" />
-                MLGH
+                <span class="gh-brand-word"><span class="gh-brand-gov">Gov</span> <span class="gh-brand-hub">Hub</span></span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" data-gh-i18n-aria="nav.toggleMenu">
                 <span class="navbar-toggler-icon"></span>
@@ -1264,6 +1533,8 @@ SUBMIT_TEMPLATE = """
             <li class="breadcrumb-item active">Submit Draft</li>
         </ol>
     </nav>
+
+    {{PAGE_HERO}}
 
     <header class="gh-page-header">
         <div class="gh-page-header-main">

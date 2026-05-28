@@ -74,9 +74,21 @@ def home():
         user_menu=user_menu,
         content=f"""
     <div class="gh-page container mt-4">
-        <div class="gh-home-hero">
-            <h1>Governance Hub</h1>
-            <p>{hero_subtitle}</p>
+        <div class="gh-home-hero gh-home-hero--visual">
+            <div class="gh-home-hero-banner">
+                <img
+                    src="/static/images/gov-hub-home-hero.png"
+                    alt="Gov Hub — Meta-Layer Governance Hub"
+                    width="1600"
+                    height="900"
+                    loading="eager"
+                    decoding="async"
+                    class="gh-home-hero-img"
+                />
+            </div>
+        </div>
+        <div class="gh-home-hero-tagline-box">
+            <p class="gh-home-hero-tagline">{hero_subtitle}</p>
         </div>
         <div class="row g-4">
             <div class="col-lg-8">

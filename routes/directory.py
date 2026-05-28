@@ -19,6 +19,7 @@ from services.people_directory import (
     build_person_row,
     workgroup_filter_options,
 )
+from services.page_heroes import render_page_hero_html
 
 bp = Blueprint('directory', __name__, url_prefix='')
 
@@ -185,6 +186,7 @@ def projects_directory():
     )
     content = f"""
     {gh_page_open()}
+    {render_page_hero_html('layers')}
     {gh_page_header('Layers Map', 'Discover layers — status, activity, and community at a glance', 'fa-layer-group', create_btn)}
     {gh_filter_row(
         gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadProjects()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="proposed">Proposed</option><option value="stabilizing">Stabilizing</option><option value="maintaining">Maintaining</option><option value="dormant">Dormant</option><option value="concluded">Concluded</option><option value="archived">Archived</option></select>')
@@ -312,6 +314,7 @@ def workgroups_directory():
     )
     content = f"""
     {gh_page_open()}
+    {render_page_hero_html('workgroups')}
     {gh_page_header('Workgroups Directory', 'Browse workgroups across all layers', 'fa-users-cog', wg_actions)}
     {gh_filter_row(
         gh_directory_toolbar(
@@ -587,6 +590,7 @@ def votes_directory():
     current_theme = session.get('theme', 'dark')
     content = f"""
     {gh_page_open()}
+    {render_page_hero_html('votes')}
     {gh_page_header('Votes', 'Votes and elections are organized by layer', 'fa-vote-yea', actions_html='<a href="/layers/" class="btn btn-primary btn-sm"><i class="fas fa-layer-group me-1"></i>Browse Layers</a>')}
     {gh_page_close()}
     """
@@ -608,6 +612,7 @@ def artifacts_directory():
     )
     content = f"""
     {gh_page_open()}
+    {render_page_hero_html('artifacts')}
     {gh_page_header('Artifacts', 'Proposals, evidence, and knowledge contributions', 'fa-cube', actions_html='<a href="/layers/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-layer-group me-1"></i>Layers</a>')}
     {gh_filter_row(
         '<div class="col-md-3"><label class="form-label small text-muted">Layer</label>'
@@ -737,6 +742,7 @@ def opportunities_directory():
     )
     content = f"""
     {gh_page_open()}
+    {render_page_hero_html('opportunities')}
     {gh_page_header('Opportunities', opp_blurb + ' Browse layers to find opportunities.', 'fa-bullseye', '<a href="/layers/" class="btn btn-primary"><i class="fas fa-layer-group me-2"></i>Browse Layers</a>')}
     {gh_page_close()}
     """
@@ -765,6 +771,7 @@ def build_waitlists_content(layer_slug=None):
     
     return f"""
     {gh_page_open()}
+    {render_page_hero_html('waitlists')}
     {gh_page_header('Waitlists Directory', 'Join waitlists for upcoming projects, features, and opportunities', 'fa-list-alt', breadcrumb_html=layer_title_html)}
     {gh_filter_row(
         (layer_filter_html or '')
@@ -970,6 +977,7 @@ def guilds_directory():
     )
     content = f"""
     {gh_page_open()}
+    {render_page_hero_html('guilds')}
     {gh_page_header('Guilds Directory', 'Cross-project collaboration groups', 'fa-shield-halved', guild_create)}
     {gh_filter_row(
         gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadGuilds()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="archived">Archived</option></select>', 'col-md-3')

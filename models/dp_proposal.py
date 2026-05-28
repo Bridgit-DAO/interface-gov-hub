@@ -27,6 +27,8 @@ class DpProposal(db.Model):
     context_anchor = db.Column(db.Text, nullable=True)
     original_text = db.Column(db.Text, nullable=False)
     proposed_text = db.Column(db.Text, nullable=False)
+    rationale = db.Column(db.Text, nullable=True)
+    reference_url = db.Column(db.String(2048), nullable=True)
     content_hash_at_create = db.Column(db.String(64), nullable=True, index=True)
     author_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     reviewed_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
@@ -48,8 +50,9 @@ class DpProposal(db.Model):
     )
 
     def status_label(self) -> str:
+        pending = 'Suggested edit' if self.scope == 'document' else 'DP Proposal'
         labels = {
-            'pending': 'DP Proposal',
+            'pending': pending,
             'accepted': 'Amendment',
             'declined': 'Declined',
             'incorporated': 'Published in Revision',
@@ -73,6 +76,8 @@ class DpProposal(db.Model):
             'anchor_hash': self.anchor_hash,
             'original_text': self.original_text,
             'proposed_text': self.proposed_text,
+            'rationale': self.rationale,
+            'reference_url': self.reference_url,
             'content_hash_at_create': self.content_hash_at_create,
             'author_user_id': self.author_user_id,
             'author_name': author_name,

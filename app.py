@@ -163,6 +163,7 @@ def create_app():
     from routes.layer_invitations import bp as layer_invitations_bp, bp_pages as layer_invite_pages_bp
     from routes.dp_proposals import bp as dp_proposals_bp, admin_bp as dp_proposals_admin_bp
     from routes.dp_challenge_pages import bp as dp_challenge_bp
+    from routes.platform_invitations import bp as platform_invitations_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -224,6 +225,7 @@ def create_app():
     app.register_blueprint(dp_proposals_bp)
     app.register_blueprint(dp_proposals_admin_bp)
     app.register_blueprint(dp_challenge_bp)
+    app.register_blueprint(platform_invitations_bp)
 
     # CLI
     from cli import register_cli
@@ -258,6 +260,7 @@ def create_app():
     import logging
     import traceback
     from flask import request
+    from werkzeug.exceptions import HTTPException
 
     _oauth_log = logging.getLogger('oauth_debug')
     _oauth_log.setLevel(logging.DEBUG)
@@ -268,6 +271,8 @@ def create_app():
 
     @app.errorhandler(Exception)
     def _log_oauth_exceptions(exc):
+        if isinstance(exc, HTTPException):
+            return exc
         if request.path and '/auth/' in request.path and '/authorized' in request.path:
             _oauth_log.error(
                 "OAuth callback error on %s: %s\nrequest.args=%s\ntraceback:\n%s",

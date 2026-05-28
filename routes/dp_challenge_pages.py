@@ -1,4 +1,4 @@
-"""Public DP Challenge hub: activity by doc and contributor."""
+"""Public proposal hubs: DP Challenge and Suggest an Edit (shared template, mode-driven labels/lists)."""
 from __future__ import annotations
 
 import html as html_mod
@@ -13,15 +13,15 @@ from services.dp_proposals import (
     dashboard_dp_activity,
     dashboard_dp_by_participant,
     dashboard_dp_challenge_stats,
-    list_approved_dp_submissions,
+    list_approved_submissions_for_mode,
     parse_challenge_since_param,
     submission_draft_ref,
 )
-from services.workgroup_links import extract_dp_number_from_title
 from services.identity import get_current_user
-from services.product_rollout import is_feature_enabled
+from services.proposal_modes import ProposalMode, get_proposal_mode, is_mode_enabled
 from services.read_navigation import read_page_url
 from services.rendering import generate_user_menu, render_page
+from services.workgroup_links import extract_dp_number_from_title
 
 bp = Blueprint('dp_challenge', __name__)
 
@@ -32,12 +32,15 @@ def _format_activity_time(iso: Optional[str]) -> str:
     return html_mod.escape(iso[:19].replace('T', ' '))
 
 
-def _build_doc_table_rows(rows: list) -> str:
+def _build_doc_table_rows(rows: list, mode_cfg: dict) -> str:
+    hub_path = mode_cfg['hub_path']
+    labels = mode_cfg['labels']
+    show_dp = mode_cfg.get('show_dp_column', True)
     if not rows:
-        return '''
+        return f'''
             <tr>
                 <td colspan="9" class="text-center text-muted py-4">
-                    No proposals yet. Open a DP draft, select a sentence, and be the first to suggest a change.
+                    {html_mod.escape(mode_cfg['empty_docs'])}
                 </td>
             </tr>'''
     out = []
@@ -49,10 +52,13 @@ def _build_doc_table_rows(rows: list) -> str:
         dp_num = row.get('dp_number')
         dp_label = html_mod.escape(f'DP{dp_num}') if dp_num is not None else '—'
         c = row.get('counts') or {}
-        doc_href = html_mod.escape(read_page_url(draft_ref, '/dp-challenge/'))
+        doc_href = html_mod.escape(read_page_url(draft_ref, hub_path))
+        dp_cell = ''
+        if show_dp:
+            dp_cell = f'<td class="dp-challenge-col-dp"><span class="badge bg-primary">{dp_label}</span></td>'
         out.append(f'''
             <tr>
-                <td class="dp-challenge-col-dp"><span class="badge bg-primary">{dp_label}</span></td>
+                {dp_cell}
                 <td class="dp-challenge-col-title">
                     <a href="{doc_href}" class="dp-challenge-doc-link text-decoration-none" title="{title_full}">{title_short}</a>
                 </td>
@@ -63,18 +69,18 @@ def _build_doc_table_rows(rows: list) -> str:
                 <td class="dp-challenge-col-num"><span class="badge bg-secondary">{int(c.get('declined', 0))}</span></td>
                 <td class="dp-challenge-col-num">{int(c.get('total', 0))}</td>
                 <td class="dp-challenge-col-action text-end">
-                    <a href="{doc_href}" class="btn btn-sm btn-outline-primary text-nowrap">Read &amp; propose</a>
+                    <a href="{doc_href}" class="btn btn-sm btn-outline-primary text-nowrap">{html_mod.escape(mode_cfg['read_button'])}</a>
                 </td>
             </tr>''')
     return ''.join(out)
 
 
-def _build_contributor_rows(rows: list, current_user_id: Optional[str]) -> str:
+def _build_contributor_rows(rows: list, current_user_id: Optional[str], mode_cfg: dict) -> str:
     if not rows:
-        return '''
+        return f'''
             <tr>
                 <td colspan="6" class="text-center text-muted py-4">
-                    No contributors yet. Be the first to propose an edit on a DP draft.
+                    {html_mod.escape(mode_cfg['empty_contributors'])}
                 </td>
             </tr>'''
     pinned = []
@@ -111,61 +117,76 @@ def _build_contributor_rows(rows: list, current_user_id: Optional[str]) -> str:
     return ''.join(out)
 
 
-def _dp_picker_sort_key(sub) -> tuple:
-    dp_num = extract_dp_number_from_title(sub.title or '')
-    return (dp_num if dp_num is not None else 9999, (sub.title or '').lower())
+def _picker_sort_key(sub, mode: str) -> tuple:
+    if mode == 'dp':
+        dp_num = extract_dp_number_from_title(sub.title or '')
+        return (dp_num if dp_num is not None else 9999, (sub.title or '').lower())
+    return ((sub.ml_number or ''), (sub.title or '').lower())
 
 
-def _build_dp_picker_options() -> str:
-    subs = list_approved_dp_submissions()
-    subs.sort(key=_dp_picker_sort_key)
-    if not subs:
-        return '<option value="">No approved DP drafts yet</option>'
-    opts = ['<option value="">Choose a DP draft…</option>']
+def _build_picker_docs(mode: str) -> List[dict]:
+    """Approved submissions for the searchable doc picker (JSON to the client)."""
+    subs = list_approved_submissions_for_mode(mode)
+    subs.sort(key=lambda s: _picker_sort_key(s, mode))
+    docs = []
     for sub in subs:
         ref = submission_draft_ref(sub)
-        label = (sub.title or ref).strip()
-        opts.append(
-            f'<option value="{html_mod.escape(ref)}">{html_mod.escape(label)}</option>'
-        )
-    return ''.join(opts)
+        entry = {
+            'ref': ref,
+            'label': (sub.title or ref).strip(),
+        }
+        if sub.ml_number:
+            entry['ml'] = sub.ml_number
+        if mode == 'dp':
+            dp_num = extract_dp_number_from_title(sub.title or '')
+            if dp_num is not None:
+                entry['dp'] = f'DP{dp_num}'
+        docs.append(entry)
+    return docs
 
 
-@bp.route('/dp-challenge/')
-@bp.route('/dp-challenge')
-def dp_challenge_page():
-    if not is_feature_enabled('dp_proposals'):
+def _render_proposal_hub_page(mode: ProposalMode):
+    mode_cfg = get_proposal_mode(mode)
+    if not is_mode_enabled(mode):
         return render_page(
-            'DP Challenge — MLGH',
-            '<div class="container mt-5"><p class="text-muted">DP Challenge is not available on this site yet.</p></div>',
+            f'{mode_cfg["page_title"]} — MLGH',
+            f'<div class="container mt-5"><p class="text-muted">{html_mod.escape(mode_cfg["page_title"])} is not available on this site yet.</p></div>',
             theme=session.get('theme', 'dark'),
             user_menu=generate_user_menu(),
         )
 
-    stats = dashboard_dp_challenge_stats()
-    doc_rows = dashboard_dp_activity()
-    participant_rows = dashboard_dp_by_participant()
+    stats = dashboard_dp_challenge_stats(mode=mode)
+    doc_rows = dashboard_dp_activity(mode=mode)
+    participant_rows = dashboard_dp_by_participant(mode=mode)
     current_user = get_current_user()
     current_user_id = current_user.get('id') if current_user else None
+    labels = mode_cfg['labels']
+    hub_path = mode_cfg['hub_path']
+    show_dp = mode_cfg.get('show_dp_column', True)
 
-    picker_options = _build_dp_picker_options()
+    picker_docs = _build_picker_docs(mode)
+    picker_placeholder = html_mod.escape(mode_cfg['picker_placeholder'])
+    picker_empty = html_mod.escape(mode_cfg['picker_empty'])
+    dp_header = ''
+    if show_dp:
+        dp_header = '<th class="dp-challenge-col-dp">DP</th>'
     doc_table = f'''
         <div class="table-responsive dp-challenge-table-wrap">
             <table class="table table-hover align-middle mb-0 dp-challenge-doc-table" id="dpChallengeDocTable">
                 <thead>
                     <tr>
-                        <th class="dp-challenge-col-dp">DP</th>
+                        {dp_header}
                         <th class="dp-challenge-col-title">Title</th>
                         <th class="dp-challenge-col-ml">ML #</th>
                         <th class="dp-challenge-col-num">Contributors</th>
-                        <th class="dp-challenge-col-num">Proposals</th>
-                        <th class="dp-challenge-col-num">Amendments</th>
+                        <th class="dp-challenge-col-num">{html_mod.escape(labels["pending_plural"])}</th>
+                        <th class="dp-challenge-col-num">{html_mod.escape(labels["accepted_plural"])}</th>
                         <th class="dp-challenge-col-num">Declined</th>
                         <th class="dp-challenge-col-num">Total</th>
                         <th class="dp-challenge-col-action"></th>
                     </tr>
                 </thead>
-                <tbody>{_build_doc_table_rows(doc_rows)}</tbody>
+                <tbody>{_build_doc_table_rows(doc_rows, mode_cfg)}</tbody>
             </table>
         </div>'''
 
@@ -175,46 +196,32 @@ def dp_challenge_page():
                 <thead>
                     <tr>
                         <th>Contributor</th>
-                        <th>Proposals</th>
-                        <th>DPs touched</th>
-                        <th>Amendments</th>
+                        <th>{html_mod.escape(labels["pending_plural"])}</th>
+                        <th>{html_mod.escape(mode_cfg["contributor_docs_col"])}</th>
+                        <th>{html_mod.escape(labels["accepted_plural"])}</th>
                         <th>Last active</th>
                         <th></th>
                     </tr>
                 </thead>
-                <tbody>{_build_contributor_rows(participant_rows, current_user_id)}</tbody>
+                <tbody>{_build_contributor_rows(participant_rows, current_user_id, mode_cfg)}</tbody>
             </table>
         </div>'''
 
     login_cta = ''
     if not current_user:
         login_cta = (
-            '<p class="mb-0 mt-2"><a href="/login/?next=/dp-challenge/" class="btn btn-sm btn-primary">'
+            f'<p class="mb-0 mt-2"><a href="/login/?next={html_mod.escape(hub_path)}" class="btn btn-sm btn-primary">'
             'Sign in to propose</a></p>'
         )
 
-    content = f'''
-    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=3">
-    <div class="gh-page container mt-4 dp-challenge-page">
-        {gh_page_header(
-            'DP Challenge',
-            'Your line can become the standard — propose edits on DP drafts.',
-            'fa-highlighter',
-            breadcrumb_html=gh_breadcrumb([('Participate', None), ('DP Challenge', None)]),
-        )}
-
-        <div class="dp-challenge-cta-bar mb-4">
-            <select id="dpChallengeDocPicker" class="form-select form-select-sm dp-challenge-picker">
-                {picker_options}</select>
-            <button type="button" class="btn btn-primary btn-sm text-nowrap" id="dpChallengeGoRead">
-                <i class="fas fa-pen me-1"></i>Start a DP Proposal</button>
-        </div>
-
-        <section class="dp-challenge-hero living-module mb-4" aria-label="How to submit a DP proposal">
+    hero_section = ''
+    if mode_cfg.get('show_hero'):
+        hero_section = f'''
+        <section class="dp-challenge-hero living-module mb-4" aria-label="{html_mod.escape(mode_cfg["hero_aria"])}">
             <div class="dp-challenge-hero-banner">
                 <img
-                    src="/static/images/dp-challenge-hero.png"
-                    alt="How to submit a DP proposal: read the draft, select a sentence, and propose a clearer replacement."
+                    src="{html_mod.escape(mode_cfg["hero_image"])}"
+                    alt="{html_mod.escape(mode_cfg["hero_aria"])}"
                     width="1024"
                     height="576"
                     loading="eager"
@@ -223,13 +230,51 @@ def dp_challenge_page():
                 />
             </div>
             {login_cta}
-        </section>
+        </section>'''
+    elif login_cta:
+        hero_section = f'<div class="mb-4">{login_cta}</div>'
+
+    content = f'''
+    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=5">
+    <div class="gh-page container mt-4 dp-challenge-page">
+        {gh_page_header(
+            mode_cfg['page_title'],
+            mode_cfg['page_tagline'],
+            mode_cfg['icon'],
+            breadcrumb_html=gh_breadcrumb([('Participate', None), (mode_cfg['breadcrumb'], None)]),
+        )}
+
+        <div class="dp-challenge-cta-bar mb-4">
+            <div class="dp-doc-picker" id="dpChallengeDocPicker" data-empty="{picker_empty}">
+                <input
+                    type="text"
+                    id="dpChallengeDocPickerInput"
+                    class="form-control form-control-sm dp-doc-picker-input"
+                    placeholder="{picker_placeholder}"
+                    autocomplete="off"
+                    spellcheck="false"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded="false"
+                    aria-controls="dpChallengeDocPickerList"
+                />
+                <ul
+                    id="dpChallengeDocPickerList"
+                    class="dp-doc-picker-list"
+                    role="listbox"
+                    hidden
+                ></ul>
+            </div>
+            {'<button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" id="dpChallengeInviteBtn"><i class="fas fa-user-plus me-1"></i>Invite a colleague</button>' if current_user else ''}
+        </div>
+
+        {hero_section}
 
         <div class="dp-challenge-stats row g-3 mb-4">
             <div class="col-md-4">
                 <div class="dp-challenge-stat-card">
                     <div class="dp-challenge-stat-value">{stats['total_proposals']}</div>
-                    <div class="dp-challenge-stat-label">Proposals</div>
+                    <div class="dp-challenge-stat-label">{html_mod.escape(labels['pending_plural'])}</div>
                 </div>
             </div>
             <div class="col-md-4">
@@ -241,7 +286,7 @@ def dp_challenge_page():
             <div class="col-md-4">
                 <div class="dp-challenge-stat-card">
                     <div class="dp-challenge-stat-value">{stats['documents']}</div>
-                    <div class="dp-challenge-stat-label">DPs with activity</div>
+                    <div class="dp-challenge-stat-label">{html_mod.escape(mode_cfg['stat_docs_label'])}</div>
                 </div>
             </div>
         </div>
@@ -267,27 +312,60 @@ def dp_challenge_page():
     </div>
 
     <div id="dpChallengeToastHost" class="dp-challenge-toast-host" aria-live="polite" aria-atomic="false"></div>
-    <script src="/static/js/dp-challenge.js?v=1" defer></script>
     <script>
     window.DP_CHALLENGE_PAGE = {{
         pollIntervalMs: 30000,
-        currentUserId: {json.dumps(current_user_id)}
+        currentUserId: {json.dumps(current_user_id)},
+        returnTo: {json.dumps(hub_path)},
+        recentApiPath: {json.dumps(mode_cfg['recent_api_path'])},
+        labels: {json.dumps(labels)},
+        pickerDocs: {json.dumps(picker_docs)},
+        pickerPlaceholder: {json.dumps(mode_cfg['picker_placeholder'])},
+        pickerEmpty: {json.dumps(mode_cfg['picker_empty'])},
+        invite: {{
+            type: 'participate_dp',
+            title: {json.dumps('Invite to ' + mode_cfg['page_title'])},
+            hint: 'Invite a colleague to read DP drafts and propose sentence-level edits.',
+            target: {{}}
+        }}
     }};
     </script>
+    <script src="/static/js/dp-challenge.js?v=4" defer></script>
     '''
 
     return render_page(
-        'DP Challenge — MLGH',
+        f'{mode_cfg["page_title"]} — MLGH',
         content,
         theme=session.get('theme', 'dark'),
         user_menu=generate_user_menu(),
     )
 
 
-@bp.route('/api/dp-challenge/recent')
-def dp_challenge_recent_api():
-    if not is_feature_enabled('dp_proposals'):
+def _recent_api(mode: ProposalMode):
+    if not is_mode_enabled(mode):
         return jsonify({'events': [], 'enabled': False}), 200
     since = parse_challenge_since_param(request.args.get('since'))
-    events = challenge_recent_events(since=since, limit=25)
+    events = challenge_recent_events(since=since, limit=25, mode=mode)
     return jsonify({'events': events, 'enabled': True})
+
+
+@bp.route('/dp-challenge/')
+@bp.route('/dp-challenge')
+def dp_challenge_page():
+    return _render_proposal_hub_page('dp')
+
+
+@bp.route('/suggest-edit/')
+@bp.route('/suggest-edit')
+def suggest_edit_page():
+    return _render_proposal_hub_page('document')
+
+
+@bp.route('/api/dp-challenge/recent')
+def dp_challenge_recent_api():
+    return _recent_api('dp')
+
+
+@bp.route('/api/suggest-edit/recent')
+def suggest_edit_recent_api():
+    return _recent_api('document')

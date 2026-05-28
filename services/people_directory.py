@@ -349,7 +349,7 @@ def build_person_row(
         f'<td class="gh-people-pills-cell">{_role_pills_html(user, layer_entries)}</td>'
         f'<td class="gh-people-pills-cell">{_layers_pills_html(layer_entries)}</td>'
         f'<td class="gh-people-pills-cell">{_workgroups_pills_html(merged_wg, wg_by)}</td>'
-        f'<td>{last_active_html}</td>'
+        f'<td class="gh-people-last-active">{last_active_html}</td>'
         f'<td>{activity_html}</td>'
         f'{actions_td}</tr>'
     )

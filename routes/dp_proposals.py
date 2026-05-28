@@ -18,6 +18,8 @@ from services.dp_proposals import (
     resolve_submission_for_proposals,
     user_from_session,
     validate_create_payload,
+    validate_proposal_scope_for_submission,
+    expected_proposal_scope,
     workgroup_for_submission,
 )
 from services.identity import get_current_user, require_auth, require_role
@@ -35,21 +37,31 @@ def dp_proposals_shortcut():
     return redirect(url_for('dp_proposals_admin.dp_proposals_dashboard'))
 
 
-def _feature_guard():
-    blocked = require_dp_proposals_enabled()
-    if blocked:
-        return blocked
+def _submission_feature_guard(submission):
+    from services.proposal_modes import is_mode_enabled, proposal_mode_for_submission
+
+    mode = proposal_mode_for_submission(submission)
+    if not is_mode_enabled(mode):
+        from flask import jsonify
+        from services.proposal_modes import get_proposal_mode
+
+        flag = get_proposal_mode(mode)['feature_flag']
+        return jsonify({
+            'error': 'Proposals are not enabled for this document type.',
+            'error_code': 'FEATURE_DISABLED',
+            'feature': flag,
+        }), 403
     return None
 
 
 @bp.route('/<path:draft_ref>/proposals/', methods=['GET'])
 def list_proposals(draft_ref):
-    guard = _feature_guard()
-    if guard:
-        return guard
     submission, err = resolve_submission_for_proposals(draft_ref)
     if err:
         return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
     rows = list_proposals_for_submission(submission.id)
     counts = proposal_counts(rows)
     return jsonify({
@@ -65,9 +77,6 @@ def list_proposals(draft_ref):
 @bp.route('/<path:draft_ref>/proposals/', methods=['POST'])
 @require_auth
 def create_proposal(draft_ref):
-    guard = _feature_guard()
-    if guard:
-        return guard
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
@@ -78,10 +87,25 @@ def create_proposal(draft_ref):
     submission, err = resolve_submission_for_proposals(draft_ref)
     if err:
         return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
 
-    payload, val_err = validate_create_payload(request.get_json(silent=True))
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        body = {}
+    else:
+        body = dict(body)
+    if not body.get('scope'):
+        body['scope'] = expected_proposal_scope(submission)
+
+    payload, val_err = validate_create_payload(body)
     if val_err:
         return jsonify({'error': val_err}), 400
+
+    scope_err = validate_proposal_scope_for_submission(submission, payload['scope'])
+    if scope_err:
+        return jsonify({'error': scope_err}), 400
 
     row = create_dp_proposal(
         submission,
@@ -90,6 +114,8 @@ def create_proposal(draft_ref):
         proposed_text=payload['proposed_text'],
         context_anchor=payload.get('context_anchor'),
         scope=payload['scope'],
+        rationale=payload.get('rationale'),
+        reference_url=payload.get('reference_url'),
     )
     db.session.commit()
     return jsonify({'proposal': row.to_dict(), 'status_label': row.status_label()}), 201
@@ -98,9 +124,6 @@ def create_proposal(draft_ref):
 @bp.route('/<path:draft_ref>/proposals/<proposal_id>/accept/', methods=['POST'])
 @require_auth
 def accept_proposal_route(draft_ref, proposal_id):
-    guard = _feature_guard()
-    if guard:
-        return guard
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
@@ -108,6 +131,9 @@ def accept_proposal_route(draft_ref, proposal_id):
     submission, err = resolve_submission_for_proposals(draft_ref)
     if err:
         return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
 
     if not can_accept_amendments(current_user):
         return jsonify({'error': 'Only site administrators can accept amendments'}), 403
@@ -131,9 +157,6 @@ def accept_proposal_route(draft_ref, proposal_id):
 @bp.route('/<path:draft_ref>/proposals/<proposal_id>/decline/', methods=['POST'])
 @require_auth
 def decline_proposal_route(draft_ref, proposal_id):
-    guard = _feature_guard()
-    if guard:
-        return guard
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
@@ -141,6 +164,9 @@ def decline_proposal_route(draft_ref, proposal_id):
     submission, err = resolve_submission_for_proposals(draft_ref)
     if err:
         return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
 
     wg = workgroup_for_submission(submission)
     if not can_manage_amendments(current_user, wg):
@@ -164,12 +190,12 @@ def decline_proposal_route(draft_ref, proposal_id):
 
 @bp.route('/<path:draft_ref>/read-meta/', methods=['GET'])
 def read_meta(draft_ref):
-    guard = _feature_guard()
-    if guard:
-        return guard
     submission, err = resolve_submission_for_proposals(draft_ref)
     if err:
         return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
     from services.draft_reader import load_draft_document_body, build_draft_context
     from services.dp_proposal_reader import build_read_meta
 
@@ -185,9 +211,9 @@ def read_meta(draft_ref):
 @admin_bp.route('/admin/dp-proposals/')
 @require_role('admin')
 def dp_proposals_dashboard():
-    guard = _feature_guard()
-    if guard:
-        return guard
+    blocked = require_dp_proposals_enabled()
+    if blocked:
+        return blocked
 
     rows = dashboard_dp_activity()
     user_menu = generate_user_menu()

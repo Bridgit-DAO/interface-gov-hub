@@ -15,12 +15,31 @@
   --gh-space-md: 1rem;
   --gh-space-lg: 1.5rem;
   --gh-space-xl: 2rem;
-  --gh-glow: rgba(102, 126, 234, 0.35);
-  --gh-glow-soft: rgba(102, 126, 234, 0.12);
-  --gh-gradient-map: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.12) 50%, rgba(29, 155, 240, 0.08) 100%);
-  --gh-gradient-hero: linear-gradient(160deg, var(--bg-secondary) 0%, var(--bg-color) 55%, var(--bg-secondary) 100%);
+  --gh-accent-blue: #4d9fff;
+  --gh-accent-purple: #764ba2;
+  --gh-accent-cyan: #22d3ee;
+  --gh-accent-teal: #2dd4bf;
+  --gh-accent-green: #34d399;
+  --gh-accent-amber: #fbbf24;
+  --gh-glow: rgba(77, 159, 255, 0.35);
+  --gh-glow-soft: rgba(77, 159, 255, 0.12);
+  --gh-glow-purple: rgba(118, 75, 162, 0.2);
+  --gh-gradient-map: linear-gradient(
+    135deg,
+    rgba(77, 159, 255, 0.16) 0%,
+    rgba(102, 126, 234, 0.14) 45%,
+    rgba(118, 75, 162, 0.12) 100%
+  );
+  --gh-gradient-hero: linear-gradient(
+    160deg,
+    rgba(10, 18, 36, 0.95) 0%,
+    rgba(5, 11, 26, 0.98) 55%,
+    rgba(10, 18, 36, 0.92) 100%
+  );
+  --gh-glass-border: rgba(102, 126, 234, 0.22);
   --gh-tab-group-color: var(--text-muted);
-  --gh-pulse-dot: #667eea;
+  --gh-pulse-dot: #4d9fff;
+  --gh-link-hover: #6eb3ff;
 }
 
 /* Main page content width (navbar uses same .container) */
@@ -120,7 +139,7 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  color: var(--accent-color);
+  color: var(--gh-accent-blue, var(--accent-color));
   cursor: pointer;
   white-space: nowrap;
   font-weight: 500;
@@ -148,7 +167,7 @@
 
 .doc-all-page .doc-tag-cloud-item.is-selected {
   opacity: 1;
-  color: var(--accent-color);
+  color: var(--gh-accent-blue, var(--accent-color));
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 0.15em;
@@ -182,7 +201,7 @@
 
 .doc-all-page .doc-tag-wrap-chip:hover {
   border-color: var(--accent-color);
-  color: var(--accent-color);
+  color: var(--gh-accent-blue, var(--accent-color));
 }
 
 .doc-all-page .doc-tag-wrap-chip.is-selected {
@@ -265,7 +284,7 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  color: var(--accent-color);
+  color: var(--gh-accent-blue, var(--accent-color));
   cursor: pointer;
   white-space: nowrap;
   font-weight: 500;
@@ -293,7 +312,7 @@
 
 .doc-all-page .doc-tag-cloud-item.is-selected {
   opacity: 1;
-  color: var(--accent-color);
+  color: var(--gh-accent-blue, var(--accent-color));
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 0.15em;
@@ -327,7 +346,7 @@
 
 .doc-all-page .doc-tag-wrap-chip:hover {
   border-color: var(--accent-color);
-  color: var(--accent-color);
+  color: var(--gh-accent-blue, var(--accent-color));
 }
 
 .doc-all-page .doc-tag-wrap-chip.is-selected {
@@ -638,14 +657,16 @@
 
 .living-module {
   border-radius: var(--gh-radius-lg);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
   background: var(--card-bg);
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
 }
 
 .living-module:hover {
-  border-color: var(--border-hover);
+  border-color: rgba(77, 159, 255, 0.32);
   box-shadow: var(--shadow-hover);
 }
 
@@ -664,8 +685,9 @@
   align-items: center;
   justify-content: center;
   background: var(--gh-gradient-map);
-  color: #667eea;
+  color: var(--gh-accent-blue, #4d9fff);
   font-size: 0.9rem;
+  box-shadow: 0 0 20px var(--gh-glow-soft);
 }
 
 .living-module-title {
@@ -757,8 +779,11 @@
   margin-bottom: var(--gh-space-lg);
   padding: var(--gh-space-lg);
   border-radius: var(--gh-radius-lg);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
   background: var(--gh-gradient-hero);
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
+  box-shadow: var(--shadow);
 }
 
 .gh-page-header-main {
@@ -777,9 +802,10 @@
   align-items: center;
   justify-content: center;
   background: var(--gh-gradient-map);
-  color: #667eea;
+  color: var(--gh-accent-blue, #4d9fff);
   font-size: 1.15rem;
   flex-shrink: 0;
+  box-shadow: 0 0 24px var(--gh-glow-soft);
 }
 
 .gh-page-title {
@@ -940,7 +966,7 @@
 
 .gh-directory-tile-title a:hover,
 .layer-map-tile-title a:hover {
-  color: var(--accent-color);
+  color: var(--gh-accent-blue, var(--accent-color));
 }
 
 .gh-directory-tile-desc,
@@ -1132,10 +1158,52 @@
 /* Home hub */
 .gh-home-hero {
   border-radius: var(--gh-radius-lg);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
   background: var(--gh-gradient-hero);
   padding: var(--gh-space-xl) var(--gh-space-lg);
   margin-bottom: var(--gh-space-lg);
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
+}
+
+.gh-home-hero--visual {
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+  margin-bottom: var(--gh-space-md);
+}
+
+.gh-home-hero-banner {
+  border-radius: var(--gh-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--gh-glass-border, rgba(102, 126, 234, 0.28));
+  line-height: 0;
+}
+
+.gh-home-hero-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.gh-home-hero-tagline-box {
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
+  background: var(--card-bg);
+  padding: var(--gh-space-md) var(--gh-space-lg);
+  margin-bottom: var(--gh-space-lg);
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
+  box-shadow: var(--shadow);
+}
+
+.gh-home-hero-tagline {
+  color: var(--text-secondary);
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
 }
 
 .gh-home-hero h1 {
@@ -1148,6 +1216,76 @@
   color: var(--text-secondary);
   margin: 0;
   max-width: 36rem;
+}
+
+/* Page heroes — cycling copy over full-width art (Select_3 placeholder until per-page swap) */
+.gh-page-hero {
+  margin-bottom: var(--gh-space-lg);
+}
+
+.gh-page-hero-banner {
+  position: relative;
+  border-radius: var(--gh-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--gh-glass-border, rgba(102, 126, 234, 0.28));
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+  line-height: 0;
+  min-height: clamp(10rem, 28vw, 16rem);
+}
+
+.gh-page-hero-img {
+  display: block;
+  width: 100%;
+  height: clamp(10rem, 28vw, 16rem);
+  object-fit: cover;
+  object-position: right center;
+}
+
+.gh-page-hero-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: min(28rem, 72%);
+  padding: var(--gh-space-lg) var(--gh-space-xl);
+  background: linear-gradient(
+    105deg,
+    rgba(8, 14, 28, 0.92) 0%,
+    rgba(8, 14, 28, 0.78) 55%,
+    rgba(8, 14, 28, 0.15) 100%
+  );
+  pointer-events: none;
+}
+
+.gh-page-hero-title {
+  margin: 0 0 var(--gh-space-sm);
+  font-size: clamp(1.25rem, 2.8vw, 1.85rem);
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-primary, #f0f4ff);
+  text-wrap: balance;
+}
+
+.gh-page-hero-text {
+  margin: 0;
+  font-size: clamp(0.875rem, 1.6vw, 1rem);
+  line-height: 1.55;
+  color: var(--text-secondary, rgba(220, 230, 255, 0.88));
+  max-width: 26rem;
+  text-wrap: pretty;
+}
+
+@media (max-width: 575.98px) {
+  .gh-page-hero-overlay {
+    max-width: 100%;
+    padding: var(--gh-space-md);
+    background: linear-gradient(
+      180deg,
+      rgba(8, 14, 28, 0.88) 0%,
+      rgba(8, 14, 28, 0.55) 100%
+    );
+  }
 }
 
 .gh-home-hub {
@@ -1163,18 +1301,20 @@
   column-gap: var(--gh-space-sm);
   row-gap: var(--gh-space-xs);
   border-radius: var(--gh-radius-lg);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
   background: var(--card-bg);
   padding: var(--gh-space-md);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   height: 100%;
   color: inherit;
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
 }
 
 .gh-home-hub-card:hover {
   color: inherit;
-  border-color: rgba(102, 126, 234, 0.35);
-  box-shadow: var(--shadow-hover);
+  border-color: rgba(77, 159, 255, 0.38);
+  box-shadow: 0 8px 32px var(--gh-glow-soft);
   transform: translateY(-2px);
 }
 
@@ -1186,10 +1326,11 @@
   align-items: center;
   justify-content: center;
   background: var(--gh-gradient-map);
-  color: #667eea;
+  color: var(--gh-accent-blue, #4d9fff);
   grid-column: 1;
   grid-row: 1;
   align-self: center;
+  box-shadow: 0 0 18px var(--gh-glow-soft);
 }
 
 /* Shared entity thumbnails — layers, workgroups, roles, guilds */
@@ -1270,9 +1411,12 @@ img.gh-entity-thumb {
 
 .gh-home-stats {
   border-radius: var(--gh-radius-lg);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
   background: var(--card-bg);
   padding: var(--gh-space-md);
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
+  box-shadow: var(--shadow);
 }
 
 .gh-home-stats h2 {
@@ -1357,6 +1501,12 @@ img.gh-entity-thumb {
 
 .gh-people-activity-item {
   display: inline-block;
+}
+
+.gh-people-last-active {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: var(--text-secondary);
 }
 
 .gh-detail-breadcrumb {
@@ -1473,6 +1623,60 @@ img.gh-entity-thumb {
   display: none;
 }
 
+/* Platform invitation welcome modal (?invite=) */
+#ghInviteWelcomeModal .modal-content {
+  background: var(--card-bg, var(--bg-color));
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+#ghInviteWelcomeModal .modal-header,
+#ghInviteWelcomeModal .modal-footer {
+  border-color: var(--border-color);
+}
+
+#ghInviteWelcomeModal .modal-title {
+  color: var(--text-primary);
+}
+
+#ghInviteWelcomeModal .gh-invite-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+#ghInviteWelcomeModal .gh-invite-panel {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--gh-radius-sm);
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+#ghInviteWelcomeModal .gh-invite-panel--scroll {
+  max-height: 10rem;
+  overflow: auto;
+}
+
+#ghInviteWelcomeModal .gh-invite-passage {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--gh-accent-blue, #667eea);
+  border-radius: 0 var(--gh-radius-sm) var(--gh-radius-sm) 0;
+}
+
+#ghInviteWelcomeModal .border-top {
+  border-color: var(--border-color) !important;
+}
+
 /* Styled alert / confirm dialogs */
 .gh-dialog .modal-content {
   border-radius: var(--gh-radius-lg);
@@ -1520,4 +1724,85 @@ img.gh-entity-thumb {
 .gh-dialog-message {
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+/* --- Gov Hub brand utilities (site-wide) --- */
+.badge.bg-primary {
+  background: var(--gh-brand-gradient, var(--accent-color)) !important;
+  border: 1px solid rgba(77, 159, 255, 0.25);
+}
+
+.nav-tabs .nav-link.active {
+  color: var(--gh-accent-blue, var(--accent-color)) !important;
+  border-bottom-color: var(--gh-accent-blue, var(--accent-color)) !important;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: rgba(77, 159, 255, 0.45);
+  box-shadow: 0 0 0 0.2rem rgba(77, 159, 255, 0.15);
+}
+
+a {
+  color: var(--gh-accent-blue, var(--accent-color));
+}
+
+a:hover {
+  color: var(--gh-link-hover, var(--accent-hover));
+}
+
+.table-hover > tbody > tr:hover > * {
+  --bs-table-accent-bg: rgba(77, 159, 255, 0.06);
+}
+
+.dropdown-menu {
+  background: var(--card-bg);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
+  box-shadow: var(--shadow-hover);
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus {
+  background: rgba(77, 159, 255, 0.1);
+  color: var(--text-primary);
+}
+
+/* Global “Copied” feedback (invite modal, etc.) */
+.gh-copy-toast-host {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 1095;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.gh-copy-toast {
+  padding: 0.5rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--gh-glass-border, rgba(102, 126, 234, 0.4));
+  background: var(--card-bg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  backdrop-filter: var(--gh-glass-blur, blur(12px));
+  -webkit-backdrop-filter: var(--gh-glass-blur, blur(12px));
+}
+
+.gh-copy-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.gh-copy-toast.is-fading {
+  opacity: 0;
+  transform: translateY(-4px);
 }

@@ -19,6 +19,7 @@ def init_db(app):
             migrate_knowledge_layer_integration,
             migrate_knowledge_form_conviction_to_claim,
             migrate_layer_enabled_features,
+            migrate_layer_nav_pill_config,
             migrate_artifact_tags,
             migrate_layer_tags,
             migrate_submission_document_category,
@@ -46,6 +47,8 @@ def init_db(app):
             migrate_product_rollout_seed,
             migrate_workgroup_layer_links,
             migrate_dp_proposals,
+            migrate_dp_proposal_rationale_reference,
+            migrate_platform_invitations,
             migrate_hardcoded_users,
         )
 
@@ -58,6 +61,7 @@ def init_db(app):
         migrate_knowledge_layer_integration(app)
         migrate_knowledge_form_conviction_to_claim(app)
         migrate_layer_enabled_features(app)
+        migrate_layer_nav_pill_config(app)
         migrate_artifact_tags(app)
         migrate_layer_tags(app)
         migrate_submission_document_category(app)
@@ -89,5 +93,7 @@ def init_db(app):
         migrate_product_rollout_seed(app)
         migrate_workgroup_layer_links(app)
         migrate_dp_proposals(app)
+        migrate_dp_proposal_rationale_reference(app)
+        migrate_platform_invitations(app)
 
         print(f"Database initialized: {User.query.count()} users")

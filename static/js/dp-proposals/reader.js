@@ -1,7 +1,7 @@
 /**
  * DP Proposal read-page UI: selection → compose modal → badges → list modal.
  */
-(function () {
+(function (global) {
   'use strict';
 
   var PENDING_STORAGE_KEY = 'ghDpProposalPending';
@@ -16,6 +16,16 @@
     return;
   }
   if (!meta.proposals_enabled || !meta.selectable) return;
+
+  var labels = meta.labels || {};
+  function label(key, fallback) {
+    return labels[key] || fallback;
+  }
+
+  function countPhrase(n) {
+    var word = label('count_word', 'proposal');
+    return String(n) + ' ' + word + (n === 1 ? '' : 's');
+  }
 
   var draftRef = root.getAttribute('data-draft-ref') || meta.draft_ref;
   var bodyEl = document.getElementById('dp-reader-selectable-body');
@@ -223,7 +233,64 @@
   }
 
   function proposalLinkTitle(p, index) {
-    return 'DP Proposal ' + (index + 1);
+    return label('link_prefix', 'Proposal') + ' ' + (index + 1);
+  }
+
+  function truncateText(text, maxLen) {
+    var s = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    if (s.length <= maxLen) return s;
+    return s.slice(0, Math.max(0, maxLen - 1)) + '…';
+  }
+
+  function hoverRowLabel(p, index) {
+    var parts = [];
+    if (p.author_name) parts.push(p.author_name);
+    if (p.status_label && !p.rationale) parts.push(p.status_label);
+    var main = parts.length ? parts.join(' · ') : proposalLinkTitle(p, index);
+    if (p.rationale) {
+      main += ' · "' + truncateText(p.rationale, 80) + '"';
+    }
+    return main;
+  }
+
+  function renderProposalHeaderHtml(p) {
+    var author =
+      '<small class="text-muted">' + esc(p.author_name || 'Anonymous') + '</small>';
+    if (p.rationale) {
+      return '<div class="d-flex justify-content-end align-items-start gap-2 dp-proposal-list-header">' +
+        author + '</div>';
+    }
+    return '<div class="d-flex justify-content-between align-items-start gap-2 dp-proposal-list-header">' +
+      '<span class="badge ' + statusBadgeClass(p.status) + '">' + esc(p.status_label) + '</span>' +
+      author + '</div>';
+  }
+
+  function referenceHost(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '');
+    } catch (_e) {
+      return 'link';
+    }
+  }
+
+  function renderProposalMetaHtml(p) {
+    var html = '';
+    if (p.rationale) {
+      html += '<div class="dp-proposal-meta-block"><div class="small text-muted mb-1">Rationale</div>' +
+        '<div class="dp-proposal-rationale">' + esc(p.rationale) + '</div>';
+      if (p.reference_url) {
+        html += '<div class="small text-muted mb-1 mt-2">Reference</div>' +
+          '<a class="dp-proposal-reference" href="' + esc(p.reference_url) + '" target="_blank" rel="noopener noreferrer">' +
+          esc(referenceHost(p.reference_url)) + ' — ' + esc(p.reference_url) + '</a>';
+      }
+      html += '</div>';
+    } else if (p.reference_url) {
+      html += '<div class="dp-proposal-meta-block"><div class="small text-muted mb-1">Reference</div>' +
+        '<a class="dp-proposal-reference" href="' + esc(p.reference_url) + '" target="_blank" rel="noopener noreferrer">' +
+        esc(referenceHost(p.reference_url)) + ' — ' + esc(p.reference_url) + '</a></div>';
+    }
+    return html;
   }
 
   function proposalCharDeltaHtml(original, proposed) {
@@ -241,26 +308,62 @@
     return html + '</span>';
   }
 
+  function openHoverRowProposal(row) {
+    if (!row) return;
+    if (hoverHideTimer) {
+      clearTimeout(hoverHideTimer);
+      hoverHideTimer = null;
+    }
+    hideHoverPanel(true);
+    openListModal(row.getAttribute('data-hash'), row.getAttribute('data-proposal-id'));
+  }
+
   function renderHoverPanelBody(panel, group, hash) {
     var html = '<ul class="dp-proposal-hover-links">';
     group.forEach(function (p, idx) {
       var deltaHtml = proposalCharDeltaHtml(p.original_text, p.proposed_text);
-      html += '<li><a href="#" class="dp-proposal-hover-link" data-proposal-id="' + esc(p.id) + '" data-hash="' +
-        esc(p.anchor_hash || hash) + '">' +
+      var rowLabel = hoverRowLabel(p, idx);
+      html += '<li class="dp-proposal-hover-row" role="button" tabindex="0"' +
+        ' data-proposal-id="' + esc(p.id) + '" data-hash="' + esc(p.anchor_hash || hash) + '"' +
+        ' title="' + esc(rowLabel) + '" aria-label="' + esc(rowLabel) + '">' +
+        '<span class="dp-proposal-hover-link">' +
         '<i class="fas fa-comment-dots" aria-hidden="true"></i>' +
-        '<span class="dp-proposal-hover-link-title">' + esc(proposalLinkTitle(p, idx)) + '</span>' +
-        deltaHtml + '</a></li>';
+        '<span class="dp-proposal-hover-link-main">' + esc(rowLabel) + '</span>' +
+        deltaHtml + '</span></li>';
     });
     html += '</ul>';
-    html += '<button type="button" class="btn btn-primary btn-sm w-100 mt-2 dp-proposal-create-btn">' +
-      '<i class="fas fa-plus me-1"></i>Suggest a DP Proposal</button>';
+    html += '<div class="dp-proposal-hover-actions">' +
+      '<button type="button" class="btn btn-primary btn-sm w-100 dp-proposal-create-btn">' +
+      '<i class="fas fa-plus me-1"></i>' + esc(label('create_hover', 'Suggest a change')) + '</button>' +
+      '<button type="button" class="btn btn-outline-secondary btn-sm w-100 dp-proposal-invite-passage-btn" data-hash="' +
+      esc(hash) + '"><i class="fas fa-user-plus me-1"></i>Invite to edit</button>' +
+      '</div>';
     panel.innerHTML = html;
-    panel.querySelectorAll('.dp-proposal-hover-link').forEach(function (link) {
-      link.addEventListener('click', function (e) {
+    if (!panel.dataset.ghHoverPanelBound) {
+      panel.dataset.ghHoverPanelBound = '1';
+      panel.addEventListener('mousedown', function (e) {
+        if (hoverHideTimer) {
+          clearTimeout(hoverHideTimer);
+          hoverHideTimer = null;
+        }
+        e.stopPropagation();
+      });
+    }
+    panel.querySelectorAll('.dp-proposal-hover-row').forEach(function (row) {
+      row.addEventListener('mousedown', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        hideHoverPanel(true);
-        openListModal(link.dataset.hash, link.dataset.proposalId);
+        openHoverRowProposal(row);
+      });
+      row.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      row.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openHoverRowProposal(row);
+        }
       });
     });
     var createBtn = panel.querySelector('.dp-proposal-create-btn');
@@ -275,6 +378,118 @@
         whenBootstrapReady(openComposeModal);
       });
     }
+    var inviteBtn = panel.querySelector('.dp-proposal-invite-passage-btn');
+    if (inviteBtn) {
+      inviteBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        hideHoverPanel(true);
+        openPassageInvite(inviteBtn.getAttribute('data-hash') || hash, group);
+      });
+    }
+  }
+
+  function inviteUnavailable() {
+    if (global.GhDialog && global.GhDialog.alert) {
+      global.GhDialog.alert({
+        title: 'Invite unavailable',
+        message: 'Please refresh the page and try again.',
+        variant: 'warning',
+      });
+      return;
+    }
+    window.alert('Invite is not ready. Please refresh the page.');
+  }
+
+  function openGhInvite(opts) {
+    whenBootstrapReady(function () {
+      if (!meta.authenticated) {
+        window.location.href =
+          '/login/?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+        return;
+      }
+      if (!global.GhInvite || !global.GhInvite.open) {
+        inviteUnavailable();
+        return;
+      }
+      global.GhInvite.open(opts);
+    });
+  }
+
+  function passageInviteTarget(anchorHash, group, originalText) {
+    var target = {
+      submission_id: meta.submission_id,
+      draft_ref: draftRef,
+    };
+    if (anchorHash) {
+      target.anchor_hash = anchorHash;
+    }
+    if (group && group[0] && group[0].context_anchor) {
+      target.context_anchor = group[0].context_anchor;
+    } else if (originalText) {
+      target.context_anchor = {
+        textQuote: tools.buildTextQuoteSelector(
+          bodyEl.textContent || '',
+          originalText
+        ),
+      };
+    }
+    return target;
+  }
+
+  function openPassageInvite(anchorHash, group) {
+    openGhInvite({
+      type: 'edit_document_passage',
+      title: 'Invite to edit this passage',
+      hint: 'They will get an email to open this document and propose a change here.',
+      target: passageInviteTarget(
+        anchorHash,
+        group,
+        group && group[0] ? group[0].original_text : null
+      ),
+    });
+  }
+
+  function openComposePassageInvite() {
+    if (!pendingSelection || !pendingSelection.original) {
+      inviteUnavailable();
+      return;
+    }
+    openGhInvite({
+      type: 'edit_document_passage',
+      title: 'Invite to edit this passage',
+      hint: 'They will get an email to open this document and propose a change on this passage.',
+      target: passageInviteTarget(null, null, pendingSelection.original),
+    });
+  }
+
+  function openDocumentInvite(btn) {
+    openGhInvite({
+      type: 'edit_document',
+      title: 'Invite to edit this document',
+      hint: 'They will get an email to review the full document and suggest edits.',
+      target: {
+        submission_id: (btn && btn.getAttribute('data-submission-id')) || meta.submission_id,
+        draft_ref: (btn && btn.getAttribute('data-draft-ref')) || draftRef,
+      },
+    });
+  }
+
+  function bindInviteControls() {
+    if (document.body.dataset.ghReaderInviteBound) return;
+    document.body.dataset.ghReaderInviteBound = '1';
+    document.addEventListener('click', function (e) {
+      var toolbarBtn = e.target.closest && e.target.closest('#draftReaderInviteDoc');
+      if (toolbarBtn) {
+        e.preventDefault();
+        openDocumentInvite(toolbarBtn);
+        return;
+      }
+      var composeBtn = e.target.closest && e.target.closest('#dpProposalComposeInviteBtn');
+      if (composeBtn) {
+        e.preventDefault();
+        openComposePassageInvite();
+      }
+    });
   }
 
   var HOVER_PANEL_FADE_MS = 200;
@@ -456,6 +671,8 @@
     var panel = pin.querySelector('.dp-proposal-hover-panel');
     var group = entry.proposals;
     function onEnter(ev) {
+      entry.proximityBoost = true;
+      applyPointerProximity(lastPointer.x, lastPointer.y);
       if (hoverHideTimer) {
         clearTimeout(hoverHideTimer);
         hoverHideTimer = null;
@@ -467,19 +684,27 @@
       }
       showHoverPanel(entry, hash);
     }
+    function onLeave(ev) {
+      if (ev && ev.relatedTarget && isDpProposalHoverTarget(ev.relatedTarget)) {
+        return;
+      }
+      entry.proximityBoost = false;
+      applyPointerProximity(lastPointer.x, lastPointer.y);
+      scheduleHideHoverPanel(ev);
+    }
     var hoverTargets = [badge, panel, pin];
     entry.boxes.forEach(function (box) {
-      box.setAttribute('title', group.length + ' proposal(s) — hover to preview');
+      box.setAttribute('title', countPhrase(group.length) + ' — hover to preview');
       hoverTargets.push(box);
     });
     hoverTargets.forEach(function (el) {
       if (!el) return;
       el.addEventListener('mouseenter', onEnter);
-      el.addEventListener('mouseleave', scheduleHideHoverPanel);
+      el.addEventListener('mouseleave', onLeave);
     });
     if (panel) {
       panel.addEventListener('mouseenter', onEnter);
-      panel.addEventListener('mouseleave', scheduleHideHoverPanel);
+      panel.addEventListener('mouseleave', onLeave);
     }
     if (badge) {
       badge.addEventListener('focus', onEnter);
@@ -505,8 +730,8 @@
       badge.className = 'dp-proposal-badge';
       badge.dataset.dpAnchorHash = hash;
       badge.textContent = String(group.length);
-      badge.title = group.length + ' proposal(s) — hover to preview';
-      badge.setAttribute('aria-label', group.length + ' proposals on this passage');
+      badge.title = countPhrase(group.length) + ' — hover to preview';
+      badge.setAttribute('aria-label', countPhrase(group.length) + ' on this passage');
       var panel = document.createElement('div');
       panel.className = 'dp-proposal-hover-panel';
       panel.setAttribute('role', 'dialog');
@@ -525,7 +750,7 @@
     floatingBadge.className = 'dp-proposal-badge dp-proposal-badge-floating';
     floatingBadge.dataset.dpAnchorHash = hash;
     floatingBadge.textContent = String(group.length);
-    floatingBadge.title = group.length + ' proposal(s) — location not found in document';
+    floatingBadge.title = countPhrase(group.length) + ' — ' + label('location_not_found', 'location not found in document');
     floatingBadge.addEventListener('click', function () { openListModal(hash); });
     document.body.appendChild(floatingBadge);
     entry.floatingBadge = floatingBadge;
@@ -543,7 +768,7 @@
     var suffix = ' (' + n + ')';
     var modes = [
       { value: 'hidden', label: 'Hide all' + suffix },
-      { value: 'attention', label: 'Near proposal' + suffix },
+      { value: 'attention', label: label('display_near', 'Near proposal') + suffix },
       { value: 'showAll', label: 'Show all' + suffix },
     ];
     sel.innerHTML = modes.map(function (m) {
@@ -559,9 +784,9 @@
     wrap.id = 'dpProposalToolbarControls';
     wrap.className = 'draft-reader-proposals-controls ms-auto';
     wrap.innerHTML =
-      '<span class="dp-proposal-toolbar-label">DP Props</span>' +
-      '<label class="visually-hidden" for="dpProposalDisplayMode">DP Props display</label>' +
-      '<select id="dpProposalDisplayMode" class="form-select form-select-sm" title="DP Props visibility">' +
+      '<span class="dp-proposal-toolbar-label">' + esc(label('toolbar_label', 'DP Props')) + '</span>' +
+      '<label class="visually-hidden" for="dpProposalDisplayMode">' + esc(label('toolbar_select_aria', 'DP Props display')) + '</label>' +
+      '<select id="dpProposalDisplayMode" class="form-select form-select-sm" title="' + esc(label('toolbar_visibility_title', 'DP Props visibility')) + '">' +
       '</select>';
     inner.appendChild(wrap);
     var sel = document.getElementById('dpProposalDisplayMode');
@@ -608,11 +833,15 @@
   function populateComposeModal() {
     var orig = document.getElementById('dpProposalOriginal');
     var prop = document.getElementById('dpProposalProposed');
+    var rationaleEl = document.getElementById('dpProposalRationale');
+    var referenceEl = document.getElementById('dpProposalReferenceUrl');
     var err = document.getElementById('dpProposalComposeError');
     var submit = document.getElementById('dpProposalSubmitBtn');
     if (!orig || !prop || !submit || !pendingSelection) return false;
     orig.value = pendingSelection.original;
     prop.value = pendingSelection.original;
+    if (rationaleEl) rationaleEl.value = '';
+    if (referenceEl) referenceEl.value = '';
     err.classList.add('d-none');
     submit.disabled = true;
     prop.oninput = function () {
@@ -651,6 +880,97 @@
     whenBootstrapReady(openComposeModal);
   }
 
+  function openComposeFromInvitePayload(data) {
+    if (!data || !meta.authenticated) return false;
+    if (data.draft_ref && data.draft_ref !== draftRef) return false;
+    var passageText = (data.passage_text || '').trim();
+    if (!passageText) return false;
+    var blockText = bodyEl.textContent || '';
+    var textQuote = data.context_anchor && data.context_anchor.textQuote;
+    var located = tools.locateTextInRoot(bodyEl, {
+      original_text: passageText,
+      textQuote: textQuote || null,
+    });
+    var original = passageText;
+    if (located) {
+      original = tools.expandSelectionToSentences
+        ? tools.expandSelectionToSentences(blockText, located.start, located.end)
+        : (tools.normalizeForMatch(blockText) || '').slice(located.start, located.end);
+      if (tools.rangeFromOffsets && located.map) {
+        var range = tools.rangeFromOffsets(located.map, located.start, located.end);
+        if (range) {
+          try {
+            var el = range.startContainer.parentElement || range.startContainer;
+            if (el && el.scrollIntoView) {
+              el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+          } catch (_scrollErr) { /* ignore */ }
+        }
+      }
+    } else if (tools.expandToSentences) {
+      original = tools.expandToSentences(passageText, blockText);
+    }
+    pendingSelection = { original: original, blockText: blockText };
+    if (global.GhInvite && global.GhInvite.clearPassageComposeStash) {
+      global.GhInvite.clearPassageComposeStash();
+    }
+    whenBootstrapReady(openComposeModal);
+    return true;
+  }
+
+  function resumeInvitePassageCompose() {
+    if (!meta.authenticated) return Promise.resolve();
+
+    var stash = global.GhInvite && global.GhInvite.readPassageComposeStash
+      ? global.GhInvite.readPassageComposeStash()
+      : null;
+    if (stash && openComposeFromInvitePayload(stash)) {
+      return Promise.resolve();
+    }
+
+    var composeParam = false;
+    var inviteToken = null;
+    try {
+      var params = new URLSearchParams(window.location.search);
+      composeParam = params.get('compose') === '1';
+      inviteToken = params.get('invite');
+    } catch (_e) { /* ignore */ }
+
+    if (!composeParam || !inviteToken) {
+      return Promise.resolve();
+    }
+
+    return fetch('/api/invitations/by-token/' + encodeURIComponent(inviteToken) + '/', {
+      credentials: 'same-origin',
+    })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          return { ok: r.ok, data: d || {} };
+        });
+      })
+      .then(function (res) {
+        if (!res.ok || !res.data.target) return;
+        var target = res.data.target;
+        var excerpt = global.GhInvite && global.GhInvite.passageExcerptFromTarget
+          ? global.GhInvite.passageExcerptFromTarget(target)
+          : '';
+        if (!excerpt) return;
+        if (global.GhInvite && global.GhInvite.stashPassageCompose) {
+          global.GhInvite.stashPassageCompose(
+            res.data.invite_type || 'edit_document_passage',
+            target,
+            target.draft_ref || draftRef
+          );
+        }
+        openComposeFromInvitePayload({
+          draft_ref: target.draft_ref || draftRef,
+          passage_text: excerpt,
+          context_anchor: target.context_anchor || null,
+        });
+      })
+      .catch(function () { /* ignore */ });
+  }
+
   function trimTextsForSubmit(original, proposed) {
     if (display && display.focusedPassageCore) {
       var core = display.focusedPassageCore(original, proposed);
@@ -679,9 +999,12 @@
       submit.disabled = false;
       return;
     }
+    var rationaleEl = document.getElementById('dpProposalRationale');
+    var referenceEl = document.getElementById('dpProposalReferenceUrl');
     var payload = {
       original_text: trimmed.original,
       proposed_text: trimmed.proposed,
+      scope: meta.scope || meta.mode || 'dp',
       context_anchor: {
         textQuote: tools.buildTextQuoteSelector(
           bodyEl.textContent || pendingSelection.blockText || '',
@@ -689,6 +1012,12 @@
         ),
       },
     };
+    if (rationaleEl && rationaleEl.value.trim()) {
+      payload.rationale = rationaleEl.value.trim();
+    }
+    if (referenceEl && referenceEl.value.trim()) {
+      payload.reference_url = referenceEl.value.trim();
+    }
     fetch(apiUrl('/proposals/'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -728,8 +1057,9 @@
     var block = tools.findBlockElement(range.commonAncestorContainer) || bodyEl;
     var off = tools.getSelectionCharOffsetsInBlock(block, range);
     if (!off) return null;
-    var exact = sel.toString();
-    var expanded = tools.expandToSentences(exact, off.blockText);
+    var expanded = tools.expandSelectionToSentences
+      ? tools.expandSelectionToSentences(off.blockText, off.start, off.end)
+      : tools.expandToSentences(off.blockText.slice(off.start, off.end), off.blockText);
     return { original: expanded, blockText: off.blockText, block: off.block };
   }
 
@@ -739,6 +1069,7 @@
       if (target.closest && target.closest('.dp-proposal-highlight-rect')) return;
       if (target.closest && target.closest('.dp-proposal-mark')) return;
       if (target.closest && target.closest('.dp-proposal-pin')) return;
+      if (target.closest && target.closest('.dp-proposal-hover-panel')) return;
       if (target.closest && target.closest('.dp-proposal-badge')) return;
       if (composeModalEl && composeModalEl.contains(target)) return;
       if (listModalEl && listModalEl.contains(target)) return;
@@ -836,10 +1167,15 @@
     }
   }
 
+  function pointerInsideViewportRect(x, y, u) {
+    return x >= u.left && x <= u.right && y >= u.top && y <= u.bottom;
+  }
+
   function applyPointerProximity(x, y) {
     if (displayMode === 'hidden') return;
     positionAllPins();
     var useAttention = displayMode === 'attention';
+    var pointerKnown = x >= 0 && y >= 0;
     anchorRegistry.forEach(function (entry) {
       var pin = entry.pin;
       if (!pin || !entry.boxes || !entry.boxes.length) {
@@ -854,19 +1190,30 @@
       var cy = u.top + u.height / 2;
       var dist = Math.hypot(x - cx, y - cy);
       var t = Math.max(0, 1 - dist / MAX_DISTANCE);
-      var near = !useAttention || t > 0.3;
-      pin.classList.toggle('dp-proposal-pin-near', near);
-      pin.classList.toggle('dp-proposal-pin-far', useAttention && !near);
+      if (pointerKnown && pointerInsideViewportRect(x, y, u)) {
+        t = 1;
+      }
+      var active = !!entry.proximityBoost;
+      var near = !useAttention || active || !pointerKnown || t > 0.18;
+      pin.classList.toggle('dp-proposal-pin-active', active);
+      pin.classList.toggle('dp-proposal-pin-near', near && !active);
+      pin.classList.toggle('dp-proposal-pin-far', useAttention && pointerKnown && !near && !active);
       var badge = pin.querySelector('.dp-proposal-badge');
       if (badge) {
-        badge.style.opacity = useAttention ? String(Math.min(1, 0.2 + t * 0.8)) : '1';
+        if (!useAttention) {
+          badge.style.removeProperty('opacity');
+        } else if (active || !pointerKnown) {
+          badge.style.opacity = '1';
+        } else {
+          badge.style.opacity = String(Math.max(0.55, Math.min(1, 0.4 + t * 0.6)));
+        }
       }
       entry.boxes.forEach(function (box) {
         if (displayMode !== 'hidden') {
           box.classList.remove('dp-proposal-highlight-hidden');
         }
-        if (useAttention) {
-          box.classList.toggle('dp-proposal-highlight-dim', t < 0.15);
+        if (useAttention && pointerKnown && !active) {
+          box.classList.toggle('dp-proposal-highlight-dim', t < 0.12);
         } else {
           box.classList.remove('dp-proposal-highlight-dim');
         }
@@ -884,13 +1231,18 @@
     });
     function renderSection(title, items) {
       if (!items.length) return '';
-      var html = '<h6 class="mt-3">' + esc(title) + '</h6><div class="list-group mb-2">';
+      var html = '<h6 class="mt-3">' + esc(title) + '</h6><div class="dp-proposal-list-items mb-2">';
       items.forEach(function (p) {
-        html += '<div class="list-group-item" id="dp-proposal-item-' + esc(p.id) + '">' +
-          '<div class="d-flex justify-content-between align-items-start gap-2">' +
-          '<span class="badge ' + statusBadgeClass(p.status) + '">' + esc(p.status_label) + '</span>' +
-          '<small class="text-muted">' + esc(p.author_name || 'Anonymous') + '</small></div>' +
-          renderProposalBody(p.original_text, p.proposed_text, showDiff);
+        html += '<div class="dp-proposal-list-item" id="dp-proposal-item-' + esc(p.id) + '">';
+        if (p.rationale) {
+          html += renderProposalMetaHtml(p) + renderProposalHeaderHtml(p);
+        } else {
+          html += renderProposalHeaderHtml(p);
+        }
+        html += renderProposalBody(p.original_text, p.proposed_text, showDiff);
+        if (!p.rationale) {
+          html += renderProposalMetaHtml(p);
+        }
         if (p.status === 'pending' && meta.can_accept_amendments) {
           html += '<div class="btn-group btn-group-sm mt-3">' +
             '<button type="button" class="btn btn-success dp-proposal-accept" data-id="' +
@@ -905,8 +1257,8 @@
       return html;
     }
     body.innerHTML =
-      renderSection('DP Proposals', sections.pending) +
-      renderSection('Amendments', sections.accepted) +
+      renderSection(label('pending_plural', 'Proposals'), sections.pending) +
+      renderSection(label('accepted_plural', 'Amendments'), sections.accepted) +
       renderSection('Declined', sections.declined) +
       renderSection('Other', sections.other);
     body.querySelectorAll('.dp-proposal-accept').forEach(function (btn) {
@@ -1018,5 +1370,9 @@
   });
 
   injectToolbarControls();
-  loadProposals().then(resumePendingProposalAfterLogin);
-})();
+  bindInviteControls();
+  loadProposals().then(function () {
+    resumePendingProposalAfterLogin();
+    return resumeInvitePassageCompose();
+  });
+})(typeof window !== 'undefined' ? window : globalThis);

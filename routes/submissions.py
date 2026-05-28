@@ -437,6 +437,7 @@ def _build_submit_form_template(
         workgroup_select_options_html,
     )
     from services.product_rollout import is_feature_enabled
+    from services.page_heroes import render_page_hero_html
 
     layer_id = effective_layer.id if effective_layer else None
     group_options = workgroup_select_options_html(layer_id, selected_group)
@@ -482,6 +483,10 @@ def _build_submit_form_template(
     submit_template = submit_template.replace('{{DOCUMENT_META_FIELDS}}', _submit_document_meta_fields_html())
     stripe_pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
     submit_template = submit_template.replace('{{STRIPE_PK}}', stripe_pk)
+    submit_template = submit_template.replace(
+        '{{PAGE_HERO}}',
+        render_page_hero_html('submit_draft'),
+    )
     offer_tier = effective_layer and getattr(effective_layer, 'offer_tier_pricing', False)
     submit_template = submit_template.replace('{{OFFER_TIER_PRICING}}', 'true' if offer_tier else 'false')
     submit_template = submit_template.replace('{build_number}', str(build_number))

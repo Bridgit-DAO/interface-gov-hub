@@ -36,10 +36,11 @@ FEATURE_KEYS: List[str] = [
     'bridges',
     'opportunities',
     'dp_proposals',
+    'document_edits',
 ]
 
 # Features off until explicitly enabled in Product rollout (site-wide).
-_FEATURE_OFF_BY_DEFAULT = frozenset({'immortalize', 'dp_proposals'})
+_FEATURE_OFF_BY_DEFAULT = frozenset({'immortalize', 'dp_proposals', 'document_edits'})
 
 # When no `product_rollout` row exists, legacy features stay on; new gated features stay off.
 _LEGACY_ALL_ENABLED: Dict[str, bool] = {
@@ -180,6 +181,7 @@ EXEMPT_ROLLOUT_PATH_PREFIXES: tuple = (
     '/_deploy/',
     '/embed/',
     '/auth/',  # OAuth callback paths
+    '/api/invitations/by-token/',  # invite preview (token is secret)
 )
 
 EXEMPT_ROLLOUT_EXACT: frozenset = frozenset({'/favicon.ico'})

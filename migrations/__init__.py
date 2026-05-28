@@ -865,6 +865,23 @@ def migrate_layer_enabled_features(app):
         print(f"⚠️  Error in migrate_layer_enabled_features: {e}")
 
 
+def migrate_layer_nav_pill_config(app):
+    """Per-layer nav pill animation + tooltip overrides."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(layer)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'nav_pill_config' not in cols:
+            cursor.execute("ALTER TABLE layer ADD COLUMN nav_pill_config TEXT")
+            conn.commit()
+            print("✅ Added nav_pill_config to layer")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Error in migrate_layer_nav_pill_config: {e}")
+
+
 def migrate_knowledge_form_conviction_to_claim(app):
     """Rename legacy knowledge_form conviction → claim on artifacts."""
     try:
@@ -1653,3 +1670,77 @@ def migrate_dp_proposals(app):
                     print('✅ Enabled dp_proposals in product_rollout (dev)')
     except Exception as e:
         print(f'⚠️  Error in migrate_dp_proposals: {e}')
+
+
+def migrate_dp_proposal_rationale_reference(app):
+    """Add optional rationale and reference_url to dp_proposal."""
+    try:
+        import sqlite3
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(dp_proposal)')
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'rationale' not in cols:
+            cursor.execute('ALTER TABLE dp_proposal ADD COLUMN rationale TEXT')
+        if 'reference_url' not in cols:
+            cursor.execute('ALTER TABLE dp_proposal ADD COLUMN reference_url VARCHAR(2048)')
+        conn.commit()
+        conn.close()
+        print('✅ dp_proposal rationale/reference_url columns ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_dp_proposal_rationale_reference: {e}')
+
+
+def migrate_platform_invitations(app):
+    """Create platform_invitation table; extend workgroup_member_request for invites."""
+    try:
+        import sqlite3
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS platform_invitation (
+                id VARCHAR(36) PRIMARY KEY,
+                invite_type VARCHAR(40) NOT NULL,
+                rate_category VARCHAR(20) NOT NULL DEFAULT 'standard',
+                inviter_id VARCHAR(36) NOT NULL,
+                invitee_email VARCHAR(255) NOT NULL,
+                invitee_id VARCHAR(36),
+                message TEXT,
+                target_json TEXT NOT NULL DEFAULT '{}',
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                outcome_note VARCHAR(255),
+                token VARCHAR(100) NOT NULL UNIQUE,
+                created_at DATETIME,
+                expires_at DATETIME NOT NULL,
+                responded_at DATETIME,
+                FOREIGN KEY (inviter_id) REFERENCES user(id),
+                FOREIGN KEY (invitee_id) REFERENCES user(id)
+            )
+        """)
+        for idx_sql in (
+            'CREATE INDEX IF NOT EXISTS idx_platform_invite_type ON platform_invitation(invite_type)',
+            'CREATE INDEX IF NOT EXISTS idx_platform_invite_inviter ON platform_invitation(inviter_id)',
+            'CREATE INDEX IF NOT EXISTS idx_platform_invite_email ON platform_invitation(invitee_email)',
+            'CREATE INDEX IF NOT EXISTS idx_platform_invite_status ON platform_invitation(status)',
+            'CREATE INDEX IF NOT EXISTS idx_platform_invite_token ON platform_invitation(token)',
+        ):
+            cursor.execute(idx_sql)
+        cursor.execute('PRAGMA table_info(workgroup_member_request)')
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'invited_by_user_id' not in cols:
+            cursor.execute(
+                'ALTER TABLE workgroup_member_request ADD COLUMN invited_by_user_id VARCHAR(36)'
+            )
+        if 'platform_invitation_id' not in cols:
+            cursor.execute(
+                'ALTER TABLE workgroup_member_request ADD COLUMN platform_invitation_id VARCHAR(36)'
+            )
+        conn.commit()
+        conn.close()
+        print('✅ platform_invitation table ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_platform_invitations: {e}')

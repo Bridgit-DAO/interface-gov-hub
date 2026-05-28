@@ -20,9 +20,10 @@ from services.product_rollout import PRODUCT_ROLLOUT_SITE_CONFIG_KEY, set_rollou
 def client():
     app.config['TESTING'] = True
     with app.app_context():
-        from migrations import migrate_layer_enabled_features
+        from migrations import migrate_layer_enabled_features, migrate_layer_nav_pill_config
 
         migrate_layer_enabled_features(app)
+        migrate_layer_nav_pill_config(app)
     with app.test_client() as c:
         yield c
 

@@ -282,6 +282,7 @@ def all_documents():
     from flask import url_for
     from services.rendering import _format_base_template, generate_user_menu
     from config import BUILD_NUMBER
+    from services.page_heroes import render_page_hero_html
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
@@ -304,9 +305,10 @@ def all_documents():
 
     content = f"""
     <div class="gh-page container doc-all-page mt-4">
+        {render_page_hero_html('docs_drafts')}
         {gh_page_header(
-            'Documents',
-            f'{total_docs} documents',
+            'Docs & Drafts',
+            f'{total_docs} documents in the directory',
             'fa-file-alt',
             actions_html=doc_view_actions,
         )}
@@ -341,16 +343,6 @@ def all_documents():
         return encodeURIComponent(String(name || ''));
     }}
 
-    function docWorkgroupHtml(d) {{
-        const label = d.workgroup_name || d.group;
-        const inner = label
-            ? (d.workgroup_href
-                ? '<a href="' + GhDirectory.esc(d.workgroup_href) + '">' + GhDirectory.esc(label) + '</a>'
-                : GhDirectory.esc(label))
-            : '&nbsp;';
-        return '<br>Workgroup: ' + inner;
-    }}
-
     function renderDocCards(docs) {{
         return docs.map(function(d) {{
             const displayId = GhDirectory.esc(d.ml_number || d.name || '');
@@ -363,11 +355,9 @@ def all_documents():
                 + '<h5 class="card-title document-title"><a href="/doc/draft/' + href + '/">' + displayId + '</a>' + revBadge + '</h5>'
                 + '<p class="card-text">' + GhDirectory.esc(d.title || '') + '</p>'
                 + '<div class="document-meta"><span class="badge bg-secondary status-badge">' + GhDirectory.esc(d.status || '') + '</span>'
-                + '<span>Rev: ' + GhDirectory.esc(d.rev || '00') + '</span>'
                 + '<span>' + (d.pages || 1) + ' pages</span>'
                 + '<span>' + words + ' words</span></div>'
                 + '<div class="mt-2"><small class="text-muted">Authors: ' + GhDirectory.esc(authors)
-                + docWorkgroupHtml(d)
                 + '<br>Date: ' + GhDirectory.esc(d.date || '') + '</small></div>'
                 + '<div class="mt-2 doc-card-actions">'
                 + '<a href="/doc/draft/' + href + '/read/" class="btn btn-sm btn-primary">Read</a>'
@@ -582,6 +572,15 @@ def draft_reader(draft_name):
     from services.read_navigation import draft_reader_back_href
 
     back_href = html_mod.escape(draft_reader_back_href(request.args.get('return_to')))
+    invite_doc_btn = ''
+    cu = get_current_user()
+    if cu and submission:
+        invite_doc_btn = (
+            f'<button type="button" class="btn btn-sm btn-outline-secondary" id="draftReaderInviteDoc" '
+            f'data-submission-id="{html_mod.escape(str(submission.id))}" '
+            f'data-draft-ref="{html_mod.escape(str(draft_name))}">'
+            f'<i class="fas fa-user-plus me-1"></i>Invite</button>'
+        )
 
     dp_proposal_assets = render_dp_proposal_reader_assets(
         submission,
@@ -694,6 +693,7 @@ def draft_reader(draft_name):
           <div class="draft-reader-nav">
             <a href="{back_href}" class="btn btn-sm btn-outline-secondary" id="draftReaderBack">&larr; Back</a>
             <a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>
+            {invite_doc_btn}
           </div>
           <div class="draft-reader-meta">
             <strong>{html_escape(display_id)}</strong>
@@ -1437,9 +1437,9 @@ Meta-Layer Initiative
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Title:</strong></td><td style="color: var(--text-primary) !important;">{draft['title']}</td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Status:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-secondary">{draft['status']}</span></td></tr>
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Authors:</strong></td><td style="color: var(--text-primary) !important;">{', '.join(draft['authors'])}</td></tr>
-                            {_document_workgroup_table_row(draft)}
                             <tr><td style="color: var(--text-secondary) !important;"><strong>Date:</strong></td><td style="color: var(--text-primary) !important;">{draft['date']}</td></tr>
-                            {f'<tr><td colspan="2" style="padding-top: 15px;"><hr style="border-color: var(--border-color);"></td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Source:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-info"><i class="bi bi-coin"></i> Bitcoin Ordinal</span></td></tr>' if draft.get('sourceType') == 'ordinal' else f'<tr><td style="color: var(--text-secondary) !important;"><strong>Revision:</strong></td><td style="color: var(--text-primary) !important;">{draft["rev"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Pages:</strong></td><td style="color: var(--text-primary) !important;">{draft["pages"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Words:</strong></td><td style="color: var(--text-primary) !important;">{draft["words"]}</td></tr>'}
+                            {_document_workgroup_table_row(draft)}
+                            {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Source:</strong></td><td style="color: var(--text-primary) !important;"><span class="badge bg-info"><i class="bi bi-coin"></i> Bitcoin Ordinal</span></td></tr>' if draft.get('sourceType') == 'ordinal' else f'<tr><td style="color: var(--text-secondary) !important;"><strong>Revision:</strong></td><td style="color: var(--text-primary) !important;">{draft["rev"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Pages:</strong></td><td style="color: var(--text-primary) !important;">{draft["pages"]}</td></tr><tr><td style="color: var(--text-secondary) !important;"><strong>Words:</strong></td><td style="color: var(--text-primary) !important;">{draft["words"]}</td></tr>'}
                             {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Inscription #:</strong></td><td style="color: var(--text-primary) !important;">{draft["inscriptionNumber"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('inscriptionNumber') else ''}
                             {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Block Height:</strong></td><td style="color: var(--text-primary) !important;">{draft["blockHeight"]}</td></tr>' if draft.get('sourceType') == 'ordinal' and draft.get('blockHeight') else ''}
                             {f'<tr><td style="color: var(--text-secondary) !important;"><strong>Timestamp:</strong></td><td style="color: var(--text-primary) !important;">{draft["inscriptionTimestamp"].strftime("%Y-%m-%d %H:%M UTC") if draft.get("inscriptionTimestamp") else "N/A"}</td></tr>' if draft.get('sourceType') == 'ordinal' else ''}

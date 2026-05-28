@@ -117,6 +117,11 @@ def generate_participate_nav_html(layer_slug=None):
             '<li><a class="dropdown-item" href="/dp-challenge/" data-gh-i18n="nav.dpChallenge">'
             'DP Challenge</a></li>'
         )
+    if r.get('document_edits', False):
+        lines.append(
+            '<li><a class="dropdown-item" href="/suggest-edit/" data-gh-i18n="nav.suggestEdit">'
+            'Suggest an Edit</a></li>'
+        )
     lines.append(
         f'<li><a class="dropdown-item" href="{submit_href}" data-gh-i18n="nav.submitDraft">Submit Draft</a></li>'
     )
@@ -368,8 +373,23 @@ def generate_civic_mason_nav_li():
     )
 
 
+def _base_template_for_request():
+    """Use live BASE_TEMPLATE in development so CSS/markup edits apply without restart."""
+    try:
+        from config import DEBUG, IS_DEVELOPMENT
+        if DEBUG or IS_DEVELOPMENT:
+            import importlib
+            from templates import html_templates
+            importlib.reload(html_templates)
+            return html_templates.BASE_TEMPLATE
+    except Exception:
+        pass
+    return _base_template
+
+
 def _format_base_template(**kwargs):
     """Format BASE_TEMPLATE with defaults for font_awesome_link."""
+    template = _base_template_for_request()
     kwargs.setdefault('font_awesome_link', _font_awesome_link)
     kwargs.setdefault('build_number', _build_number)
     kwargs.setdefault('body_attrs', '')
@@ -399,7 +419,7 @@ def _format_base_template(**kwargs):
         kwargs.setdefault('govhub_i18n_js', url_for('static', filename='js/govhub-i18n.js'))
     except RuntimeError:
         kwargs.setdefault('govhub_i18n_js', '/static/js/govhub-i18n.js')
-    return _base_template.format(**kwargs)
+    return template.format(**kwargs)
 
 
 def render_page(title, content, theme=None, user_menu=None, font_awesome=True, body_attrs=''):
@@ -507,15 +527,18 @@ def generate_user_menu(layer_slug=None, view_in_mlgh_slug=None):
                 '<li><hr class="dropdown-divider"></li>'
             )
         # Display name priority: displayName > oauthName > name > username
+        from markupsafe import escape
+
         display_name = (current_user.get('displayName') or
                        current_user.get('oauthName') or
                        current_user.get('name') or
                        current_user['username'])
+        display_name_escaped = escape(display_name)
 
         return f"""
         <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                {display_name}
+            <a class="nav-link dropdown-toggle gh-user-nav-name" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-full-name="{display_name_escaped}" title="{display_name_escaped}">
+                {display_name_escaped}
             </a>
             <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="/profile/" data-gh-i18n="user.profile">Profile</a></li>
