@@ -74,6 +74,10 @@ PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', 'https://rfc.themetalayer.or
 
 # Optional: shown in document-follow notification emails (on-page discussion via Canopi).
 CANOPI_PUBLIC_URL = os.environ.get('CANOPI_PUBLIC_URL', 'https://app.canopi.live').rstrip('/')
+# Server-to-server Canopi API (provision MetaCommunity, mirror membership). Falls back to CANOPI_PUBLIC_URL.
+CANOPI_INTERNAL_API_URL = os.environ.get(
+    'CANOPI_INTERNAL_API_URL', CANOPI_PUBLIC_URL
+).rstrip('/')
 
 
 def _git_rev_list_count():

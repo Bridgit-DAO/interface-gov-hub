@@ -110,6 +110,15 @@ def list_layers():
     if approval_status:
         query = query.filter_by(approval_status=approval_status)
 
+    # Hide imported auth shells from default directory (Revised Option C).
+    if request.args.get('include_auth_imports') != '1':
+        query = query.filter(
+            ~db.and_(
+                Layer.layer_kind == 'auth_community',
+                Layer.stewardship == 'unmanaged',
+            )
+        )
+
     query = query.order_by(Layer.last_activity.desc())
     layers = query.all()
     viewer = get_current_user()
@@ -180,6 +189,18 @@ def create_layer():
         listing_visibility=normalize_listing_visibility(data.get('listing_visibility')),
         join_policy=normalize_join_policy_layer_guild(data.get('join_policy')),
     )
+    from services.nft_gate import gate_has_requirements, parse_nft_gate_rules_text, save_layer_nft_gate
+
+    jp = layer.join_policy
+    if data.get('nft_gated') or data.get('join_policy') == 'nft_gated':
+        layer.join_policy = 'nft_gated'
+        jp = 'nft_gated'
+    if jp == 'nft_gated':
+        rules = data.get('nft_gate_rules') or ''
+        gate = data.get('nft_gate') if isinstance(data.get('nft_gate'), dict) else parse_nft_gate_rules_text(rules)
+        if not gate_has_requirements(gate):
+            return jsonify({'error': 'NFT-gated layers require at least one allowed NFT rule'}), 400
+        save_layer_nft_gate(layer, gate)
     db.session.add(layer)
     db.session.commit()
 
@@ -455,9 +476,30 @@ def update_layer(layer_id):
         else:
             project.meta_domain = None
     if 'listing_visibility' in data:
-        project.listing_visibility = normalize_listing_visibility(data.get('listing_visibility'))
+        new_vis = normalize_listing_visibility(data.get('listing_visibility'))
+        current_vis = getattr(project, 'listing_visibility', None) or 'public'
+        if current_vis == 'public' and new_vis == 'private':
+            return jsonify({
+                'error': 'Layers cannot be made private after they are public. Set visibility when creating the layer.',
+            }), 400
+        if current_vis == 'private' and new_vis == 'public':
+            project.listing_visibility = 'public'
     if 'join_policy' in data:
         project.join_policy = normalize_join_policy_layer_guild(data.get('join_policy'))
+    if 'nft_gate_rules' in data or 'nft_gate' in data:
+        from services.nft_gate import (
+            gate_has_requirements,
+            parse_nft_gate_rules_text,
+            save_layer_nft_gate,
+        )
+
+        if 'nft_gate' in data and isinstance(data.get('nft_gate'), dict):
+            gate = data['nft_gate']
+        else:
+            gate = parse_nft_gate_rules_text(data.get('nft_gate_rules') or '')
+        if getattr(project, 'join_policy', None) == 'nft_gated' and not gate_has_requirements(gate):
+            return jsonify({'error': 'Add at least one NFT allow-list rule for this layer'}), 400
+        save_layer_nft_gate(project, gate)
     if 'enabled_features' in data:
         raw_ef = data['enabled_features']
         if raw_ef is None:
@@ -490,6 +532,11 @@ def update_layer(layer_id):
                    subject_type='layer', subject_id=layer_id, layer_id=layer_id,
                    payload={'updated_fields': list(data.keys())})
     db.session.commit()
+
+    if getattr(project, 'canopi_meta_community_id', None) or getattr(project, 'approval_status', None) == 'approved':
+        from services.canopi_community_sync import provision_or_sync_layer
+
+        provision_or_sync_layer(project, force=bool(getattr(project, 'canopi_meta_community_id', None)))
 
     out = project.to_dict()
     out['effective_features'] = {
@@ -529,6 +576,11 @@ def approve_layer(layer_id):
     )
     db.session.add(status_change)
     db.session.commit()
+
+    if action == 'approve':
+        from services.canopi_community_sync import provision_or_sync_layer
+
+        provision_or_sync_layer(project, force=True)
 
     return jsonify({'success': True, 'project': project.to_dict()})
 
@@ -867,8 +919,23 @@ def join_layer(layer_id):
     user = User.query.get(current_user_data['id'])
     project = Layer.query.get_or_404(layer_id)
 
+    jp = getattr(project, 'join_policy', None) or 'open'
+    if jp == 'nft_gated':
+        from services.nft_gate import load_layer_nft_gate, user_meets_nft_gate
+
+        ok, err = user_meets_nft_gate(user, load_layer_nft_gate(project))
+        if not ok:
+            return jsonify({'error': err or 'NFT required to join this layer'}), 403
+    elif jp == 'by_invitation':
+        return jsonify({'error': 'This layer requires an invitation to join'}), 403
+
     existing = LayerMember.query.filter_by(layer_id=layer_id, user_id=user.id).first()
-    if existing and existing.status == 'active':
+    was_already_active = (
+        existing
+        and existing.status == 'active'
+        and existing.left_at is None
+    )
+    if was_already_active:
         return jsonify({'error': 'Already a member of this project'}), 400
 
     data = request.get_json() or {}
@@ -897,10 +964,28 @@ def join_layer(layer_id):
         )
         db.session.add(member)
 
-    emit_event('member_joined', actor_type='user', actor_id=user.id,
-               subject_type='layer_member', subject_id=member.id,
-               layer_id=layer_id, payload={'user_id': user.id, 'role': member.role})
+    emit_event(
+        'member_joined',
+        actor_type='user',
+        actor_id=user.id,
+        subject_type='layer_member',
+        subject_id=member.id,
+        layer_id=layer_id,
+        payload={'user_id': user.id, 'role': member.role, 'via': 'join'},
+    )
     db.session.commit()
+
+    kind = (getattr(project, 'layer_kind', None) or '').strip()
+    if kind != 'auth_community':
+        vid = (getattr(user, 'web3authVerifierId', None) or '').strip()
+        if vid and getattr(project, 'canopi_meta_community_id', None):
+            from services.canopi_community_sync import mirror_membership_to_canopi
+
+            mirror_membership_to_canopi(
+                layer_id=layer_id,
+                web3auth_verifier_id=vid,
+                active=True,
+            )
 
     return jsonify({
         'message': 'Successfully joined project',

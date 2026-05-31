@@ -46,9 +46,16 @@ def init_db(app):
             migrate_layer_invitations,
             migrate_product_rollout_seed,
             migrate_workgroup_layer_links,
+            migrate_meta_layer_governance_metaweb_link,
             migrate_dp_proposals,
             migrate_dp_proposal_rationale_reference,
             migrate_platform_invitations,
+            migrate_user_bitcoin_wallet_v1,
+            migrate_layer_nft_gate_v1,
+            migrate_canopi_community_sync_v1,
+            migrate_custodial_wallet_v1,
+            migrate_comment_is_deleted_v1,
+            migrate_comment_like_v1,
             migrate_hardcoded_users,
         )
 
@@ -92,8 +99,15 @@ def init_db(app):
         migrate_layer_invitations(app)
         migrate_product_rollout_seed(app)
         migrate_workgroup_layer_links(app)
+        migrate_meta_layer_governance_metaweb_link(app)
         migrate_dp_proposals(app)
         migrate_dp_proposal_rationale_reference(app)
         migrate_platform_invitations(app)
+        migrate_user_bitcoin_wallet_v1(app)
+        migrate_layer_nft_gate_v1(app)
+        migrate_canopi_community_sync_v1(app)
+        migrate_custodial_wallet_v1(app)
+        migrate_comment_is_deleted_v1(app)
+        migrate_comment_like_v1(app)
 
         print(f"Database initialized: {User.query.count()} users")

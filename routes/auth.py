@@ -138,6 +138,11 @@ def web3auth_login():
         # Wallet addresses are optional UX metadata; never used for authentication.
         evm_address = (data.get('evmAddress') or '').strip() or None
         solana_address = (data.get('solanaAddress') or '').strip() or None
+        bitcoin_address = (
+            (data.get('bitcoinAddress') or data.get('badgeWalletAddress') or '')
+            .strip()
+            or None
+        )
 
         user = User.query.filter_by(web3authVerifierId=verifier_id).first()
         if user:
@@ -149,6 +154,7 @@ def web3auth_login():
                 profile_image=profile_image,
                 evm_address=evm_address,
                 solana_address=solana_address,
+                bitcoin_address=bitcoin_address,
             )
             db.session.commit()
         else:
@@ -187,6 +193,7 @@ def web3auth_login():
                     profile_image=profile_image,
                     evm_address=evm_address,
                     solana_address=solana_address,
+                    bitcoin_address=bitcoin_address,
                 )
                 db.session.commit()
             else:
@@ -198,6 +205,7 @@ def web3auth_login():
                     profile_image=profile_image,
                     evm_address=evm_address,
                     solana_address=solana_address,
+                    bitcoin_address=bitcoin_address,
                 )
                 db.session.add(user)
                 db.session.flush()
@@ -211,6 +219,15 @@ def web3auth_login():
         session.permanent = True
         session.modified = True
 
+        try:
+            from services.auth_layer_membership import ensure_auth_layer_memberships
+
+            ensure_auth_layer_memberships(user, type_of_login)
+        except Exception as auth_layer_err:
+            current_app.logger.warning(
+                'Auth layer membership sync failed: %s', auth_layer_err
+            )
+
         safe_user_data = {
             'id': user.id,
             'username': user.username,
@@ -220,6 +237,7 @@ def web3auth_login():
             'profileImage': user.profileImage,
             'evmAddress': user.evmAddress,
             'solanaAddress': user.solanaAddress,
+            'bitcoinAddress': getattr(user, 'bitcoinAddress', None),
             'typeOfLogin': user.typeOfLogin,
             'theme': user.theme,
         }
@@ -252,7 +270,9 @@ def _update_user_from_web3auth(
     profile_image,
     evm_address,
     solana_address,
+    bitcoin_address=None,
 ):
+    from services.user_wallets import ensure_user_wallet_addresses
     from services.web3auth_verify import normalize_user_email
 
     user.typeOfLogin = type_of_login
@@ -276,10 +296,12 @@ def _update_user_from_web3auth(
         user.oauthName = name
     if profile_image:
         user.profileImage = profile_image
-    if evm_address:
-        user.evmAddress = evm_address
-    if solana_address:
-        user.solanaAddress = solana_address
+    ensure_user_wallet_addresses(
+        user,
+        evm_address=evm_address,
+        solana_address=solana_address,
+        bitcoin_address=bitcoin_address,
+    )
 
 
 def _create_user_from_web3auth(
@@ -291,7 +313,10 @@ def _create_user_from_web3auth(
     profile_image,
     evm_address,
     solana_address,
+    bitcoin_address=None,
 ):
+    from services.user_wallets import ensure_user_wallet_addresses
+
     existing_handles = [row[0] for row in db.session.query(User.username).all()]
     if type_of_login == 'wallet' and evm_address:
         short_address = f"{evm_address[:6]}...{evm_address[-4:]}"
@@ -311,7 +336,7 @@ def _create_user_from_web3auth(
             handle = f"{base_handle}{counter}"
             counter += 1
 
-    return User(
+    user = User(
         web3authVerifierId=verifier_id,
         typeOfLogin=type_of_login,
         displayName=name if name else None,
@@ -319,14 +344,19 @@ def _create_user_from_web3auth(
         oauthName=name,
         email=email,
         profileImage=profile_image,
-        evmAddress=evm_address,
-        solanaAddress=solana_address,
         username=handle,
         handle=handle,
         role='user',
         theme='dark',
         last_login=datetime.utcnow(),
     )
+    ensure_user_wallet_addresses(
+        user,
+        evm_address=evm_address,
+        solana_address=solana_address,
+        bitcoin_address=bitcoin_address,
+    )
+    return user
 
 
 @bp.route('/api/user/me', methods=['GET'])
@@ -351,6 +381,7 @@ def get_user_profile():
         'profileImage': user.profileImage,
         'evmAddress': user.evmAddress,
         'solanaAddress': user.solanaAddress,
+        'bitcoinAddress': getattr(user, 'bitcoinAddress', None),
         'typeOfLogin': user.typeOfLogin,
         'theme': user.theme
     }
