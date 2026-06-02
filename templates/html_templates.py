@@ -148,11 +148,15 @@ BASE_TEMPLATE = """
             overflow: visible !important;
         }}
 
-        /* Bootstrap .navbar sets flex-wrap:wrap; container inherits it — force single row on desktop */
+        /* Align nav items with main content column (see govhub-design.css .container) */
         .navbar > .container {{
             align-items: center;
-            max-width: 100%;
+            max-width: var(--gh-content-max, 960px);
             width: 100%;
+            margin-left: auto;
+            margin-right: auto;
+            padding-left: var(--bs-gutter-x, 0.75rem);
+            padding-right: var(--bs-gutter-x, 0.75rem);
         }}
 
         @media (min-width: 992px) {{
@@ -190,11 +194,8 @@ BASE_TEMPLATE = """
                 white-space: nowrap;
             }}
             .navbar-expand-lg .navbar-nav.ms-auto .gh-user-nav-name {{
-                display: inline-block;
-                max-width: 10rem;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
+                display: inline-flex;
+                align-items: center;
                 vertical-align: middle;
             }}
         }}
@@ -845,10 +846,10 @@ BASE_TEMPLATE = """
             }}
         }}
     </style>
-    <link href="/static/css/govhub-design.css?v=20260527invite" rel="stylesheet">
+    <link href="/static/css/govhub-design.css?v=20260601navicons" rel="stylesheet">
     <link href="/static/css/gh-nav-pills.css?v=1" rel="stylesheet">
     <script src="/static/js/gh-nav-pills.js?v=1" defer></script>
-    <script src="/static/js/gh-nav-user-name.js?v=2" defer></script>
+    <script src="/static/js/gh-nav-user-name.js?v=3" defer></script>
     <script src="/static/js/gh-directory.js"></script>
 </head>
 <body data-build-number="{build_number}" {body_attrs}>
@@ -887,7 +888,7 @@ BASE_TEMPLATE = """
             <ul class="navbar-nav ms-auto">
                 {user_menu}
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="lang.menuLabel">Language</a>
+                    <a class="nav-link dropdown-toggle gh-lang-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n-aria="lang.menuLabel" data-gh-i18n-title="lang.menuLabel"><img src="/static/images/language-icon.png?v=20260601" alt="" class="gh-lang-icon" aria-hidden="true"></a>
                     <ul class="dropdown-menu dropdown-menu-end">
                         {lang_menu}
                     </ul>
@@ -909,10 +910,27 @@ BASE_TEMPLATE = """
         </div>
     </div>
 
+    <div id="gh-account-declaration-overlay" style="display:none;position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;padding:16px;">
+        <div style="background:var(--bg-primary,#1a1a1a);color:var(--text-primary,#eee);max-width:480px;width:100%;max-height:90vh;border-radius:12px;padding:20px;border:1px solid var(--border-color,#333);display:flex;flex-direction:column;gap:10px;">
+            <h2 style="font-size:15px;margin:0;line-height:1.35;">Important Notice: Account Declaration and Unique Humanity Transition</h2>
+            <p id="gh-ada-moratorium" style="font-size:12px;color:var(--text-muted,#888);margin:0;"></p>
+            <div id="gh-ada-body" style="overflow-y:auto;max-height:42vh;font-size:12px;line-height:1.55;"></div>
+            <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;cursor:pointer;">
+                <input type="checkbox" id="gh-ada-understand" style="margin-top:2px;">
+                <span>I understand and wish to continue.</span>
+            </label>
+            <p id="gh-ada-error" style="color:#dc3545;font-size:12px;min-height:16px;margin:0;"></p>
+            <div style="display:flex;gap:8px;">
+                <button type="button" class="btn btn-secondary flex-fill" id="gh-ada-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary flex-fill" id="gh-ada-accept" disabled>Accept</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/gh-return-nav.js"></script>
     <script src="/static/js/gh-dialog.js"></script>
-    <script src="/static/js/gh-invite.js?v=10"></script>
+    <script src="/static/js/gh-invite.js?v=18"></script>
     <script>
         (function () {{
             var HOVER_MQ = window.matchMedia('(min-width: 992px)');
@@ -989,6 +1007,102 @@ BASE_TEMPLATE = """
         let web3auth = null;
         let web3authInitPromise = null;
         let web3authLoginInProgress = false;
+
+        let web3authLoginInProgress = false;
+        const CANOPI_API_URL = "{canopi_api_url}";
+
+        function ghAccountDeclarationBodyHtml() {{
+            return '<p>As Canopi evolves toward a more trustworthy and accountable civic environment, we are introducing a transition period for account declaration.</p>'
+                + '<p>Today, many participants may have more than one account for legitimate reasons, including historical usage, testing, organizational participation, pseudonymous participation, or account recovery.</p>'
+                + '<p>We recognize that these situations exist.</p>'
+                + '<p>To support a healthy transition, all participants are required to declare and connect any duplicate or related accounts before the Declaration Moratorium Date.</p>'
+                + '<h3 style="font-size:13px;margin:14px 0 6px;">What this means</h3>'
+                + '<p>If you control more than one Canopi account, you must:</p><ul>'
+                + '<li>Declare all accounts under your control.</li>'
+                + '<li>Link those accounts through the account declaration process.</li>'
+                + '<li>Identify which account should serve as your primary account where applicable.</li>'
+                + '</ul><p>Multiple accounts are not prohibited when properly declared and linked.</p>'
+                + '<p>Undeclared duplicate accounts are not permitted.</p>'
+                + '<h3 style="font-size:13px;margin:14px 0 6px;">Looking Ahead</h3>'
+                + '<p>The future Meta-Layer ecosystem will support community choice regarding Proof of Unique Humanity and identity requirements.</p>'
+                + '<p>Different communities may choose different approaches to identity, pseudonymity, reputation, and verification.</p>'
+                + '<p>This policy is not intended to eliminate pseudonymous participation.</p>'
+                + '<p>It is intended to ensure transparency, fairness, and trust within the Canopi ecosystem.</p>'
+                + '<h3 style="font-size:13px;margin:14px 0 6px;">After the Moratorium Date</h3>'
+                + '<p>Participants found to have knowingly maintained undeclared duplicate accounts after the moratorium date may be considered in violation of community terms and Canopi participation requirements.</p>'
+                + '<p>Such violations may result in:</p><ul>'
+                + '<li>loss of accumulated benefits,</li><li>loss of reputation or standing,</li>'
+                + '<li>removal from governance processes,</li><li>suspension of accounts,</li>'
+                + '<li>or other remedies determined by community governance processes.</li></ul>'
+                + '<h3 style="font-size:13px;margin:14px 0 6px;">Acknowledgement</h3>'
+                + '<p>By continuing, you acknowledge that:</p><ul>'
+                + '<li>you have read and understood this policy;</li>'
+                + '<li>you will declare any duplicate accounts under your control before the moratorium date;</li>'
+                + '<li>you understand that future enforcement may apply to undeclared accounts discovered after the moratorium.</li></ul>';
+        }}
+
+        function ghEnsureAccountDeclaration(opts) {{
+            const verifierId = (opts && opts.verifierId) || '';
+            const idToken = (opts && opts.idToken) || '';
+            if (!verifierId) return Promise.resolve(true);
+            return fetch(CANOPI_API_URL + '/api/account-declaration/status?verifierId=' + encodeURIComponent(verifierId))
+                .then(function (r) {{ return r.ok ? r.json() : {{ needed: true }}; }})
+                .then(function (status) {{
+                    if (!status || status.needed === false) return true;
+                    return new Promise(function (resolve) {{
+                        const overlay = document.getElementById('gh-account-declaration-overlay');
+                        const body = document.getElementById('gh-ada-body');
+                        const mor = document.getElementById('gh-ada-moratorium');
+                        const cb = document.getElementById('gh-ada-understand');
+                        const acceptBtn = document.getElementById('gh-ada-accept');
+                        const cancelBtn = document.getElementById('gh-ada-cancel');
+                        const errEl = document.getElementById('gh-ada-error');
+                        if (!overlay || !body || !cb || !acceptBtn || !cancelBtn) {{
+                            resolve(true);
+                            return;
+                        }}
+                        body.innerHTML = ghAccountDeclarationBodyHtml();
+                        mor.textContent = status.moratoriumDate
+                            ? ('Declaration Moratorium Date: ' + status.moratoriumDate)
+                            : '';
+                        cb.checked = false;
+                        acceptBtn.disabled = true;
+                        errEl.textContent = '';
+                        overlay.style.display = 'flex';
+                        cb.onchange = function () {{ acceptBtn.disabled = !cb.checked; }};
+                        cancelBtn.onclick = function () {{
+                            overlay.style.display = 'none';
+                            resolve(false);
+                        };
+                        acceptBtn.onclick = function () {{
+                            if (!cb.checked) return;
+                            acceptBtn.disabled = true;
+                            errEl.textContent = '';
+                            fetch(CANOPI_API_URL + '/api/account-declaration/acknowledge', {{
+                                method: 'POST',
+                                headers: {{ 'Content-Type': 'application/json' }},
+                                body: JSON.stringify({{
+                                    idToken: idToken,
+                                    verifierId: verifierId,
+                                    policyVersion: status.currentPolicyVersion || undefined,
+                                }}),
+                            }}).then(function (resp) {{
+                                if (!resp.ok) {{
+                                    errEl.textContent = 'Could not save acknowledgement. Please try again.';
+                                    acceptBtn.disabled = !cb.checked;
+                                    return;
+                                }}
+                                overlay.style.display = 'none';
+                                resolve(true);
+                            }}).catch(function () {{
+                                errEl.textContent = 'Network error. Please try again.';
+                                acceptBtn.disabled = !cb.checked;
+                            }});
+                        }};
+                    }});
+                }})
+                .catch(function () {{ return true; }});
+        }}
 
         // Function to load script dynamically
         function loadScript(src) {{
@@ -1361,6 +1475,16 @@ BASE_TEMPLATE = """
                         alert('Sign-in succeeded but the session was not saved. Try again or use a private window.');
                         return;
                     }}
+                    const verifierId = userInfo.verifierId || userInfo.email || evmAddress || '';
+                    const declarationOk = await ghEnsureAccountDeclaration({{
+                        verifierId: verifierId,
+                        idToken: idToken,
+                    }});
+                    if (!declarationOk) {{
+                        await fetch('/api/auth/logout', {{ method: 'POST', credentials: 'include' }});
+                        alert('Sign in cancelled — account declaration is required to participate.');
+                        return;
+                    }}
                     let dest = consumePostLoginReturnPath();
                     if (window.GhInvite && window.GhInvite.finishLoginWithInviteAccept) {{
                         dest = await window.GhInvite.finishLoginWithInviteAccept(dest);
@@ -1470,7 +1594,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
             <ul class="navbar-nav ms-auto">
                 {user_menu}
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="lang.menuLabel">Language</a>
+                    <a class="nav-link dropdown-toggle gh-lang-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n-aria="lang.menuLabel" data-gh-i18n-title="lang.menuLabel"><img src="/static/images/language-icon.png?v=20260601" alt="" class="gh-lang-icon" aria-hidden="true"></a>
                     <ul class="dropdown-menu dropdown-menu-end">
                         {lang_menu}
                     </ul>
@@ -1507,7 +1631,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
             <ul class="navbar-nav ms-auto">
                 {user_menu}
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n="lang.menuLabel">Language</a>
+                    <a class="nav-link dropdown-toggle gh-lang-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n-aria="lang.menuLabel" data-gh-i18n-title="lang.menuLabel"><img src="/static/images/language-icon.png?v=20260601" alt="" class="gh-lang-icon" aria-hidden="true"></a>
                     <ul class="dropdown-menu dropdown-menu-end">
                         {lang_menu}
                     </ul>

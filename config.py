@@ -71,9 +71,30 @@ DEPLOYMENT_MODE = os.path.exists(deployment_flag_file)
 
 # Absolute site URL for email links (notifications, unsubscribe). No trailing slash.
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', 'https://rfc.themetalayer.org').rstrip('/')
+PRODUCTION_PUBLIC_BASE_URL = 'https://govhub.live'
+
+# Ordinal-gated Metaweb Pioneers layer (Gov Hub slug + book purchase link for join modal).
+METAWEB_PIONEERS_LAYER_SLUG = os.environ.get('METAWEB_PIONEERS_LAYER_SLUG', 'metaweb-pioneers').strip()
+METAWEB_BOOK_PURCHASE_URL = os.environ.get(
+    'METAWEB_BOOK_PURCHASE_URL', 'https://metawebbook.com/purchase'
+).rstrip('/')
+
+
+def resolved_public_base_url(config_value=None) -> str:
+    """Email and outbound links must not use dev.govhub.live when running production."""
+    base = (config_value or PUBLIC_BASE_URL).rstrip('/')
+    if IS_PRODUCTION and 'dev.govhub.live' in base:
+        return PRODUCTION_PUBLIC_BASE_URL
+    return base
 
 # Optional: shown in document-follow notification emails (on-page discussion via Canopi).
 CANOPI_PUBLIC_URL = os.environ.get('CANOPI_PUBLIC_URL', 'https://app.canopi.live').rstrip('/')
+# Server-to-server Canopi API (provision MetaCommunity, mirror membership). Falls back to CANOPI_PUBLIC_URL.
+CANOPI_INTERNAL_API_URL = os.environ.get(
+    'CANOPI_INTERNAL_API_URL', CANOPI_PUBLIC_URL
+).rstrip('/')
+# Public Canopi REST API (account declaration, embed auth). Used by Gov Hub client JS.
+CANOPI_API_URL = os.environ.get('CANOPI_API_URL', 'https://api.canopi.live').rstrip('/')
 
 
 def _git_rev_list_count():
