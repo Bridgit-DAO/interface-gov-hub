@@ -40,10 +40,16 @@ def render_flash_messages_html():
 
 def generate_lang_menu_html():
     """Language dropdown items: ?lang= on current path."""
-    from flask import request
+    from flask import g, has_request_context, request, session
     from services.locale import SUPPORTED_LOCALES, locale_to_i18n_key_suffix
 
     path = request.path or '/'
+    current = 'en'
+    if has_request_context():
+        current = getattr(g, 'locale', None) or session.get('locale') or 'en'
+    if current not in SUPPORTED_LOCALES:
+        current = 'en'
+
     # Stable order for the menu
     order = ['en', 'ar', 'fr', 'pt', 'zh-Hans', 'ja', 'ru']
     lines = []
@@ -51,9 +57,13 @@ def generate_lang_menu_html():
         if code not in SUPPORTED_LOCALES:
             continue
         sk = locale_to_i18n_key_suffix(code)
+        active = code == current
+        item_cls = 'dropdown-item active' if active else 'dropdown-item'
+        aria = ' aria-current="true"' if active else ''
+        check = ' <i class="fas fa-check ms-2 text-primary" aria-hidden="true"></i>' if active else ''
         lines.append(
-            f'<li><a class="dropdown-item" href="{path}?lang={code}" '
-            f'data-gh-i18n="lang.names.{sk}">{code}</a></li>'
+            f'<li><a class="{item_cls}" href="{path}?lang={code}"{aria} '
+            f'data-gh-i18n="lang.names.{sk}">{code}{check}</a></li>'
         )
     return '\n'.join(lines)
 
@@ -416,6 +426,11 @@ def _format_base_template(**kwargs):
     kwargs.setdefault('web3auth_network', web3auth['network'])
     kwargs.setdefault('web3auth_google_verifier', web3auth['google_verifier'])
     try:
+        from config import CANOPI_API_URL
+        kwargs.setdefault('canopi_api_url', CANOPI_API_URL)
+    except ImportError:
+        kwargs.setdefault('canopi_api_url', 'https://api.canopi.live')
+    try:
         kwargs.setdefault('govhub_i18n_js', url_for('static', filename='js/govhub-i18n.js'))
     except RuntimeError:
         kwargs.setdefault('govhub_i18n_js', '/static/js/govhub-i18n.js')
@@ -534,14 +549,16 @@ def generate_user_menu(layer_slug=None, view_in_mlgh_slug=None):
                        current_user.get('name') or
                        current_user['username'])
         display_name_escaped = escape(display_name)
+        profile_href = f'/profile/{escape(current_user.get("username") or "")}/'
 
         return f"""
         <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle gh-user-nav-name" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-full-name="{display_name_escaped}" title="{display_name_escaped}">
-                {display_name_escaped}
+            <a class="nav-link dropdown-toggle gh-user-nav-name gh-user-nav-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-full-name="{display_name_escaped}" title="{display_name_escaped}" aria-label="{display_name_escaped}">
+                <img src="/static/images/profile-nav-icon.png?v=20260601" alt="" class="gh-profile-nav-icon" aria-hidden="true">
             </a>
             <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="/profile/" data-gh-i18n="user.profile">Profile</a></li>
+                <li><a class="dropdown-item" href="{profile_href}" data-gh-i18n="user.profile">Profile</a></li>
+                <li><a class="dropdown-item" href="/profile/edit/"><i class="fas fa-edit me-1"></i>Edit profile</a></li>
                 <li><a class="dropdown-item" href="/notifications/"><i class="fas fa-bell me-1"></i>Notifications</a></li>
                 <li><a class="dropdown-item" href="/my-layers/" data-gh-i18n="user.myLayers">My Layers</a></li>
                 <li><a class="dropdown-item" href="/submit/status/" data-gh-i18n="user.mySubmissions">My Submissions</a></li>
