@@ -51,7 +51,7 @@ def ensure_metaweb_pioneers_membership(user, *, verifier_id: str = '') -> dict:
     """
     from config import METAWEB_PIONEERS_LAYER_SLUG
     from models import Layer, LayerMember
-    from services.canopi_community_sync import mirror_membership_to_canopi
+    from services.canopi_community_sync import mirror_membership_to_canopi, provision_or_sync_layer
 
     slug = (METAWEB_PIONEERS_LAYER_SLUG or 'metaweb-pioneers').strip()
     layer = Layer.query.filter_by(slug=slug).first()
@@ -77,6 +77,9 @@ def ensure_metaweb_pioneers_membership(user, *, verifier_id: str = '') -> dict:
         member_created = True
 
     db.session.commit()
+
+    # Keep Canopi MetaCommunity logo/name in sync (image_url is Gov Hub–hosted).
+    provision_or_sync_layer(layer, force=True)
 
     vid = (verifier_id or getattr(user, 'web3authVerifierId', None) or '').strip()
     canopi_mirror = None

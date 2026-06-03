@@ -34,10 +34,27 @@ def _headers() -> Dict[str, str]:
     return headers
 
 
+def _absolute_image_url(image_url: Optional[str]) -> Optional[str]:
+    """Gov Hub serves /uploads/entity_images/* on this site — Canopi needs absolute URLs."""
+    if not image_url:
+        return None
+    s = str(image_url).strip()
+    if not s:
+        return None
+    if s.startswith('http://') or s.startswith('https://'):
+        return s
+    from config import resolved_public_base_url
+
+    base = resolved_public_base_url()
+    return f'{base}{s}' if s.startswith('/') else f'{base}/{s}'
+
+
 def _layer_payload(layer) -> Dict[str, Any]:
     from services.layer_features import get_effective_features
 
     payload = layer.to_dict()
+    if payload.get('image_url'):
+        payload['image_url'] = _absolute_image_url(payload.get('image_url'))
     try:
         payload['effective_features'] = get_effective_features(layer)
     except Exception:
