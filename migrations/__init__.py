@@ -1601,6 +1601,18 @@ def migrate_workgroup_layer_links(app):
         print(f"⚠️  Error in migrate_workgroup_layer_links: {e}")
 
 
+def migrate_meta_layer_governance_metaweb_link(app):
+    """Allow Meta-Layer Governance workgroup on The Metaweb draft assignment dropdown."""
+    try:
+        from services.workgroup_links import ensure_meta_layer_governance_on_layer
+
+        with app.app_context():
+            if ensure_meta_layer_governance_on_layer('the-metaweb'):
+                print('✅ Linked Meta-Layer Governance to The Metaweb (secondary layer)')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_meta_layer_governance_metaweb_link: {e}')
+
+
 def migrate_dp_proposals(app):
     """Create dp_proposal table; enable dp_proposals rollout flag on dev checkout."""
     try:
@@ -1744,3 +1756,344 @@ def migrate_platform_invitations(app):
         print('✅ platform_invitation table ready')
     except Exception as e:
         print(f'⚠️  Error in migrate_platform_invitations: {e}')
+
+
+def migrate_user_bitcoin_wallet_v1(app):
+    """bitcoinAddress on user (badge wallet for ordinals)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(user)')
+        cols = [c[1] for c in cursor.fetchall()]
+        if cols and 'bitcoinAddress' not in cols:
+            cursor.execute('ALTER TABLE user ADD COLUMN bitcoinAddress VARCHAR(128)')
+            conn.commit()
+            print('✅ Added user.bitcoinAddress')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_user_bitcoin_wallet_v1: {e}')
+
+
+def migrate_custodial_wallet_v1(app):
+    """custodial_wallet table for encrypted BTC leaf keys."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='custodial_wallet'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE custodial_wallet (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    chain VARCHAR(32) NOT NULL DEFAULT 'btc_taproot',
+                    address VARCHAR(128) NOT NULL,
+                    derivation_path VARCHAR(64) NOT NULL,
+                    encrypted_secret TEXT NOT NULL,
+                    created_at DATETIME,
+                    FOREIGN KEY (user_id) REFERENCES user(id),
+                    UNIQUE (user_id, chain)
+                )
+                """
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_custodial_wallet_user ON custodial_wallet(user_id)'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_custodial_wallet_address ON custodial_wallet(address)'
+            )
+            conn.commit()
+            print('✅ Created custodial_wallet table')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_custodial_wallet_v1: {e}')
+
+
+def migrate_comment_is_deleted_v1(app):
+    """Normalize comment.is_deleted from legacy TEXT '0'/'1' to integer 0/1."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='comment'"
+        )
+        if not cursor.fetchone():
+            conn.close()
+            return
+        cursor.execute('SELECT id, is_deleted FROM comment')
+        rows = cursor.fetchall()
+        for cid, val in rows:
+            if val is None:
+                new = 0
+            elif isinstance(val, bool):
+                new = 1 if val else 0
+            elif isinstance(val, (int, float)):
+                new = 1 if int(val) != 0 else 0
+            else:
+                s = str(val).strip().lower()
+                new = 1 if s in ('1', 'true', 'yes', 'on') else 0
+            cursor.execute('UPDATE comment SET is_deleted = ? WHERE id = ?', (new, cid))
+        conn.commit()
+        conn.close()
+        print(f'✅ Normalized comment.is_deleted ({len(rows)} rows)')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_comment_is_deleted_v1: {e}')
+
+
+def migrate_layer_nft_gate_v1(app):
+    """nft_gate_json on layer for NFT-gated join."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(layer)')
+        cols = [c[1] for c in cursor.fetchall()]
+        if cols and 'nft_gate_json' not in cols:
+            cursor.execute('ALTER TABLE layer ADD COLUMN nft_gate_json TEXT')
+            conn.commit()
+            print('✅ Added layer.nft_gate_json')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_layer_nft_gate_v1: {e}')
+
+
+def migrate_canopi_community_sync_v1(app):
+    """Layer columns for Gov Hub ↔ Canopi community sync (Revised Option C)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(layer)')
+        cols = [c[1] for c in cursor.fetchall()]
+        additions = [
+            ('canopi_meta_community_id', 'VARCHAR(36)'),
+            ('layer_kind', 'VARCHAR(40)'),
+            ('auth_provider', 'VARCHAR(64)'),
+            ('stewardship', 'VARCHAR(32)'),
+        ]
+        for col, col_type in additions:
+            if cols and col not in cols:
+                cursor.execute(f'ALTER TABLE layer ADD COLUMN {col} {col_type}')
+                conn.commit()
+                print(f'✅ Added layer.{col}')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_canopi_community_sync_v1: {e}')
+
+
+def migrate_comment_like_v1(app):
+    """Persisted likes on draft comments (comment_like table)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='comment_like'"
+        )
+        if cursor.fetchone():
+            conn.close()
+            return
+        cursor.execute('''
+            CREATE TABLE comment_like (
+                id VARCHAR(36) PRIMARY KEY,
+                comment_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                created_at DATETIME NOT NULL,
+                FOREIGN KEY (comment_id) REFERENCES comment(id),
+                FOREIGN KEY (user_id) REFERENCES user(id),
+                UNIQUE (comment_id, user_id)
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_comment_like_comment ON comment_like(comment_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_comment_like_user ON comment_like(user_id)'
+        )
+        conn.commit()
+        conn.close()
+        print('✅ Created comment_like table')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_comment_like_v1: {e}')
+
+
+def migrate_invitation_shareable_v1(app):
+    """Shareable vs private invitations; multi-use accept log; non-expiring shareable links."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        for table, cols in (
+            ('platform_invitation', (
+                ('binding_mode', "VARCHAR(20) NOT NULL DEFAULT 'private'"),
+                ('revoked_at', 'DATETIME'),
+            )),
+            ('layer_invitation', (
+                ('binding_mode', "VARCHAR(20) NOT NULL DEFAULT 'private'"),
+                ('revoked_at', 'DATETIME'),
+            )),
+        ):
+            cursor.execute(f'PRAGMA table_info({table})')
+            existing = {row[1] for row in cursor.fetchall()}
+            for col, col_type in cols:
+                if col not in existing:
+                    cursor.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}')
+                    print(f'✅ Added {table}.{col}')
+
+        # SQLite: allow NULL expires_at for non-expiring shareable links (recreate table).
+        for table in ('platform_invitation', 'layer_invitation'):
+            cursor.execute(f'PRAGMA table_info({table})')
+            info = cursor.fetchall()
+            expires_col = next((c for c in info if c[1] == 'expires_at'), None)
+            if expires_col and expires_col[3] == 1:
+                cursor.execute(f'ALTER TABLE {table} RENAME TO {table}_old')
+                if table == 'platform_invitation':
+                    cursor.execute("""
+                        CREATE TABLE platform_invitation (
+                            id VARCHAR(36) PRIMARY KEY,
+                            invite_type VARCHAR(40) NOT NULL,
+                            rate_category VARCHAR(20) NOT NULL DEFAULT 'standard',
+                            inviter_id VARCHAR(36) NOT NULL,
+                            invitee_email VARCHAR(255) NOT NULL,
+                            invitee_id VARCHAR(36),
+                            message TEXT,
+                            target_json TEXT NOT NULL DEFAULT '{}',
+                            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                            outcome_note VARCHAR(255),
+                            token VARCHAR(100) NOT NULL UNIQUE,
+                            binding_mode VARCHAR(20) NOT NULL DEFAULT 'private',
+                            created_at DATETIME,
+                            expires_at DATETIME,
+                            revoked_at DATETIME,
+                            responded_at DATETIME,
+                            FOREIGN KEY (inviter_id) REFERENCES user(id),
+                            FOREIGN KEY (invitee_id) REFERENCES user(id)
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO platform_invitation (
+                            id, invite_type, rate_category, inviter_id, invitee_email,
+                            invitee_id, message, target_json, status, outcome_note, token,
+                            binding_mode, created_at, expires_at, revoked_at, responded_at
+                        )
+                        SELECT
+                            id, invite_type, rate_category, inviter_id, invitee_email,
+                            invitee_id, message, target_json, status, outcome_note, token,
+                            COALESCE(binding_mode, 'private'), created_at, expires_at,
+                            revoked_at, responded_at
+                        FROM platform_invitation_old
+                    """)
+                else:
+                    cursor.execute("""
+                        CREATE TABLE layer_invitation (
+                            id VARCHAR(36) PRIMARY KEY,
+                            layer_id VARCHAR(36) NOT NULL,
+                            inviter_id VARCHAR(36) NOT NULL,
+                            invitee_email VARCHAR(255) NOT NULL,
+                            invitee_id VARCHAR(36),
+                            message TEXT,
+                            status VARCHAR(20) DEFAULT 'pending',
+                            outcome_note VARCHAR(255),
+                            token VARCHAR(100) NOT NULL UNIQUE,
+                            binding_mode VARCHAR(20) NOT NULL DEFAULT 'private',
+                            created_at DATETIME,
+                            expires_at DATETIME,
+                            revoked_at DATETIME,
+                            responded_at DATETIME
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO layer_invitation (
+                            id, layer_id, inviter_id, invitee_email, invitee_id, message,
+                            status, outcome_note, token, binding_mode, created_at,
+                            expires_at, revoked_at, responded_at
+                        )
+                        SELECT
+                            id, layer_id, inviter_id, invitee_email, invitee_id, message,
+                            status, outcome_note, token, COALESCE(binding_mode, 'private'),
+                            created_at, expires_at, revoked_at, responded_at
+                        FROM layer_invitation_old
+                    """)
+                cursor.execute(f'DROP TABLE {table}_old')
+                print(f'✅ {table}.expires_at now nullable')
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS platform_invitation_acceptance (
+                id VARCHAR(36) PRIMARY KEY,
+                invitation_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                created_at DATETIME NOT NULL,
+                FOREIGN KEY (invitation_id) REFERENCES platform_invitation(id),
+                FOREIGN KEY (user_id) REFERENCES user(id),
+                UNIQUE (invitation_id, user_id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pi_accept_invite ON platform_invitation_acceptance(invitation_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pi_accept_user ON platform_invitation_acceptance(user_id)'
+        )
+
+        # Backfill shareable binding for open campaign invite types (existing rows stay usable).
+        cursor.execute("""
+            UPDATE platform_invitation
+            SET binding_mode = 'shareable', expires_at = NULL
+            WHERE invite_type IN ('participate_dp', 'edit_document', 'edit_document_passage')
+              AND status = 'pending'
+              AND (binding_mode IS NULL OR binding_mode = '' OR binding_mode = 'private')
+        """)
+
+        cursor.execute('SELECT id, listing_visibility FROM layer')
+        public_layer_ids = [
+            row[0] for row in cursor.fetchall()
+            if (row[1] or 'public') == 'public'
+        ]
+        if public_layer_ids:
+            placeholders = ','.join('?' * len(public_layer_ids))
+            cursor.execute(
+                f"""
+                UPDATE layer_invitation
+                SET binding_mode = 'shareable', expires_at = NULL
+                WHERE layer_id IN ({placeholders})
+                  AND status = 'pending'
+                """,
+                public_layer_ids,
+            )
+
+        conn.commit()
+        conn.close()
+        print('✅ invitation shareable v1 ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_invitation_shareable_v1: {e}')
+
+
+def migrate_reader_comments_v1(app):
+    """Passage-anchored threaded comments on document read pages."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(comment)')
+        cols = {row[1] for row in cursor.fetchall()}
+        for col, col_type in (
+            ('submission_id', 'VARCHAR(36)'),
+            ('comment_scope', "VARCHAR(20) DEFAULT 'document'"),
+            ('anchor_hash', 'VARCHAR(64)'),
+            ('context_anchor', 'TEXT'),
+            ('passage_excerpt', 'TEXT'),
+        ):
+            if col not in cols:
+                cursor.execute(f'ALTER TABLE comment ADD COLUMN {col} {col_type}')
+                print(f'✅ Added comment.{col}')
+        conn.commit()
+        conn.close()
+        print('✅ reader comments v1 ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_reader_comments_v1: {e}')

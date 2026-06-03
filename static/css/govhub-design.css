@@ -45,6 +45,12 @@
 /* Main page content width (navbar uses same .container) */
 .container {
   max-width: var(--gh-content-max);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.navbar > .container {
+  max-width: var(--gh-content-max);
 }
 
 .gh-content-wide.container {
@@ -1206,6 +1212,104 @@
   line-height: 1.55;
 }
 
+/* Home — single-row activity rotator (between tagline and hub cards) */
+.gh-home-activity {
+  display: flex;
+  align-items: center;
+  gap: var(--gh-space-sm);
+  margin-bottom: var(--gh-space-lg);
+  padding: var(--gh-space-sm) var(--gh-space-md);
+  border-radius: var(--gh-radius-lg);
+  border: 1px solid var(--gh-glass-border, var(--card-border));
+  background: var(--card-bg);
+  min-height: 3rem;
+  box-shadow: var(--shadow);
+}
+
+.gh-home-activity-nav {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--gh-radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.gh-home-activity-nav:hover,
+.gh-home-activity-nav:focus-visible {
+  color: var(--text-primary);
+  background: rgba(102, 126, 234, 0.12);
+  outline: none;
+}
+
+.gh-home-activity-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.gh-home-activity-line {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gh-home-activity-line a {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.gh-home-activity-line a:hover {
+  text-decoration: underline;
+}
+
+.gh-home-activity-time {
+  font-weight: 400;
+  font-size: 0.85em;
+}
+
+.gh-home-activity-dots {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-right: 0.15rem;
+}
+
+.gh-home-activity-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  opacity: 0.35;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.gh-home-activity-dot--active {
+  opacity: 1;
+  background: var(--accent-color, #667eea);
+  transform: scale(1.15);
+}
+
+@media (max-width: 576px) {
+  .gh-home-activity-dots {
+    display: none;
+  }
+  .gh-home-activity-line {
+    font-size: 0.82rem;
+  }
+}
+
 .gh-home-hero h1 {
   font-size: 1.75rem;
   font-weight: 800;
@@ -1529,6 +1633,55 @@ img.gh-entity-thumb {
   letter-spacing: -0.02em;
 }
 
+/* Language switcher: icon-only toggle; match theme-toggle footprint */
+.gh-lang-toggle {
+  padding: 16px 20px;
+  gap: 0.35rem;
+  line-height: 1;
+  font-size: 18px;
+}
+
+.gh-lang-toggle::after {
+  margin-left: 0;
+  vertical-align: middle;
+}
+
+.gh-lang-icon {
+  display: block;
+  width: 1.35em;
+  height: 1.35em;
+  min-width: 1.35em;
+  min-height: 1.35em;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+/* Profile menu: icon-only toggle; match language switcher footprint */
+.gh-user-nav-toggle {
+  padding: 16px 20px;
+  gap: 0.35rem;
+  line-height: 1;
+}
+
+.gh-user-nav-toggle::after {
+  margin-left: 0;
+  vertical-align: middle;
+}
+
+.gh-profile-nav-icon {
+  display: block;
+  width: 1.35em;
+  height: 1.35em;
+  min-width: 1.35em;
+  min-height: 1.35em;
+  object-fit: contain;
+  border-radius: 50%;
+}
+
+.dropdown-menu .dropdown-item.active {
+  font-weight: 600;
+}
+
 /* Admin & legacy card pages inside gh-page */
 .gh-admin-page .card,
 .gh-page .card:not(.document-card .card) {
@@ -1802,7 +1955,36 @@ a:hover {
   transform: translateY(0);
 }
 
+.gh-draft-notif-summary {
+  margin-bottom: 0;
+}
+
+.gh-draft-notif-toggle .fa-chevron-down {
+  transition: transform 0.2s ease;
+}
+
+.gh-draft-notif-toggle[aria-expanded="true"] .fa-chevron-down {
+  transform: rotate(180deg);
+}
+
 .gh-copy-toast.is-fading {
   opacity: 0;
   transform: translateY(-4px);
+}
+
+/* Comments page — passage pill links to read view anchor */
+a.gh-passage-comment-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transform-origin: center left;
+}
+
+a.gh-passage-comment-link:hover,
+a.gh-passage-comment-link:focus {
+  transform: scale(1.1);
+  box-shadow: 0 2px 10px rgba(13, 202, 240, 0.5);
+  color: #000 !important;
+  text-decoration: none;
 }

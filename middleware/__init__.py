@@ -2,7 +2,7 @@
 import re
 import secrets
 
-from flask import request, g, jsonify, session, current_app
+from flask import request, g, jsonify, session, current_app, redirect, flash
 
 from models import Layer
 from services.utils import _is_uuid_like
@@ -130,6 +130,13 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
         if _request_looks_like_browser_form():
             supplied = request.form.get('csrf_token') or request.headers.get('X-CSRFToken')
             if not csrf_token_valid(supplied, expected):
+                accept = (request.headers.get('Accept') or '').lower()
+                if 'text/html' in accept and request.referrer:
+                    flash(
+                        'Your session security token expired. Please refresh the page and try again.',
+                        'error',
+                    )
+                    return redirect(request.referrer)
                 return jsonify({'error': 'Invalid CSRF token'}), 400
             return None
 

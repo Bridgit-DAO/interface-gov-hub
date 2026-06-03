@@ -32,6 +32,7 @@ from config import (
     ARTIFACT_TAG_FILTERS_ENABLED,
     PUBLIC_BASE_URL,
     CANOPI_PUBLIC_URL,
+    CANOPI_INTERNAL_API_URL,
 )
 
 # Ensure instance directory exists
@@ -82,6 +83,7 @@ def create_app():
     app.config['ARTIFACT_TAG_FILTERS_ENABLED'] = ARTIFACT_TAG_FILTERS_ENABLED
     app.config['PUBLIC_BASE_URL'] = PUBLIC_BASE_URL
     app.config['CANOPI_PUBLIC_URL'] = CANOPI_PUBLIC_URL
+    app.config['CANOPI_INTERNAL_API_URL'] = CANOPI_INTERNAL_API_URL
 
     # Session security
     app.config['SESSION_COOKIE_SECURE'] = not IS_DEVELOPMENT
@@ -164,6 +166,7 @@ def create_app():
     from routes.dp_proposals import bp as dp_proposals_bp, admin_bp as dp_proposals_admin_bp
     from routes.dp_challenge_pages import bp as dp_challenge_bp
     from routes.platform_invitations import bp as platform_invitations_bp
+    from routes.metaweb import bp as metaweb_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -226,6 +229,7 @@ def create_app():
     app.register_blueprint(dp_proposals_admin_bp)
     app.register_blueprint(dp_challenge_bp)
     app.register_blueprint(platform_invitations_bp)
+    app.register_blueprint(metaweb_bp)
 
     # CLI
     from cli import register_cli
@@ -255,6 +259,29 @@ def create_app():
     from services.rendering import configure_rendering
     FONT_AWESOME_LINK = '<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">'
     configure_rendering(BASE_TEMPLATE, FONT_AWESOME_LINK, BUILD_NUMBER)
+
+    @app.route('/static/images/reader-guide/<path:filename>')
+    def reader_guide_gif(filename):
+        """Serve reader-guide media with Content-Type matching file bytes (not extension only)."""
+        from flask import abort, send_file
+        if '..' in filename or filename.startswith('/'):
+            abort(404)
+        base = filename.split('?', 1)[0]
+        directory = os.path.join(app.root_path, 'static', 'images', 'reader-guide')
+        path = os.path.join(directory, base)
+        if not os.path.isfile(path):
+            abort(404)
+        with open(path, 'rb') as handle:
+            magic = handle.read(6)
+        if magic[:3] == b'GIF':
+            mime = 'image/gif'
+        elif magic[:2] == b'\xff\xd8':
+            mime = 'image/jpeg'
+        elif magic[:8] == b'\x89PNG\r\n\x1a\n':
+            mime = 'image/png'
+        else:
+            mime = 'application/octet-stream'
+        return send_file(path, mimetype=mime, conditional=True)
 
     # Log OAuth errors (token exchange failures, etc.) for debugging
     import logging

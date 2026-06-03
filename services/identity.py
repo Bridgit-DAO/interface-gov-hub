@@ -43,6 +43,7 @@ def get_current_user():
                 'typeOfLogin': user.typeOfLogin,
                 'evmAddress': user.evmAddress,
                 'solanaAddress': user.solanaAddress,
+                'bitcoinAddress': getattr(user, 'bitcoinAddress', None),
             }
     return None
 

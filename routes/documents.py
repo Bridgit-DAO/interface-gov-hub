@@ -27,6 +27,7 @@ from services.ordinals import (
     format_ordinal_html_iframe_preview,
 )
 from services.submission_preview_md import markdown_to_safe_preview_html, text_looks_like_markdown
+from services.csrf import csrf_form_field
 from services.documents import (
     load_draft_data,
     DRAFTS,
@@ -47,6 +48,7 @@ from services.draft_reader import (
     draft_display_id,
     load_draft_document_body,
 )
+from services.layer_features import is_feature_enabled_for_layer
 from services.directory_ui import gh_page_header, gh_living_module, gh_breadcrumb, gh_filter_row, gh_directory_toolbar
 from services.workgroup_links import build_document_workgroup_index, resolve_document_workgroup_meta
 
@@ -568,11 +570,16 @@ def draft_reader(draft_name):
             f'{html_escape(document_content)}</pre>'
         )
 
-    from services.dp_proposal_reader import render_dp_proposal_reader_assets
+    from services.dp_proposal_reader import (
+        render_dp_proposal_reader_assets,
+        render_reader_onboarding_assets,
+    )
     from services.read_navigation import draft_reader_back_href
 
     back_href = html_mod.escape(draft_reader_back_href(request.args.get('return_to')))
     invite_doc_btn = ''
+    reader_guide_btn = ''
+    reader_onboarding_assets = ''
     cu = get_current_user()
     if cu and submission:
         invite_doc_btn = (
@@ -581,6 +588,22 @@ def draft_reader(draft_name):
             f'data-draft-ref="{html_mod.escape(str(draft_name))}">'
             f'<i class="fas fa-user-plus me-1"></i>Invite</button>'
         )
+    comments_btn = ''
+    if submission and (submission.status or '').lower() == 'approved':
+        from services.document_reader_comments import count_comments_for_draft_ref
+
+        reader_onboarding_assets = render_reader_onboarding_assets()
+        reader_guide_btn = (
+            '<button type="button" class="btn btn-sm btn-outline-secondary" '
+            'data-bs-toggle="modal" data-bs-target="#ghReaderGuideModal" id="draftReaderShowGuide">'
+            '<i class="fas fa-circle-question me-1"></i>How to participate</button>'
+        )
+        comment_count = count_comments_for_draft_ref(draft_name)
+        comments_btn = (
+            f'<a href="/doc/draft/{doc_href}/comments/" class="btn btn-sm btn-outline-secondary" '
+            f'id="draftReaderCommentsLink">'
+            f'<i class="fas fa-comments me-1"></i>Comments ({comment_count})</a>'
+        )
 
     dp_proposal_assets = render_dp_proposal_reader_assets(
         submission,
@@ -588,6 +611,13 @@ def draft_reader(draft_name):
         render_html=render_html,
         document_content=document_content if isinstance(document_content, str) else '',
     )
+    add_comment_btn = ''
+    if dp_proposal_assets.strip():
+        add_comment_btn = (
+            '<button type="button" class="btn btn-sm btn-outline-secondary" '
+            'id="draftReaderAddComment">'
+            '<i class="fas fa-comment-medical me-1"></i>Add comment</button>'
+        )
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
@@ -693,6 +723,9 @@ def draft_reader(draft_name):
           <div class="draft-reader-nav">
             <a href="{back_href}" class="btn btn-sm btn-outline-secondary" id="draftReaderBack">&larr; Back</a>
             <a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>
+            {add_comment_btn}
+            {comments_btn}
+            {reader_guide_btn}
             {invite_doc_btn}
           </div>
           <div class="draft-reader-meta">
@@ -706,6 +739,7 @@ def draft_reader(draft_name):
       </div>
       {body_block}
     </div>
+    {reader_onboarding_assets}
     {dp_proposal_assets}
     '''
 
@@ -720,6 +754,7 @@ def draft_reader(draft_name):
 
 @bp.route('/doc/draft/<path:draft_name>/')
 def draft_detail(draft_name):
+    from services.document_reader_comments import count_comments_for_draft_ref
     from services.rendering import _format_base_template, generate_user_menu
     from config import BUILD_NUMBER
 
@@ -957,12 +992,14 @@ Meta-Layer Initiative
     _sub = submission
     if not _sub and draft:
         _sub = get_submission_by_ref(draft.get('name')) or get_submission_by_ref(draft.get('ml_number')) or get_submission_by_ref(draft_name)
+    _doc_layer = Layer.query.get(_sub.layer_id) if _sub and getattr(_sub, 'layer_id', None) else None
+    _artifacts_enabled = is_feature_enabled_for_layer('artifacts', _doc_layer)
     artifact_id = getattr(_sub, 'artifact_id', None) if _sub else None
     layer_slug = None
     supports = []
     opposes = []
     support_oppose_card_html = ''
-    if artifact_id:
+    if artifact_id and _artifacts_enabled:
         artifact = Artifact.query.get(artifact_id)
         if artifact and artifact.layer_id:
             layer = Layer.query.get(artifact.layer_id)
@@ -1031,6 +1068,8 @@ Meta-Layer Initiative
         layer_slug = layer.slug if layer else None
 
     def _artifact_card_and_modal_html(draft, sub, aid, lslug, user):
+        if not _artifacts_enabled:
+            return ''
         if not lslug or not user:
             return ''
         if not sub and not aid:
@@ -1352,18 +1391,13 @@ Meta-Layer Initiative
 
     workgroup_metadata_edit_html = ''
     if _sub and current_user and can_edit_submission_metadata(current_user, _sub):
-        from models import Workgroup
-        wg_query = Workgroup.query
-        if _sub.layer_id:
-            wg_query = wg_query.filter_by(layer_id=_sub.layer_id)
-        workgroups = wg_query.order_by(Workgroup.name.asc()).all()
-        current_group = (_sub.group or '').strip()
-        wg_opts = '<option value="">— None —</option>'
-        for wg in workgroups:
-            if not wg.acronym:
-                continue
-            sel = ' selected' if wg.acronym == current_group else ''
-            wg_opts += f'<option value="{html_mod.escape(wg.acronym)}"{sel}>{html_mod.escape(wg.name or wg.acronym)}</option>'
+        from services.workgroup_links import workgroup_select_options_html
+
+        wg_opts = workgroup_select_options_html(
+            getattr(_sub, 'layer_id', None),
+            (_sub.group or '').strip(),
+            placeholder='— None —',
+        )
         sub_id_esc = html_mod.escape(_sub.id, quote=True)
         workgroup_metadata_edit_html = f'''
                 <div class="card mt-3">
@@ -1491,7 +1525,7 @@ Meta-Layer Initiative
                         <h5>Actions</h5>
                     </div>
                     <div class="card-body">
-                        {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({Comment.query.filter_by(draft_name=draft_name).count()})</a>' if draft.get('status') == 'approved' else ''}
+                        {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({count_comments_for_draft_ref(draft_name)})</a>' if draft.get('status') == 'approved' else ''}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
                         <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
 
@@ -1518,6 +1552,7 @@ Meta-Layer Initiative
                     </div>
                     <div class="card-body">
                         <form method="POST" action="/doc/draft/{draft['name']}/comments/">
+                            {csrf_form_field()}
                             <div class="mb-3">
                                 <textarea class="form-control" name="comment" rows="3" placeholder="Add a quick comment..." required></textarea>
                     </div>
@@ -1654,8 +1689,8 @@ def draft_display_body(draft_name):
 
 
 @bp.route('/doc/draft/<path:draft_name>/comments/', methods=['GET', 'POST'])
-@require_auth
 def draft_comments(draft_name):
+    from services.auth_redirect import login_url
     from services.rendering import _format_base_template, generate_user_menu
     from config import BUILD_NUMBER
 
@@ -1682,10 +1717,17 @@ def draft_comments(draft_name):
     display_id = draft.get('ml_number') or draft_name
 
     user_menu = generate_user_menu()
-    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     current_user = get_current_user()
+    current_theme = session.get(
+        'theme',
+        current_user.get('theme', 'dark') if current_user else 'dark',
+    )
 
     if request.method == 'POST':
+        if not current_user:
+            flash('Please log in to comment or react.', 'error')
+            return redirect(login_url(request.path))
+
         action = request.form.get('action', 'comment')
 
         if action == 'comment':
@@ -1738,7 +1780,7 @@ def draft_comments(draft_name):
         elif action == 'like':
             comment_id = request.form.get('comment_id')
             if comment_id:
-                liked = toggle_comment_like(draft_name, comment_id, current_user['name'])
+                liked = toggle_comment_like(draft_name, comment_id, current_user)
                 action_text = 'liked' if liked else 'unliked'
                 flash(f'Comment {action_text}!', 'success')
                 return redirect(url_for('documents.draft_comments', draft_name=draft_name))
@@ -1791,10 +1833,16 @@ def draft_comments(draft_name):
             new_text = request.form.get('new_text', '').strip()
             if comment_id and new_text:
                 comment = Comment.query.filter_by(id=comment_id).first()
-                if comment and comment.author == current_user['name']:
-                    time_diff = datetime.utcnow() - comment.timestamp
-                    time_limit = timedelta(minutes=EDIT_DELETE_TIME_MINUTES)
-                    if time_diff <= time_limit and not comment.is_deleted:
+                from services.documents import can_edit_delete_comment as _can_edit_comment
+
+                if comment:
+                    row_dict = {
+                        'author': comment.author,
+                        'author_user_id': comment.author_user_id,
+                        'is_deleted': comment.is_deleted,
+                        'timestamp': comment.timestamp,
+                    }
+                    if _can_edit_comment(row_dict, current_user):
                         if not comment.original_text:
                             comment.original_text = comment.text
                         comment.text = new_text
@@ -1802,9 +1850,9 @@ def draft_comments(draft_name):
                         db.session.commit()
                         flash('Comment updated successfully!', 'success')
                     else:
-                        flash('Edit time limit has expired.', 'error')
+                        flash('Edit time limit has expired or you cannot edit this comment.', 'error')
                 else:
-                    flash('You can only edit your own comments.', 'error')
+                    flash('Comment not found.', 'error')
                 return redirect(url_for('documents.draft_comments', draft_name=draft_name))
             else:
                 flash('Invalid comment or empty text.', 'error')
@@ -1813,24 +1861,59 @@ def draft_comments(draft_name):
             comment_id = request.form.get('comment_id')
             if comment_id:
                 comment = Comment.query.filter_by(id=comment_id).first()
-                if comment and comment.author == current_user['name']:
-                    time_diff = datetime.utcnow() - comment.timestamp
-                    time_limit = timedelta(minutes=EDIT_DELETE_TIME_MINUTES)
-                    if time_diff <= time_limit and not comment.is_deleted:
+                from services.documents import can_edit_delete_comment as _can_edit_comment
+
+                if comment:
+                    row_dict = {
+                        'author': comment.author,
+                        'author_user_id': comment.author_user_id,
+                        'is_deleted': comment.is_deleted,
+                        'timestamp': comment.timestamp,
+                    }
+                    if _can_edit_comment(row_dict, current_user):
                         comment.is_deleted = True
                         comment.text = '[Deleted]'
                         db.session.commit()
                         flash('Comment deleted successfully!', 'success')
                     else:
-                        flash('Delete time limit has expired.', 'error')
+                        flash('Delete time limit has expired or you cannot delete this comment.', 'error')
                 else:
-                    flash('You can only delete your own comments.', 'error')
+                    flash('Comment not found.', 'error')
                 return redirect(url_for('documents.draft_comments', draft_name=draft_name))
             else:
                 flash('Invalid comment ID.', 'error')
 
     all_comments = build_comment_tree(draft_name)
     comments_html = render_comment_tree(all_comments, draft_name, get_current_user, get_comment_likes, is_comment_liked)
+
+    comments_return = html_mod.escape(login_url(f'/doc/draft/{draft_name}/comments/'))
+    if current_user:
+        add_comment_block = f'''
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5>Add a Comment</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST">
+                            {csrf_form_field()}
+                            <div class="mb-3">
+                                <label for="comment" class="form-label">Your Comment</label>
+                                <textarea class="form-control" id="comment" name="comment" rows="4" placeholder="Enter your comment here..." required></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Submit Comment</button>
+                        </form>
+                    </div>
+                </div>'''
+    else:
+        add_comment_block = f'''
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5>Add a Comment</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-0 text-muted">Comments are public. <a href="{comments_return}">Sign in</a> to add a comment, reply, or like.</p>
+                    </div>
+                </div>'''
 
     content = f"""
     <div class="gh-page container mt-4">
@@ -1849,21 +1932,7 @@ def draft_comments(draft_name):
                 <h3>Comments ({len(all_comments)})</h3>
                 <div id="flash-messages"></div>
                 {comments_html}
-
-                <div class="card mt-4">
-                    <div class="card-header">
-                        <h5>Add a Comment</h5>
-                    </div>
-                    <div class="card-body">
-                        <form method="POST">
-                            <div class="mb-3">
-                                <label for="comment" class="form-label">Your Comment</label>
-                                <textarea class="form-control" id="comment" name="comment" rows="4" placeholder="Enter your comment here..." required></textarea>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Submit Comment</button>
-                        </form>
-                    </div>
-                </div>
+                {add_comment_block}
             </div>
 
             <div class="col-md-4">
@@ -1883,6 +1952,17 @@ def draft_comments(draft_name):
     </div>
 
     <script>
+        function govhubAppendCsrf(form) {{
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            const token = meta ? meta.getAttribute('content') : '';
+            if (!token) return;
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'csrf_token';
+            input.value = token;
+            form.appendChild(input);
+        }}
+
         function toggleLike(commentId) {{
             const form = document.createElement('form');
             form.method = 'POST';
@@ -1897,6 +1977,7 @@ def draft_comments(draft_name):
             commentIdInput.value = commentId;
             form.appendChild(actionInput);
             form.appendChild(commentIdInput);
+            govhubAppendCsrf(form);
             document.body.appendChild(form);
             form.submit();
         }}
@@ -1955,6 +2036,7 @@ def draft_comments(draft_name):
             editForm.appendChild(commentIdInput);
             editForm.appendChild(textarea);
             editForm.appendChild(buttonDiv);
+            govhubAppendCsrf(editForm);
             commentText.style.display = 'none';
             commentText.parentNode.insertBefore(editForm, commentText.nextSibling);
         }}
@@ -1976,6 +2058,7 @@ def draft_comments(draft_name):
             commentIdInput.value = commentId;
             form.appendChild(actionInput);
             form.appendChild(commentIdInput);
+            govhubAppendCsrf(form);
             document.body.appendChild(form);
             form.submit();
         }}

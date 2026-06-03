@@ -10,6 +10,7 @@ from services.layer_invitations import (
     decline_layer_invitation,
     list_layer_invitations,
     preview_layer_invitation,
+    revoke_layer_invitation,
 )
 from services.directory_ui import gh_page_header
 
@@ -32,6 +33,16 @@ def invitation_accept(token):
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     body, status = accept_layer_invitation(token.strip(), current_user['id'])
+    return jsonify(body), status
+
+
+@bp.route('/by-token/<token>/revoke/', methods=['POST'])
+@require_auth
+def invitation_revoke(token):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    body, status = revoke_layer_invitation(token.strip(), current_user['id'])
     return jsonify(body), status
 
 

@@ -17,10 +17,13 @@ from services.workgroup_links import (
     enrich_workgroup_dict,
     list_assigned_documents_for_workgroup,
     list_draft_documents_for_picker,
+    list_draft_documents_for_workgroup_picker,
     normalize_document_draft_ref,
     query_workgroups_for_layer,
+    resolve_document_draft,
     search_draft_documents,
     workgroup_display_sort_key,
+    _canonical_parent_for_picker,
 )
 from services.workgroup_positions import (
     WORKGROUP_POSITIONS,
@@ -147,7 +150,7 @@ def get_workgroup(workgroup_id):
         and (
             workgroup.coordinator_id == current_user['id']
             or (project and is_layer_admin(project, current_user))
-            or current_user.get('role') == 'admin'
+            or current_user.get('role') in ('admin', 'editor')
         )
     )
     if current_user:
@@ -178,7 +181,7 @@ def update_workgroup(workgroup_id):
     can_edit = (
         workgroup.coordinator_id == current_user['id']
         or (project and is_layer_admin(project, current_user))
-        or current_user.get('role') == 'admin'
+        or current_user.get('role') in ('admin', 'editor')
     )
     if not can_edit:
         return jsonify({'error': 'Permission denied'}), 403
@@ -208,7 +211,11 @@ def update_workgroup(workgroup_id):
             normalized = normalize_document_draft_ref(val)
             if not normalized:
                 return jsonify({'error': 'Document not found. Use a draft ID, ML number, or draft name.'}), 400
-            workgroup.document_draft_name = normalized
+            submission = resolve_document_draft(normalized)
+            if submission:
+                workgroup.document_draft_name = _canonical_parent_for_picker(submission).id
+            else:
+                workgroup.document_draft_name = normalized
     if 'status' in data and data['status'] in ['active', 'inactive', 'completed', 'archived']:
         old_status = workgroup.status
         workgroup.status = data['status']
@@ -259,8 +266,12 @@ def update_workgroup(workgroup_id):
 @bp.route('/documents/', methods=['GET'])
 def list_documents():
     """List drafts for workgroup document dropdown."""
+    workgroup_id = (request.args.get('workgroup_id') or '').strip() or None
     layer_id = request.args.get('layer_id') or None
-    documents = list_draft_documents_for_picker(layer_id)
+    if workgroup_id:
+        documents = list_draft_documents_for_workgroup_picker(workgroup_id)
+    else:
+        documents = list_draft_documents_for_picker(layer_id)
     return jsonify({'documents': documents, 'count': len(documents)})
 
 

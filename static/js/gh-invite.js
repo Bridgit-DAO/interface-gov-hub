@@ -6,7 +6,9 @@
 
   var STORAGE_KEY = 'gh_platform_invite_dismissed';
   var PASSAGE_COMPOSE_KEY = 'ghInvitePassageCompose';
+  var INVITE_MSG_DRAFT_PREFIX = 'ghInviteDraftMsg:';
   var copyToastTimer = null;
+  var invitePickedUsers = [];
 
   function passageExcerptFromTarget(target) {
     if (!target || typeof target !== 'object') return '';
@@ -210,7 +212,10 @@
       '<p class="mb-2"><strong>' + inviter + '</strong> invited you to ' + action +
       ' on <strong>' + title + '</strong>.</p>';
 
-    if (preview.invitee_email_masked) {
+    if (preview.shareable) {
+      html +=
+        '<p class="small mb-3 text-muted">Anyone with this link can participate after signing in (any email).</p>';
+    } else if (preview.invitee_email_masked) {
       html +=
         '<p class="small mb-3">This invitation was sent to <strong>' +
         esc(preview.invitee_email_masked) +
@@ -252,10 +257,44 @@
     }
     return (
       '<p class="small mb-0 mt-3 pt-3 border-top" id="ghInviteWelcomeSignInNote">' +
-      '<strong>Not signed in?</strong> Use <strong>Google</strong> or <strong>email</strong> with the same address this invitation was sent to ' +
-      '(above), or an OAuth account linked to that email. ' +
-      '<span class="text-muted">Wallet sign-in often does not work for invitations.</span></p>'
+      '<strong>Not signed in?</strong> Sign in with Google or email to continue. ' +
+      '<span class="text-muted">Wallet sign-in may not work on all flows.</span></p>'
     );
+  }
+
+  function inviteComposeModeToggleHtml(inviteType) {
+    if (inviteType !== 'edit_document' && inviteType !== 'edit_document_passage') {
+      return '';
+    }
+    return (
+      '<div class="mb-3" id="ghInviteComposeModeWrap">' +
+      '<p class="small text-muted mb-2">After you accept, open the document as:</p>' +
+      '<div class="btn-group btn-group-sm" role="group">' +
+      '<button type="button" class="btn btn-primary active" data-gh-compose-mode="propose">Propose / Edit</button>' +
+      '<button type="button" class="btn btn-outline-primary" data-gh-compose-mode="comment">Comment</button>' +
+      '</div></div>'
+    );
+  }
+
+  function bindInviteComposeModeToggle() {
+    var wrap = document.getElementById('ghInviteComposeModeWrap');
+    if (!wrap) return 'propose';
+    var mode = 'propose';
+    wrap.querySelectorAll('[data-gh-compose-mode]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        mode = btn.getAttribute('data-gh-compose-mode') === 'comment' ? 'comment' : 'propose';
+        wrap.querySelectorAll('[data-gh-compose-mode]').forEach(function (b) {
+          var on = b.getAttribute('data-gh-compose-mode') === mode;
+          b.classList.toggle('btn-primary', on);
+          b.classList.toggle('btn-outline-primary', !on);
+          b.classList.toggle('active', on);
+        });
+        try {
+          sessionStorage.setItem('gh_compose_mode', mode);
+        } catch (_e) { /* ignore */ }
+      });
+    });
+    return mode;
   }
 
   function ensureInviteWelcomeModal() {
@@ -315,6 +354,10 @@
 
   function applyAcceptResult(token, data) {
     sessionStorage.setItem(STORAGE_KEY + ':' + token, 'accepted');
+    try {
+      var mode = sessionStorage.getItem('gh_compose_mode') || 'propose';
+      sessionStorage.setItem('gh_compose_mode', mode);
+    } catch (_e) { /* ignore */ }
     if (data.invite_type === 'edit_document_passage' && data.target) {
       stashPassageCompose(
         data.invite_type,
@@ -451,7 +494,9 @@
     }
 
     var modalEl = ensureInviteWelcomeModal();
-    document.getElementById('ghInviteWelcomeBody').innerHTML = buildInviteWelcomeBody(preview);
+    document.getElementById('ghInviteWelcomeBody').innerHTML =
+      inviteComposeModeToggleHtml(preview.invite_type) + buildInviteWelcomeBody(preview);
+    bindInviteComposeModeToggle();
     setWelcomeAlert('', '');
 
     var primaryBtn = document.getElementById('ghInviteWelcomePrimaryBtn');
@@ -513,10 +558,14 @@
       .then(function (res) {
         if (!res.ok || !res.data.valid) return;
         var preview = res.data;
-          if (preview.invitee_email) {
+          if (!preview.shareable && preview.invitee_email) {
             try {
               sessionStorage.setItem('gh_invite_login_hint', String(preview.invitee_email).trim().toLowerCase());
             } catch (_e) {}
+          } else {
+            try {
+              sessionStorage.removeItem('gh_invite_login_hint');
+            } catch (_e2) {}
           }
         return fetchSessionAuthenticated().then(function (meOk) {
           var authed = !!preview.authenticated || meOk;
@@ -546,27 +595,360 @@
     var wrap = document.createElement('div');
     wrap.innerHTML =
       '<div class="modal fade" id="ghInviteModal" tabindex="-1" aria-hidden="true" style="z-index: 1095;">' +
-      '<div class="modal-dialog"><div class="modal-content">' +
+      '<div class="modal-dialog modal-lg"><div class="modal-content">' +
       '<div class="modal-header"><h5 class="modal-title" id="ghInviteModalTitle">Invite someone</h5>' +
       '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
       '<div class="modal-body">' +
       '<div id="ghInviteAlert" class="alert d-none" role="alert"></div>' +
+      '<div id="ghInviteShareableBlock" class="card bg-secondary bg-opacity-10 mb-3 d-none">' +
+      '<div class="card-body py-3">' +
+      '<p class="small fw-semibold mb-2"><i class="fas fa-link me-1"></i>Shareable invitation link</p>' +
+      '<p class="small text-muted mb-2">Anyone with this link can open the invite after signing in. ' +
+      'Use the same link for every person — email is optional below.</p>' +
+      '<div class="input-group input-group-sm">' +
+      '<input type="text" class="form-control font-monospace" id="ghInviteShareableUrl" readonly>' +
+      '<button type="button" class="btn btn-outline-primary" id="ghInviteShareableCopyBtn">' +
+      '<i class="fas fa-copy me-1"></i>Copy</button>' +
+      '<button type="button" class="btn btn-outline-danger" id="ghInviteShareableRevokeBtn" title="Revoke this link">' +
+      '<i class="fas fa-ban me-1"></i>Revoke</button></div></div></div>' +
       '<p class="text-muted small" id="ghInviteHint"></p>' +
-      '<label class="form-label" for="ghInviteEmail">Email</label>' +
-      '<input type="email" class="form-control mb-3" id="ghInviteEmail" required>' +
+      '<p class="small text-muted mb-2" id="ghInviteEmailDivider" class="d-none">Or invite specific people by email</p>' +
+      '<label class="form-label" for="ghInviteRecipients">People to invite</label>' +
+      '<div class="position-relative mb-1">' +
+      '<textarea class="form-control" id="ghInviteRecipients" rows="3" ' +
+      'placeholder="Emails (comma or new line) and @handles for Gov Hub members"></textarea>' +
+      '<div id="ghInviteUserSuggest" class="list-group position-absolute w-100 shadow-sm d-none" ' +
+      'style="z-index: 1100; max-height: 200px; overflow-y: auto;"></div></div>' +
+      '<p class="form-text mb-3">Type <strong>@</strong> and choose a name from the list. ' +
+      'Add email addresses separately (comma or new line, up to 25 total).</p>' +
+      '<div id="ghInvitePickedUsers" class="d-flex flex-wrap gap-1 mb-3"></div>' +
       '<label class="form-label" for="ghInviteMessage">Personal note (optional)</label>' +
       '<textarea class="form-control" id="ghInviteMessage" rows="3"></textarea>' +
       '</div><div class="modal-footer">' +
       '<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>' +
       '<button type="button" class="btn btn-primary" id="ghInviteSubmitBtn">' +
-      '<i class="fas fa-paper-plane me-1"></i>Send invitation</button>' +
+      '<i class="fas fa-paper-plane me-1"></i>Send invitations</button>' +
       '</div></div></div></div>';
     document.body.appendChild(wrap.firstChild);
     return document.getElementById('ghInviteModal');
   }
 
+  function parseRecipientEmails(text) {
+    return String(text || '')
+      .split(/[\s,;]+/)
+      .map(function (s) {
+        return s.trim();
+      })
+      .filter(function (s) {
+        return s && s.indexOf('@') !== 0 && s.indexOf('@') > 0;
+      });
+  }
+
+  /** @handles left in the textarea (not picked as chips) — not valid emails. */
+  function extractAtHandles(text) {
+    var seen = {};
+    var out = [];
+    var re = /@([a-zA-Z0-9_.-]{2,})/g;
+    var m;
+    while ((m = re.exec(String(text || ''))) !== null) {
+      var handle = m[1];
+      var key = handle.toLowerCase();
+      if (!seen[key]) {
+        seen[key] = true;
+        out.push(handle);
+      }
+    }
+    return out;
+  }
+
+  function resolveHandleToUser(handle) {
+    return fetch(
+      '/api/users/search/?q=' + encodeURIComponent(handle),
+      { credentials: 'same-origin' }
+    )
+      .then(parseJsonFetch)
+      .then(function (res) {
+        if (!res.ok) return null;
+        var users = res.data.users || [];
+        var want = handle.toLowerCase();
+        for (var i = 0; i < users.length; i++) {
+          var u = users[i];
+          if (!u || !u.id) continue;
+          var h = (u.handle || '').toLowerCase();
+          var un = (u.username || '').toLowerCase();
+          if (h === want || un === want) return u;
+        }
+        return null;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  function mergeInviteUserIds(picked, extraUsers, pickedContainer) {
+    var ids = [];
+    var seen = {};
+    function addId(id) {
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      ids.push(id);
+    }
+    function addUser(u) {
+      if (u && u.id) addId(u.id);
+    }
+    (picked || []).forEach(addUser);
+    (extraUsers || []).forEach(addUser);
+    if (pickedContainer) {
+      pickedContainer.querySelectorAll('[data-user-id]').forEach(function (chip) {
+        addId(chip.getAttribute('data-user-id'));
+      });
+    }
+    return ids;
+  }
+
+  function formatBatchInviteSuccess(data) {
+    var results = data.results || [];
+    var okRows = results.filter(function (r) {
+      return r.ok;
+    });
+    var failRows = results.filter(function (r) {
+      return !r.ok;
+    });
+    var stats = data.stats || {};
+    var unique = stats.unique_recipients || okRows.length + failRows.length;
+    var parts = [
+      'Sent ' +
+        okRows.length +
+        ' of ' +
+        unique +
+        ' invitation' +
+        (unique === 1 ? '' : 's'),
+    ];
+    if (stats.user_ids_resolved > 0) {
+      parts.push(
+        '(' +
+          stats.user_ids_resolved +
+          ' from chips' +
+          (stats.emails_parsed > 0
+            ? ', ' + stats.emails_parsed + ' typed email' + (stats.emails_parsed === 1 ? '' : 's')
+            : '') +
+          ')'
+      );
+    } else if (stats.emails_parsed > 0) {
+      parts.push('(' + stats.emails_parsed + ' typed email' + (stats.emails_parsed === 1 ? '' : 's') + ')');
+    }
+    if (stats.user_ids_requested > 0 && stats.user_ids_resolved === 0) {
+      parts.push(
+        '— chips were not sent; refresh the page and try again'
+      );
+    }
+    if (failRows.length) {
+      parts.push(
+        'Could not invite: ' +
+          failRows
+            .map(function (r) {
+              var err = r.error ? String(r.error).replace(/\.+$/, '') : '';
+              return (r.email || 'unknown') + (err ? ' — ' + err : '');
+            })
+            .join('; ')
+      );
+    }
+    var msg = parts.join('. ');
+    return msg.endsWith('.') ? msg : msg + '.';
+  }
+
+  function renderPickedUsers(container, picked) {
+    if (!container) return;
+    container.innerHTML = '';
+    picked.forEach(function (u) {
+      if (!u || !u.id) return;
+      var chip = document.createElement('span');
+      chip.className = 'badge bg-secondary d-inline-flex align-items-center gap-1';
+      chip.setAttribute('data-user-id', u.id);
+      chip.innerHTML =
+        esc(u.display_name || u.username || u.handle || 'User') +
+        ' <button type="button" class="btn-close btn-close-white btn-sm" aria-label="Remove"></button>';
+      chip.querySelector('button').addEventListener('click', function () {
+        var idx = picked.findIndex(function (x) {
+          return x.id === u.id;
+        });
+        if (idx >= 0) picked.splice(idx, 1);
+        renderPickedUsers(container, picked);
+      });
+      container.appendChild(chip);
+    });
+  }
+
+  function bindInviteUserSuggest(textarea, suggestEl, pickedContainer, picked) {
+    var searchTimer = null;
+    var activeIdx = -1;
+
+    function hideSuggest() {
+      if (suggestEl) {
+        suggestEl.classList.add('d-none');
+        suggestEl.innerHTML = '';
+      }
+      activeIdx = -1;
+    }
+
+    function atQuery() {
+      var val = textarea.value;
+      var pos = textarea.selectionStart;
+      var before = val.slice(0, pos);
+      // Only @-mentions at word boundaries — not the @ inside email addresses.
+      var match = before.match(/(?:^|[\s,;\n])@([a-zA-Z0-9_.-]*)$/);
+      if (!match) return null;
+      return match[1];
+    }
+
+    function emailTokenBeforeCursor(val, pos) {
+      var before = val.slice(0, pos);
+      // Allow partial emails (e.g. bitracer1@ or bitracer@gmail) while typing.
+      var match = before.match(/(?:^|[\s,;\n]+)?([a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]*)$/);
+      if (!match || !match[1] || match[1].indexOf('@') < 1) return null;
+      var local = match[1].split('@')[0];
+      if (!local || local.length < 2) return null;
+      return match[1];
+    }
+
+    function insertPickedUser(user) {
+      var val = textarea.value;
+      var pos = textarea.selectionStart;
+      var before = val.slice(0, pos);
+      var after = val.slice(pos);
+      var emailTok = emailTokenBeforeCursor(val, pos);
+      if (emailTok) {
+        before = before.replace(new RegExp(emailTok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'), '');
+      } else {
+        var m = before.match(/(?:^|[\s,;\n])@([a-zA-Z0-9_.-]*)$/);
+        if (m) {
+          before = before.slice(0, before.length - m[0].length);
+        }
+      }
+      textarea.value = before + after;
+      if (!picked.some(function (x) {
+        return x.id === user.id;
+      })) {
+        picked.push(user);
+        renderPickedUsers(pickedContainer, picked);
+      }
+      hideSuggest();
+      textarea.focus();
+    }
+
+    function showSuggestions(users) {
+      if (!suggestEl || !users.length) {
+        hideSuggest();
+        return;
+      }
+      suggestEl.innerHTML = '';
+      users.forEach(function (u, i) {
+        var item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'list-group-item list-group-item-action py-2';
+        var label = u.display_name || u.username || u.handle || 'User';
+        var handle = u.handle || u.username || '';
+        item.innerHTML =
+          '<strong>' +
+          esc(label) +
+          '</strong>' +
+          (handle ? ' <span class="text-muted small">@' + esc(handle) + '</span>' : '');
+        item.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+          insertPickedUser(u);
+        });
+        item.dataset.idx = String(i);
+        suggestEl.appendChild(item);
+      });
+      suggestEl.classList.remove('d-none');
+      activeIdx = 0;
+    }
+
+    textarea.addEventListener('input', function () {
+      var pos = textarea.selectionStart;
+      var q = atQuery();
+      var searchParam = null;
+      if (q !== null) {
+        if (q.length < 2) {
+          hideSuggest();
+          return;
+        }
+        searchParam = '@' + q;
+      } else {
+        var emailTok = emailTokenBeforeCursor(textarea.value, pos);
+        if (!emailTok) {
+          hideSuggest();
+          return;
+        }
+        searchParam = emailTok;
+      }
+      if (searchTimer) global.clearTimeout(searchTimer);
+      searchTimer = global.setTimeout(function () {
+        fetch('/api/users/search/?q=' + encodeURIComponent(searchParam), { credentials: 'same-origin' })
+          .then(parseJsonFetch)
+          .then(function (res) {
+            if (!res.ok) {
+              hideSuggest();
+              return;
+            }
+            var users = (res.data.users || []).filter(function (u) {
+              return u.id && !picked.some(function (p) {
+                return p.id === u.id;
+              });
+            });
+            showSuggestions(users);
+          })
+          .catch(function () {
+            hideSuggest();
+          });
+      }, 200);
+    });
+
+    textarea.addEventListener('keydown', function (e) {
+      if (suggestEl.classList.contains('d-none')) return;
+      var items = suggestEl.querySelectorAll('.list-group-item');
+      if (!items.length) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIdx = Math.min(activeIdx + 1, items.length - 1);
+        items[activeIdx].focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIdx = Math.max(activeIdx - 1, 0);
+        items[activeIdx].focus();
+      } else if (e.key === 'Enter' && activeIdx >= 0) {
+        e.preventDefault();
+        items[activeIdx].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      } else if (e.key === 'Escape') {
+        hideSuggest();
+      }
+    });
+
+    textarea.addEventListener('blur', function () {
+      global.setTimeout(hideSuggest, 150);
+    });
+  }
+
   function bootstrapApi() {
     return global.bootstrap || window.bootstrap;
+  }
+
+  function inviteDraftStorageKey(target) {
+    var t = target || {};
+    var parts = [t.submission_id, t.draft_ref, t.layer_slug, t.workgroup_id].filter(Boolean);
+    return INVITE_MSG_DRAFT_PREFIX + (parts.join('|') || 'default');
+  }
+
+  function bindInviteMessageDraft(msgEl) {
+    if (!msgEl || msgEl.dataset.ghDraftBound) return;
+    msgEl.dataset.ghDraftBound = '1';
+    msgEl.addEventListener('input', function () {
+      var key = msgEl.dataset.ghInviteDraftKey;
+      if (!key) return;
+      try {
+        sessionStorage.setItem(key, msgEl.value);
+      } catch (_e) { /* ignore */ }
+    });
   }
 
   function inviteDialogUnavailable() {
@@ -589,10 +971,29 @@
       inviteDialogUnavailable();
       return;
     }
-    document.getElementById('ghInviteModalTitle').textContent = opts.title || 'Invite someone';
+    document.getElementById('ghInviteModalTitle').textContent = opts.title || 'Invite people';
     document.getElementById('ghInviteHint').textContent = opts.hint || '';
-    document.getElementById('ghInviteEmail').value = '';
-    document.getElementById('ghInviteMessage').value = '';
+    var recipientsEl = document.getElementById('ghInviteRecipients');
+    var pickedContainer = document.getElementById('ghInvitePickedUsers');
+    var suggestEl = document.getElementById('ghInviteUserSuggest');
+    recipientsEl.value = '';
+    var msgEl = document.getElementById('ghInviteMessage');
+    bindInviteMessageDraft(msgEl);
+    var draftKey = inviteDraftStorageKey(opts.target);
+    msgEl.dataset.ghInviteDraftKey = draftKey;
+    try {
+      msgEl.value = sessionStorage.getItem(draftKey) || '';
+    } catch (_e) {
+      msgEl.value = '';
+    }
+    // Clear in place — do not reassign [] or @picker keeps writing to a stale array.
+    invitePickedUsers.length = 0;
+    renderPickedUsers(pickedContainer, invitePickedUsers);
+    if (!recipientsEl.dataset.ghSuggestBound) {
+      recipientsEl.dataset.ghSuggestBound = '1';
+      bindInviteUserSuggest(recipientsEl, suggestEl, pickedContainer, invitePickedUsers);
+    }
+
     var alertEl = document.getElementById('ghInviteAlert');
     alertEl.className = 'alert d-none';
     alertEl.innerHTML = '';
@@ -600,82 +1001,259 @@
     var state = {
       type: opts.type,
       target: opts.target || {},
+      shareable: false,
+      sharePath: '',
+      shareToken: '',
     };
+
+    function inviteTokenFromPath(path) {
+      if (!path) return '';
+      try {
+        var q = path.indexOf('?') >= 0 ? path.slice(path.indexOf('?')) : path;
+        return new URLSearchParams(q).get('invite') || '';
+      } catch (_e) {
+        return '';
+      }
+    }
+
+    function setShareableUi(path) {
+      var block = document.getElementById('ghInviteShareableBlock');
+      var urlInput = document.getElementById('ghInviteShareableUrl');
+      var divider = document.getElementById('ghInviteEmailDivider');
+      if (!block || !urlInput) return;
+      if (!path) {
+        block.classList.add('d-none');
+        if (divider) divider.classList.add('d-none');
+        state.shareable = false;
+        state.sharePath = '';
+        state.shareToken = '';
+        return;
+      }
+      var full = path.indexOf('http') === 0 ? path : global.location.origin + path;
+      urlInput.value = full;
+      block.classList.remove('d-none');
+      if (divider) divider.classList.remove('d-none');
+      state.shareable = true;
+      state.sharePath = path;
+      state.shareToken = inviteTokenFromPath(path);
+      var copyBtn = document.getElementById('ghInviteShareableCopyBtn');
+      if (copyBtn && !copyBtn.dataset.ghBound) {
+        copyBtn.dataset.ghBound = '1';
+        copyBtn.addEventListener('click', function () {
+          copyTextToClipboard(full).then(showCopiedToast).catch(function () {
+            showInviteMessage({
+              title: 'Copy failed',
+              message: 'Could not copy the link.',
+              variant: 'warning',
+            });
+          });
+        });
+      }
+      var revokeBtn = document.getElementById('ghInviteShareableRevokeBtn');
+      if (revokeBtn && !revokeBtn.dataset.ghBound) {
+        revokeBtn.dataset.ghBound = '1';
+        revokeBtn.addEventListener('click', function () {
+          var tok = state.shareToken;
+          if (!tok) return;
+          if (!global.confirm('Revoke this invitation link? It will stop working for everyone.')) return;
+          fetch('/api/invitations/by-token/' + encodeURIComponent(tok) + '/revoke/', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          })
+            .then(parseJsonFetch)
+            .then(function (res) {
+              if (res.ok) {
+                showInviteMessage({
+                  title: 'Link revoked',
+                  message: 'This invitation link no longer works.',
+                  variant: 'success',
+                });
+                setShareableUi('');
+              } else {
+                showInviteMessage({
+                  title: 'Revoke failed',
+                  message: res.data.error || 'Could not revoke',
+                  variant: 'danger',
+                });
+              }
+            });
+        });
+      }
+    }
+
+    setShareableUi('');
+    fetch('/api/invitations/campaign/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        type: state.type,
+        target: state.target,
+        message: document.getElementById('ghInviteMessage').value.trim() || null,
+      }),
+    })
+      .then(parseJsonFetch)
+      .then(function (res) {
+        if (res.ok && res.data && res.data.invite_path) {
+          setShareableUi(res.data.invite_path);
+        }
+      })
+      .catch(function () { /* non-shareable types */ });
 
     document.getElementById('ghInviteSubmitBtn').onclick = function () {
       var btn = document.getElementById('ghInviteSubmitBtn');
-      var email = document.getElementById('ghInviteEmail').value.trim();
-      if (!email) {
-        alertEl.className = 'alert alert-danger';
-        alertEl.textContent = 'Email is required';
-        return;
-      }
-      btn.disabled = true;
-      fetch('/api/invitations/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          type: state.type,
-          email: email,
-          message: document.getElementById('ghInviteMessage').value.trim() || null,
-          target: state.target,
-        }),
-      })
-        .then(parseJsonFetch)
-        .then(function (res) {
-          btn.disabled = false;
-          if (res.status === 401) {
-            showInviteMessage({
-              title: 'Sign in required',
-              message: 'Sign in to send invitations.',
-              variant: 'info',
-              confirmLabel: 'Sign in',
-            }).then(function () {
-              redirectToLogin();
-            });
-            return;
-          }
-          if (!res.ok) {
-            alertEl.className = 'alert alert-danger';
-            alertEl.textContent = res.data.error || 'Failed to send invitation';
-            return;
-          }
-          var link = res.data.invite_path
-            ? global.location.origin + res.data.invite_path
-            : '';
-          var msg = res.data.message || res.data.duplicate
-            ? (res.data.message || 'Invitation noted.')
-            : 'Invitation sent' + (res.data.email_sent ? ' by email' : '') + '.';
-          alertEl.className = 'alert alert-success';
-          alertEl.innerHTML = esc(msg);
-          if (link) {
-            alertEl.innerHTML +=
-              ' <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-copy="' +
-              esc(link) + '">Copy link</button>';
-            var copyBtn = alertEl.querySelector('[data-copy]');
-            if (copyBtn) {
-              copyBtn.addEventListener('click', function () {
-                copyTextToClipboard(link)
-                  .then(function () {
-                    showCopiedToast();
-                  })
-                  .catch(function () {
-                    showInviteMessage({
-                      title: 'Copy failed',
-                      message: 'Could not copy the link. Select and copy it manually.',
-                      variant: 'warning',
-                    });
-                  });
-              });
+      var rawText = recipientsEl.value;
+      var emails = parseRecipientEmails(rawText);
+      var handlesInText = extractAtHandles(rawText);
+
+      function sendInviteBatch(userIds) {
+        if (!emails.length && !userIds.length) {
+          alertEl.className = 'alert alert-danger';
+          alertEl.textContent =
+            'Add at least one email, or @mention and pick Gov Hub members from the list';
+          return;
+        }
+        btn.disabled = true;
+        var useBatch = emails.length + userIds.length > 1 || userIds.length > 0;
+        var url = useBatch ? '/api/invitations/batch/' : '/api/invitations/';
+        if (typeof console !== 'undefined' && console.debug) {
+          console.debug('GhInvite batch', {
+            emails: emails.length,
+            userIds: userIds.length,
+            chips: pickedContainer
+              ? pickedContainer.querySelectorAll('[data-user-id]').length
+              : 0,
+          });
+        }
+        var body = useBatch
+          ? {
+              type: state.type,
+              emails: emails.join('\n'),
+              invitee_user_ids: userIds,
+              message: document.getElementById('ghInviteMessage').value.trim() || null,
+              target: state.target,
             }
+          : {
+              type: state.type,
+              email: emails[0],
+              message: document.getElementById('ghInviteMessage').value.trim() || null,
+              target: state.target,
+            };
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        })
+          .then(parseJsonFetch)
+          .then(function (res) {
+            btn.disabled = false;
+            if (res.status === 401) {
+              showInviteMessage({
+                title: 'Sign in required',
+                message: 'Sign in to send invitations.',
+                variant: 'info',
+                confirmLabel: 'Sign in',
+              }).then(function () {
+                redirectToLogin();
+              });
+              return;
+            }
+            if (!res.ok && res.status !== 207) {
+              alertEl.className = 'alert alert-danger';
+              alertEl.textContent = res.data.error || 'Failed to send invitations';
+              return;
+            }
+            if (res.data.results && res.data.results.length) {
+              var errN = res.data.error_count || 0;
+              alertEl.className = errN ? 'alert alert-warning' : 'alert alert-success';
+              alertEl.textContent = formatBatchInviteSuccess(res.data);
+              if (!errN) {
+                recipientsEl.value = '';
+                invitePickedUsers.length = 0;
+                renderPickedUsers(pickedContainer, invitePickedUsers);
+                try {
+                  sessionStorage.removeItem(msgEl.dataset.ghInviteDraftKey || '');
+                } catch (_e) { /* ignore */ }
+              }
+              return;
+            }
+            var linkPath = res.data.invite_path || state.sharePath || '';
+            var link = linkPath ? global.location.origin + linkPath : '';
+            if (linkPath) setShareableUi(linkPath);
+            var msg = res.data.message || res.data.duplicate
+              ? res.data.message || 'Invitation noted.'
+              : 'Invitation sent' + (res.data.email_sent ? ' by email' : '') + '.';
+            alertEl.className = 'alert alert-success';
+            alertEl.innerHTML = esc(msg);
+            if (link) {
+              alertEl.innerHTML +=
+                ' <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-copy="' +
+                esc(link) + '">Copy link</button>';
+              var copyBtn = alertEl.querySelector('[data-copy]');
+              if (copyBtn) {
+                copyBtn.addEventListener('click', function () {
+                  copyTextToClipboard(link)
+                    .then(function () {
+                      showCopiedToast();
+                    })
+                    .catch(function () {
+                      showInviteMessage({
+                        title: 'Copy failed',
+                        message: 'Could not copy the link. Select and copy it manually.',
+                        variant: 'warning',
+                      });
+                    });
+                });
+              }
+            }
+            recipientsEl.value = '';
+            invitePickedUsers.length = 0;
+            renderPickedUsers(pickedContainer, invitePickedUsers);
+          })
+          .catch(function () {
+            btn.disabled = false;
+            alertEl.className = 'alert alert-danger';
+            alertEl.textContent =
+              'We could not reach the server. Check your connection and try again.';
+          });
+      }
+
+      var handlesToResolve = handlesInText.filter(function (h) {
+        var want = h.toLowerCase();
+        return !invitePickedUsers.some(function (p) {
+          var ph = (p.handle || p.username || '').toLowerCase();
+          return ph === want;
+        });
+      });
+
+      btn.disabled = true;
+      alertEl.className = 'alert d-none';
+      alertEl.textContent = '';
+
+      Promise.all(handlesToResolve.map(resolveHandleToUser))
+        .then(function (resolved) {
+          var extra = resolved.filter(Boolean);
+          if (handlesToResolve.length && extra.length < handlesToResolve.length) {
+            alertEl.className = 'alert alert-warning';
+            alertEl.textContent =
+              'Some @mentions in the box were not found on Gov Hub. ' +
+              'Click each name in the dropdown so they appear as chips below the box.';
+            alertEl.classList.remove('d-none');
           }
+          var userIds = mergeInviteUserIds(
+            invitePickedUsers,
+            extra,
+            pickedContainer
+          );
+          sendInviteBatch(userIds);
         })
         .catch(function () {
           btn.disabled = false;
           alertEl.className = 'alert alert-danger';
-          alertEl.textContent =
-            'We could not reach the server. Check your connection and try again.';
+          alertEl.textContent = 'Could not look up @mentions. Try again.';
         });
     };
 

@@ -1504,7 +1504,12 @@ def admin_workgroups():
     }
 
     async function approveWorkgroup(workgroupId) {
-        if (!confirm('Approve this workgroup?')) return;
+        const confirmed = await GhDialog.confirm({
+            title: 'Approve workgroup',
+            message: 'Approve this workgroup?',
+            variant: 'warning',
+        });
+        if (!confirmed) return;
 
         try {
             const response = await fetch(`/api/workgroups/${workgroupId}/approve/`, {
@@ -1514,15 +1519,27 @@ def admin_workgroups():
             });
 
             if (response.ok) {
-                alert('Workgroup approved successfully');
+                await GhDialog.alert({
+                    title: 'Approved',
+                    message: 'Workgroup approved successfully.',
+                    variant: 'success',
+                });
                 loadWorkgroups();
             } else {
                 const data = await response.json();
-                alert('Error: ' + (data.error || 'Failed to approve'));
+                await GhDialog.alert({
+                    title: 'Could not approve',
+                    message: data.error || 'Failed to approve',
+                    variant: 'danger',
+                });
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Error approving workgroup');
+            await GhDialog.alert({
+                title: 'Error',
+                message: 'Error approving workgroup.',
+                variant: 'danger',
+            });
         }
     }
 
@@ -1538,15 +1555,27 @@ def admin_workgroups():
             });
 
             if (response.ok) {
-                alert('Workgroup rejected');
+                await GhDialog.alert({
+                    title: 'Rejected',
+                    message: 'Workgroup rejected.',
+                    variant: 'success',
+                });
                 loadWorkgroups();
             } else {
                 const data = await response.json();
-                alert('Error: ' + (data.error || 'Failed to reject'));
+                await GhDialog.alert({
+                    title: 'Could not reject',
+                    message: data.error || 'Failed to reject',
+                    variant: 'danger',
+                });
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Error rejecting workgroup');
+            await GhDialog.alert({
+                title: 'Error',
+                message: 'Error rejecting workgroup.',
+                variant: 'danger',
+            });
         }
     }
 

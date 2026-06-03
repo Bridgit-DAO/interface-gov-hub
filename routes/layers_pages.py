@@ -494,6 +494,32 @@ def create_project_page():
                         <input type="url" class="form-control" id="website_url" placeholder="https://...">
                     </div>
 
+                    <div class="mb-3">
+                        <label class="form-label">Discovery</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="listing_visibility" id="vis_public" value="public" checked>
+                            <label class="form-check-label" for="vis_public">Public — listed in the layer directory</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="listing_visibility" id="vis_private" value="private">
+                            <label class="form-check-label" for="vis_private">Private — only members and people you invite</label>
+                        </div>
+                        <div class="form-text">Private layers can be made public later in Edit (one-way only).</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="join_nft_gated" name="join_nft_gated">
+                            <label class="form-check-label" for="join_nft_gated">NFT-gated membership</label>
+                        </div>
+                        <div id="nft_gate_block" class="mt-2 d-none">
+                            <label class="form-label" for="nft_gate_rules">Allowed NFTs</label>
+                            <textarea class="form-control font-monospace small" id="nft_gate_rules" rows="4"
+                                placeholder="eth:0xContractAddress&#10;sol:MintOrCollection&#10;btc:inscriptionId"></textarea>
+                            <div class="form-text">Public NFT layers are visible in the directory; private NFT layers are hidden unless you are a member. Join requires holding one listed NFT (ETH, Solana, or Bitcoin inscription).</div>
+                        </div>
+                    </div>
+
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
                         <strong>Note:</strong> New layers start with "proposed" status and require admin approval before becoming active.
@@ -513,6 +539,15 @@ def create_project_page():
     </div>
     """ + """
     <script>
+    (function() {
+        const nftCb = document.getElementById('join_nft_gated');
+        const nftBlock = document.getElementById('nft_gate_block');
+        if (nftCb && nftBlock) {
+            nftCb.addEventListener('change', function() {
+                nftBlock.classList.toggle('d-none', !nftCb.checked);
+            });
+        }
+    })();
     document.getElementById('createProjectForm').addEventListener('submit', async (e) => {
         e.preventDefault();
 
@@ -520,13 +555,20 @@ def create_project_page():
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
 
+        const visEl = document.querySelector('input[name="listing_visibility"]:checked');
         const formData = {
             name: document.getElementById('name').value,
             mission: document.getElementById('mission').value,
             description: document.getElementById('description').value,
             repo_url: document.getElementById('repo_url').value,
-            website_url: document.getElementById('website_url').value
+            website_url: document.getElementById('website_url').value,
+            listing_visibility: visEl ? visEl.value : 'public',
         };
+        if (document.getElementById('join_nft_gated') && document.getElementById('join_nft_gated').checked) {
+            formData.join_policy = 'nft_gated';
+            formData.nft_gated = true;
+            formData.nft_gate_rules = document.getElementById('nft_gate_rules').value || '';
+        }
 
         try {
             const response = await fetch('/api/layers/', {

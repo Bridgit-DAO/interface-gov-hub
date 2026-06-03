@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 LISTING_VISIBILITY = frozenset({'public', 'private'})
-JOIN_POLICY_LAYER_GUILD = frozenset({'open', 'by_invitation'})
+JOIN_POLICY_LAYER_GUILD = frozenset({'open', 'by_invitation', 'nft_gated'})
 JOIN_POLICY_QUEST = frozenset({'open', 'open_to_layer', 'open_to_guild', 'by_invitation'})
 
 

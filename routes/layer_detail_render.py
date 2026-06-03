@@ -12,6 +12,7 @@ from services.layer_features import (
     is_layer_tab_enabled,
 )
 from services.product_rollout import get_rollout_config
+from config import METAWEB_PIONEERS_LAYER_SLUG, METAWEB_BOOK_PURCHASE_URL
 from services.nav_pills import (
     PILL_ANIMATIONS,
     get_effective_nav_pill_settings,
@@ -166,6 +167,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     )
     layer_nav_pill_json = json.dumps(parse_layer_nav_pill_config(project_obj))
     site_nav_pill_json = json.dumps(get_effective_nav_pill_settings(page='layer', layer=project_obj))
+    metaweb_pioneers_slug_json = json.dumps(METAWEB_PIONEERS_LAYER_SLUG)
+    metaweb_book_purchase_url_json = json.dumps(METAWEB_BOOK_PURCHASE_URL)
     
     admin_tab_html = ''
     admin_tab_pane_html = ''
@@ -328,11 +331,23 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 </div>
                 <div class="modal-body">
                     <div id="invite-member-alert" class="alert d-none" role="alert"></div>
-                    <p class="text-muted small">Send an invitation link to join this layer. If they are already a member, we will note it and skip the email.</p>
+                    <div id="layer-invite-shareable-block" class="card bg-secondary bg-opacity-10 mb-3 d-none">
+                        <div class="card-body py-3">
+                            <p class="small fw-semibold mb-2"><i class="fas fa-link me-1"></i>Shareable layer invitation link</p>
+                            <p class="small text-muted mb-2">Anyone with this link can join after signing in. Same link for every invitee.</p>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control font-monospace" id="layer-invite-shareable-url" readonly>
+                                <button type="button" class="btn btn-outline-primary" id="layer-invite-shareable-copy" title="Copy link"><i class="fas fa-copy"></i></button>
+                                <button type="button" class="btn btn-outline-danger" id="layer-invite-shareable-revoke" title="Revoke link"><i class="fas fa-ban"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-muted small" id="layer-invite-email-hint">Send an invitation link to join this layer. If they are already a member, we will note it and skip the email.</p>
+                    <p class="small text-muted d-none" id="layer-invite-email-divider">Or invite specific people by email</p>
                     <form id="inviteMemberForm" onsubmit="return false;">
                         <div class="mb-3">
-                            <label for="invite-member-email" class="form-label">Email address *</label>
-                            <input type="email" class="form-control" id="invite-member-email" required placeholder="colleague@example.com">
+                            <label for="invite-member-email" class="form-label">Email address</label>
+                            <input type="email" class="form-control" id="invite-member-email" placeholder="colleague@example.com">
                         </div>
                         <div class="mb-0">
                             <label for="invite-member-message" class="form-label">Personal note (optional)</label>
@@ -343,6 +358,31 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" id="invite-member-submit-btn" onclick="submitLayerInvite()"><i class="fas fa-paper-plane me-2"></i>Send invitation</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal fade" id="metawebPioneersJoinModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-book me-2"></i>Join Metaweb Pioneers</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-3">Becoming a member of Metaweb Pioneers requires holding a Metaweb Book or Punk ordinal.</p>
+                    <p class="mb-0">
+                        <a href="{METAWEB_BOOK_PURCHASE_URL}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-primary">
+                            <i class="fas fa-external-link-alt me-2"></i>Get a Metaweb Book
+                        </a>
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="submitJoinFromPioneersModal()">
+                        <i class="fas fa-check me-2"></i>I have an ordinal — join
+                    </button>
                 </div>
             </div>
         </div>
@@ -634,6 +674,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     let layerWorkgroupsList = [];
     let layerRolesList = [];
     const projectSlug = {json.dumps(project_slug)};
+    const metawebPioneersSlug = {metaweb_pioneers_slug_json};
+    const metawebBookPurchaseUrl = {metaweb_book_purchase_url_json};
     const initialWaitlistId = {json.dumps(initial_waitlist_id)};
     const isAuthenticated = {'true' if current_user else 'false'};
     const isAdmin = {('true' if current_user and current_user.get('is_admin') else 'false')};
@@ -879,12 +921,38 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
+    function isOrdinalMembershipLayer() {{
+        if (!project) return projectSlug === metawebPioneersSlug;
+        return project.slug === metawebPioneersSlug || project.join_policy === 'nft_gated';
+    }}
+
+    function hideLayerEmailInvite() {{
+        return isOrdinalMembershipLayer();
+    }}
+
+    function showMetawebPioneersJoinModal() {{
+        if (!isAuthenticated) {{ alert('Please sign in to join this project'); return; }}
+        const modal = new bootstrap.Modal(document.getElementById('metawebPioneersJoinModal'));
+        modal.show();
+    }}
+
     function showJoinProjectModal() {{
         if (!isAuthenticated) {{ alert('Please sign in to join this project'); return; }}
+        if (isOrdinalMembershipLayer()) {{
+            showMetawebPioneersJoinModal();
+            return;
+        }}
         const refInput = document.getElementById('join-project-referral');
         if (refInput) refInput.value = referralRef || '';
         const modal = new bootstrap.Modal(document.getElementById('joinProjectModal'));
         modal.show();
+    }}
+
+    async function submitJoinFromPioneersModal() {{
+        const pioneersEl = document.getElementById('metawebPioneersJoinModal');
+        const inst = pioneersEl ? bootstrap.Modal.getInstance(pioneersEl) : null;
+        if (inst) inst.hide();
+        await submitJoinProjectModal();
     }}
     
     async function submitJoinProjectModal() {{
@@ -902,7 +970,12 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 project.is_member = true;
                 project.member_role = data.member && data.member.role ? data.member.role : 'contributor';
                 displayProjectHeader();
-                bootstrap.Modal.getInstance(document.getElementById('joinProjectModal')).hide();
+                const joinEl = document.getElementById('joinProjectModal');
+                const joinInst = joinEl ? bootstrap.Modal.getInstance(joinEl) : null;
+                if (joinInst) joinInst.hide();
+                const pioneersEl = document.getElementById('metawebPioneersJoinModal');
+                const pioneersInst = pioneersEl ? bootstrap.Modal.getInstance(pioneersEl) : null;
+                if (pioneersInst) pioneersInst.hide();
             }} else {{ alert(data.error || 'Failed to join'); }}
         }} catch (e) {{ console.error(e); alert('Failed to join project'); }}
     }}
@@ -919,6 +992,55 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }} catch (e) {{ alert('Failed to leave project'); }}
     }}
     
+    async function loadLayerShareableInvite() {{
+        const block = document.getElementById('layer-invite-shareable-block');
+        const urlInput = document.getElementById('layer-invite-shareable-url');
+        const divider = document.getElementById('layer-invite-email-divider');
+        if (!project || !project.id || (project.listing_visibility || 'public') !== 'public') {{
+            if (block) block.classList.add('d-none');
+            if (divider) divider.classList.add('d-none');
+            return;
+        }}
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/invitations/campaign/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'same-origin',
+                body: JSON.stringify({{ message: (document.getElementById('invite-member-message') || {{}}).value || null }})
+            }});
+            const data = await res.json();
+            if (res.ok && data.invite_path && urlInput && block) {{
+                const full = window.location.origin + data.invite_path;
+                urlInput.value = full;
+                block.classList.remove('d-none');
+                if (divider) divider.classList.remove('d-none');
+                const copyBtn = document.getElementById('layer-invite-shareable-copy');
+                if (copyBtn && !copyBtn.dataset.ghBound) {{
+                    copyBtn.dataset.ghBound = '1';
+                    copyBtn.onclick = function () {{
+                        navigator.clipboard.writeText(full).catch(function () {{}});
+                    }};
+                }}
+                const revokeBtn = document.getElementById('layer-invite-shareable-revoke');
+                if (revokeBtn && !revokeBtn.dataset.ghBound) {{
+                    revokeBtn.dataset.ghBound = '1';
+                    revokeBtn.onclick = async function () {{
+                        const m = data.invite_path || '';
+                        const tok = m.split('/layer/invite/')[1];
+                        const token = tok ? tok.replace(/\\/$/, '') : '';
+                        if (!token || !confirm('Revoke this layer invitation link for everyone?')) return;
+                        const rr = await fetch('/api/layer-invitations/by-token/' + encodeURIComponent(token) + '/revoke/', {{
+                            method: 'POST', credentials: 'same-origin', headers: {{ 'Content-Type': 'application/json' }}, body: '{{}}'
+                        }});
+                        const rd = await rr.json();
+                        if (rr.ok) alert(rd.message || 'Link revoked');
+                        else alert(rd.error || 'Revoke failed');
+                    }};
+                }}
+            }}
+        }} catch (e) {{ /* private layer */ }}
+    }}
+
     function showInviteMemberModal() {{
         if (!isAuthenticated) {{ alert('Please sign in to invite members'); return; }}
         const alertEl = document.getElementById('invite-member-alert');
@@ -928,6 +1050,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
         const form = document.getElementById('inviteMemberForm');
         if (form) form.reset();
+        loadLayerShareableInvite();
         const modal = new bootstrap.Modal(document.getElementById('inviteMemberModal'));
         modal.show();
     }}
@@ -958,9 +1081,23 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const email = emailEl && emailEl.value ? emailEl.value.trim() : '';
         const message = msgEl && msgEl.value ? msgEl.value.trim() : '';
         if (alertEl) alertEl.classList.add('d-none');
+        const shareUrl = document.getElementById('layer-invite-shareable-url');
+        const isPublicLayer = project && (project.listing_visibility || 'public') === 'public';
+        if (!email && !isPublicLayer) {{
+            if (alertEl) {{
+                alertEl.textContent = 'Email address is required for private layers';
+                alertEl.className = 'alert alert-danger';
+                alertEl.classList.remove('d-none');
+            }}
+            return;
+        }}
+        if (!email && isPublicLayer && shareUrl && shareUrl.value) {{
+            renderInviteLinkAlert(alertEl, 'Copy the shareable link above to invite anyone.', shareUrl.value, 'info');
+            return;
+        }}
         if (!email) {{
             if (alertEl) {{
-                alertEl.textContent = 'Email address is required';
+                alertEl.textContent = 'Enter an email or use the shareable link above';
                 alertEl.className = 'alert alert-danger';
                 alertEl.classList.remove('d-none');
             }}
@@ -1025,7 +1162,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         if (isAuthenticated) {{
             if (isJoined) {{
                 actionsHtml += '<div class="mb-3"><span class="badge bg-success">Joined</span></div>';
-                actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showInviteMemberModal()"><i class="fas fa-user-plus me-2"></i>Invite by email</button></div>';
+                if (!hideLayerEmailInvite()) {{
+                    actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showInviteMemberModal()"><i class="fas fa-user-plus me-2"></i>Invite by email</button></div>';
+                }}
             }} else {{
                 actionsHtml += '<div class="mb-3"><button class="btn btn-primary btn-sm w-100" onclick="showJoinProjectModal()"><i class="fas fa-plus me-2"></i>Join Layer</button></div>';
             }}
@@ -2198,6 +2337,27 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             html += '<div class="col-md-3"><button type="button" class="btn btn-primary w-100" onclick="saveLayerStatus()"><i class="fas fa-save me-1"></i>Save status</button></div></div>';
             html += '<p class="small text-muted mt-2 mb-0">Site approval: <strong>' + approvalEsc + '</strong> (site admins only — <a href="/admin/layers/">Admin → Layers</a>).</p>';
             html += '<p class="small mb-0 mt-1" id="admin-layer-status-msg"></p></div></div>';
+            const curVis = (project.listing_visibility || 'public');
+            html += '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Discovery &amp; access</h5></div><div class="card-body">';
+            html += '<p class="text-muted small mb-2">Directory listing: <strong>' + (curVis === 'private' ? 'Private' : 'Public') + '</strong>. ';
+            html += 'Private layers are visible only to members and invitees. Making a layer public is one-way.</p>';
+            if (curVis === 'private') {{
+                html += '<button type="button" class="btn btn-outline-primary btn-sm" id="btn-make-layer-public" onclick="makeLayerPublic()">';
+                html += '<i class="fas fa-globe me-1"></i>Make layer public in directory</button>';
+                html += '<p class="small text-muted mt-2 mb-0" id="layer-visibility-msg"></p>';
+            }} else {{
+                html += '<p class="small text-muted mb-0">This layer is listed in the public directory.</p>';
+            }}
+            const jp = project.join_policy || 'open';
+            html += '<hr class="my-3"><p class="mb-1"><strong>Join policy:</strong> ' + escapeHtml(jp) + '</p>';
+            if (jp === 'nft_gated') {{
+                html += '<p class="text-muted small mb-2">Members must hold an allowed NFT (ETH, Solana, or Bitcoin inscription).</p>';
+                html += '<label class="form-label small" for="layer-nft-gate-rules">Allowed NFTs (one per line: <code>eth:0xContract</code>, <code>sol:mint</code>, <code>btc:inscriptionId</code>)</label>';
+                html += '<textarea class="form-control font-monospace small" id="layer-nft-gate-rules" rows="4"></textarea>';
+                html += '<button type="button" class="btn btn-primary btn-sm mt-2" onclick="saveLayerNftGate()"><i class="fas fa-save me-1"></i>Save NFT gate</button>';
+                html += '<p class="small text-muted mt-2 mb-0" id="layer-nft-gate-msg"></p>';
+            }}
+            html += '</div></div>';
             html += '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Product features</h5></div><div class="card-body">';
             html += '<p class="text-muted small mb-3">Turn off capabilities for this layer only (among features enabled site-wide). Disabled areas are removed from navigation, tabs, and admin sections.</p>';
             html += '<div class="row g-2">';
@@ -2317,12 +2477,92 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             
             container.innerHTML = html;
             renderCarouselCustomItems(carouselConfig.custom_items || []);
+            const nftRulesEl = document.getElementById('layer-nft-gate-rules');
+            if (nftRulesEl) nftRulesEl.value = nftGateRulesFromProject();
         }} catch (error) {{
             console.error('Error loading admins:', error);
             container.innerHTML = '<div class="alert alert-danger">Error loading admins</div>';
         }}
     }}
     
+    async function makeLayerPublic() {{
+        if (!project || (project.listing_visibility || 'public') !== 'private') return;
+        if (!confirm('Make this layer public in the directory? This cannot be undone.')) return;
+        const msgEl = document.getElementById('layer-visibility-msg');
+        if (msgEl) {{
+            msgEl.textContent = 'Saving…';
+            msgEl.className = 'small text-muted mt-2 mb-0';
+        }}
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/', {{
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ listing_visibility: 'public' }})
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (!r.ok) {{
+                if (msgEl) {{
+                    msgEl.textContent = d.error || 'Could not update visibility';
+                    msgEl.className = 'small text-danger mt-2 mb-0';
+                }}
+                return;
+            }}
+            if (d.project) project = d.project;
+            if (msgEl) {{
+                msgEl.textContent = 'Layer is now public.';
+                msgEl.className = 'small text-success mt-2 mb-0';
+            }}
+            setTimeout(function() {{ loadAdminsTab(); }}, 800);
+        }} catch (e) {{
+            if (msgEl) {{
+                msgEl.textContent = e.message || 'Save failed';
+                msgEl.className = 'small text-danger mt-2 mb-0';
+            }}
+        }}
+    }}
+
+    function nftGateRulesFromProject() {{
+        const raw = project && project.nft_gate;
+        if (!raw || typeof raw !== 'object') return '';
+        const lines = [];
+        (raw.eth || []).forEach(function(e) {{
+            if (e && e.contract) lines.push('eth:' + e.contract);
+        }});
+        (raw.sol || []).forEach(function(s) {{
+            if (s && (s.mint || s.collection)) lines.push('sol:' + (s.mint || s.collection));
+        }});
+        (raw.btc || []).forEach(function(b) {{
+            if (b && b.inscription_id) lines.push('btc:' + b.inscription_id);
+        }});
+        return lines.join('\\n');
+    }}
+
+    async function saveLayerNftGate() {{
+        if (!project) return;
+        const rulesEl = document.getElementById('layer-nft-gate-rules');
+        const msgEl = document.getElementById('layer-nft-gate-msg');
+        const rules = rulesEl ? rulesEl.value : '';
+        if (msgEl) msgEl.textContent = 'Saving…';
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/', {{
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ nft_gate_rules: rules }})
+            }});
+            const d = await r.json().catch(() => ({{}}));
+            if (!r.ok) {{
+                if (msgEl) msgEl.textContent = d.error || 'Save failed';
+                return;
+            }}
+            if (d.project) project = d.project;
+            if (msgEl) msgEl.textContent = 'NFT gate saved.';
+        }} catch (e) {{
+            if (msgEl) msgEl.textContent = e.message || 'Save failed';
+        }}
+    }}
+
     async function saveLayerStatus() {{
         if (!project) return;
         const statusEl = document.getElementById('admin-layer-status');
@@ -2522,7 +2762,12 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
     
     async function approveWorkgroup(wgId) {{
-        if (!confirm('Approve this workgroup?')) return;
+        const confirmed = await GhDialog.confirm({{
+            title: 'Approve workgroup',
+            message: 'Approve this workgroup?',
+            variant: 'warning',
+        }});
+        if (!confirmed) return;
         try {{
             const response = await fetch('/api/workgroups/' + wgId + '/approve/', {{
                 method: 'POST',
@@ -2532,18 +2777,23 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (response.ok) {{
                 loadAdmins();
                 loadWorkgroups();
-                alert('Workgroup approved!');
+                await GhDialog.alert({{ title: 'Approved', message: 'Workgroup approved.', variant: 'success' }});
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to approve workgroup');
+                await GhDialog.alert({{ title: 'Could not approve', message: data.error || 'Failed to approve workgroup', variant: 'danger' }});
             }}
         }} catch (e) {{
-            alert('Failed to approve workgroup');
+            await GhDialog.alert({{ title: 'Error', message: 'Failed to approve workgroup.', variant: 'danger' }});
         }}
     }}
     
     async function rejectWorkgroup(wgId) {{
-        if (!confirm('Reject this workgroup?')) return;
+        const confirmed = await GhDialog.confirm({{
+            title: 'Reject workgroup',
+            message: 'Reject this workgroup?',
+            variant: 'warning',
+        }});
+        if (!confirmed) return;
         try {{
             const response = await fetch('/api/workgroups/' + wgId + '/approve/', {{
                 method: 'POST',
@@ -2553,13 +2803,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (response.ok) {{
                 loadAdmins();
                 loadWorkgroups();
-                alert('Workgroup rejected');
+                await GhDialog.alert({{ title: 'Rejected', message: 'Workgroup rejected.', variant: 'success' }});
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to reject workgroup');
+                await GhDialog.alert({{ title: 'Could not reject', message: data.error || 'Failed to reject workgroup', variant: 'danger' }});
             }}
         }} catch (e) {{
-            alert('Failed to reject workgroup');
+            await GhDialog.alert({{ title: 'Error', message: 'Failed to reject workgroup.', variant: 'danger' }});
         }}
     }}
     
@@ -3623,7 +3873,11 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 if (response.ok) {{
                     modal.hide();
                     loadWorkgroups();
-                    alert('Workgroup created! It will be visible once approved by the layer admin.');
+                    await GhDialog.alert({{
+                        title: 'Workgroup created',
+                        message: 'Your workgroup was submitted. It will be visible once approved by the layer admin.',
+                        variant: 'success',
+                    }});
                 }} else {{
                     throw new Error(data.error || 'Failed to create workgroup');
                 }}

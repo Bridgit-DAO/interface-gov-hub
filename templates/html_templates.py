@@ -846,7 +846,7 @@ BASE_TEMPLATE = """
             }}
         }}
     </style>
-    <link href="/static/css/govhub-design.css?v=20260601navicons" rel="stylesheet">
+    <link href="/static/css/govhub-design.css?v=20260602passagepill" rel="stylesheet">
     <link href="/static/css/gh-nav-pills.css?v=1" rel="stylesheet">
     <script src="/static/js/gh-nav-pills.js?v=1" defer></script>
     <script src="/static/js/gh-nav-user-name.js?v=3" defer></script>
@@ -1073,7 +1073,7 @@ BASE_TEMPLATE = """
                         cancelBtn.onclick = function () {{
                             overlay.style.display = 'none';
                             resolve(false);
-                        };
+                        }};
                         acceptBtn.onclick = function () {{
                             if (!cb.checked) return;
                             acceptBtn.disabled = true;

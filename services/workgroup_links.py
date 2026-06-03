@@ -35,6 +35,23 @@ def workgroup_available_on_layer(workgroup, layer_id: Optional[str]) -> bool:
     return layer_id in workgroup_layer_ids(workgroup)
 
 
+META_LAYER_GOVERNANCE_SLUG = 'meta-layer-governance'
+
+
+def ensure_meta_layer_governance_on_layer(layer_slug: str = 'the-metaweb') -> bool:
+    """Link Meta-Layer Governance workgroup to a layer for draft assignment (secondary)."""
+    from models import Layer, Workgroup
+
+    layer = Layer.query.filter_by(slug=layer_slug).first()
+    workgroup = Workgroup.query.filter_by(slug=META_LAYER_GOVERNANCE_SLUG).first()
+    if not layer or not workgroup:
+        return False
+    if link_workgroup_secondary_layer(workgroup, layer.id):
+        db.session.commit()
+        return True
+    return False
+
+
 def link_workgroup_secondary_layer(workgroup, layer_id: str) -> bool:
     """Add secondary layer link. Returns True if a new row was created."""
     from models import WorkgroupLayerLink
@@ -551,8 +568,84 @@ def format_draft_display_name(submission) -> str:
     return title or ml or submission.id
 
 
+META_LAYER_ECOSYSTEM_SLUGS = frozenset({'the-metaweb', 'the-overweb', 'canopi'})
+
+
+def _canonical_parent_for_picker(submission):
+    """One picker row per document family — always the parent submission."""
+    from services.ml_numbering import is_parent_submission
+
+    if is_parent_submission(submission):
+        return submission
+    ref = (submission.parent_draft_name or '').strip()
+    if ref:
+        parent = resolve_document_draft(ref)
+        if parent and parent.id != submission.id:
+            return _canonical_parent_for_picker(parent)
+    return submission
+
+
+def _draft_picker_row(submission, *, version_count: Optional[int] = None) -> dict[str, Any]:
+    label = format_draft_display_name(submission)
+    if version_count and version_count > 1:
+        label = f'{label} — {version_count} versions'
+    return {
+        'id': submission.id,
+        'title': submission.title or submission.ml_number or submission.id,
+        'label': label,
+        'ml_number': submission.ml_number,
+        'status': submission.status,
+        'href': f'/doc/draft/{submission.id}/',
+    }
+
+
+def _submissions_to_picker_rows(submissions, *, limit: int = 500) -> list[dict[str, Any]]:
+    """Collapse revisions to one option per ML number (parent submission)."""
+    from services.ml_numbering import _family_members, is_parent_submission
+
+    by_key: dict[str, Any] = {}
+    for submission in submissions:
+        parent = _canonical_parent_for_picker(submission)
+        key = ((parent.ml_number or '').strip().casefold()) or parent.id
+        existing = by_key.get(key)
+        if not existing:
+            by_key[key] = parent
+            continue
+        if is_parent_submission(parent) and not is_parent_submission(existing):
+            by_key[key] = parent
+
+    ordered = sorted(
+        by_key.values(),
+        key=lambda s: (format_draft_display_name(s).casefold(), s.submitted_at or ''),
+    )
+    rows: list[dict[str, Any]] = []
+    for parent in ordered[:limit]:
+        version_count = len(_family_members(parent))
+        rows.append(_draft_picker_row(parent, version_count=version_count))
+    return rows
+
+
+def layer_ids_for_workgroup_document_picker(workgroup) -> set[str]:
+    """Layers whose drafts appear in the workgroup document dropdown."""
+    ids: set[str] = set()
+    if workgroup.layer_id:
+        ids.add(workgroup.layer_id)
+    for link in workgroup.secondary_layer_links.all():
+        if link.layer_id:
+            ids.add(link.layer_id)
+    from models import Layer
+
+    layers = [Layer.query.get(lid) for lid in ids if lid]
+    if any(layer and layer.slug in META_LAYER_ECOSYSTEM_SLUGS for layer in layers):
+        for slug in META_LAYER_ECOSYSTEM_SLUGS:
+            layer = Layer.query.filter_by(slug=slug).first()
+            if layer:
+                ids.add(layer.id)
+    return ids
+
+
 def list_draft_documents_for_picker(layer_id: Optional[str] = None, limit: int = 500) -> list[dict[str, Any]]:
-    """All linkable drafts for workgroup document dropdown."""
+    """All linkable drafts for workgroup document dropdown (single layer)."""
     from models import Submission
 
     query = Submission.query.filter(
@@ -561,22 +654,42 @@ def list_draft_documents_for_picker(layer_id: Optional[str] = None, limit: int =
     )
     if layer_id:
         query = query.filter(Submission.layer_id == layer_id)
-    rows = (
-        query.order_by(Submission.title.asc(), Submission.submitted_at.desc())
-        .limit(limit)
-        .all()
+    rows = query.order_by(Submission.title.asc(), Submission.submitted_at.desc()).all()
+    return _submissions_to_picker_rows(rows, limit=limit)
+
+
+def list_draft_documents_for_workgroup_picker(workgroup_id: str, limit: int = 500) -> list[dict[str, Any]]:
+    """
+    Drafts linkable from a workgroup edit form: primary/secondary layers, Meta-Layer
+    ecosystem cross-layer drafts, and drafts already assigned via submission.group.
+    """
+    from models import Submission, Workgroup
+
+    workgroup = Workgroup.query.get(workgroup_id)
+    if not workgroup:
+        return []
+
+    base_filter = (
+        Submission.doc_type == 'draft',
+        Submission.status.in_(['approved', 'submitted']),
     )
-    return [
-        {
-            'id': s.id,
-            'title': s.title or s.ml_number or s.id,
-            'label': format_draft_display_name(s),
-            'ml_number': s.ml_number,
-            'status': s.status,
-            'href': f'/doc/draft/{s.id}/',
-        }
-        for s in rows
-    ]
+    by_id: dict[str, Any] = {}
+
+    layer_ids = layer_ids_for_workgroup_document_picker(workgroup)
+    if layer_ids:
+        for submission in Submission.query.filter(
+            *base_filter, Submission.layer_id.in_(layer_ids)
+        ).all():
+            by_id[submission.id] = submission
+
+    acronym = (workgroup.acronym or '').strip()
+    if acronym:
+        for submission in Submission.query.filter(
+            *base_filter, Submission.group == acronym
+        ).all():
+            by_id[submission.id] = submission
+
+    return _submissions_to_picker_rows(by_id.values(), limit=limit)
 
 
 def build_document_workgroup_index() -> dict[str, dict]:
@@ -715,27 +828,13 @@ def search_draft_documents(query: str, limit: int = 15) -> list[dict[str, Any]]:
         return []
 
     pattern = f'%{q}%'
-    rows = (
-        Submission.query.filter(
-            Submission.doc_type == 'draft',
-            db.or_(
-                Submission.title.ilike(pattern),
-                Submission.ml_number.ilike(pattern),
-                Submission.id.ilike(pattern),
-                Submission.draft_name.ilike(pattern),
-            ),
-        )
-        .order_by(Submission.submitted_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            'id': s.id,
-            'title': s.title,
-            'ml_number': s.ml_number,
-            'status': s.status,
-            'href': f'/doc/draft/{s.id}/',
-        }
-        for s in rows
-    ]
+    rows = Submission.query.filter(
+        Submission.doc_type == 'draft',
+        db.or_(
+            Submission.title.ilike(pattern),
+            Submission.ml_number.ilike(pattern),
+            Submission.id.ilike(pattern),
+            Submission.draft_name.ilike(pattern),
+        ),
+    ).order_by(Submission.submitted_at.desc()).all()
+    return _submissions_to_picker_rows(rows, limit=limit)

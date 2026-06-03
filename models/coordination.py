@@ -181,11 +181,18 @@ class Layer(db.Model):
     # Discovery + membership (see services/access_policy.py)
     listing_visibility = db.Column(db.String(20), nullable=False, default='public')
     join_policy = db.Column(db.String(30), nullable=False, default='open')
+    nft_gate_json = db.Column(db.Text, nullable=True)
 
     # Per-layer product features (JSON object); null = all layer-overridable features on
     enabled_features = db.Column(db.Text, nullable=True)
     # Nav pill animation + tooltip overrides (JSON)
     nav_pill_config = db.Column(db.Text, nullable=True)
+
+    # Gov Hub ↔ Canopi MetaCommunity sync (Revised Option C)
+    canopi_meta_community_id = db.Column(db.String(36), nullable=True, index=True)
+    layer_kind = db.Column(db.String(40), nullable=True, index=True)  # standard | auth_community
+    auth_provider = db.Column(db.String(64), nullable=True, index=True)
+    stewardship = db.Column(db.String(32), nullable=True, index=True)  # managed | unmanaged
     
     # Relationships
     initiator = db.relationship('User', foreign_keys=[initiator_id], backref='initiated_layers')
@@ -215,8 +222,13 @@ class Layer(db.Model):
             'meta_domain': getattr(self, 'meta_domain', None),
             'listing_visibility': getattr(self, 'listing_visibility', 'public'),
             'join_policy': getattr(self, 'join_policy', 'open'),
+            'nft_gate': _layer_nft_gate_dict(self),
             'enabled_features': _layer_enabled_features_dict(self),
             'nav_pill_config': _layer_nav_pill_config_dict(self),
+            'canopi_meta_community_id': getattr(self, 'canopi_meta_community_id', None),
+            'layer_kind': getattr(self, 'layer_kind', None),
+            'auth_provider': getattr(self, 'auth_provider', None),
+            'stewardship': getattr(self, 'stewardship', None),
         }
 
 
@@ -232,6 +244,13 @@ def _layer_enabled_features_dict(layer):
 
     overrides = parse_layer_enabled_features(layer)
     return overrides if overrides else None
+
+
+def _layer_nft_gate_dict(layer):
+    from services.nft_gate import load_layer_nft_gate
+
+    gate = load_layer_nft_gate(layer)
+    return gate if gate else None
 
 
 class LayerMember(db.Model):
@@ -739,8 +758,10 @@ class LayerInvitation(db.Model):
     # pending, accepted, declined, expired, duplicate
     outcome_note = db.Column(db.String(255), nullable=True)
     token = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    binding_mode = db.Column(db.String(20), nullable=False, default='private', index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    expires_at = db.Column(db.DateTime, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
     responded_at = db.Column(db.DateTime, nullable=True)
 
     layer = db.relationship('Layer', backref=db.backref('invitations', lazy='dynamic'))
@@ -763,8 +784,10 @@ class LayerInvitation(db.Model):
             'message': self.message,
             'status': self.status,
             'outcome_note': self.outcome_note,
+            'binding_mode': getattr(self, 'binding_mode', None) or 'private',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'revoked_at': self.revoked_at.isoformat() if getattr(self, 'revoked_at', None) else None,
             'responded_at': self.responded_at.isoformat() if self.responded_at else None,
         }
 

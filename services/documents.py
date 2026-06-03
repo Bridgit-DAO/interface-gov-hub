@@ -4,8 +4,12 @@ import re
 from datetime import datetime, timedelta
 from html import escape
 
+from sqlalchemy import or_
+
 from extensions import db
-from models import Comment, User
+from models import Comment, CommentLike, Submission, User
+from models.db_types import comment_is_deleted
+from services.csrf import csrf_form_field
 
 from services.event_subscriptions import (
     DRAFT_SUBSCRIPTION_ROWS,
@@ -32,9 +36,6 @@ try:
     MARKDOWN_SUPPORT = True
 except ImportError:
     MARKDOWN_SUPPORT = False
-
-# In-memory store for comment likes (no DB model yet)
-COMMENT_LIKES = {}
 
 # Legacy in-memory store (kept for test_core_features compatibility)
 COMMENTS = {}
@@ -263,30 +264,78 @@ def submission_file_pages_words(submission):
     return fallback_pages, fallback_words
 
 
-def toggle_comment_like(draft_name, comment_id, user):
-    """Toggle like on a comment."""
-    like_key = f"{draft_name}:{comment_id}"
-    if like_key not in COMMENT_LIKES:
-        COMMENT_LIKES[like_key] = set()
+def _comment_like_user_id(user) -> str:
+    if isinstance(user, dict):
+        return str(user.get('id') or '').strip()
+    return str(user or '').strip()
 
-    if user in COMMENT_LIKES[like_key]:
-        COMMENT_LIKES[like_key].remove(user)
-        return False  # Unliked
-    else:
-        COMMENT_LIKES[like_key].add(user)
-        return True  # Liked
+
+def toggle_comment_like(draft_name, comment_id, user):
+    """Toggle like on a draft comment (persisted). Returns True if now liked."""
+    user_id = _comment_like_user_id(user)
+    if not user_id:
+        return False
+
+    existing = CommentLike.query.filter_by(comment_id=comment_id, user_id=user_id).first()
+    if existing:
+        db.session.delete(existing)
+        db.session.commit()
+        return False
+
+    comment = Comment.query.filter_by(id=comment_id, draft_name=draft_name).first()
+    if not comment or comment_is_deleted(comment.is_deleted):
+        return False
+
+    db.session.add(CommentLike(comment_id=comment_id, user_id=user_id))
+
+    layer_id = None
+    sub = (
+        Submission.query.filter(
+            or_(
+                Submission.draft_name == draft_name,
+                Submission.parent_draft_name == draft_name,
+            ),
+            Submission.status == 'approved',
+        )
+        .order_by(Submission.submitted_at.desc().nullslast())
+        .first()
+    )
+    if sub:
+        layer_id = sub.layer_id
+
+    from services.events import emit_event
+
+    emit_event(
+        'draft_comment_liked',
+        actor_type='user',
+        actor_id=user_id,
+        subject_type='comment',
+        subject_id=str(comment_id),
+        layer_id=layer_id,
+        payload={
+            'draft_name': draft_name,
+            'ml_number': getattr(sub, 'ml_number', None) if sub else None,
+            'comment_author': comment.author,
+            'comment_preview': (comment.text or '')[:120],
+        },
+    )
+    db.session.commit()
+    return True
 
 
 def get_comment_likes(draft_name, comment_id):
     """Get like count for a comment."""
-    like_key = f"{draft_name}:{comment_id}"
-    return len(COMMENT_LIKES.get(like_key, set()))
+    del draft_name  # scoped by comment_id
+    return CommentLike.query.filter_by(comment_id=comment_id).count()
 
 
 def is_comment_liked(draft_name, comment_id, user):
     """Check if user has liked a comment."""
-    like_key = f"{draft_name}:{comment_id}"
-    return user in COMMENT_LIKES.get(like_key, set())
+    del draft_name
+    user_id = _comment_like_user_id(user)
+    if not user_id:
+        return False
+    return CommentLike.query.filter_by(comment_id=comment_id, user_id=user_id).first() is not None
 
 
 def is_user_following_draft(draft_name, user):
@@ -332,12 +381,16 @@ def render_draft_subscription_form_html(
         if not compact
         else '<p class="small text-muted mb-2">Per-event in-app and email.</p>'
     )
-    status = '<span class="badge bg-secondary mb-2">Not subscribed</span>' if not any_on else '<span class="badge bg-success mb-2">Subscribed</span>'
+    status_badge = (
+        '<span class="badge bg-secondary">Not subscribed</span>'
+        if not any_on
+        else '<span class="badge bg-success">Subscribed</span>'
+    )
     next_hidden = ''
     if next_url:
         next_hidden = f'<input type="hidden" name="next" value="{escape(next_url)}">'
 
-    wrap_cls = 'border-top pt-2 mt-2' if not compact else ''
+    wrap_cls = 'gh-draft-notifications border-top pt-2 mt-2' if not compact else 'gh-draft-notifications'
     heading = (
         '<h6 class="text-muted mb-2"><i class="fas fa-bell me-1"></i>Notifications</h6>'
         if not compact
@@ -348,28 +401,43 @@ def render_draft_subscription_form_html(
         if show_hub_link
         else ''
     )
+    panel_id = 'gh-draft-notif-' + re.sub(r'[^\w-]', '-', draft_name or 'draft')
+
+    details_html = f'''
+            {intro}
+            <form method="post" action="/doc/draft/{escape(draft_name)}/subscriptions/">
+                {next_hidden}
+                <div class="table-responsive">
+                    <table class="table table-sm table-borderless mb-2 small">
+                        <thead><tr><th>Event</th><th class="text-center">In-app</th><th class="text-center">Email</th></tr></thead>
+                        <tbody>{''.join(rows_html)}</tbody>
+                    </table>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm w-100 mb-1"><i class="fas fa-save me-1"></i>Save subscriptions</button>
+            </form>
+            <form method="post" action="/doc/draft/{escape(draft_name)}/subscriptions/" class="mt-1">
+                {next_hidden}
+                <input type="hidden" name="clear_all" value="1">
+                <button type="submit" class="btn btn-outline-warning btn-sm w-100">Remove all for this draft</button>
+            </form>
+            {hub_link_html}
+    '''
 
     return f'''
     <div class="{wrap_cls}">
         {heading}
-        {status}
-        {intro}
-        <form method="post" action="/doc/draft/{escape(draft_name)}/subscriptions/">
-            {next_hidden}
-            <div class="table-responsive">
-                <table class="table table-sm table-borderless mb-2 small">
-                    <thead><tr><th>Event</th><th class="text-center">In-app</th><th class="text-center">Email</th></tr></thead>
-                    <tbody>{''.join(rows_html)}</tbody>
-                </table>
-            </div>
-            <button type="submit" class="btn btn-primary btn-sm w-100 mb-1"><i class="fas fa-save me-1"></i>Save subscriptions</button>
-        </form>
-        <form method="post" action="/doc/draft/{escape(draft_name)}/subscriptions/" class="mt-1">
-            {next_hidden}
-            <input type="hidden" name="clear_all" value="1">
-            <button type="submit" class="btn btn-outline-warning btn-sm w-100">Remove all for this draft</button>
-        </form>
-        {hub_link_html}
+        <div class="d-flex align-items-center gap-2 gh-draft-notif-summary">
+            {status_badge}
+            <button type="button" class="btn btn-link btn-sm p-0 text-muted gh-draft-notif-toggle"
+                data-bs-toggle="collapse" data-bs-target="#{panel_id}"
+                aria-expanded="false" aria-controls="{panel_id}"
+                aria-label="Show notification options">
+                <i class="fas fa-chevron-down" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="collapse pt-2" id="{panel_id}">
+            {details_html}
+        </div>
     </div>
     '''
 
@@ -389,21 +457,48 @@ def add_comment_reply(draft_name, parent_comment_id, reply_text, user):
 
 def build_comment_tree(draft_name):
     """Build a tree structure of comments with nested replies."""
-    all_comments = Comment.query.filter_by(draft_name=draft_name).order_by(Comment.timestamp).all()
+    from services.document_reader_comments import comment_query_for_draft_ref
+
+    all_comments = comment_query_for_draft_ref(draft_name).order_by(Comment.timestamp).all()
 
     comment_dict = {}
     for comment in all_comments:
+        deleted = comment_is_deleted(comment.is_deleted)
+        from urllib.parse import quote
+
+        from services.dp_proposals import submission_draft_ref
+        from services.read_navigation import read_page_url
+        from services.submissions import get_submission_by_ref
+
+        anchor_hash = (comment.anchor_hash or '').strip()
+        scope = getattr(comment, 'comment_scope', None) or 'document'
+        excerpt = (comment.passage_excerpt or comment.original_text or '').strip()
+        sub = None
+        if comment.submission_id:
+            sub = Submission.query.get(comment.submission_id)
+        if not sub and comment.draft_name:
+            sub = get_submission_by_ref(comment.draft_name)
+        read_ref = submission_draft_ref(sub) if sub else draft_name
+        passage_href = None
+        if anchor_hash:
+            passage_href = read_page_url(read_ref) + '#gh-anchor-' + quote(anchor_hash, safe='')
+
         comment_dict[comment.id] = {
             'id': str(comment.id),
             'author': comment.author,
+            'author_user_id': comment.author_user_id,
             'date': comment.timestamp.strftime('%Y-%m-%d %H:%M'),
-            'comment': comment.text if not comment.is_deleted else '[Deleted]',
+            'comment': '[Deleted]' if deleted else (comment.text or ''),
             'avatar': ''.join([word[0].upper() for word in comment.author.split()[:2]]),
             'replies': [],
             'timestamp': comment.timestamp,
             'edited_at': comment.edited_at,
-            'is_deleted': comment.is_deleted,
-            'original_text': comment.original_text
+            'is_deleted': deleted,
+            'original_text': comment.original_text,
+            'comment_scope': scope,
+            'passage_excerpt': excerpt,
+            'anchor_hash': anchor_hash or None,
+            'passage_href': passage_href,
         }
 
     top_level_comments = []
@@ -421,9 +516,15 @@ def can_edit_delete_comment(comment, current_user):
     """Check if current user can edit/delete this comment."""
     if not current_user:
         return False
-    if comment['author'] != current_user['name']:
+    if comment_is_deleted(comment.get('is_deleted')):
         return False
-    if comment.get('is_deleted', False):
+    uid = current_user.get('id')
+    author_user_id = comment.get('author_user_id')
+    if author_user_id and uid:
+        owned = author_user_id == uid
+    else:
+        owned = comment.get('author') == current_user.get('name')
+    if not owned:
         return False
 
     comment_time = comment.get('timestamp')
@@ -446,9 +547,9 @@ def render_comment_tree(comments, draft_name, get_current_user_fn, get_comment_l
         comment_id = comment.get('id', 'unknown')
         like_count = get_comment_likes_fn(draft_name, comment_id)
         current_user = get_current_user_fn()
-        is_liked = is_comment_liked_fn(draft_name, comment_id, current_user['name']) if current_user else False
+        is_liked = is_comment_liked_fn(draft_name, comment_id, current_user) if current_user else False
         can_edit_delete = can_edit_delete_comment(comment, current_user)
-        is_deleted = comment.get('is_deleted', False)
+        is_deleted = comment_is_deleted(comment.get('is_deleted'))
         edited_at = comment.get('edited_at')
         edited_text = f" (edited {edited_at.strftime('%Y-%m-%d %H:%M')})" if edited_at else ""
 
@@ -478,6 +579,37 @@ def render_comment_tree(comments, draft_name, get_current_user_fn, get_comment_l
         reply_button = f'<button class="btn btn-sm btn-outline-primary" onclick="{reply_click}" style="font-size: {font_size - 2}px;">Reply</button>' if not is_deleted else ''
         deleted_badge = '<small class="text-muted ms-2" style="font-style: italic;">[Deleted]</small>' if is_deleted else ''
         deleted_style = 'opacity: 0.5; font-style: italic;' if is_deleted else ''
+        comment_body = escape(comment['comment'] or '')
+        passage_block = ''
+        passage_badge = ''
+        is_passage = comment.get('comment_scope') == 'passage' or bool(comment.get('anchor_hash'))
+        href = comment.get('passage_href')
+        excerpt = (comment.get('passage_excerpt') or comment.get('original_text') or '').strip()
+        if not is_deleted and is_passage:
+            badge_style = f'font-size: {font_size - 3}px;'
+            if href:
+                passage_badge = (
+                    f'<a href="{escape(href)}" class="badge bg-info text-dark ms-2 '
+                    f'gh-passage-comment-link" style="{badge_style}" '
+                    f'title="Open highlighted passage in the document">'
+                    f'<i class="fas fa-highlighter me-1" aria-hidden="true"></i>Passage comment</a>'
+                )
+            else:
+                passage_badge = (
+                    f'<span class="badge bg-info text-dark ms-2" style="{badge_style}">'
+                    f'Passage comment</span>'
+                )
+            if excerpt:
+                excerpt_html = f'<em>&ldquo;{escape(excerpt)}&rdquo;</em>'
+                passage_block = (
+                    f'<div class="gh-comment-passage small mb-2 p-2 rounded" '
+                    f'style="background: var(--bg-tertiary); border-left: 3px solid var(--bs-info); '
+                    f'color: var(--text-primary, inherit);">'
+                    f'<div class="text-muted mb-1"><i class="fas fa-highlighter me-1"></i>'
+                    f'Comment on this passage</div>'
+                    f'{excerpt_html}'
+                    f'</div>'
+                )
 
         html += f"""
         <div class="card {card_class}" id="comment-{comment_id}">
@@ -489,10 +621,12 @@ def render_comment_tree(comments, draft_name, get_current_user_fn, get_comment_l
                     <div>
                         <strong style="font-size: {font_size}px;">{comment['author']}</strong>
                         <small class="text-muted ms-2">{comment['date']}{edited_text}</small>
+                        {passage_badge}
                         {deleted_badge}
                     </div>
                 </div>
-                <p class="mb-2" style="font-size: {font_size}px; {deleted_style}">{comment['comment']}</p>
+                {passage_block}
+                <p class="mb-2 gh-comment-body" style="font-size: {font_size}px; white-space: pre-wrap; word-wrap: break-word; {deleted_style}">{comment_body}</p>
                 <div class="d-flex gap-2 align-items-center">
                     {like_button}
                     {reply_button}
@@ -502,6 +636,7 @@ def render_comment_tree(comments, draft_name, get_current_user_fn, get_comment_l
                 <!-- Reply form (hidden by default) -->
                 <div id="reply-form-{comment_id}" class="mt-3" style="display: none;">
                     <form method="POST" class="d-flex gap-2">
+                        {csrf_form_field()}
                         <input type="hidden" name="action" value="reply">
                         <input type="hidden" name="parent_comment_id" value="{comment_id}">
                         <input type="text" name="reply_text" class="form-control" placeholder="Write a reply..." required style="font-size: {font_size}px;">

@@ -66,20 +66,86 @@ def api_search_users():
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     q = request.args.get('q', '').strip()
+    if q.startswith('@'):
+        q = q[1:].strip()
     if not q or len(q) < 2:
         return jsonify({'users': [], 'count': 0})
 
-    users = User.query.filter(
-        or_(
-            User.username.ilike(f'%{q}%'),
-            User.displayName.ilike(f'%{q}%'),
-            User.name.ilike(f'%{q}%')
-        )
-    ).limit(20).all()
+    # Email-shaped query: match on email only (never ilike '%gmail.com%' on the domain alone).
+    if '@' in q and ' ' not in q:
+        local, _, domain = q.partition('@')
+        local = (local or '').strip()
+        domain = (domain or '').strip()
+        if len(local) < 2:
+            return jsonify({'users': [], 'count': 0})
+        email_filters = [
+            db.func.lower(User.email) == q.lower(),
+            User.email.ilike(f'{q}%'),
+            User.email.ilike(f'{local}%'),
+        ]
+        if domain:
+            email_filters.append(User.email.ilike(f'{local}@{domain}%'))
+        else:
+            email_filters.append(User.email.ilike(f'{local}@%'))
+        users = User.query.filter(or_(*email_filters)).limit(8).all()
+        seen = set()
+        deduped = []
+        for u in users:
+            if u.id not in seen:
+                seen.add(u.id)
+                deduped.append(u)
+        users = deduped[:5]
+    else:
+        users = User.query.filter(
+            or_(
+                User.username.ilike(f'%{q}%'),
+                User.handle.ilike(f'%{q}%'),
+                User.displayName.ilike(f'%{q}%'),
+                User.name.ilike(f'%{q}%'),
+            )
+        ).limit(20).all()
 
     return jsonify({
-        'users': [{'id': u.id, 'username': u.username, 'display_name': u.displayName or u.username} for u in users],
-        'count': len(users)
+        'users': [
+            {
+                'id': u.id,
+                'username': u.username,
+                'handle': u.handle,
+                'display_name': u.displayName or u.username,
+                'email': u.email,
+            }
+            for u in users
+            if u.email
+        ],
+        'count': len(users),
+    })
+
+
+# ============================================================================
+# Badge wallet (Bitcoin ordinals on private dashboard)
+# ============================================================================
+
+@bp.route('/api/user/badge-wallet/', methods=['GET'])
+@require_auth
+def api_badge_wallet():
+    """Ordinals held at the user's badge wallet address (own profile only)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    user = User.query.get(current_user['id'])
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    from services.badge_wallet import fetch_badge_wallet_inscriptions
+    from services.user_wallets import user_wallet_summary
+
+    address = getattr(user, 'bitcoinAddress', None) or ''
+    items, err = fetch_badge_wallet_inscriptions(address)
+    summary = user_wallet_summary(user)
+    return jsonify({
+        'badge_wallet': summary.get('badge_wallet'),
+        'inscriptions': items,
+        'error': err,
+        'count': len(items),
     })
 
 

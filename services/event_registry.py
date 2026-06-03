@@ -25,9 +25,15 @@ class EventTypeDef:
 REGISTERED_EVENT_TYPES: Dict[str, EventTypeDef] = {
     # —— Document / draft (Meta-Layer submissions) ——
     'draft_comment_added': EventTypeDef('Comment on draft', True, 'comment'),
+    'draft_comment_liked': EventTypeDef('Comment liked on draft', True, 'comment'),
+    'draft_created': EventTypeDef('Draft created', True, 'state_change'),
     'draft_submission_approved': EventTypeDef('Draft approved (initial)', True, 'state_change'),
     'draft_revision_approved': EventTypeDef('Draft revision approved', True, 'revision'),
     'draft_published_as_rfc': EventTypeDef('Draft published as RFC', True, 'major_change'),
+    'dp_proposal_submitted': EventTypeDef('DP proposal submitted', True, None),
+    'dp_proposal_accepted': EventTypeDef('DP proposal accepted', True, None),
+    'dp_proposal_declined': EventTypeDef('DP proposal declined', True, None),
+    'artifact_commented': EventTypeDef('Comment on artifact', True, None),
     # —— Layer / membership ——
     'layer_config_changed': EventTypeDef('Layer configuration changed', True, None),
     'member_joined': EventTypeDef('Member joined layer', True, None),

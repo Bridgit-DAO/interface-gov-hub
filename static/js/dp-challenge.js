@@ -91,11 +91,7 @@
     }
 
     function optionLabel(d) {
-      var parts = [];
-      if (d.dp) parts.push(d.dp);
-      if (d.ml) parts.push(d.ml);
-      parts.push(d.label || d.ref);
-      return parts.join(' · ');
+      return d.label || d.ref || '';
     }
 
     function setListOpen(open) {
