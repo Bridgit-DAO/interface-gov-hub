@@ -32,9 +32,9 @@
   );
   --gh-gradient-hero: linear-gradient(
     160deg,
-    rgba(10, 18, 36, 0.95) 0%,
-    rgba(5, 11, 26, 0.98) 55%,
-    rgba(10, 18, 36, 0.92) 100%
+    var(--card-bg) 0%,
+    var(--bg-secondary) 52%,
+    var(--bg-tertiary) 100%
   );
   --gh-glass-border: rgba(102, 126, 234, 0.22);
   --gh-tab-group-color: var(--text-muted);
@@ -395,6 +395,12 @@
   --gh-glow: rgba(102, 126, 234, 0.45);
   --gh-glow-soft: rgba(102, 126, 234, 0.18);
   --gh-gradient-map: linear-gradient(135deg, rgba(102, 126, 234, 0.22) 0%, rgba(118, 75, 162, 0.18) 50%, rgba(29, 155, 240, 0.1) 100%);
+  --gh-gradient-hero: linear-gradient(
+    160deg,
+    rgba(10, 18, 36, 0.95) 0%,
+    rgba(5, 11, 26, 0.98) 55%,
+    rgba(10, 18, 36, 0.92) 100%
+  );
 }
 
 /* --- Layer feature pills (top tabs) --- */
@@ -1367,7 +1373,7 @@
   font-size: clamp(1.25rem, 2.8vw, 1.85rem);
   font-weight: 800;
   line-height: 1.2;
-  color: var(--text-primary, #f0f4ff);
+  color: #eef2ff;
   text-wrap: balance;
 }
 
@@ -1375,7 +1381,7 @@
   margin: 0;
   font-size: clamp(0.875rem, 1.6vw, 1rem);
   line-height: 1.55;
-  color: var(--text-secondary, rgba(220, 230, 255, 0.88));
+  color: rgba(200, 210, 235, 0.9);
   max-width: 26rem;
   text-wrap: pretty;
 }
@@ -1987,4 +1993,13 @@ a.gh-passage-comment-link:focus {
   box-shadow: 0 2px 10px rgba(13, 202, 240, 0.5);
   color: #000 !important;
   text-decoration: none;
+}
+
+/* Image-overlay heroes only — fixed light text (no light-mode art variants yet) */
+.gh-page-hero-overlay .gh-page-hero-title {
+  color: #eef2ff;
+}
+
+.gh-page-hero-overlay .gh-page-hero-text {
+  color: rgba(200, 210, 235, 0.9);
 }
