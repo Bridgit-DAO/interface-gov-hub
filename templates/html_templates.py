@@ -931,6 +931,7 @@ BASE_TEMPLATE = """
     <script src="/static/js/gh-return-nav.js"></script>
     <script src="/static/js/gh-dialog.js"></script>
     <script src="/static/js/gh-invite.js?v=18"></script>
+    <script src="/static/js/gh-theme.js?v=1" defer></script>
     <script>
         (function () {{
             var HOVER_MQ = window.matchMedia('(min-width: 992px)');
@@ -957,43 +958,6 @@ BASE_TEMPLATE = """
         }})();
     </script>
     <script>
-        // Theme switching functionality
-        const themeToggle = document.getElementById('theme-toggle');
-        const html = document.documentElement;
-        const icon = themeToggle ? themeToggle.querySelector('i') : null;
-
-        // Load saved theme - prefer user preference over localStorage
-        const userTheme = html.getAttribute('data-theme') || 'dark';
-        const savedTheme = userTheme !== 'light' && userTheme !== 'dark' && userTheme !== 'auto' ?
-            (localStorage.getItem('theme') || 'dark') : userTheme;
-        html.setAttribute('data-theme', savedTheme);
-        updateThemeIcon(savedTheme);
-
-        function updateThemeIcon(theme) {{
-            if (!themeToggle || !icon) return;
-            if (theme === 'dark') {{
-                icon.className = 'fas fa-sun';
-                themeToggle.title = 'Switch to light mode';
-            }} else {{
-                icon.className = 'fas fa-moon';
-                themeToggle.title = 'Switch to dark mode';
-            }}
-            if (window.GovHubI18n && GovHubI18n.refreshThemeChrome) {{
-                GovHubI18n.refreshThemeChrome();
-            }}
-        }}
-
-        if (themeToggle) {{
-        themeToggle.addEventListener('click', () => {{
-            const currentTheme = html.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-            updateThemeIcon(newTheme);
-        }});
-        }}
-
         // Flash message auto-hide
         setTimeout(() => {{
             const flashMessages = document.querySelectorAll('.flash-message');
@@ -1006,8 +970,6 @@ BASE_TEMPLATE = """
         // Web3Auth Integration
         let web3auth = null;
         let web3authInitPromise = null;
-        let web3authLoginInProgress = false;
-
         let web3authLoginInProgress = false;
         const CANOPI_API_URL = "{canopi_api_url}";
 
