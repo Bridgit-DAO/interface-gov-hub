@@ -41,7 +41,7 @@ FEATURE_LABELS = {
     'quests': 'Quests (layer quest pages, /api/quests/, guild quest links, open quests)',
     'bridges': 'Bridges (list/create pages and /api/bridges/)',
     'opportunities': 'Opportunities directory and layer /opportunities/ surfaces',
-    'dp_proposals': 'DP Proposals (sentence-level suggested edits, amendments, /admin/dp-proposals/)',
+    'dp_proposals': 'Patches (sentence-level text changes on DP drafts, /admin/dp-proposals/)',
 }
 
 FEATURE_ICONS = {

@@ -266,7 +266,7 @@ def require_dp_proposals_enabled() -> Optional[Tuple[dict, int]]:
 
     if not is_feature_enabled('dp_proposals'):
         return jsonify({
-            'error': 'DP Proposals are not enabled.',
+            'error': 'Patches are not enabled.',
             'error_code': 'FEATURE_DISABLED',
             'feature': 'dp_proposals',
         }), 403
@@ -295,8 +295,8 @@ def validate_proposal_scope_for_submission(
     expected = expected_proposal_scope(submission)
     if scope != expected:
         if expected == 'dp':
-            return 'This document requires scope=dp (DP Proposal)'
-        return 'This document requires scope=document (Suggested edit)'
+            return 'This document requires scope=dp (patch on DP draft)'
+        return 'This document requires scope=document (patch on document)'
     return None
 
 
@@ -492,10 +492,44 @@ def create_dp_proposal(
     return row
 
 
+def _emit_dp_proposal_review_event(
+    proposal: DpProposal,
+    *,
+    reviewer_user_id: str,
+    event_type: str,
+) -> None:
+    """Emit EventLog when a patch is merged or declined."""
+    from services.events import emit_event
+
+    sub = proposal.submission
+    layer_id = sub.layer_id if sub else None
+    emit_event(
+        event_type,
+        actor_type='user',
+        actor_id=reviewer_user_id,
+        subject_type='dp_proposal',
+        subject_id=proposal.id,
+        layer_id=layer_id,
+        payload={
+            'draft_name': submission_draft_ref(sub),
+            'ml_number': sub.ml_number if sub else None,
+            'submission_id': proposal.submission_id,
+            'proposal_id': proposal.id,
+            'scope': proposal.scope or 'dp',
+            'author_user_id': proposal.author_user_id,
+        },
+    )
+
+
 def accept_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
     proposal.status = 'accepted'
     proposal.reviewed_by_user_id = reviewer_user_id
     proposal.reviewed_at = datetime.utcnow()
+    _emit_dp_proposal_review_event(
+        proposal,
+        reviewer_user_id=reviewer_user_id,
+        event_type='dp_proposal_accepted',
+    )
     return proposal
 
 
@@ -503,6 +537,11 @@ def decline_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
     proposal.status = 'declined'
     proposal.reviewed_by_user_id = reviewer_user_id
     proposal.reviewed_at = datetime.utcnow()
+    _emit_dp_proposal_review_event(
+        proposal,
+        reviewer_user_id=reviewer_user_id,
+        event_type='dp_proposal_declined',
+    )
     return proposal
 
 
@@ -511,6 +550,57 @@ def submission_draft_ref(submission: Optional[Submission]) -> str:
     if not submission:
         return ''
     return (submission.ml_number or submission.draft_name or submission.id or '').strip()
+
+
+def submission_display_label(submission: Optional[Submission]) -> str:
+    """Human-readable label for profile and activity lists."""
+    if not submission:
+        return 'Document'
+    title = (submission.title or '').strip()
+    ml = (submission.ml_number or '').strip()
+    if title and ml:
+        return f'{ml}: {title}'
+    if title:
+        return title
+    if ml:
+        return ml
+    draft = (submission.draft_name or '').strip()
+    if draft:
+        return draft
+    sid = str(submission.id or '').strip()
+    return f'Document {sid[:8]}' if sid else 'Document'
+
+
+def submission_profile_href(submission: Optional[Submission]) -> str:
+    """Profile list link: approved drafts open the reader; others go to status."""
+    if not submission:
+        return '#'
+    if (submission.status or '').lower() == 'approved':
+        ref = submission_draft_ref(submission)
+        if ref:
+            from urllib.parse import quote
+
+            return f'/doc/draft/{quote(ref, safe="")}/read/'
+    sid = str(submission.id or '').strip()
+    return f'/submit/status/{sid}/' if sid else '#'
+
+
+def submission_for_reader_ref(draft_ref: str) -> Optional[Submission]:
+    """Resolve a draft ref (ml_number, draft_name, or id) to a submission row."""
+    ref = (draft_ref or '').strip()
+    if not ref:
+        return None
+    return (
+        Submission.query.filter(
+            db.or_(
+                Submission.ml_number == ref,
+                Submission.draft_name == ref,
+                Submission.id == ref,
+            )
+        )
+        .order_by(Submission.submitted_at.desc())
+        .first()
+    )
 
 
 def user_profile_path(user: Optional[User]) -> Optional[str]:

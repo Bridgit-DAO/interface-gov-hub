@@ -117,6 +117,25 @@ def create_proposal(draft_ref):
         rationale=payload.get('rationale'),
         reference_url=payload.get('reference_url'),
     )
+    from services.events import emit_event
+    from services.document_follow_notifications import draft_key_for_submission
+
+    draft_key = draft_key_for_submission(submission)
+    emit_event(
+        'dp_proposal_submitted',
+        actor_type='user',
+        actor_id=user.id,
+        subject_type='dp_proposal',
+        subject_id=row.id,
+        layer_id=submission.layer_id,
+        payload={
+            'draft_name': draft_key,
+            'ml_number': submission.ml_number,
+            'submission_id': submission.id,
+            'proposal_id': row.id,
+            'scope': row.scope,
+        },
+    )
     db.session.commit()
     return jsonify({'proposal': row.to_dict(), 'status_label': row.status_label()}), 201
 
@@ -150,7 +169,7 @@ def accept_proposal_route(draft_ref, proposal_id):
     return jsonify({
         'proposal': proposal.to_dict(),
         'status_label': proposal.status_label(),
-        'message': 'Accepted as amendment',
+        'message': 'Patch merged',
     })
 
 
@@ -184,8 +203,68 @@ def decline_proposal_route(draft_ref, proposal_id):
     return jsonify({
         'proposal': proposal.to_dict(),
         'status_label': proposal.status_label(),
-        'message': 'Proposal declined',
+        'message': 'Patch declined',
     })
+
+
+@bp.route('/<path:draft_ref>/reader-comments/', methods=['GET'])
+def list_reader_comments_route(draft_ref):
+    from services.document_reader_comments import list_reader_comments_for_draft
+    from services.identity import get_current_user
+
+    body, status = list_reader_comments_for_draft(draft_ref, current_user=get_current_user())
+    return jsonify(body), status
+
+
+@bp.route('/<path:draft_ref>/reader-comments/', methods=['POST'])
+@require_auth
+def create_reader_comment_route(draft_ref):
+    from services.document_reader_comments import create_reader_comment_for_draft
+
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    body = request.get_json(silent=True) or {}
+    resp, status = create_reader_comment_for_draft(
+        draft_ref,
+        author_user_id=current_user['id'],
+        body=body,
+    )
+    return jsonify(resp), status
+
+
+@bp.route('/<path:draft_ref>/reader-comments/<comment_id>/', methods=['PATCH'])
+@require_auth
+def update_reader_comment_route(draft_ref, comment_id):
+    from services.document_reader_comments import update_reader_comment
+
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    body = request.get_json(silent=True) or {}
+    resp, status = update_reader_comment(
+        draft_ref,
+        comment_id,
+        author_user_id=current_user['id'],
+        text=body.get('text') or '',
+    )
+    return jsonify(resp), status
+
+
+@bp.route('/<path:draft_ref>/reader-comments/<comment_id>/', methods=['DELETE'])
+@require_auth
+def delete_reader_comment_route(draft_ref, comment_id):
+    from services.document_reader_comments import delete_reader_comment
+
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    resp, status = delete_reader_comment(
+        draft_ref,
+        comment_id,
+        author_user_id=current_user['id'],
+    )
+    return jsonify(resp), status
 
 
 @bp.route('/<path:draft_ref>/read-meta/', methods=['GET'])
@@ -249,7 +328,7 @@ def dp_proposals_dashboard():
         table_rows = '''
             <tr>
                 <td colspan="8" class="text-center text-muted py-4">
-                    No DP Proposals yet. Activity will appear here once readers submit proposals on DP read pages.
+                    No patches yet. Activity will appear here once readers submit patches on read pages.
                 </td>
             </tr>'''
 
@@ -261,8 +340,8 @@ def dp_proposals_dashboard():
                         <th>DP / Title</th>
                         <th>ML #</th>
                         <th>Workgroup</th>
-                        <th>Proposals</th>
-                        <th>Amendments</th>
+                        <th>Patches</th>
+                        <th>Merged</th>
                         <th>Declined</th>
                         <th>Total</th>
                         <th>Last activity</th>
@@ -273,12 +352,12 @@ def dp_proposals_dashboard():
         </div>'''
 
     header = gh_page_header(
-        'DP Proposals',
-        'Activity by Desirable Property — most active first',
+        'Patches',
+        'Patch activity by document — most active first',
         'fa-highlighter',
         breadcrumb_html=gh_breadcrumb([
             ('Admin Dashboard', '/admin/'),
-            ('DP Proposals', None),
+            ('Patches', None),
         ]),
         actions_html=(
             '<a href="/admin/" class="btn btn-outline-secondary btn-sm">'
@@ -293,7 +372,7 @@ def dp_proposals_dashboard():
     </div>
     '''
     return render_page(
-        'DP Proposals — Admin',
+        'Patches — Admin',
         content,
         theme=current_theme,
         user_menu=user_menu,

@@ -7,12 +7,18 @@ from flask import Blueprint, redirect, request, session
 from sqlalchemy import text
 
 from extensions import db
-from models import User, Workgroup, Submission, Comment, LayerMember, UserLinkedAccount
+from models import User, Workgroup, Submission, Comment, LayerMember, UserLinkedAccount, DpProposal
 
 from services.identity import get_current_user, require_auth, get_or_create_referral_code
 from services.avatar import get_avatar_url
 from services.directory_ui import gh_page_open, gh_page_close, gh_page_header
 from services.utils import coerce_storage_bool
+from services.dp_proposals import (
+    submission_draft_ref,
+    submission_display_label,
+    submission_profile_href,
+    submission_for_reader_ref,
+)
 from services.site_roles import site_role_label, site_role_badge_class
 
 bp = Blueprint('profile_pages', __name__, url_prefix='')
@@ -38,12 +44,32 @@ def _format_activity_items(projects, submissions):
         items.append((date, 'project', f'Created project <strong>{project[0]}</strong>', f'/layers/{project[1]}/'))
 
     for submission in submissions:
+        if hasattr(submission, 'status'):
+            s = submission
+            date = s.submitted_at or datetime.utcnow()
+            approved = (s.status or '').lower() == 'approved'
+            label = html_mod.escape(submission_display_label(s))
+            status = 'Approved' if approved else (s.status or 'Draft').title()
+            badge = 'success' if approved else 'secondary'
+            link = submission_profile_href(s)
+            text_val = (
+                f'Submitted <strong>{label}</strong> '
+                f'<span class="badge bg-{badge}">{html_mod.escape(status)}</span>'
+            )
+            items.append((date, 'submission', text_val, link))
+            continue
         draft_name = submission[0]
         date = submission[1] if submission[1] else datetime.utcnow()
         submission_id = submission[2]
         approved = submission[3]
-        status = "Approved" if approved else "Draft"
-        items.append((date, 'submission', f'Submitted <strong>{draft_name}</strong> <span class="badge bg-{"success" if approved else "secondary"}">{status}</span>', f'/submit/status/{submission_id}/'))
+        status = 'Approved' if approved else 'Draft'
+        items.append((
+            date,
+            'submission',
+            f'Submitted <strong>{html_mod.escape(str(draft_name))}</strong> '
+            f'<span class="badge bg-{"success" if approved else "secondary"}">{status}</span>',
+            f'/submit/status/{submission_id}/',
+        ))
 
     items.sort(key=lambda x: x[0], reverse=True)
 
@@ -63,6 +89,68 @@ def _format_activity_items(projects, submissions):
         '''
 
     return html if html else '<p class="text-muted">No recent activity.</p>'
+
+
+def _format_profile_contributions(proposals, comments):
+    """Patches and document comments for profile tab."""
+    html = ''
+    html += '<h5 class="card-title">Patches</h5>'
+    if proposals:
+        html += '<div class="list-group list-group-flush mb-4">'
+        for p in proposals:
+            sub = p.submission
+            label = submission_display_label(sub) if sub else 'Document'
+            kind = 'Patch'
+            href = submission_profile_href(sub) if sub else '#'
+            excerpt = (p.original_text or '')[:80]
+            if len(p.original_text or '') > 80:
+                excerpt += '…'
+            html += (
+                f'<a href="{href}" class="list-group-item list-group-item-action">'
+                f'<div class="d-flex justify-content-between"><strong>{html_mod.escape(label)}</strong>'
+                f'<span class="badge bg-secondary">{html_mod.escape(kind)}</span></div>'
+                f'<small class="text-muted d-block">{html_mod.escape(p.status_label())} · '
+                f'{p.created_at.strftime("%b %d, %Y") if p.created_at else ""}</small>'
+                f'<small class="text-muted d-block font-monospace">{html_mod.escape(excerpt)}</small>'
+                f'</a>'
+            )
+        html += '</div>'
+    else:
+        html += '<p class="text-muted mb-4">No patches yet.</p>'
+
+    html += '<h5 class="card-title">Comments</h5>'
+    if comments:
+        html += '<div class="list-group list-group-flush">'
+        for c in comments:
+            draft = (c.draft_name or '').strip()
+            sub = submission_for_reader_ref(draft) if draft else None
+            label = submission_display_label(sub) if sub else (draft or 'Document')
+            if sub and (sub.status or '').lower() == 'approved':
+                href = submission_profile_href(sub)
+            elif draft:
+                href = f'/doc/draft/{html_mod.escape(draft)}/comments/'
+            else:
+                href = '#'
+            scope = 'Passage' if getattr(c, 'comment_scope', None) == 'passage' else 'Document'
+            if not getattr(c, 'comment_scope', None):
+                scope = 'Document'
+            preview = (c.text or '')[:120]
+            if len(c.text or '') > 120:
+                preview += '…'
+            html += (
+                f'<a href="{href}" class="list-group-item list-group-item-action">'
+                f'<div class="d-flex justify-content-between">'
+                f'<strong>{html_mod.escape(label)}</strong>'
+                f'<span class="badge bg-info">{scope}</span></div>'
+                f'<small class="text-muted d-block">'
+                f'{c.timestamp.strftime("%b %d, %Y") if c.timestamp else ""}</small>'
+                f'<p class="small mb-0 mt-1">{html_mod.escape(preview)}</p>'
+                f'</a>'
+            )
+        html += '</div>'
+    else:
+        html += '<p class="text-muted">No comments yet.</p>'
+    return html
 
 
 def _render_social_link_inputs(platforms, existing_links):
@@ -149,7 +237,26 @@ def user_profile(username):
 
     name_variants = [x for x in (profile_user.name, profile_user.displayName, profile_user.oauthName, profile_user.username) if x]
     submissions_count = Submission.query.filter(Submission.submitted_by.in_(name_variants)).count() if name_variants else 0
-    comments_count = Comment.query.filter(Comment.author.in_(name_variants)).count() if name_variants else 0
+    comments_q = Comment.query.filter(Comment.is_deleted == False)  # noqa: E712
+    if profile_user.id:
+        comments_q = comments_q.filter(
+            db.or_(
+                Comment.author_user_id == profile_user.id,
+                Comment.author.in_(name_variants) if name_variants else db.false(),
+            )
+        )
+    elif name_variants:
+        comments_q = comments_q.filter(Comment.author.in_(name_variants))
+    else:
+        comments_q = comments_q.filter(db.false())
+    comments_count = comments_q.count()
+    recent_comments = comments_q.order_by(Comment.timestamp.desc()).limit(15).all()
+    dp_proposals = (
+        DpProposal.query.filter_by(author_user_id=profile_user.id)
+        .order_by(DpProposal.created_at.desc())
+        .limit(20)
+        .all()
+    )
 
     recent_projects = db.session.execute(text("""
         SELECT name, slug, created_at FROM layer
@@ -161,7 +268,7 @@ def user_profile(username):
         recent_submissions_q = Submission.query.filter(
             Submission.submitted_by.in_(name_variants)
         ).order_by(Submission.submitted_at.desc()).limit(5).all()
-        recent_submissions = [(s.draft_name or f"Draft {s.id}", s.submitted_at, s.id, s.status == 'approved') for s in recent_submissions_q]
+        recent_submissions = list(recent_submissions_q)
         all_submissions_q = Submission.query.filter(
             Submission.submitted_by.in_(name_variants)
         ).order_by(Submission.submitted_at.desc()).all()
@@ -321,6 +428,19 @@ def user_profile(username):
                 </button>
                 <small class="d-block mt-2">Share this link to get credit when people join projects!</small>
             </div>''' if is_own_profile and referral_code else ''}
+
+            {'''<!-- Badge wallet (private dashboard) -->
+            <div class="card mt-4" id="badge-wallet-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-wallet2 me-2"></i>Badge wallet</h5>
+                    <span class="text-muted small" id="badge-wallet-address"></span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">Bitcoin ordinals in your Gov Hub custodial badge wallet (Taproot). Image and HTML inscriptions are shown below.</p>
+                    <div id="badge-wallet-grid" class="row g-3"></div>
+                    <p id="badge-wallet-status" class="text-muted small mb-0 mt-2"></p>
+                </div>
+            </div>''' if is_own_profile else ''}
         </div>
 
         <!-- Content Tabs -->
@@ -350,6 +470,9 @@ def user_profile(username):
                     </li>
                     <li class="nav-item">
                         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#submissions-tab">Submissions</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#contributions-tab">Edits &amp; comments</button>
                     </li>
                 </ul>
 
@@ -455,8 +578,17 @@ def user_profile(username):
                             <div class="card-body">
                                 <h5 class="card-title">All Submissions</h5>
                                 <div class="list-group list-group-flush">
-                                    {''.join([f'<a href="/submit/status/{s.id}/" class="list-group-item list-group-item-action"><strong>{s.draft_name or s.id}</strong><br><small class="text-muted">{s.status.title()} - Submitted {s.submitted_at.strftime("%Y-%m-%d") if s.submitted_at else "Unknown"}</small></a>' for s in all_submissions_q]) if all_submissions_q else '<p class="text-muted">No submissions yet.</p>'}
+                                    {''.join([f'<a href="{html_mod.escape(submission_profile_href(s))}" class="list-group-item list-group-item-action"><strong>{html_mod.escape(submission_display_label(s))}</strong><br><small class="text-muted">{html_mod.escape((s.status or "draft").title())} - Submitted {s.submitted_at.strftime("%Y-%m-%d") if s.submitted_at else "Unknown"}</small></a>' for s in all_submissions_q]) if all_submissions_q else '<p class="text-muted">No submissions yet.</p>'}
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Edits & comments -->
+                    <div class="tab-pane fade" id="contributions-tab">
+                        <div class="card">
+                            <div class="card-body">
+                                {_format_profile_contributions(dp_proposals, recent_comments)}
                             </div>
                         </div>
                     </div>
@@ -485,6 +617,51 @@ def user_profile(username):
             }}
         }}).catch(function() {{ alert('Failed to copy'); }});
     }}
+    {'' if not is_own_profile else '''
+    async function loadBadgeWallet() {{
+        const grid = document.getElementById('badge-wallet-grid');
+        const status = document.getElementById('badge-wallet-status');
+        const addrEl = document.getElementById('badge-wallet-address');
+        if (!grid) return;
+        try {{
+            const r = await fetch('/api/user/badge-wallet/', {{ credentials: 'include' }});
+            const d = await r.json();
+            if (addrEl) {{
+                addrEl.textContent = d.badge_wallet ? (d.badge_wallet.slice(0, 8) + '…' + d.badge_wallet.slice(-6)) : 'Not provisioned yet';
+            }}
+            if (!r.ok) {{
+                if (status) status.textContent = d.error || 'Could not load badge wallet';
+                return;
+            }}
+            if (d.error && !d.inscriptions.length) {{
+                if (status) status.textContent = d.error;
+                return;
+            }}
+            grid.innerHTML = '';
+            (d.inscriptions || []).forEach(function(item) {{
+                const col = document.createElement('div');
+                col.className = 'col-md-4 col-sm-6';
+                let inner = '<div class="card h-100"><div class="card-body p-2">';
+                if (item.display === 'image') {{
+                    inner += '<img src="' + item.content_url + '" class="img-fluid rounded" alt="Ordinal" loading="lazy">';
+                }} else if (item.display === 'html') {{
+                    inner += '<iframe src="' + item.content_url + '" class="w-100 rounded" style="height:180px;border:0;" sandbox="allow-scripts" title="Ordinal HTML"></iframe>';
+                }} else {{
+                    inner += '<p class="small text-muted mb-0">' + (item.content_type || 'Inscription') + '</p>';
+                }}
+                inner += '<p class="small mt-2 mb-0"><a href="https://ordinals.com/inscription/' + item.inscription_id + '" target="_blank" rel="noopener">#' + (item.inscription_number || item.inscription_id.slice(0, 12)) + '</a></p></div></div>';
+                col.innerHTML = inner;
+                grid.appendChild(col);
+            }});
+            if (status) {{
+                status.textContent = d.count ? (d.count + ' inscription(s)') : 'No ordinals in this badge wallet yet.';
+            }}
+        }} catch (e) {{
+            if (status) status.textContent = 'Could not load badge wallet';
+        }}
+    }}
+    document.addEventListener('DOMContentLoaded', loadBadgeWallet);
+    '''}
     </script>
     """
 

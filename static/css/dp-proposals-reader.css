@@ -8,17 +8,47 @@
   gap: 0.5rem;
 }
 
-.draft-reader-proposals-controls .dp-proposal-toolbar-label {
+.dp-proposal-display-dropdown .dp-proposal-display-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--text-muted);
+  max-width: 14rem;
+}
+
+.dp-proposal-display-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.dp-proposal-display-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.dp-proposal-display-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.draft-reader-proposals-controls .form-select-sm {
-  font-size: 0.8rem;
-  min-width: 9.5rem;
+.dp-proposal-display-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dp-proposal-display-option-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+  opacity: 0.85;
+}
+
+.dp-proposal-display-option-icon svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 /* Overlay highlights — do not alter document layout */
@@ -93,9 +123,12 @@ mark.dp-proposal-mark.dp-proposal-mark-hidden {
   pointer-events: none;
 }
 
-.dp-proposal-pin .dp-proposal-badge,
-.dp-proposal-pin .dp-proposal-hover-panel {
+.dp-proposal-pin .dp-proposal-hover-panel.is-open {
   pointer-events: auto;
+}
+
+.dp-proposal-pin .dp-proposal-badge {
+  pointer-events: none;
 }
 
 /* Canopi-style proximity badge (periwinkle blue) */
@@ -141,6 +174,82 @@ mark.dp-proposal-mark.dp-proposal-mark-hidden {
 .dp-proposal-badge-floating {
   position: fixed;
   z-index: 1040;
+}
+
+.dp-reader-comment-pin {
+  position: fixed;
+  z-index: 1036;
+  transform: translate(-100%, 0);
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--bs-info, #0dcaf0);
+  color: #fff;
+  font-size: 0.75rem;
+  line-height: 1.65rem;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.dp-reader-comment-pin:hover,
+.dp-reader-comment-pin:focus {
+  filter: brightness(1.1);
+}
+
+.dp-comment-hover-row .dp-proposal-hover-link-main {
+  font-weight: 500;
+}
+
+.dp-hover-panel-title {
+  color: var(--text-primary);
+}
+
+.dp-comment-detail-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--text-primary);
+}
+
+.dp-proposal-highlight-rect.gh-anchor-flash-hold {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  background: rgba(255, 193, 7, 0.5) !important;
+  outline: 2px solid rgba(13, 202, 240, 0.85) !important;
+  outline-offset: 2px;
+}
+
+[data-theme="dark"] .dp-proposal-highlight-rect.gh-anchor-flash-hold {
+  background: rgba(255, 213, 79, 0.48) !important;
+  outline-color: rgba(13, 202, 240, 0.95) !important;
+}
+
+.dp-proposal-highlight-rect.gh-anchor-flash,
+#dp-reader-selectable-body .dp-proposal-highlight-rect.gh-anchor-flash {
+  animation: gh-anchor-flash 2.2s ease-out;
+  outline: 3px solid var(--bs-info, #0dcaf0) !important;
+  outline-offset: 2px;
+}
+
+@keyframes gh-anchor-flash {
+  0% {
+    outline-color: var(--bs-info, #0dcaf0);
+    box-shadow: 0 0 0 6px rgba(13, 202, 240, 0.55);
+    background: rgba(255, 213, 79, 0.65) !important;
+  }
+  40% {
+    outline-color: var(--bs-info, #0dcaf0);
+    box-shadow: 0 0 0 4px rgba(13, 202, 240, 0.4);
+    background: rgba(255, 213, 79, 0.5) !important;
+  }
+  100% {
+    outline-color: transparent;
+    box-shadow: none;
+  }
 }
 
 .dp-proposal-hover-panel {
@@ -331,6 +440,70 @@ mark.dp-proposal-mark.dp-proposal-mark-hidden {
   color: var(--text-secondary);
 }
 
+/* Reader guide modal: GIF is 800px wide + 10px horizontal padding */
+#ghReaderGuideModal {
+  --gh-guide-gif-width: 800px;
+  --gh-guide-side-pad: 10px;
+}
+
+#ghReaderGuideModal .gh-reader-guide-dialog {
+  width: calc(var(--gh-guide-gif-width) + 2 * var(--gh-guide-side-pad));
+  max-width: calc(var(--gh-guide-gif-width) + 2 * var(--gh-guide-side-pad));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+#ghReaderGuideModal .modal-header,
+#ghReaderGuideModal .modal-body,
+#ghReaderGuideModal .modal-footer {
+  padding-left: var(--gh-guide-side-pad);
+  padding-right: var(--gh-guide-side-pad);
+}
+
+@media (max-width: 840px) {
+  #ghReaderGuideModal .gh-reader-guide-dialog {
+    width: calc(100vw - 2rem);
+    max-width: calc(100vw - 2rem);
+  }
+
+  .gh-guide-gif,
+  .gh-guide-gif img {
+    max-width: 100% !important;
+  }
+}
+
+.gh-guide-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--text-primary, inherit);
+}
+
+.gh-guide-steps li {
+  margin-bottom: 0.65rem;
+  line-height: 1.45;
+}
+
+.gh-guide-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.gh-guide-gif {
+  width: var(--gh-guide-gif-width, 800px);
+  max-width: 100%;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--border-color, #444);
+  background: var(--bg-secondary, #141414);
+  line-height: 0;
+}
+
+.gh-guide-gif img {
+  display: block;
+  width: var(--gh-guide-gif-width, 800px);
+  max-width: 100%;
+  height: auto;
+}
+
 #dpProposalListModal .modal-header {
   flex-wrap: nowrap;
   align-items: center;
@@ -388,4 +561,33 @@ mark.dp-diff-ins {
   color: inherit;
   padding: 0 1px;
   border-radius: 2px;
+}
+
+/* Public patches list page (passage-anchored only) */
+.gh-patches-page .gh-patch-passage-quote {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--accent-color, #0d6efd);
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
+  border-radius: 0 6px 6px 0;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.gh-patches-page .gh-patch-pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.875rem;
+  padding: 0.65rem 0.75rem;
+  margin: 0;
+  border-radius: 6px;
+  background: var(--input-bg, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--input-border, rgba(0, 0, 0, 0.08));
+  color: var(--text-primary);
+}
+
+.gh-patches-page .gh-patch-item .card-body {
+  padding: 1rem 1.1rem;
 }

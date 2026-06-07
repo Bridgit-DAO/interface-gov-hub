@@ -1,4 +1,4 @@
-"""DP Proposal model — sentence-level suggested edits on Desirable Property documents."""
+"""DpProposal model — sentence-level patches on DP and non-DP documents."""
 from datetime import datetime
 from uuid import uuid4
 
@@ -16,7 +16,7 @@ DP_PROPOSAL_SCOPES = frozenset({'dp', 'document'})
 
 
 class DpProposal(db.Model):
-    """Sentence-level text change proposal (DP Proposal → Amendment when accepted)."""
+    """Sentence-level text change (patch → merged when accepted)."""
     __tablename__ = 'dp_proposal'
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -50,12 +50,11 @@ class DpProposal(db.Model):
     )
 
     def status_label(self) -> str:
-        pending = 'Suggested edit' if self.scope == 'document' else 'DP Proposal'
         labels = {
-            'pending': pending,
-            'accepted': 'Amendment',
+            'pending': 'Patch',
+            'accepted': 'Merged',
             'declined': 'Declined',
-            'incorporated': 'Published in Revision',
+            'incorporated': 'Published in revision',
             'orphaned': 'Original text not found',
         }
         return labels.get(self.status or '', self.status or 'Unknown')

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html as html_mod
 import json
+import re
 from typing import List, Optional
 
 from flask import Blueprint, jsonify, request, session
@@ -124,6 +125,26 @@ def _picker_sort_key(sub, mode: str) -> tuple:
     return ((sub.ml_number or ''), (sub.title or '').lower())
 
 
+def _short_dp_name(title: str) -> str:
+    """Title without leading 'DP11 - ' prefix."""
+    t = (title or '').strip()
+    m = re.match(r'^DP\s*(\d+)\s*[-–—:]\s*(.+)$', t, re.IGNORECASE)
+    return m.group(2).strip() if m else t
+
+
+def format_dp_picker_label(sub) -> str:
+    """DPnn - [name] (ML-DRAFT nnn) for the hub doc picker."""
+    dp_num = extract_dp_number_from_title(sub.title or '')
+    name = _short_dp_name(sub.title or '') or (sub.title or '').strip() or 'Draft'
+    dp_part = f'DP{dp_num:02d}' if dp_num is not None else 'DP'
+    ml = (sub.ml_number or '').strip()
+    if ml:
+        ml_match = re.match(r'ML-Draft-(\d+)', ml, re.IGNORECASE)
+        ml_num = ml_match.group(1) if ml_match else ml
+        return f'{dp_part} - {name} (ML-DRAFT {ml_num})'
+    return f'{dp_part} - {name}'
+
+
 def _build_picker_docs(mode: str) -> List[dict]:
     """Approved submissions for the searchable doc picker (JSON to the client)."""
     subs = list_approved_submissions_for_mode(mode)
@@ -131,16 +152,17 @@ def _build_picker_docs(mode: str) -> List[dict]:
     docs = []
     for sub in subs:
         ref = submission_draft_ref(sub)
+        label = format_dp_picker_label(sub) if mode == 'dp' else (sub.title or ref).strip()
         entry = {
             'ref': ref,
-            'label': (sub.title or ref).strip(),
+            'label': label,
         }
         if sub.ml_number:
             entry['ml'] = sub.ml_number
         if mode == 'dp':
             dp_num = extract_dp_number_from_title(sub.title or '')
             if dp_num is not None:
-                entry['dp'] = f'DP{dp_num}'
+                entry['dp'] = f'DP{dp_num:02d}'
         docs.append(entry)
     return docs
 
@@ -211,7 +233,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
     if not current_user:
         login_cta = (
             f'<p class="mb-0 mt-2"><a href="/login/?next={html_mod.escape(hub_path)}" class="btn btn-sm btn-primary">'
-            'Sign in to propose</a></p>'
+            'Sign in to patch</a></p>'
         )
 
     hero_section = ''
@@ -325,12 +347,16 @@ def _render_proposal_hub_page(mode: ProposalMode):
         invite: {{
             type: 'participate_dp',
             title: {json.dumps('Invite to ' + mode_cfg['page_title'])},
-            hint: 'Invite a colleague to read DP drafts and propose sentence-level edits.',
+            hint: {json.dumps(
+                'Invite a colleague to read DP drafts and propose patches.'
+                if mode == 'dp'
+                else 'Invite a colleague to read living documents and propose patches.'
+            )},
             target: {{}}
         }}
     }};
     </script>
-    <script src="/static/js/dp-challenge.js?v=4" defer></script>
+    <script src="/static/js/dp-challenge.js?v=6" defer></script>
     '''
 
     return render_page(
