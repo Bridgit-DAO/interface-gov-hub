@@ -139,6 +139,18 @@
   vertical-align: middle;
 }
 
+.dp-challenge-hero-img--dark {
+  display: none;
+}
+
+[data-theme="dark"] .dp-challenge-hero-banner .dp-challenge-hero-img--light {
+  display: none;
+}
+
+[data-theme="dark"] .dp-challenge-hero-banner .dp-challenge-hero-img--dark {
+  display: block;
+}
+
 .dp-challenge-hero .btn {
   margin-top: 1rem;
 }
