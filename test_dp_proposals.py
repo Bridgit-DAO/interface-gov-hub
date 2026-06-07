@@ -386,7 +386,7 @@ def test_suggest_edit_page_loads():
     with app.test_client() as client:
         r = client.get('/suggest-edit/')
         assert r.status_code == 200, r.get_data(as_text=True)
-        assert b'Suggest an Edit' in r.data
+        assert b'Propose a Patch' in r.data
         assert b'Help refine living documents' in r.data
 
 

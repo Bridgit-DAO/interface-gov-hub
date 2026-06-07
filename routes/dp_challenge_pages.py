@@ -238,17 +238,30 @@ def _render_proposal_hub_page(mode: ProposalMode):
 
     hero_section = ''
     if mode_cfg.get('show_hero'):
+        hero_light = html_mod.escape(mode_cfg['hero_image_light'])
+        hero_dark = html_mod.escape(mode_cfg['hero_image_dark'])
+        hero_alt = html_mod.escape(mode_cfg['hero_aria'])
         hero_section = f'''
-        <section class="dp-challenge-hero living-module mb-4" aria-label="{html_mod.escape(mode_cfg["hero_aria"])}">
+        <section class="dp-challenge-hero living-module mb-4" aria-label="{hero_alt}">
             <div class="dp-challenge-hero-banner">
                 <img
-                    src="{html_mod.escape(mode_cfg["hero_image"])}"
-                    alt="{html_mod.escape(mode_cfg["hero_aria"])}"
+                    src="{hero_light}"
+                    alt="{hero_alt}"
                     width="1024"
                     height="576"
                     loading="eager"
                     decoding="async"
-                    class="dp-challenge-hero-img"
+                    class="dp-challenge-hero-img dp-challenge-hero-img--light"
+                />
+                <img
+                    src="{hero_dark}"
+                    alt=""
+                    width="1024"
+                    height="576"
+                    loading="eager"
+                    decoding="async"
+                    class="dp-challenge-hero-img dp-challenge-hero-img--dark"
+                    aria-hidden="true"
                 />
             </div>
             {login_cta}
@@ -257,7 +270,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
         hero_section = f'<div class="mb-4">{login_cta}</div>'
 
     content = f'''
-    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=5">
+    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=6">
     <div class="gh-page container mt-4 dp-challenge-page">
         {gh_page_header(
             mode_cfg['page_title'],

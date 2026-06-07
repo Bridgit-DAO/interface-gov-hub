@@ -66,8 +66,13 @@ datatracker.sublime-workspace
 !/static/css/gh-nav-pills.css
 !/static/images/
 !/static/images/dp-challenge-hero.png
+!/static/images/doc-patch-dark.png
+!/static/images/doc-patch-light.png
 !/static/images/hero-placeholder.png
 !/static/images/hero-*.png
+!/static/images/dp/
+!/static/images/dp/dp-patch-dark.png
+!/static/images/dp/dp-patch-light.png
 /tmp-*
 /.testresult
 *.swp
