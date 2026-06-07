@@ -233,7 +233,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
     if not current_user:
         login_cta = (
             f'<p class="mb-0 mt-2"><a href="/login/?next={html_mod.escape(hub_path)}" class="btn btn-sm btn-primary">'
-            'Sign in to propose</a></p>'
+            'Sign in to patch</a></p>'
         )
 
     hero_section = ''
@@ -347,12 +347,16 @@ def _render_proposal_hub_page(mode: ProposalMode):
         invite: {{
             type: 'participate_dp',
             title: {json.dumps('Invite to ' + mode_cfg['page_title'])},
-            hint: 'Invite a colleague to read DP drafts and propose sentence-level edits.',
+            hint: {json.dumps(
+                'Invite a colleague to read DP drafts and propose patches.'
+                if mode == 'dp'
+                else 'Invite a colleague to read living documents and propose patches.'
+            )},
             target: {{}}
         }}
     }};
     </script>
-    <script src="/static/js/dp-challenge.js?v=5" defer></script>
+    <script src="/static/js/dp-challenge.js?v=6" defer></script>
     '''
 
     return render_page(

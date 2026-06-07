@@ -163,8 +163,8 @@
   function inviteTypeLabel(type) {
     var map = {
       participate_dp: 'join the DP Challenge',
-      edit_document: 'suggest edits on a document',
-      edit_document_passage: 'propose an edit on a specific passage',
+      edit_document: 'propose patches on a document',
+      edit_document_passage: 'propose a patch on a specific passage',
       review_document: 'review a document',
       join_workgroup: 'join a workgroup',
     };
@@ -177,8 +177,8 @@
         '<p class="small text-muted mb-2">After you accept:</p>' +
         '<ol class="small mb-0 ps-3">' +
         '<li class="mb-1">You will open the document with the passage below highlighted.</li>' +
-        '<li class="mb-1">The <strong>Suggest a change</strong> panel opens with that text.</li>' +
-        '<li>Edit the proposed wording and post your proposal.</li>' +
+        '<li class="mb-1">The <strong>Propose a patch</strong> panel opens with that text.</li>' +
+        '<li>Edit the patched wording and submit your patch.</li>' +
         '</ol>'
       );
     }
@@ -188,7 +188,7 @@
         '<ol class="small mb-0 ps-3">' +
         '<li class="mb-1">You will open the full document below.</li>' +
         '<li class="mb-1"><strong>Select</strong> the sentence(s) you want to change in the text.</li>' +
-        '<li class="mb-1">The <strong>Suggest a change</strong> panel opens — post your edit.</li>' +
+        '<li class="mb-1">The <strong>Propose a patch</strong> panel opens — submit your patch.</li>' +
         '</ol>'
       );
     }
@@ -199,7 +199,7 @@
       return '<p class="small text-muted mb-0">After you accept, you will be joined or asked to join the workgroup (approval may be required).</p>';
     }
     if (inviteType === 'participate_dp') {
-      return '<p class="small text-muted mb-0">After you accept, you can browse DP drafts and propose edits from the DP Challenge page.</p>';
+      return '<p class="small text-muted mb-0">After you accept, you can browse DP drafts and propose patches from the DP Challenge page.</p>';
     }
     return '';
   }
@@ -270,7 +270,7 @@
       '<div class="mb-3" id="ghInviteComposeModeWrap">' +
       '<p class="small text-muted mb-2">After you accept, open the document as:</p>' +
       '<div class="btn-group btn-group-sm" role="group">' +
-      '<button type="button" class="btn btn-primary active" data-gh-compose-mode="propose">Propose / Edit</button>' +
+      '<button type="button" class="btn btn-primary active" data-gh-compose-mode="propose">Patch</button>' +
       '<button type="button" class="btn btn-outline-primary" data-gh-compose-mode="comment">Comment</button>' +
       '</div></div>'
     );

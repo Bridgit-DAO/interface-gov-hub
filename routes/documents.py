@@ -594,9 +594,10 @@ def draft_reader(draft_name):
 
         reader_onboarding_assets = render_reader_onboarding_assets()
         reader_guide_btn = (
-            '<button type="button" class="btn btn-sm btn-outline-secondary" '
-            'data-bs-toggle="modal" data-bs-target="#ghReaderGuideModal" id="draftReaderShowGuide">'
-            '<i class="fas fa-circle-question me-1"></i>How to participate</button>'
+            '<button type="button" class="btn btn-sm btn-outline-secondary draft-reader-guide-btn" '
+            'data-bs-toggle="modal" data-bs-target="#ghReaderGuideModal" id="draftReaderShowGuide" '
+            'aria-label="How to participate" title="How to participate">'
+            '<i class="fas fa-circle-question" aria-hidden="true"></i></button>'
         )
         comment_count = count_comments_for_draft_ref(draft_name)
         comments_btn = (
@@ -604,6 +605,20 @@ def draft_reader(draft_name):
             f'id="draftReaderCommentsLink">'
             f'<i class="fas fa-comments me-1"></i>Comments ({comment_count})</a>'
         )
+    patches_btn = ''
+    if submission and (submission.status or '').lower() == 'approved':
+        from services.document_patches_page import (
+            count_patches_for_draft_ref,
+            patches_enabled_for_submission,
+        )
+
+        if patches_enabled_for_submission(submission):
+            patch_count = count_patches_for_draft_ref(draft_name)
+            patches_btn = (
+                f'<a href="/doc/draft/{doc_href}/patches/" class="btn btn-sm btn-outline-secondary" '
+                f'id="draftReaderPatchesLink">'
+                f'<i class="fas fa-code-branch me-1"></i>Patches ({patch_count})</a>'
+            )
 
     dp_proposal_assets = render_dp_proposal_reader_assets(
         submission,
@@ -665,6 +680,14 @@ def draft_reader(draft_name):
         align-items: center;
         gap: 0.5rem;
       }}
+      .draft-reader-guide-btn {{
+        width: 2rem;
+        padding-left: 0;
+        padding-right: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }}
       .draft-reader-meta {{
         flex: 1;
         min-width: 0;
@@ -725,6 +748,7 @@ def draft_reader(draft_name):
             <a href="/doc/draft/{doc_href}/" class="btn btn-sm btn-outline-secondary">Record</a>
             {add_comment_btn}
             {comments_btn}
+            {patches_btn}
             {reader_guide_btn}
             {invite_doc_btn}
           </div>
@@ -1456,6 +1480,20 @@ Meta-Layer Initiative
                 }})();
                 </script>'''
 
+    patches_sidebar_html = ''
+    if draft.get('status') == 'approved' and _sub:
+        from services.document_patches_page import (
+            count_patches_for_draft_ref,
+            patches_enabled_for_submission,
+        )
+
+        if patches_enabled_for_submission(_sub):
+            patch_count = count_patches_for_draft_ref(draft_name)
+            patches_sidebar_html = (
+                f'<a href="/doc/draft/{draft["name"]}/patches/" class="btn btn-outline-primary w-100 mb-2">'
+                f'View Patches ({patch_count})</a>'
+            )
+
     content = f"""
     <div class="gh-page container mt-4">
         {gh_page_header(str(display_id), draft['title'], 'fa-file-alt', actions_html=f'<a href="/doc/draft/{quote(str(draft.get("name") or draft_name), safe="")}/read/" class="btn btn-primary btn-sm"><i class="bi bi-book"></i> Read full page</a>')}
@@ -1526,6 +1564,7 @@ Meta-Layer Initiative
                     </div>
                     <div class="card-body">
                         {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({count_comments_for_draft_ref(draft_name)})</a>' if draft.get('status') == 'approved' else ''}
+                        {patches_sidebar_html}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
                         <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
 
@@ -1923,6 +1962,7 @@ def draft_comments(draft_name):
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
             </a>
+            <a href="/doc/draft/{draft_name}/patches/" class="btn btn-outline-secondary me-2">Patches</a>
             <a href="/doc/draft/{draft_name}/history/" class="btn btn-outline-secondary me-2">History</a>
             <a href="/doc/draft/{draft_name}/revisions/" class="btn btn-outline-secondary">Revisions</a>
         </div>
@@ -2068,6 +2108,122 @@ def draft_comments(draft_name):
     return _format_base_template(title=f"Comments - {draft_name}", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
+@bp.route('/doc/draft/<path:draft_name>/patches/')
+def draft_patches(draft_name):
+    from config import BUILD_NUMBER
+    from services.document_patches_page import (
+        count_patches_for_draft_ref,
+        patches_enabled_for_submission,
+        render_patches_list_html,
+        resolve_draft_for_patches_page,
+    )
+    from services.dp_proposals import resolve_submission_for_proposals
+    from services.read_navigation import read_page_url
+    from services.rendering import _format_base_template, generate_user_menu
+
+    draft, submission = resolve_draft_for_patches_page(draft_name)
+    if not draft:
+        return 'Document not found', 404
+
+    sub_err = None
+    if submission:
+        _, sub_err = resolve_submission_for_proposals(draft_name)
+
+    user_menu = generate_user_menu()
+    current_user = get_current_user()
+    current_theme = session.get(
+        'theme',
+        current_user.get('theme', 'dark') if current_user else 'dark',
+    )
+    display_id = draft.get('ml_number') or draft_name
+    patches_path = f'/doc/draft/{draft_name}/patches/'
+    patch_count = count_patches_for_draft_ref(draft_name) if submission and not sub_err else 0
+    patches_enabled = bool(submission and not sub_err and patches_enabled_for_submission(submission))
+
+    if patches_enabled:
+        patches_html = render_patches_list_html(
+            submission,
+            draft_name,
+            current_user=current_user,
+        )
+        propose_cta = (
+            f'<a href="{html_mod.escape(read_page_url(draft_name, patches_path))}" '
+            'class="btn btn-primary w-100 mb-2">'
+            '<i class="fas fa-highlighter me-1"></i>Select a passage to patch</a>'
+        )
+    else:
+        patches_html = '''
+        <div class="alert alert-secondary mb-0">
+          Patches are not available for this document yet.
+        </div>'''
+        propose_cta = ''
+
+    content = f"""
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260604patchpage">
+    <div class="gh-page container mt-4 gh-patches-page">
+        {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Patches', None)])}
+        {gh_page_header(f'Patches — {display_id}', draft['title'], 'fa-code-branch')}
+        <p class="text-muted mb-4">
+            Patches are <strong>passage-level only</strong> — each one is tied to selected text in the reader.
+            There are no document-wide patches. Use comments for general feedback on the whole document.
+        </p>
+        <div class="mb-4">
+            <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
+                <i class="fas fa-arrow-left me-1"></i>Back to Draft
+            </a>
+            <a href="/doc/draft/{draft_name}/read/?return_to={html_mod.escape(patches_path, quote=True)}" class="btn btn-outline-primary me-2">
+                <i class="fas fa-book-open me-1"></i>Open reader
+            </a>
+            <a href="/doc/draft/{draft_name}/comments/" class="btn btn-outline-secondary me-2">Comments</a>
+            <a href="/doc/draft/{draft_name}/history/" class="btn btn-outline-secondary">History</a>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <h3>Patches ({patch_count})</h3>
+                {patches_html}
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Propose a patch</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="small text-muted">
+                            Open the reader, select the sentence(s) you want to change, and submit a patch.
+                        </p>
+                        {propose_cta}
+                    </div>
+                </div>
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5>Document Info</h5>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Title:</strong> {html_mod.escape(draft['title'])}</p>
+                        <p><strong>Authors:</strong> {html_mod.escape(', '.join(draft['authors'] or []))}</p>
+                        <p><strong>Status:</strong> <span class="badge bg-secondary">{html_mod.escape(draft['status'])}</span></p>
+                        <p class="mb-0"><strong>Last Updated:</strong> {html_mod.escape(draft['date'])}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+    window.GH_PATCHES_PAGE = {{ draftRef: {json.dumps(draft_name)} }};
+    </script>
+    <script src="/static/js/document-patches.js?v=1" defer></script>
+    """
+
+    return _format_base_template(
+        title=f'Patches - {draft_name}',
+        theme=current_theme,
+        user_menu=user_menu,
+        content=content,
+        build_number=BUILD_NUMBER,
+    )
+
+
 @bp.route('/doc/draft/<path:draft_name>/history/')
 def draft_history(draft_name):
     from services.rendering import _format_base_template, generate_user_menu
@@ -2132,10 +2288,11 @@ def draft_history(draft_name):
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
             </a>
             <a href="/doc/draft/{draft_name}/comments/" class="btn btn-outline-secondary me-2">Comments</a>
+            <a href="/doc/draft/{draft_name}/patches/" class="btn btn-outline-secondary me-2">Patches</a>
             <a href="/doc/draft/{draft_name}/revisions/" class="btn btn-outline-secondary">Revisions</a>
         </div>
 
-                {history_html}
+        {history_html}
             </div>
     """
 
@@ -2305,6 +2462,7 @@ def draft_revisions(draft_name):
             </a>
             {f'<a href="/submit/revision/{draft_name}/" class="btn btn-success me-2"><i class="fas fa-plus me-1"></i>Submit New Revision</a>' if current_user and draft.get('status') == 'approved' else ''}
             <a href="/doc/draft/{draft_name}/comments/" class="btn btn-outline-secondary me-2">Comments</a>
+            <a href="/doc/draft/{draft_name}/patches/" class="btn btn-outline-secondary me-2">Patches</a>
             <a href="/doc/draft/{draft_name}/history/" class="btn btn-outline-secondary">History</a>
         </div>
 

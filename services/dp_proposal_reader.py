@@ -84,7 +84,7 @@ def render_reader_onboarding_assets() -> str:
             <div class="modal-body">
             <ul class="nav nav-tabs mb-3" role="tablist">
               <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#ghGuideComment" type="button">Comment</button></li>
-              <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ghGuidePropose" type="button">Propose / Edit</button></li>
+              <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ghGuidePropose" type="button">Patch</button></li>
               <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ghGuideInvite" type="button">Invite</button></li>
             </ul>
             <div class="tab-content">
@@ -101,11 +101,11 @@ def render_reader_onboarding_assets() -> str:
               </div>
               <div class="tab-pane fade" id="ghGuidePropose">
                 <ul class="gh-guide-steps mb-3">
-                  <li><strong>On a new passage:</strong> select text to open the compose modal, choose <strong>Propose / Edit</strong> and enter suggested text.</li>
-                  <li><strong>On an existing passage:</strong> hover badge to open the context menu, and choose <strong>Suggest a DP Proposal</strong> / <strong>Edit</strong> to open the compose modal, choose <strong>Propose / Edit</strong> and enter suggested text.</li>
+                  <li><strong>On a new passage:</strong> select text to open the compose modal, choose <strong>Patch</strong> and enter your patched text.</li>
+                  <li><strong>On an existing passage:</strong> hover the badge to open the context menu, choose <strong>Propose a patch</strong>, then enter your patched text.</li>
                 </ul>
                 <div class="gh-guide-gif">
-                  <img src="{guide_gifs['propose']}" data-gh-guide-src="{guide_gifs['propose']}" alt="Demonstration: selecting text and submitting a proposed edit" width="800" height="500" loading="eager" decoding="async">
+                  <img src="{guide_gifs['propose']}" data-gh-guide-src="{guide_gifs['propose']}" alt="Demonstration: selecting text and submitting a patch" width="800" height="500" loading="eager" decoding="async">
                 </div>
               </div>
               <div class="tab-pane fade" id="ghGuideInvite">
@@ -192,16 +192,16 @@ def render_dp_proposal_reader_assets(
     draft_ref_esc = html_mod.escape(draft_ref, quote=True)
 
     return f'''
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260603guidewidth2">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260604patch">
     <div id="dp-proposal-reader-root" data-draft-ref="{draft_ref_esc}" data-meta="{meta_json}"></div>
 
     <div class="modal fade" id="dpProposalComposeModal" tabindex="-1" aria-labelledby="dpProposalComposeLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header align-items-center flex-wrap gap-2">
-            <h5 class="modal-title me-auto" id="dpProposalComposeLabel">{html_mod.escape(labels.get("compose_title", "Suggest a change"))}</h5>
+            <h5 class="modal-title me-auto" id="dpProposalComposeLabel">{html_mod.escape(labels.get("compose_title", "Propose a patch"))}</h5>
             <div class="btn-group btn-group-sm" role="group" aria-label="Compose mode">
-              <button type="button" class="btn btn-primary active" id="dpComposeTabPropose" data-compose-mode="propose">Propose / Edit</button>
+              <button type="button" class="btn btn-primary active" id="dpComposeTabPropose" data-compose-mode="propose">{html_mod.escape(labels.get("compose_tab", "Patch"))}</button>
               <button type="button" class="btn btn-outline-primary" id="dpComposeTabComment" data-compose-mode="comment">Comment</button>
             </div>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="dpProposalComposeInviteBtn">
@@ -213,7 +213,7 @@ def render_dp_proposal_reader_assets(
             <div id="dpComposePanePropose">
               <p class="text-muted small">Original sentence(s) — expanded from your selection.</p>
               <textarea id="dpProposalOriginal" class="form-control font-monospace dp-proposal-pre mb-3" rows="5" readonly></textarea>
-              <label class="form-label" for="dpProposalProposed">Proposed text</label>
+              <label class="form-label" for="dpProposalProposed">{html_mod.escape(labels.get("proposed_label", "Patched text"))}</label>
               <textarea id="dpProposalProposed" class="form-control font-monospace dp-proposal-pre mb-3" rows="5"></textarea>
               <label class="form-label" for="dpProposalRationale">Rationale <span class="text-muted fw-normal">(optional, public)</span></label>
               <textarea id="dpProposalRationale" class="form-control mb-3" rows="2" maxlength="4000"
@@ -240,7 +240,7 @@ def render_dp_proposal_reader_assets(
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button type="button" class="btn btn-primary d-none" id="dpProposalSubmitBtn" disabled>{html_mod.escape(labels.get("post_button", "Post proposal"))}</button>
+            <button type="button" class="btn btn-primary d-none" id="dpProposalSubmitBtn" disabled>{html_mod.escape(labels.get("post_button", "Submit patch"))}</button>
             <button type="button" class="btn btn-primary" id="dpCommentSubmitBtn" disabled>Post comment</button>
           </div>
         </div>
@@ -251,7 +251,7 @@ def render_dp_proposal_reader_assets(
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="dpProposalListLabel">{html_mod.escape(labels.get("list_title", "Proposals on this passage"))}</h5>
+            <h5 class="modal-title" id="dpProposalListLabel">{html_mod.escape(labels.get("list_title", "Patches on this passage"))}</h5>
             <div class="form-check form-switch ms-auto me-3 mb-0">
               <input class="form-check-input" type="checkbox" id="dpProposalShowDiffToggle">
               <label class="form-check-label small" for="dpProposalShowDiffToggle">Show changes</label>
@@ -260,7 +260,7 @@ def render_dp_proposal_reader_assets(
           </div>
           <div class="modal-body" id="dpProposalListBody"></div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline-primary" id="dpProposalListAddBtn">{html_mod.escape(labels.get("list_add", "Suggest a change"))}</button>
+            <button type="button" class="btn btn-outline-primary" id="dpProposalListAddBtn">{html_mod.escape(labels.get("list_add", "Propose a patch"))}</button>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
         </div>
@@ -269,5 +269,5 @@ def render_dp_proposal_reader_assets(
 
     <script src="/static/js/dp-proposals/sentence-tools.js?v=20260527h"></script>
     <script src="/static/js/dp-proposals/proposal-display.js?v=20260526h"></script>
-    <script defer src="/static/js/dp-proposals/reader.js?v=20260603n"></script>
+    <script defer src="/static/js/dp-proposals/reader.js?v=20260604patchpage"></script>
     '''

@@ -198,7 +198,7 @@ def test_create_and_list_proposal():
     assert r.status_code == 201, r.get_data(as_text=True)
     data = r.get_json()
     assert data['proposal']['status'] == 'pending'
-    assert data['status_label'] == 'DP Proposal'
+    assert data['status_label'] == 'Patch'
 
     r2 = client.get(f'/api/doc/draft/{ref}/proposals/')
     assert r2.status_code == 200
@@ -358,7 +358,25 @@ def test_admin_dashboard_loads():
     client = _auth_client(app, username)
     r = client.get('/admin/dp-proposals/')
     assert r.status_code == 200
-    assert b'DP Proposals' in r.data
+    assert b'Patches' in r.data
+
+
+def test_patches_page_loads():
+    from app import app
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        if not sub:
+            return
+        ref = sub.id
+
+    with app.test_client() as client:
+        r = client.get(f'/doc/draft/{ref}/patches/')
+        assert r.status_code == 200, r.get_data(as_text=True)
+        assert b'Patches' in r.data
+        assert b'passage-level only' in r.data
+        assert b'document-wide patches' in r.data
 
 
 def test_suggest_edit_page_loads():
@@ -389,5 +407,5 @@ def test_read_meta_for_non_dp():
         assert data['is_dp'] is False
         assert data['mode'] == 'document'
         assert data['proposals_enabled'] is True
-        assert data['labels']['pending_status'] == 'Suggested edit'
+        assert data['labels']['pending_status'] == 'Patch'
 

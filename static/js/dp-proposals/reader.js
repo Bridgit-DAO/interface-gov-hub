@@ -1,5 +1,5 @@
 /**
- * DP Proposal read-page UI: selection → compose modal → badges → list modal.
+ * Patch read-page UI: selection → compose modal → badges → list modal.
  */
 (function (global) {
   'use strict';
@@ -23,7 +23,7 @@
   }
 
   function countPhrase(n) {
-    var word = label('count_word', 'proposal');
+    var word = label('count_word', 'patch');
     return String(n) + ' ' + word + (n === 1 ? '' : 's');
   }
 
@@ -372,7 +372,7 @@
       '<div class="dp-proposal-card-label">Original</div>' +
       '<div class="dp-proposal-card-original dp-proposal-pre-block' +
       (diffOn ? '' : ' dp-proposal-plain-original') + '">' + origHtml + '</div>' +
-      '<div class="dp-proposal-card-label mt-3">Proposed replacement</div>' +
+      '<div class="dp-proposal-card-label mt-3">' + esc(label('proposed_label', 'Patched text')) + '</div>' +
       '<div class="dp-proposal-card-proposed dp-proposal-pre-block">' + propHtml + '</div>'
     );
   }
@@ -396,7 +396,7 @@
   }
 
   function proposalLinkTitle(p, index) {
-    return label('link_prefix', 'Proposal') + ' ' + (index + 1);
+    return label('link_prefix', 'Patch') + ' ' + (index + 1);
   }
 
   function truncateText(text, maxLen) {
@@ -608,7 +608,7 @@
     delete panel.dataset.ghDetailCommentId;
     var html = '<div class="dp-hover-panel-title small fw-semibold mb-2">Context Menu</div>';
     if (bundle.proposals && bundle.proposals.length) {
-      html += '<div class="small text-muted mb-1">Proposals</div><ul class="dp-proposal-hover-links">';
+      html += '<div class="small text-muted mb-1">' + esc(label('hover_section', 'Patches')) + '</div><ul class="dp-proposal-hover-links">';
       bundle.proposals.forEach(function (p, idx) {
         var deltaHtml = proposalCharDeltaHtml(p.original_text, p.proposed_text);
         var rowLabel = hoverRowLabel(p, idx);
@@ -637,7 +637,7 @@
     }
     html += '<div class="dp-proposal-hover-actions">' +
       '<button type="button" class="btn btn-primary btn-sm w-100 dp-proposal-create-btn">' +
-      '<i class="fas fa-plus me-1"></i>' + esc(label('create_hover', 'Suggest a change')) + '</button>' +
+      '<i class="fas fa-plus me-1"></i>' + esc(label('create_hover', 'Propose a patch')) + '</button>' +
       '<button type="button" class="btn btn-outline-info btn-sm w-100 dp-passage-add-comment-btn">' +
       '<i class="fas fa-comment-medical me-1"></i>Add comment</button>' +
       '<button type="button" class="btn btn-outline-secondary btn-sm w-100 dp-proposal-invite-passage-btn" data-hash="' +
@@ -776,7 +776,7 @@
     openGhInvite({
       type: 'edit_document_passage',
       title: 'Invite to edit this passage',
-      hint: 'They will get an email to open this document and propose a change here.',
+      hint: 'They will get an email to open this document and propose a patch here.',
       target: passageInviteTarget(
         anchorHash,
         group,
@@ -793,7 +793,7 @@
     openGhInvite({
       type: 'edit_document_passage',
       title: 'Invite to edit this passage',
-      hint: 'They will get an email to open this document and propose a change on this passage.',
+      hint: 'They will get an email to open this document and propose a patch on this passage.',
       target: passageInviteTarget(null, null, pendingSelection.original),
     });
   }
@@ -802,7 +802,7 @@
     openGhInvite({
       type: 'edit_document',
       title: 'Invite to edit this document',
-      hint: 'They will get an email to review the full document and suggest edits.',
+      hint: 'They will get an email to review the full document and propose patches.',
       target: {
         submission_id: (btn && btn.getAttribute('data-submission-id')) || meta.submission_id,
         draft_ref: (btn && btn.getAttribute('data-draft-ref')) || draftRef,
@@ -1124,11 +1124,11 @@
       badge.dataset.dpAnchorHash = hash;
       badge.textContent = String(total);
       badge.title = total + ' on this passage — hover to preview';
-      badge.setAttribute('aria-label', total + ' proposals and comments on this passage');
+      badge.setAttribute('aria-label', total + ' patches and comments on this passage');
       var panel = document.createElement('div');
       panel.className = 'dp-proposal-hover-panel';
       panel.setAttribute('role', 'dialog');
-      panel.setAttribute('aria-label', 'Proposals and comments on this passage');
+      panel.setAttribute('aria-label', 'Patches and comments on this passage');
       pin.appendChild(badge);
       pin.appendChild(panel);
       document.body.appendChild(pin);
@@ -1162,7 +1162,7 @@
   function displayModeLabel(mode) {
     var suffix = ' (' + totalOverlayCount() + ')';
     if (mode === 'hidden') return 'Hidden' + suffix;
-    if (mode === 'attention') return label('display_near', 'Near proposal') + suffix;
+    if (mode === 'attention') return label('display_near', 'Near patch') + suffix;
     return 'Show all' + suffix;
   }
 
@@ -1174,7 +1174,7 @@
     iconWrap.innerHTML = DISPLAY_MODE_ICONS[displayMode] || DISPLAY_MODE_ICONS.showAll;
     labelEl.textContent = displayModeLabel(displayMode);
     if (trigger) {
-      trigger.setAttribute('title', label('toolbar_visibility_title', 'Proposals visibility'));
+      trigger.setAttribute('title', label('toolbar_visibility_title', 'Patches visibility'));
       trigger.setAttribute('aria-label', displayModeLabel(displayMode));
     }
   }
@@ -1210,12 +1210,12 @@
       '<div class="dropdown dp-proposal-display-dropdown">' +
       '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle dp-proposal-display-trigger" ' +
       'id="dpProposalDisplayTrigger" data-bs-toggle="dropdown" aria-expanded="false" ' +
-      'title="' + esc(label('toolbar_visibility_title', 'Proposals visibility')) + '">' +
+      'title="' + esc(label('toolbar_visibility_title', 'Patches visibility')) + '">' +
       '<span class="dp-proposal-display-icon" id="dpProposalDisplayIcon" aria-hidden="true"></span>' +
       '<span class="dp-proposal-display-label" id="dpProposalDisplayLabel"></span>' +
       '</button>' +
       '<ul class="dropdown-menu dropdown-menu-end" id="dpProposalDisplayMenu" ' +
-      'aria-label="' + esc(label('toolbar_select_aria', 'Proposals display')) + '"></ul>' +
+      'aria-label="' + esc(label('toolbar_select_aria', 'Patches display')) + '"></ul>' +
       '</div>';
     inner.appendChild(wrap);
     refreshDisplayModeOptions();
@@ -2085,7 +2085,7 @@
         if (p.status === 'pending' && meta.can_accept_amendments) {
           html += '<div class="btn-group btn-group-sm mt-3">' +
             '<button type="button" class="btn btn-success dp-proposal-accept" data-id="' +
-            esc(p.id) + '">Accept as amendment</button>' +
+            esc(p.id) + '">' + esc(label('accept_button', 'Merge patch')) + '</button>' +
             '<button type="button" class="btn btn-outline-secondary dp-proposal-decline" data-id="' +
             esc(p.id) + '">Decline</button>' +
             '</div>';
@@ -2096,8 +2096,8 @@
       return html;
     }
     body.innerHTML =
-      renderSection(label('pending_plural', 'Proposals'), sections.pending) +
-      renderSection(label('accepted_plural', 'Amendments'), sections.accepted) +
+      renderSection(label('pending_plural', 'Patches'), sections.pending) +
+      renderSection(label('accepted_plural', 'Merged'), sections.accepted) +
       renderSection('Declined', sections.declined) +
       renderSection('Other', sections.other);
     body.querySelectorAll('.dp-proposal-accept').forEach(function (btn) {
@@ -2205,14 +2205,14 @@
   function loadProposals() {
     return fetch(apiUrl('/proposals/'), { credentials: 'same-origin' })
       .then(function (r) {
-        if (!r.ok) throw new Error('Failed to load proposals (' + r.status + ')');
+        if (!r.ok) throw new Error('Failed to load patches (' + r.status + ')');
         return r.json();
       })
       .then(function (data) {
         proposals = data.proposals || [];
       })
       .catch(function (err) {
-        console.error('DP proposals load failed:', err);
+        console.error('Patches load failed:', err);
       });
   }
 
@@ -2241,12 +2241,29 @@
   injectToolbarControls();
   bindInviteControls();
   bindComposeTabs();
+  function resumePatchFromUrl() {
+    var patchId = null;
+    try {
+      patchId = new URLSearchParams(window.location.search).get('patch');
+    } catch (_e) { /* ignore */ }
+    if (!patchId) return;
+    var target = proposals.find(function (p) { return p.id === patchId; });
+    if (!target || !target.anchor_hash) return;
+    setDisplayMode('showAll');
+    whenBootstrapReady(function () {
+      openListModal(target.anchor_hash, patchId);
+    });
+  }
+
   loadProposals()
     .then(loadReaderComments)
     .then(rebuildPassageAnchors)
     .then(function () {
       resumePendingProposalAfterLogin();
       return resumeInvitePassageCompose();
+    })
+    .then(function () {
+      resumePatchFromUrl();
     });
   global.addEventListener('hashchange', scrollToGhAnchorFromLocation);
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -92,15 +92,15 @@ def _format_activity_items(projects, submissions):
 
 
 def _format_profile_contributions(proposals, comments):
-    """DP proposals / suggested edits and document comments for profile tab."""
+    """Patches and document comments for profile tab."""
     html = ''
-    html += '<h5 class="card-title">Proposed edits</h5>'
+    html += '<h5 class="card-title">Patches</h5>'
     if proposals:
         html += '<div class="list-group list-group-flush mb-4">'
         for p in proposals:
             sub = p.submission
             label = submission_display_label(sub) if sub else 'Document'
-            kind = 'Suggested edit' if p.scope == 'document' else 'DP proposal'
+            kind = 'Patch'
             href = submission_profile_href(sub) if sub else '#'
             excerpt = (p.original_text or '')[:80]
             if len(p.original_text or '') > 80:
@@ -116,7 +116,7 @@ def _format_profile_contributions(proposals, comments):
             )
         html += '</div>'
     else:
-        html += '<p class="text-muted mb-4">No proposed edits yet.</p>'
+        html += '<p class="text-muted mb-4">No patches yet.</p>'
 
     html += '<h5 class="card-title">Comments</h5>'
     if comments:

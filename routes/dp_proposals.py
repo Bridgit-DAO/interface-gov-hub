@@ -169,7 +169,7 @@ def accept_proposal_route(draft_ref, proposal_id):
     return jsonify({
         'proposal': proposal.to_dict(),
         'status_label': proposal.status_label(),
-        'message': 'Accepted as amendment',
+        'message': 'Patch merged',
     })
 
 
@@ -203,7 +203,7 @@ def decline_proposal_route(draft_ref, proposal_id):
     return jsonify({
         'proposal': proposal.to_dict(),
         'status_label': proposal.status_label(),
-        'message': 'Proposal declined',
+        'message': 'Patch declined',
     })
 
 
@@ -328,7 +328,7 @@ def dp_proposals_dashboard():
         table_rows = '''
             <tr>
                 <td colspan="8" class="text-center text-muted py-4">
-                    No DP Proposals yet. Activity will appear here once readers submit proposals on DP read pages.
+                    No patches yet. Activity will appear here once readers submit patches on read pages.
                 </td>
             </tr>'''
 
@@ -340,8 +340,8 @@ def dp_proposals_dashboard():
                         <th>DP / Title</th>
                         <th>ML #</th>
                         <th>Workgroup</th>
-                        <th>Proposals</th>
-                        <th>Amendments</th>
+                        <th>Patches</th>
+                        <th>Merged</th>
                         <th>Declined</th>
                         <th>Total</th>
                         <th>Last activity</th>
@@ -352,12 +352,12 @@ def dp_proposals_dashboard():
         </div>'''
 
     header = gh_page_header(
-        'DP Proposals',
-        'Activity by Desirable Property — most active first',
+        'Patches',
+        'Patch activity by document — most active first',
         'fa-highlighter',
         breadcrumb_html=gh_breadcrumb([
             ('Admin Dashboard', '/admin/'),
-            ('DP Proposals', None),
+            ('Patches', None),
         ]),
         actions_html=(
             '<a href="/admin/" class="btn btn-outline-secondary btn-sm">'
@@ -372,7 +372,7 @@ def dp_proposals_dashboard():
     </div>
     '''
     return render_page(
-        'DP Proposals — Admin',
+        'Patches — Admin',
         content,
         theme=current_theme,
         user_menu=user_menu,

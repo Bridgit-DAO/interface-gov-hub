@@ -1,5 +1,5 @@
 /**
- * Proposal hub (DP Challenge / Suggest an Edit): doc picker CTA + live activity toasts.
+ * Patch hub (DP Challenge / Suggest an Edit): doc picker CTA + live activity toasts.
  */
 (function () {
   'use strict';
@@ -233,13 +233,13 @@
       : doc;
     if (ev.type === 'accepted') {
       return (
-        '<div class="dp-challenge-toast-type is-accepted">' + esc(label('toast_accepted', 'Amendment accepted')) + '</div>' +
-        '<div>An edit by ' + who + ' on ' + docLink + ' was accepted.</div>'
+        '<div class="dp-challenge-toast-type is-accepted">' + esc(label('toast_accepted', 'Patch merged')) + '</div>' +
+        '<div>A patch by ' + who + ' on ' + docLink + ' was merged.</div>'
       );
     }
     return (
-      '<div class="dp-challenge-toast-type">' + esc(label('toast_new', 'New proposal')) + '</div>' +
-      '<div><strong>' + who + '</strong> proposed an edit on ' + docLink + '.</div>'
+      '<div class="dp-challenge-toast-type">' + esc(label('toast_new', 'New patch')) + '</div>' +
+      '<div><strong>' + who + '</strong> submitted a patch on ' + docLink + '.</div>'
     );
   }
 

@@ -266,7 +266,7 @@ def require_dp_proposals_enabled() -> Optional[Tuple[dict, int]]:
 
     if not is_feature_enabled('dp_proposals'):
         return jsonify({
-            'error': 'DP Proposals are not enabled.',
+            'error': 'Patches are not enabled.',
             'error_code': 'FEATURE_DISABLED',
             'feature': 'dp_proposals',
         }), 403
@@ -295,8 +295,8 @@ def validate_proposal_scope_for_submission(
     expected = expected_proposal_scope(submission)
     if scope != expected:
         if expected == 'dp':
-            return 'This document requires scope=dp (DP Proposal)'
-        return 'This document requires scope=document (Suggested edit)'
+            return 'This document requires scope=dp (patch on DP draft)'
+        return 'This document requires scope=document (patch on document)'
     return None
 
 
@@ -498,7 +498,7 @@ def _emit_dp_proposal_review_event(
     reviewer_user_id: str,
     event_type: str,
 ) -> None:
-    """Emit EventLog when a DP proposal or suggested edit is accepted or declined."""
+    """Emit EventLog when a patch is merged or declined."""
     from services.events import emit_event
 
     sub = proposal.submission
