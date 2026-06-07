@@ -57,6 +57,7 @@
   "theme": {
     "switchToLight": "Switch to light mode",
     "switchToDark": "Switch to dark mode",
+    "systemAuto": "System theme (auto) — click to switch",
     "toggle": "Toggle theme"
   },
   "api": {

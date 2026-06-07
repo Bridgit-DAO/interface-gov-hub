@@ -57,6 +57,7 @@
   "theme": {
     "switchToLight": "ライトモードに切り替え",
     "switchToDark": "ダークモードに切り替え",
+    "systemAuto": "システムテーマ（自動）— クリックで切り替え",
     "toggle": "テーマを切り替え"
   }
 }

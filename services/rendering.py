@@ -434,6 +434,16 @@ def _format_base_template(**kwargs):
         kwargs.setdefault('govhub_i18n_js', url_for('static', filename='js/govhub-i18n.js'))
     except RuntimeError:
         kwargs.setdefault('govhub_i18n_js', '/static/js/govhub-i18n.js')
+    from services.identity import get_current_user
+    from services.theme import theme_template_context
+
+    session_theme = session.get('theme') if has_request_context() else None
+    theme_ctx = theme_template_context(
+        explicit_preference=kwargs.get('theme'),
+        current_user=get_current_user(),
+        session_theme=session_theme,
+    )
+    kwargs.update(theme_ctx)
     return template.format(**kwargs)
 
 
