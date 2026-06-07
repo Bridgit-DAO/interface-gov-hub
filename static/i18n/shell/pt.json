@@ -57,6 +57,7 @@
   "theme": {
     "switchToLight": "Mudar para modo claro",
     "switchToDark": "Mudar para modo escuro",
+    "systemAuto": "Tema do sistema (auto) — clique para alternar",
     "toggle": "Alternar tema"
   }
 }

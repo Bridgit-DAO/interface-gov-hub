@@ -2,12 +2,38 @@
 
 BASE_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="{html_lang}" data-theme="{theme}">
+<html lang="{html_lang}" data-theme="{theme_effective}" data-theme-preference="{theme_preference}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="user-theme-preference" content="{user_theme_preference_meta}">
     <meta name="csrf-token" content="{csrf_token}">
     <title>{title}</title>
+    <script>
+    (function () {{
+        var el = document.documentElement;
+        var pref = el.getAttribute('data-theme-preference') || 'dark';
+        var userMeta = document.querySelector('meta[name="user-theme-preference"]');
+        var userPref = userMeta ? userMeta.getAttribute('content') : '';
+        if (userPref === 'light' || userPref === 'dark' || userPref === 'auto') {{
+            pref = userPref;
+        }} else {{
+            try {{
+                var stored = localStorage.getItem('theme');
+                if (stored === 'light' || stored === 'dark' || stored === 'auto') {{
+                    pref = stored;
+                }}
+            }} catch (_e) {{}}
+        }}
+        var effective = pref;
+        if (pref === 'auto') {{
+            effective = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark' : 'light';
+        }}
+        el.setAttribute('data-theme', effective);
+        el.setAttribute('data-theme-preference', pref);
+    }})();
+    </script>
     <script>
     (function() {{
         var meta = document.querySelector('meta[name="csrf-token"]');
@@ -931,7 +957,7 @@ BASE_TEMPLATE = """
     <script src="/static/js/gh-return-nav.js"></script>
     <script src="/static/js/gh-dialog.js"></script>
     <script src="/static/js/gh-invite.js?v=18"></script>
-    <script src="/static/js/gh-theme.js?v=1" defer></script>
+    <script src="/static/js/gh-theme.js?v=2" defer></script>
     <script>
         (function () {{
             var HOVER_MQ = window.matchMedia('(min-width: 992px)');
@@ -1431,6 +1457,9 @@ BASE_TEMPLATE = """
 
                 const result = await response.json();
                 if (response.ok) {{
+                    if (result.user && result.user.theme && window.GovHubTheme) {{
+                        window.GovHubTheme.setPreference(result.user.theme, {{ persist: false }});
+                    }}
                     const me = await fetch('/api/user/me', {{ credentials: 'include' }});
                     if (!me.ok) {{
                         console.error('Session not established after login', me.status);

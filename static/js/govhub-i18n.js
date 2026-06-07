@@ -213,8 +213,11 @@
             var btn = document.getElementById('theme-toggle');
             if (!btn) return;
             var html = document.documentElement;
-            var theme = html.getAttribute('data-theme') || 'dark';
-            if (theme === 'dark') {
+            var preference = html.getAttribute('data-theme-preference') || 'dark';
+            var effective = html.getAttribute('data-theme') || 'dark';
+            if (preference === 'auto') {
+                btn.setAttribute('title', this.t('theme.systemAuto'));
+            } else if (effective === 'dark') {
                 btn.setAttribute('title', this.t('theme.switchToLight'));
             } else {
                 btn.setAttribute('title', this.t('theme.switchToDark'));
