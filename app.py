@@ -167,6 +167,7 @@ def create_app():
     from routes.dp_challenge_pages import bp as dp_challenge_bp
     from routes.platform_invitations import bp as platform_invitations_bp
     from routes.metaweb import bp as metaweb_bp
+    from routes.canopi_internal import bp as canopi_internal_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -230,6 +231,7 @@ def create_app():
     app.register_blueprint(dp_challenge_bp)
     app.register_blueprint(platform_invitations_bp)
     app.register_blueprint(metaweb_bp)
+    app.register_blueprint(canopi_internal_bp)
 
     # CLI
     from cli import register_cli
