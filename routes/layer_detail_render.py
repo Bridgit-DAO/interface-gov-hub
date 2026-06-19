@@ -1169,6 +1169,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 actionsHtml += '<div class="mb-3"><button class="btn btn-primary btn-sm w-100" onclick="showJoinProjectModal()"><i class="fas fa-plus me-2"></i>Join Layer</button></div>';
             }}
         }}
+        actionsHtml += '<div class="mb-3"><a href="' + layerBase + 'connections/" class="btn btn-outline-primary btn-sm w-100"><i class="fas fa-handshake me-2"></i>Connect your organization</a></div>';
         if (isProjectAdmin) {{
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
             actionsHtml += {json.dumps(create_quest_admin_btn)};

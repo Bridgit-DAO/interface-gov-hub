@@ -820,6 +820,117 @@ class GuildLayerLink(db.Model):
         }
 
 
+LAYER_CONNECTION_CONNECTOR_KINDS = ('guild', 'layer', 'external', 'individual')
+LAYER_CONNECTION_STATUSES = ('pending', 'active', 'rejected', 'withdrawn', 'revoked')
+
+
+class LayerConnectionType(db.Model):
+    """Layer-defined org connection catalog (Partner, Endorser, Ambassador, …)."""
+    __tablename__ = 'layer_connection_type'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    title = db.Column(db.String(120), nullable=False)
+    slug = db.Column(db.String(120), nullable=False, index=True)
+    description = db.Column(db.Text, nullable=True)
+    agreement_text = db.Column(db.Text, nullable=True)
+    requires_approval = db.Column(StorageBoolean, default=True, nullable=False)
+    is_open = db.Column(StorageBoolean, default=True, nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)
+    is_active = db.Column(StorageBoolean, default=True, nullable=False)
+    terms_version = db.Column(db.Integer, default=1, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+    layer = db.relationship('Layer', backref=db.backref('connection_types', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('layer_id', 'slug', name='uq_layer_connection_type_layer_slug'),
+        db.Index('idx_layer_connection_type_layer_active', 'layer_id', 'is_active'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'layer_id': self.layer_id,
+            'title': self.title,
+            'slug': self.slug,
+            'description': self.description,
+            'agreement_text': self.agreement_text,
+            'requires_approval': bool(self.requires_approval),
+            'is_open': bool(self.is_open),
+            'sort_order': self.sort_order or 0,
+            'is_active': bool(self.is_active),
+            'terms_version': self.terms_version or 1,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class LayerConnection(db.Model):
+    """Org ↔ layer connection submission / active link."""
+    __tablename__ = 'layer_connection'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    connection_type_id = db.Column(
+        db.String(36), db.ForeignKey('layer_connection_type.id'), nullable=False, index=True
+    )
+    connector_kind = db.Column(db.String(20), nullable=False, index=True)
+    guild_id = db.Column(db.String(36), db.ForeignKey('guild.id'), nullable=True, index=True)
+    source_layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True, index=True)
+    external_name = db.Column(db.String(255), nullable=True)
+    external_url = db.Column(db.String(500), nullable=True)
+    representative_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
+    status = db.Column(db.String(20), default='pending', nullable=False, index=True)
+    message = db.Column(db.Text, nullable=True)
+    agreement_accepted_at = db.Column(db.DateTime, nullable=True)
+    agreement_version = db.Column(db.Integer, nullable=True)
+    submitted_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
+    reviewed_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    review_notes = db.Column(db.Text, nullable=True)
+    rejected_reason = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+    layer = db.relationship('Layer', foreign_keys=[layer_id], backref=db.backref('org_connections', lazy='dynamic'))
+    source_layer = db.relationship('Layer', foreign_keys=[source_layer_id])
+    connection_type = db.relationship('LayerConnectionType', backref=db.backref('connections', lazy='dynamic'))
+    guild = db.relationship('Guild', backref=db.backref('layer_connections', lazy='dynamic'))
+    representative = db.relationship('User', foreign_keys=[representative_user_id])
+    submitted_by = db.relationship('User', foreign_keys=[submitted_by_user_id])
+    reviewed_by = db.relationship('User', foreign_keys=[reviewed_by_user_id])
+
+    def to_dict(self, include_admin=False):
+        d = {
+            'id': self.id,
+            'layer_id': self.layer_id,
+            'connection_type_id': self.connection_type_id,
+            'connector_kind': self.connector_kind,
+            'guild_id': self.guild_id,
+            'source_layer_id': self.source_layer_id,
+            'external_name': self.external_name,
+            'external_url': self.external_url,
+            'representative_user_id': self.representative_user_id,
+            'status': self.status,
+            'message': self.message,
+            'agreement_accepted_at': self.agreement_accepted_at.isoformat() if self.agreement_accepted_at else None,
+            'agreement_version': self.agreement_version,
+            'submitted_by_user_id': self.submitted_by_user_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_admin:
+            d.update({
+                'reviewed_by_user_id': self.reviewed_by_user_id,
+                'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
+                'review_notes': self.review_notes,
+                'rejected_reason': self.rejected_reason,
+            })
+        return d
+
+
 class GuildArtifactLink(db.Model):
     """Guild ↔ artifact authorship/sponsorship/review (separate family from artifact ↔ artifact)."""
     __tablename__ = 'guild_artifact_link'

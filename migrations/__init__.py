@@ -1671,15 +1671,17 @@ def migrate_dp_proposals(app):
                         cfg = json.loads(row.value)
                     except json.JSONDecodeError:
                         cfg = {}
-                if 'dp_proposals' not in cfg:
-                    cfg['dp_proposals'] = True
+                if 'patches' not in cfg and 'dp_proposals' not in cfg and 'document_edits' not in cfg:
+                    cfg['patches'] = True
+                    cfg.pop('dp_proposals', None)
+                    cfg.pop('document_edits', None)
                     payload = json.dumps(cfg, sort_keys=True)
                     if row:
                         row.value = payload
                     else:
                         db.session.add(SiteConfig(key=PRODUCT_ROLLOUT_SITE_CONFIG_KEY, value=payload))
                     db.session.commit()
-                    print('✅ Enabled dp_proposals in product_rollout (dev)')
+                    print('✅ Enabled patches in product_rollout (dev)')
     except Exception as e:
         print(f'⚠️  Error in migrate_dp_proposals: {e}')
 
@@ -2097,3 +2099,178 @@ def migrate_reader_comments_v1(app):
         print('✅ reader comments v1 ready')
     except Exception as e:
         print(f'⚠️  Error in migrate_reader_comments_v1: {e}')
+
+
+def migrate_layer_org_connections_v1(app):
+    """Create layer_connection_type and layer_connection tables (org connections MVP)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='layer_connection_type'"
+        )
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE layer_connection_type (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    title VARCHAR(120) NOT NULL,
+                    slug VARCHAR(120) NOT NULL,
+                    description TEXT,
+                    agreement_text TEXT,
+                    requires_approval BOOLEAN DEFAULT 1 NOT NULL,
+                    is_open BOOLEAN DEFAULT 1 NOT NULL,
+                    sort_order INTEGER DEFAULT 0 NOT NULL,
+                    is_active BOOLEAN DEFAULT 1 NOT NULL,
+                    terms_version INTEGER DEFAULT 1 NOT NULL,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """)
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_layer_connection_type_layer_slug "
+                "ON layer_connection_type(layer_id, slug)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_type_layer_active "
+                "ON layer_connection_type(layer_id, is_active)"
+            )
+            conn.commit()
+            print('✅ Created layer_connection_type table')
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='layer_connection'"
+        )
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE layer_connection (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    connection_type_id VARCHAR(36) NOT NULL REFERENCES layer_connection_type(id),
+                    connector_kind VARCHAR(20) NOT NULL,
+                    guild_id VARCHAR(36) REFERENCES guild(id),
+                    source_layer_id VARCHAR(36) REFERENCES layer(id),
+                    external_name VARCHAR(255),
+                    external_url VARCHAR(500),
+                    representative_user_id VARCHAR(36) REFERENCES user(id),
+                    status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+                    message TEXT,
+                    agreement_accepted_at DATETIME,
+                    agreement_version INTEGER,
+                    submitted_by_user_id VARCHAR(36) REFERENCES user(id),
+                    reviewed_by_user_id VARCHAR(36) REFERENCES user(id),
+                    reviewed_at DATETIME,
+                    review_notes TEXT,
+                    rejected_reason TEXT,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """)
+            for idx_sql in (
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_layer ON layer_connection(layer_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_type ON layer_connection(connection_type_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_kind ON layer_connection(connector_kind)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_guild ON layer_connection(guild_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_source_layer ON layer_connection(source_layer_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_rep ON layer_connection(representative_user_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_status ON layer_connection(status)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_created ON layer_connection(created_at)",
+            ):
+                cursor.execute(idx_sql)
+            conn.commit()
+            print('✅ Created layer_connection table')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_layer_org_connections_v1: {e}')
+
+
+def migrate_overweb_connection_types_seed(app):
+    """Seed default org connection types for The Overweb (idempotent)."""
+    try:
+        from uuid import uuid4
+
+        from extensions import db
+        from models import Layer, LayerConnectionType
+
+        seed_types = (
+            {
+                'title': 'Community Partner',
+                'slug': 'community-partner',
+                'description': 'Organizations building alongside The Overweb community.',
+                'agreement_text': (
+                    'We commit to open collaboration, respectful participation, '
+                    'and alignment with The Overweb mission.'
+                ),
+                'requires_approval': True,
+                'is_open': True,
+                'sort_order': 10,
+            },
+            {
+                'title': 'Endorser',
+                'slug': 'endorser',
+                'description': 'Organizations that publicly endorse The Overweb.',
+                'agreement_text': (
+                    'We endorse The Overweb and agree our endorsement may be displayed '
+                    'on layer pages and related materials.'
+                ),
+                'requires_approval': True,
+                'is_open': True,
+                'sort_order': 20,
+            },
+            {
+                'title': 'Affiliate Layer',
+                'slug': 'affiliate-layer',
+                'description': 'A child or sister layer connecting to The Overweb.',
+                'agreement_text': (
+                    'We connect our layer to The Overweb and accept mutual visibility '
+                    'and coordination expectations.'
+                ),
+                'requires_approval': True,
+                'is_open': True,
+                'sort_order': 30,
+            },
+            {
+                'title': 'Ambassador',
+                'slug': 'ambassador',
+                'description': 'Individual representatives acting on behalf of an organization.',
+                'agreement_text': (
+                    'I represent my organization in good faith and will follow The Overweb '
+                    'community standards.'
+                ),
+                'requires_approval': True,
+                'is_open': True,
+                'sort_order': 40,
+            },
+        )
+
+        with app.app_context():
+            overweb = Layer.query.filter_by(slug='the-overweb').first()
+            if not overweb:
+                print('⚠️  migrate_overweb_connection_types_seed: the-overweb not found')
+                return
+            created = 0
+            for spec in seed_types:
+                if LayerConnectionType.query.filter_by(layer_id=overweb.id, slug=spec['slug']).first():
+                    continue
+                db.session.add(
+                    LayerConnectionType(
+                        id=str(uuid4()),
+                        layer_id=overweb.id,
+                        title=spec['title'],
+                        slug=spec['slug'],
+                        description=spec['description'],
+                        agreement_text=spec['agreement_text'],
+                        requires_approval=spec['requires_approval'],
+                        is_open=spec['is_open'],
+                        sort_order=spec['sort_order'],
+                        is_active=True,
+                        terms_version=1,
+                    )
+                )
+                created += 1
+            if created:
+                db.session.commit()
+                print(f'✅ Seeded {created} Overweb connection type(s)')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_overweb_connection_types_seed: {e}')
