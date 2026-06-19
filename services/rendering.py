@@ -122,12 +122,11 @@ def generate_participate_nav_html(layer_slug=None):
         immortalize_href = '/immortalize/'
         waitlists_href = '/waitlists/'
     lines = []
-    if r.get('dp_proposals', False):
+    if r.get('patches', False):
         lines.append(
             '<li><a class="dropdown-item" href="/dp-challenge/" data-gh-i18n="nav.dpChallenge">'
             'DP Challenge</a></li>'
         )
-    if r.get('document_edits', False):
         lines.append(
             '<li><a class="dropdown-item" href="/suggest-edit/" data-gh-i18n="nav.suggestEdit">'
             'Propose a Patch</a></li>'
@@ -156,6 +155,13 @@ def generate_participate_nav_html(layer_slug=None):
 def generate_community_nav_html(layer_slug=None):
     """Community dropdown; guilds link omitted when `guilds` is off."""
     r = _rollout_for_layer_slug(layer_slug)
+    conn_slug = layer_slug
+    mlgh_layer = False
+    if not conn_slug and has_request_context():
+        layer = getattr(g, 'layer', None)
+        if layer:
+            conn_slug = layer.slug
+            mlgh_layer = True
     if layer_slug:
         people_href = '/layer/' + layer_slug + '/person/'
         guilds_href = '/layer/' + layer_slug + '/guilds/'
@@ -168,6 +174,12 @@ def generate_community_nav_html(layer_slug=None):
     if r.get('guilds', True):
         lines.append(
             f'<li><a class="dropdown-item" href="{guilds_href}" data-gh-i18n="nav.guilds">Guilds</a></li>'
+        )
+    if conn_slug:
+        conn_prefix = '/layers/' if mlgh_layer else '/layer/'
+        conn_href = conn_prefix + conn_slug + '/connections/'
+        lines.append(
+            f'<li><a class="dropdown-item" href="{conn_href}" data-gh-i18n="nav.connections">Connections</a></li>'
         )
     return (
         '<li class="nav-item dropdown">'
@@ -560,11 +572,14 @@ def generate_user_menu(layer_slug=None, view_in_mlgh_slug=None):
                        current_user['username'])
         display_name_escaped = escape(display_name)
         profile_href = f'/profile/{escape(current_user.get("username") or "")}/'
+        from services.avatar import get_avatar_url
+
+        avatar_src = escape(get_avatar_url(current_user, 40))
 
         return f"""
         <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle gh-user-nav-name gh-user-nav-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-full-name="{display_name_escaped}" title="{display_name_escaped}" aria-label="{display_name_escaped}">
-                <img src="/static/images/profile-nav-icon.png?v=20260601" alt="" class="gh-profile-nav-icon" aria-hidden="true">
+                <img src="{avatar_src}" alt="" class="gh-profile-nav-icon" onerror="this.onerror=null;this.src='/static/images/default-avatar.png'">
             </a>
             <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="{profile_href}" data-gh-i18n="user.profile">Profile</a></li>

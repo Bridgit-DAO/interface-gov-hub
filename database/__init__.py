@@ -56,6 +56,13 @@ def init_db(app):
             migrate_custodial_wallet_v1,
             migrate_comment_is_deleted_v1,
             migrate_comment_like_v1,
+            migrate_invitation_shareable_v1,
+            migrate_reader_comments_v1,
+            migrate_campaign_endorsements_v1,
+            migrate_monument_json_v1,
+            migrate_bridgitdao_canopi_admin,
+            migrate_layer_org_connections_v1,
+            migrate_overweb_connection_types_seed,
             migrate_hardcoded_users,
         )
 
@@ -109,5 +116,12 @@ def init_db(app):
         migrate_custodial_wallet_v1(app)
         migrate_comment_is_deleted_v1(app)
         migrate_comment_like_v1(app)
+        migrate_invitation_shareable_v1(app)
+        migrate_reader_comments_v1(app)
+        migrate_campaign_endorsements_v1(app)
+        migrate_monument_json_v1(app)
+        migrate_bridgitdao_canopi_admin(app)
+        migrate_layer_org_connections_v1(app)
+        migrate_overweb_connection_types_seed(app)
 
         print(f"Database initialized: {User.query.count()} users")

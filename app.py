@@ -168,6 +168,9 @@ def create_app():
     from routes.platform_invitations import bp as platform_invitations_bp
     from routes.metaweb import bp as metaweb_bp
     from routes.canopi_internal import bp as canopi_internal_bp
+    from routes.campaign_pages import bp as campaign_pages_bp
+    from routes.layer_connections import bp as layer_connections_bp
+    from routes.layer_connections_pages import bp as layer_connections_pages_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -232,6 +235,9 @@ def create_app():
     app.register_blueprint(platform_invitations_bp)
     app.register_blueprint(metaweb_bp)
     app.register_blueprint(canopi_internal_bp)
+    app.register_blueprint(campaign_pages_bp)
+    app.register_blueprint(layer_connections_bp)
+    app.register_blueprint(layer_connections_pages_bp)
 
     # CLI
     from cli import register_cli
@@ -261,6 +267,29 @@ def create_app():
     from services.rendering import configure_rendering
     FONT_AWESOME_LINK = '<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">'
     configure_rendering(BASE_TEMPLATE, FONT_AWESOME_LINK, BUILD_NUMBER)
+
+    @app.route('/static/images/reader-guide/<path:filename>')
+    def reader_guide_gif(filename):
+        """Serve reader-guide media with Content-Type matching file bytes (not extension only)."""
+        from flask import abort, send_file
+        if '..' in filename or filename.startswith('/'):
+            abort(404)
+        base = filename.split('?', 1)[0]
+        directory = os.path.join(app.root_path, 'static', 'images', 'reader-guide')
+        path = os.path.join(directory, base)
+        if not os.path.isfile(path):
+            abort(404)
+        with open(path, 'rb') as handle:
+            magic = handle.read(6)
+        if magic[:3] == b'GIF':
+            mime = 'image/gif'
+        elif magic[:2] == b'\xff\xd8':
+            mime = 'image/jpeg'
+        elif magic[:8] == b'\x89PNG\r\n\x1a\n':
+            mime = 'image/png'
+        else:
+            mime = 'application/octet-stream'
+        return send_file(path, mimetype=mime, conditional=True)
 
     # Log OAuth errors (token exchange failures, etc.) for debugging
     import logging
@@ -294,3 +323,5 @@ def create_app():
 
 # Module-level app for direct import (e.g. from app import app)
 app = create_app()
+from middleware.campaign_host_wsgi import wrap_campaign_host_rewrite
+app.wsgi_app = wrap_campaign_host_rewrite(app.wsgi_app, app)

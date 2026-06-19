@@ -1502,6 +1502,35 @@ def migrate_hardcoded_users(app):
         )
 
 
+def migrate_bridgitdao_canopi_admin(app):
+    """Ensure Bridgit DAO can administer Canopi through Web3Auth email linking."""
+    import secrets
+
+    email = 'bridgitdao@gmail.com'
+    username = 'bridgitdao'
+    user = User.query.filter(db.func.lower(User.email) == email).first()
+    if not user:
+        existing_username = User.query.filter_by(username=username).first()
+        if existing_username:
+            username = f'bridgitdao-{uuid4().hex[:8]}'
+        user = User(
+            username=username,
+            password_hash=generate_password_hash(secrets.token_urlsafe(32)),
+            name='Bridgit DAO',
+            email=email,
+            role='admin',
+            theme='dark',
+        )
+        db.session.add(user)
+        db.session.commit()
+        print('✅ Created bridgitdao@gmail.com admin placeholder')
+        return
+    if user.role != 'admin':
+        user.role = 'admin'
+        db.session.commit()
+        print('✅ Promoted bridgitdao@gmail.com to admin')
+
+
 def migrate_layer_invitations(app):
     """Create layer_invitation table for member email invites."""
     try:
@@ -1920,3 +1949,427 @@ def migrate_comment_like_v1(app):
         print('✅ Created comment_like table')
     except Exception as e:
         print(f'⚠️  Error in migrate_comment_like_v1: {e}')
+
+
+def migrate_invitation_shareable_v1(app):
+    """Shareable vs private invitations; multi-use accept log; non-expiring shareable links."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        for table, cols in (
+            ('platform_invitation', (
+                ('binding_mode', "VARCHAR(20) NOT NULL DEFAULT 'private'"),
+                ('revoked_at', 'DATETIME'),
+            )),
+            ('layer_invitation', (
+                ('binding_mode', "VARCHAR(20) NOT NULL DEFAULT 'private'"),
+                ('revoked_at', 'DATETIME'),
+            )),
+        ):
+            cursor.execute(f'PRAGMA table_info({table})')
+            existing = {row[1] for row in cursor.fetchall()}
+            for col, col_type in cols:
+                if col not in existing:
+                    cursor.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}')
+                    print(f'✅ Added {table}.{col}')
+
+        # SQLite: allow NULL expires_at for non-expiring shareable links (recreate table).
+        for table in ('platform_invitation', 'layer_invitation'):
+            cursor.execute(f'PRAGMA table_info({table})')
+            info = cursor.fetchall()
+            expires_col = next((c for c in info if c[1] == 'expires_at'), None)
+            if expires_col and expires_col[3] == 1:
+                cursor.execute(f'ALTER TABLE {table} RENAME TO {table}_old')
+                if table == 'platform_invitation':
+                    cursor.execute("""
+                        CREATE TABLE platform_invitation (
+                            id VARCHAR(36) PRIMARY KEY,
+                            invite_type VARCHAR(40) NOT NULL,
+                            rate_category VARCHAR(20) NOT NULL DEFAULT 'standard',
+                            inviter_id VARCHAR(36) NOT NULL,
+                            invitee_email VARCHAR(255) NOT NULL,
+                            invitee_id VARCHAR(36),
+                            message TEXT,
+                            target_json TEXT NOT NULL DEFAULT '{}',
+                            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                            outcome_note VARCHAR(255),
+                            token VARCHAR(100) NOT NULL UNIQUE,
+                            binding_mode VARCHAR(20) NOT NULL DEFAULT 'private',
+                            created_at DATETIME,
+                            expires_at DATETIME,
+                            revoked_at DATETIME,
+                            responded_at DATETIME,
+                            FOREIGN KEY (inviter_id) REFERENCES user(id),
+                            FOREIGN KEY (invitee_id) REFERENCES user(id)
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO platform_invitation (
+                            id, invite_type, rate_category, inviter_id, invitee_email,
+                            invitee_id, message, target_json, status, outcome_note, token,
+                            binding_mode, created_at, expires_at, revoked_at, responded_at
+                        )
+                        SELECT
+                            id, invite_type, rate_category, inviter_id, invitee_email,
+                            invitee_id, message, target_json, status, outcome_note, token,
+                            COALESCE(binding_mode, 'private'), created_at, expires_at,
+                            revoked_at, responded_at
+                        FROM platform_invitation_old
+                    """)
+                else:
+                    cursor.execute("""
+                        CREATE TABLE layer_invitation (
+                            id VARCHAR(36) PRIMARY KEY,
+                            layer_id VARCHAR(36) NOT NULL,
+                            inviter_id VARCHAR(36) NOT NULL,
+                            invitee_email VARCHAR(255) NOT NULL,
+                            invitee_id VARCHAR(36),
+                            message TEXT,
+                            status VARCHAR(20) DEFAULT 'pending',
+                            outcome_note VARCHAR(255),
+                            token VARCHAR(100) NOT NULL UNIQUE,
+                            binding_mode VARCHAR(20) NOT NULL DEFAULT 'private',
+                            created_at DATETIME,
+                            expires_at DATETIME,
+                            revoked_at DATETIME,
+                            responded_at DATETIME
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO layer_invitation (
+                            id, layer_id, inviter_id, invitee_email, invitee_id, message,
+                            status, outcome_note, token, binding_mode, created_at,
+                            expires_at, revoked_at, responded_at
+                        )
+                        SELECT
+                            id, layer_id, inviter_id, invitee_email, invitee_id, message,
+                            status, outcome_note, token, COALESCE(binding_mode, 'private'),
+                            created_at, expires_at, revoked_at, responded_at
+                        FROM layer_invitation_old
+                    """)
+                cursor.execute(f'DROP TABLE {table}_old')
+                print(f'✅ {table}.expires_at now nullable')
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS platform_invitation_acceptance (
+                id VARCHAR(36) PRIMARY KEY,
+                invitation_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                created_at DATETIME NOT NULL,
+                FOREIGN KEY (invitation_id) REFERENCES platform_invitation(id),
+                FOREIGN KEY (user_id) REFERENCES user(id),
+                UNIQUE (invitation_id, user_id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pi_accept_invite ON platform_invitation_acceptance(invitation_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pi_accept_user ON platform_invitation_acceptance(user_id)'
+        )
+
+        # Backfill shareable binding for open campaign invite types (existing rows stay usable).
+        cursor.execute("""
+            UPDATE platform_invitation
+            SET binding_mode = 'shareable', expires_at = NULL
+            WHERE invite_type IN ('participate_dp', 'edit_document', 'edit_document_passage')
+              AND status = 'pending'
+              AND (binding_mode IS NULL OR binding_mode = '' OR binding_mode = 'private')
+        """)
+
+        cursor.execute('SELECT id, listing_visibility FROM layer')
+        public_layer_ids = [
+            row[0] for row in cursor.fetchall()
+            if (row[1] or 'public') == 'public'
+        ]
+        if public_layer_ids:
+            placeholders = ','.join('?' * len(public_layer_ids))
+            cursor.execute(
+                f"""
+                UPDATE layer_invitation
+                SET binding_mode = 'shareable', expires_at = NULL
+                WHERE layer_id IN ({placeholders})
+                  AND status = 'pending'
+                """,
+                public_layer_ids,
+            )
+
+        conn.commit()
+        conn.close()
+        print('✅ invitation shareable v1 ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_invitation_shareable_v1: {e}')
+
+
+def migrate_reader_comments_v1(app):
+    """Passage-anchored threaded comments on document read pages."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(comment)')
+        cols = {row[1] for row in cursor.fetchall()}
+        for col, col_type in (
+            ('submission_id', 'VARCHAR(36)'),
+            ('comment_scope', "VARCHAR(20) DEFAULT 'document'"),
+            ('anchor_hash', 'VARCHAR(64)'),
+            ('context_anchor', 'TEXT'),
+            ('passage_excerpt', 'TEXT'),
+        ):
+            if col not in cols:
+                cursor.execute(f'ALTER TABLE comment ADD COLUMN {col} {col_type}')
+                print(f'✅ Added comment.{col}')
+        conn.commit()
+        conn.close()
+        print('✅ reader comments v1 ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_reader_comments_v1: {e}')
+
+
+def migrate_campaign_endorsements_v1(app):
+    """Public campaign endorsements (moderated)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='campaign_endorsement'"
+        )
+        if not cursor.fetchone():
+            cursor.execute('''
+                CREATE TABLE campaign_endorsement (
+                    id VARCHAR(36) PRIMARY KEY,
+                    campaign_slug VARCHAR(80) NOT NULL,
+                    user_id VARCHAR(36) NOT NULL,
+                    endorsement_type VARCHAR(40) NOT NULL,
+                    display_name VARCHAR(200) NOT NULL,
+                    affiliation VARCHAR(300),
+                    comment TEXT,
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    created_at DATETIME NOT NULL,
+                    reviewed_at DATETIME,
+                    reviewed_by_user_id VARCHAR(36),
+                    FOREIGN KEY(user_id) REFERENCES user(id),
+                    FOREIGN KEY(reviewed_by_user_id) REFERENCES user(id)
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX idx_campaign_endorsement_slug ON campaign_endorsement (campaign_slug)'
+            )
+            cursor.execute(
+                'CREATE INDEX idx_campaign_endorsement_status ON campaign_endorsement (status)'
+            )
+            conn.commit()
+            print('✅ Created campaign_endorsement table')
+        else:
+            print('✅ campaign_endorsement table already exists')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_campaign_endorsements_v1: {e}')
+
+
+def migrate_monument_json_v1(app):
+    """Book-capable monument fields for presentation and JSON node structure."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(monument)')
+        cols = {row[1] for row in cursor.fetchall()}
+        for col, col_type in (
+            ('campaign_slug', 'VARCHAR(80)'),
+            ('custom_domains_json', 'TEXT'),
+            ('presentation_json', 'TEXT'),
+            ('structure_json', 'TEXT'),
+        ):
+            if col not in cols:
+                cursor.execute(f'ALTER TABLE monument ADD COLUMN {col} {col_type}')
+                print(f'✅ Added monument.{col}')
+        try:
+            cursor.execute(
+                'CREATE UNIQUE INDEX idx_monument_campaign_slug ON monument (campaign_slug)'
+            )
+        except sqlite3.OperationalError:
+            pass
+        conn.commit()
+        conn.close()
+        print('✅ monument json v1 ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_monument_json_v1: {e}')
+
+
+def migrate_layer_org_connections_v1(app):
+    """Create layer_connection_type and layer_connection tables (org connections MVP)."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='layer_connection_type'"
+        )
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE layer_connection_type (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    title VARCHAR(120) NOT NULL,
+                    slug VARCHAR(120) NOT NULL,
+                    description TEXT,
+                    agreement_text TEXT,
+                    requires_approval BOOLEAN DEFAULT 1 NOT NULL,
+                    is_open BOOLEAN DEFAULT 1 NOT NULL,
+                    sort_order INTEGER DEFAULT 0 NOT NULL,
+                    is_active BOOLEAN DEFAULT 1 NOT NULL,
+                    terms_version INTEGER DEFAULT 1 NOT NULL,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """)
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_layer_connection_type_layer_slug "
+                "ON layer_connection_type(layer_id, slug)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_type_layer_active "
+                "ON layer_connection_type(layer_id, is_active)"
+            )
+            conn.commit()
+            print('✅ Created layer_connection_type table')
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='layer_connection'"
+        )
+        if not cursor.fetchone():
+            cursor.execute("""
+                CREATE TABLE layer_connection (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL REFERENCES layer(id),
+                    connection_type_id VARCHAR(36) NOT NULL REFERENCES layer_connection_type(id),
+                    connector_kind VARCHAR(20) NOT NULL,
+                    guild_id VARCHAR(36) REFERENCES guild(id),
+                    source_layer_id VARCHAR(36) REFERENCES layer(id),
+                    external_name VARCHAR(255),
+                    external_url VARCHAR(500),
+                    representative_user_id VARCHAR(36) REFERENCES user(id),
+                    status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+                    message TEXT,
+                    agreement_accepted_at DATETIME,
+                    agreement_version INTEGER,
+                    submitted_by_user_id VARCHAR(36) REFERENCES user(id),
+                    reviewed_by_user_id VARCHAR(36) REFERENCES user(id),
+                    reviewed_at DATETIME,
+                    review_notes TEXT,
+                    rejected_reason TEXT,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """)
+            for idx_sql in (
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_layer ON layer_connection(layer_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_type ON layer_connection(connection_type_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_kind ON layer_connection(connector_kind)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_guild ON layer_connection(guild_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_source_layer ON layer_connection(source_layer_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_rep ON layer_connection(representative_user_id)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_status ON layer_connection(status)",
+                "CREATE INDEX IF NOT EXISTS idx_layer_connection_created ON layer_connection(created_at)",
+            ):
+                cursor.execute(idx_sql)
+            conn.commit()
+            print('✅ Created layer_connection table')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_layer_org_connections_v1: {e}')
+
+
+def migrate_overweb_connection_types_seed(app):
+    """Seed default org connection types for The Overweb (idempotent)."""
+    try:
+        from uuid import uuid4
+
+        from extensions import db
+        from models import Layer, LayerConnectionType
+
+        seed_types = (
+            {
+                'title': 'Community Partner',
+                'slug': 'community-partner',
+                'description': 'Organizations building alongside The Overweb community.',
+                'agreement_text': (
+                    'We commit to open collaboration, respectful participation, '
+                    'and alignment with The Overweb mission.'
+                ),
+                'requires_approval': True,
+                'is_open': True,
+                'sort_order': 10,
+            },
+            {
+                'title': 'Endorser',
+                'slug': 'endorser',
+                'description': 'Organizations that publicly endorse The Overweb.',
+                'agreement_text': (
+                    'We endorse The Overweb and agree our endorsement may be displayed '
+                    'on layer pages and related materials.'
+                ),
+                'requires_approval': True,
+                'is_open': True,
+                'sort_order': 20,
+            },
+            {
+                'title': 'Affiliate Layer',
+                'slug': 'affiliate-layer',
+                'description': 'A child or sister layer connecting to The Overweb.',
+                'agreement_text': (
+                    'We connect our layer to The Overweb and accept mutual visibility '
+                    'and coordination expectations.'
+                ),
+                'requires_approval': True,
+                'is_open': True,
+                'sort_order': 30,
+            },
+            {
+                'title': 'Ambassador',
+                'slug': 'ambassador',
+                'description': 'Individual representatives acting on behalf of an organization.',
+                'agreement_text': (
+                    'I represent my organization in good faith and will follow The Overweb '
+                    'community standards.'
+                ),
+                'requires_approval': True,
+                'is_open': True,
+                'sort_order': 40,
+            },
+        )
+
+        with app.app_context():
+            overweb = Layer.query.filter_by(slug='the-overweb').first()
+            if not overweb:
+                print('⚠️  migrate_overweb_connection_types_seed: the-overweb not found')
+                return
+            created = 0
+            for spec in seed_types:
+                if LayerConnectionType.query.filter_by(layer_id=overweb.id, slug=spec['slug']).first():
+                    continue
+                db.session.add(
+                    LayerConnectionType(
+                        id=str(uuid4()),
+                        layer_id=overweb.id,
+                        title=spec['title'],
+                        slug=spec['slug'],
+                        description=spec['description'],
+                        agreement_text=spec['agreement_text'],
+                        requires_approval=spec['requires_approval'],
+                        is_open=spec['is_open'],
+                        sort_order=spec['sort_order'],
+                        is_active=True,
+                        terms_version=1,
+                    )
+                )
+                created += 1
+            if created:
+                db.session.commit()
+                print(f'✅ Seeded {created} Overweb connection type(s)')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_overweb_connection_types_seed: {e}')
