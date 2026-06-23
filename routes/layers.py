@@ -111,11 +111,14 @@ def list_layers():
         query = query.filter_by(approval_status=approval_status)
 
     # Hide imported auth shells from default directory (Revised Option C).
+    # Use OR-of-negations so NULL layer_kind/stewardship (standard layers) stay visible in SQLite.
     if request.args.get('include_auth_imports') != '1':
         query = query.filter(
-            ~db.and_(
-                Layer.layer_kind == 'auth_community',
-                Layer.stewardship == 'unmanaged',
+            db.or_(
+                Layer.layer_kind.is_(None),
+                Layer.layer_kind != 'auth_community',
+                Layer.stewardship.is_(None),
+                Layer.stewardship != 'unmanaged',
             )
         )
 
@@ -575,6 +578,20 @@ def approve_layer(layer_id):
         changed_by_id=current_user['id']
     )
     db.session.add(status_change)
+
+    if action == 'approve' and project.status == 'proposed':
+        old_op_status = project.status
+        project.status = 'active'
+        db.session.add(StatusChange(
+            entity_type='project',
+            entity_id=layer_id,
+            field_name='status',
+            from_value=old_op_status,
+            to_value='active',
+            note='Auto-activated on site admin approval',
+            changed_by_id=current_user['id']
+        ))
+
     db.session.commit()
 
     if action == 'approve':
@@ -1137,6 +1154,24 @@ def api_project_send_email(layer_id):
             sent += 1
 
     return jsonify({'sent': sent, 'total': len(recipients)}), 200
+
+
+@bp.route('/<layer_id>/invitations/campaign/', methods=['POST'])
+@require_auth
+def layer_shareable_campaign(layer_id):
+    """Return the shareable layer join link (public layers only)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    from services.layer_invitations import get_shareable_layer_campaign
+
+    data = request.get_json() or {}
+    body, status = get_shareable_layer_campaign(
+        layer_id=layer_id,
+        inviter_id=current_user['id'],
+        message=data.get('message'),
+    )
+    return jsonify(body), status
 
 
 @bp.route('/<layer_id>/invitations/', methods=['GET', 'POST'])
