@@ -956,6 +956,7 @@ BASE_TEMPLATE = """
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/gh-return-nav.js"></script>
     <script src="/static/js/gh-dialog.js"></script>
+    <script src="/static/js/gh-image-crop.js"></script>
     <script src="/static/js/gh-invite.js?v=18"></script>
     <script src="/static/js/gh-theme.js?v=2" defer></script>
     <script>

@@ -626,12 +626,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                             <label for="edit-project-image-url" class="form-label">Image (optional)</label>
                             <input type="url" class="form-control mb-2" id="edit-project-image-url" placeholder="https://example.com/image.png or upload below">
                             <div class="input-group">
-                                <input type="file" class="form-control" id="edit-project-image-file" accept="image/*">
-                                <button class="btn btn-outline-primary" type="button" onclick="uploadProjectImage()">
-                                    <i class="fas fa-upload"></i> Upload
-                                </button>
+                                <input type="file" class="form-control" id="edit-project-image-file" accept="image/*" onchange="openProjectImageCrop()">
                             </div>
-                            <div class="form-text">Layer logo or banner image. Max 600×600px, 5MB. Upload or paste URL above.</div>
+                            <div class="form-text">Square image (will be cropped to 600×600). Select a file to open the crop tool.</div>
                             <div id="edit-project-image-upload-status" class="mt-1"></div>
                             <div class="mt-2 text-center">
                                 <img id="edit-project-image-preview" src="" alt="Layer image preview" class="img-fluid rounded layer-hero-image d-none" style="max-height: 120px; object-fit: contain;">
@@ -3572,33 +3569,48 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         return badges[approval] || '';
     }}
     
-    async function uploadProjectImage() {{
+    function openProjectImageCrop() {{
+        const fileInput = document.getElementById('edit-project-image-file');
+        const statusEl = document.getElementById('edit-project-image-upload-status');
+        if (!fileInput.files || !fileInput.files[0]) return;
+        const file = fileInput.files[0];
+        if (!file.type.startsWith('image/')) {{
+            statusEl.innerHTML = '<small class="text-danger">Please select an image file</small>';
+            fileInput.value = '';
+            return;
+        }}
+        statusEl.innerHTML = '';
+        GhImageCrop.open(file, {{
+            onConfirm: function(blob) {{ uploadCroppedProjectImage(blob); }},
+            onCancel: function() {{ fileInput.value = ''; }}
+        }});
+    }}
+
+    async function uploadCroppedProjectImage(blob) {{
         const fileInput = document.getElementById('edit-project-image-file');
         const statusEl = document.getElementById('edit-project-image-upload-status');
         const urlInput = document.getElementById('edit-project-image-url');
-        
-        if (!fileInput.files || !fileInput.files[0]) {{
-            statusEl.innerHTML = '<small class="text-danger">Please select a file first</small>';
-            return;
-        }}
-        
+        const previewImg = document.getElementById('edit-project-image-preview');
+
         const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
+        formData.append('file', new File([blob], 'layer-image.jpg', {{ type: 'image/jpeg' }}));
         formData.append('entity_type', 'project');
-        
+
         statusEl.innerHTML = '<small class="text-info"><i class="fas fa-spinner fa-spin"></i> Uploading...</small>';
-        
+
         try {{
             const response = await fetch('/api/upload/entity-image', {{
                 method: 'POST',
                 credentials: 'include',
                 body: formData
             }});
-            
+
             const data = await response.json();
-            
+
             if (response.ok && data.image_url) {{
                 urlInput.value = data.image_url;
+                previewImg.src = data.image_url;
+                previewImg.classList.remove('d-none');
                 try {{
                     const patchRes = await fetch('/api/layers/' + project.id + '/', {{
                         method: 'PATCH',
@@ -3612,7 +3624,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                         project._imgBust = Date.now();
                         await refreshProjectFromApi();
                         syncLayerBrandImages();
-                        statusEl.innerHTML = '<small class="text-success"><i class="fas fa-check"></i> Image uploaded and saved</small>';
+                        statusEl.innerHTML = '<small class="text-success"><i class="fas fa-check"></i> Image cropped, uploaded, and saved</small>';
                     }} else {{
                         const err = (patchData && patchData.error) ? patchData.error : ('HTTP ' + patchRes.status);
                         statusEl.innerHTML = '<small class="text-danger"><i class="fas fa-exclamation-triangle"></i> Upload OK but save failed: ' + escapeHtmlBasic(err) + '</small>';
