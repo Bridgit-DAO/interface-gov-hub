@@ -342,12 +342,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                             </div>
                         </div>
                     </div>
-                    <p class="text-muted small" id="layer-invite-email-hint">Send an invitation link to join this layer. If they are already a member, we will note it and skip the email.</p>
+                    <p class="text-muted small" id="layer-invite-email-hint">Send invitation links to join this layer. You can invite multiple people at once. Already-members will be skipped.</p>
                     <p class="small text-muted d-none" id="layer-invite-email-divider">Or invite specific people by email</p>
                     <form id="inviteMemberForm" onsubmit="return false;">
                         <div class="mb-3">
-                            <label for="invite-member-email" class="form-label">Email address</label>
-                            <input type="email" class="form-control" id="invite-member-email" placeholder="colleague@example.com">
+                            <label for="invite-member-email" class="form-label">Email address(es)</label>
+                            <textarea class="form-control" id="invite-member-email" rows="2" placeholder="colleague@example.com, friend@example.com"></textarea>
+                            <div class="form-text">Separate multiple emails with commas or new lines</div>
                         </div>
                         <div class="mb-0">
                             <label for="invite-member-message" class="form-label">Personal note (optional)</label>
@@ -357,7 +358,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="invite-member-submit-btn" onclick="submitLayerInvite()"><i class="fas fa-paper-plane me-2"></i>Send invitation</button>
+                    <button type="button" class="btn btn-primary" id="invite-member-submit-btn" onclick="submitLayerInvite()"><i class="fas fa-paper-plane me-2"></i>Send invitation(s)</button>
                 </div>
             </div>
         </div>
@@ -1075,12 +1076,12 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const msgEl = document.getElementById('invite-member-message');
         const alertEl = document.getElementById('invite-member-alert');
         const btn = document.getElementById('invite-member-submit-btn');
-        const email = emailEl && emailEl.value ? emailEl.value.trim() : '';
+        const rawInput = emailEl && emailEl.value ? emailEl.value.trim() : '';
         const message = msgEl && msgEl.value ? msgEl.value.trim() : '';
         if (alertEl) alertEl.classList.add('d-none');
         const shareUrl = document.getElementById('layer-invite-shareable-url');
         const isPublicLayer = project && (project.listing_visibility || 'public') === 'public';
-        if (!email && !isPublicLayer) {{
+        if (!rawInput && !isPublicLayer) {{
             if (alertEl) {{
                 alertEl.textContent = 'Email address is required for private layers';
                 alertEl.className = 'alert alert-danger';
@@ -1088,11 +1089,11 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }}
             return;
         }}
-        if (!email && isPublicLayer && shareUrl && shareUrl.value) {{
+        if (!rawInput && isPublicLayer && shareUrl && shareUrl.value) {{
             renderInviteLinkAlert(alertEl, 'Copy the shareable link above to invite anyone.', shareUrl.value, 'info');
             return;
         }}
-        if (!email) {{
+        if (!rawInput) {{
             if (alertEl) {{
                 alertEl.textContent = 'Enter an email or use the shareable link above';
                 alertEl.className = 'alert alert-danger';
@@ -1100,51 +1101,76 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }}
             return;
         }}
-        if (btn) {{
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Sending…';
-        }}
-        try {{
-            const res = await fetch('/api/layers/' + project.id + '/invitations/', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }},
-                credentials: 'same-origin',
-                body: JSON.stringify({{ email: email, message: message || null }})
-            }});
-            const data = await res.json();
-            if (res.ok) {{
-                let msg = data.message || (data.duplicate ? 'Already a member — no email sent.' : (data.resent ? 'Invitation email resent.' : 'Invitation sent.'));
-                let alertClass = data.duplicate ? 'secondary' : 'success';
-                let inviteLink = '';
-                if (!data.duplicate) {{
-                    const path = data.invite_path || (data.invitation && data.invitation.token ? '/layer/invite/' + data.invitation.token + '/' : '');
-                    inviteLink = path ? (window.location.origin + path) : '';
-                }}
-                if (!data.duplicate && data.email_sent === false) {{
-                    msg = 'Invitation saved, but email could not be sent (Resend is in test mode or the domain is not verified). Share this link manually:';
-                    alertClass = 'warning';
-                }}
-                renderInviteLinkAlert(alertEl, msg, inviteLink, alertClass);
-                if (!data.duplicate && emailEl) emailEl.value = '';
-                if (msgEl) msgEl.value = '';
-            }} else {{
-                if (alertEl) {{
-                    alertEl.textContent = data.error || 'Failed to send invitation';
-                    alertEl.className = 'alert alert-danger';
-                    alertEl.classList.remove('d-none');
-                }}
-            }}
-        }} catch (e) {{
+
+        const emails = rawInput.split(/[,;\n]+/).map(e => e.trim()).filter(e => e.length > 0);
+        if (emails.length === 0) {{
             if (alertEl) {{
-                alertEl.textContent = e.message || 'Failed to send invitation';
+                alertEl.textContent = 'Enter at least one valid email address';
                 alertEl.className = 'alert alert-danger';
                 alertEl.classList.remove('d-none');
             }}
-        }} finally {{
-            if (btn) {{
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send invitation';
+            return;
+        }}
+
+        if (btn) {{
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Sending ' + emails.length + '…';
+        }}
+
+        const results = [];
+        for (const email of emails) {{
+            try {{
+                const res = await fetch('/api/layers/' + project.id + '/invitations/', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    credentials: 'same-origin',
+                    body: JSON.stringify({{ email: email, message: message || null }})
+                }});
+                const data = await res.json();
+                if (res.ok) {{
+                    if (data.duplicate) {{
+                        results.push({{ email, status: 'duplicate', msg: 'Already a member' }});
+                    }} else if (data.email_sent === false) {{
+                        const path = data.invite_path || (data.invitation && data.invitation.token ? '/layer/invite/' + data.invitation.token + '/' : '');
+                        results.push({{ email, status: 'link', msg: 'Email not sent — share link', link: path ? (window.location.origin + path) : '' }});
+                    }} else {{
+                        results.push({{ email, status: 'sent', msg: data.resent ? 'Resent' : 'Sent' }});
+                    }}
+                }} else {{
+                    results.push({{ email, status: 'error', msg: data.error || 'Failed' }});
+                }}
+            }} catch (e) {{
+                results.push({{ email, status: 'error', msg: e.message || 'Network error' }});
             }}
+        }}
+
+        const sent = results.filter(r => r.status === 'sent').length;
+        const dupes = results.filter(r => r.status === 'duplicate').length;
+        const errors = results.filter(r => r.status === 'error').length;
+        const links = results.filter(r => r.status === 'link');
+
+        let summaryHtml = '';
+        if (sent > 0) summaryHtml += '<div class="text-success small"><i class="fas fa-check me-1"></i>' + sent + ' invitation' + (sent > 1 ? 's' : '') + ' sent</div>';
+        if (dupes > 0) summaryHtml += '<div class="text-muted small"><i class="fas fa-info-circle me-1"></i>' + dupes + ' already member' + (dupes > 1 ? 's' : '') + '</div>';
+        if (errors > 0) summaryHtml += '<div class="text-danger small"><i class="fas fa-times me-1"></i>' + errors + ' failed: ' + results.filter(r => r.status === 'error').map(r => r.email).join(', ') + '</div>';
+        if (links.length > 0) {{
+            summaryHtml += '<div class="text-warning small mt-1"><i class="fas fa-link me-1"></i>Email could not be sent for ' + links.length + '. Share links manually:</div>';
+            links.forEach(r => {{
+                if (r.link) summaryHtml += '<div class="small font-monospace text-truncate">' + escapeHtmlBasic(r.email) + ': <a href="' + escapeHtmlBasic(r.link) + '">' + escapeHtmlBasic(r.link) + '</a></div>';
+            }});
+        }}
+
+        if (alertEl) {{
+            alertEl.innerHTML = summaryHtml;
+            alertEl.className = 'alert alert-' + (errors > 0 ? 'warning' : (dupes === results.length ? 'secondary' : 'success'));
+            alertEl.classList.remove('d-none');
+        }}
+        if (errors === 0 && emailEl) emailEl.value = '';
+        if (errors === 0 && msgEl) msgEl.value = '';
+
+        if (btn) {{
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send invitation';
         }}
     }}
     
