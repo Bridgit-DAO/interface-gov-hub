@@ -1184,6 +1184,10 @@ BASE_TEMPLATE = """
                 const instance = new Web3AuthConstructor(web3AuthConfig);
                 await instance.init();
                 web3auth = instance;
+                if (web3auth.connected && window.location.pathname === '/login/') {{
+                    console.log('Web3Auth: clearing stale session on login page');
+                    try {{ await web3auth.logout(); }} catch (_e) {{}}
+                }}
                 console.log('Web3Auth initialized successfully');
                 setWeb3AuthUiState('ready');
                 return web3auth;
