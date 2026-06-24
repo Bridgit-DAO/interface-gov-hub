@@ -1102,7 +1102,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             return;
         }}
 
-        const emails = rawInput.split(/[,;\n]+/).map(e => e.trim()).filter(e => e.length > 0);
+        const emails = rawInput.split(/[,;\\n]+/).map(e => e.trim()).filter(e => e.length > 0);
         if (emails.length === 0) {{
             if (alertEl) {{
                 alertEl.textContent = 'Enter at least one valid email address';
