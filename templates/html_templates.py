@@ -1484,10 +1484,12 @@ BASE_TEMPLATE = """
                     window.location.replace(dest);
                 }} else {{
                     console.error('Backend error:', result);
+                    try {{ await web3auth.logout(); }} catch (_e) {{}}
                     alert('Login failed: ' + (result.error || 'Unknown error'));
                 }}
             }} catch (error) {{
                 console.error('Login failed:', error);
+                try {{ if (web3auth) await web3auth.logout(); }} catch (_e) {{}}
                 if (error.message && !error.message.includes('user closed')) {{
                     var msg = error.message;
                     if (/could not verify identity/i.test(msg)) {{
