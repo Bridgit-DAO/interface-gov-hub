@@ -9,9 +9,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from extensions import db
-from models import DpProposal, Submission, User, Workgroup, WorkingGroupChair
+from models import DpProposal, Submission, User, Workgroup
 from services.coordination import is_layer_admin, is_site_moderation_staff
 from services.submissions import get_submission_by_ref
+from services.workgroup_authority import is_workgroup_leadership
 
 
 def resolve_canonical_submission(submission: Optional[Submission]) -> Optional[Submission]:
@@ -62,7 +63,6 @@ def reassign_proposals_to_canonical_submissions() -> int:
         db.session.commit()
     return moved
 from services.workgroup_links import extract_dp_number_from_title, is_dp_workgroup
-from services.workgroup_positions import NOMINATION_STATUS_APPROVED
 
 _NBSP_RE = re.compile('\u00a0')
 _SENTENCE_RE = re.compile(r'[^.!?\u3002\n]+[.!?\u3002\n]+|[^.!?\u3002\n]+$')
@@ -242,21 +242,7 @@ def can_manage_amendments(user: Optional[dict], workgroup: Optional[Workgroup]) 
     if workgroup.layer_id and workgroup.layer:
         if is_layer_admin(workgroup.layer, user):
             return True
-    uid = user.get('id')
-    if uid and workgroup.coordinator_id == uid:
-        return True
-    if not workgroup.acronym or not uid:
-        return False
-    approved_chair = WorkingGroupChair.query.filter(
-        WorkingGroupChair.group_acronym == workgroup.acronym,
-        WorkingGroupChair.position_key == 'chair',
-        WorkingGroupChair.user_id == uid,
-        db.or_(
-            WorkingGroupChair.status == NOMINATION_STATUS_APPROVED,
-            WorkingGroupChair.approved.is_(True),
-        ),
-    ).first()
-    return approved_chair is not None
+    return is_workgroup_leadership(workgroup, user)
 
 
 def require_dp_proposals_enabled() -> Optional[Tuple[dict, int]]:

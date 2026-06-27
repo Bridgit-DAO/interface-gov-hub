@@ -22,6 +22,8 @@ from services.workgroup_links import (
     search_draft_documents,
     workgroup_display_sort_key,
 )
+from services.workgroup_authority import can_invite_workgroup_member, can_manage_workgroup
+from services.workgroup_membership import join_or_request_workgroup_membership
 from services.workgroup_positions import (
     WORKGROUP_POSITIONS,
     ACTIVE_NOMINATION_STATUSES,
@@ -141,26 +143,8 @@ def get_workgroup(workgroup_id):
     workgroup = Workgroup.query.get_or_404(workgroup_id)
     d = enrich_workgroup_dict(workgroup.to_dict(), workgroup)
     current_user = get_current_user()
-    project = Layer.query.get(workgroup.layer_id)
-    d['can_edit'] = bool(
-        current_user
-        and (
-            workgroup.coordinator_id == current_user['id']
-            or (project and is_layer_admin(project, current_user))
-            or current_user.get('role') == 'admin'
-        )
-    )
-    if current_user:
-        from services.platform_invitations import can_invite
-
-        ok, _ = can_invite(
-            current_user['id'],
-            'join_workgroup',
-            {'workgroup_id': workgroup_id},
-        )
-        d['can_invite_members'] = ok
-    else:
-        d['can_invite_members'] = False
+    d['can_edit'] = can_manage_workgroup(workgroup, current_user)
+    d['can_invite_members'] = can_invite_workgroup_member(workgroup, current_user)
     return jsonify(d)
 
 
@@ -173,14 +157,7 @@ def update_workgroup(workgroup_id):
         return jsonify({'error': 'Authentication required'}), 401
 
     workgroup = Workgroup.query.get_or_404(workgroup_id)
-    project = Layer.query.get(workgroup.layer_id)
-
-    can_edit = (
-        workgroup.coordinator_id == current_user['id']
-        or (project and is_layer_admin(project, current_user))
-        or current_user.get('role') == 'admin'
-    )
-    if not can_edit:
+    if not can_manage_workgroup(workgroup, current_user):
         return jsonify({'error': 'Permission denied'}), 403
 
     data = request.get_json()
@@ -393,35 +370,29 @@ def join_workgroup(workgroup_id):
         return jsonify({'error': 'Authentication required'}), 401
 
     workgroup = Workgroup.query.get_or_404(workgroup_id)
+    user = User.query.get(current_user['id'])
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
 
     if workgroup.approval_status != 'approved':
         return jsonify({'error': 'Workgroup must be approved before joining'}), 400
 
-    check_query = text("""
-        SELECT id FROM working_group_member
-        WHERE group_acronym = :acronym AND user_id = :user_id
-    """)
-    existing = db.session.execute(check_query, {
-        'acronym': workgroup.acronym,
-        'user_id': current_user['id']
-    }).fetchone()
-
-    if existing:
+    result = join_or_request_workgroup_membership(
+        acronym=workgroup.acronym,
+        user=user,
+    )
+    if result.get('duplicate'):
         return jsonify({'error': 'You are already a member of this workgroup'}), 400
-
-    insert_query = text("""
-        INSERT INTO working_group_member (id, group_acronym, user_id, user_name, joined_at)
-        VALUES (:id, :acronym, :user_id, :user_name, :joined_at)
-    """)
-    db.session.execute(insert_query, {
-        'id': str(uuid4()),
-        'acronym': workgroup.acronym,
-        'user_id': current_user['id'],
-        'user_name': current_user.get('displayName') or current_user.get('username'),
-        'joined_at': datetime.utcnow()
-    })
+    if result.get('status') == 'already_pending':
+        return jsonify({'error': 'Membership request already pending'}), 400
     db.session.commit()
 
+    if result.get('pending_approval'):
+        return jsonify({
+            'success': True,
+            'pending_approval': True,
+            'message': 'Membership requested; pending approval',
+        })
     return jsonify({'success': True, 'message': 'Successfully joined workgroup'})
 
 

@@ -1,4 +1,6 @@
 """Admin routes: dashboard, users, analytics, chairs, layers, workgroups, roles, badges, member requests."""
+import html as html_mod
+import json
 from datetime import datetime, timedelta
 
 from flask import Blueprint, request, redirect, flash, session, jsonify, current_app
@@ -7,6 +9,7 @@ from extensions import db
 from models import (
     User, Submission, Layer, Workgroup, Guild, Role, Claim, Badge,
     WorkingGroupChair, CoordinatorRequest, WorkgroupMemberRequest, WorkingGroupMember,
+    PlatformInvitation, PlatformInvitationAcceptance,
 )
 from services.identity import get_current_user, require_auth, require_role
 from services.avatar import avatar_url
@@ -21,6 +24,8 @@ from services.workgroup_positions import (
     status_label,
 )
 from services.workgroup_nomination_mail import send_admin_decision
+from services.dp_badges import dp_contributor_badge_status
+from services.workgroup_links import is_dp_workgroup
 
 bp = Blueprint('admin', __name__, url_prefix='')
 
@@ -875,7 +880,7 @@ def admin_chairs():
                     <button type="submit" class="btn btn-sm btn-success">Approve</button>
                 </form>
                 <form method="POST" action="/admin/coordinator_requests/{req.id}/reject" class="d-inline">
-                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject this request?')">Reject</button>
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>
                 </form>
             </td>
         </tr>
@@ -2267,6 +2272,127 @@ def admin_badges():
     return render_page("Admin: Manage Badges - MLGH", content, theme=current_theme, user_menu=user_menu)
 
 
+
+def _load_platform_invite_target(invitation):
+    try:
+        target = json.loads(invitation.target_json or '{}')
+        return target if isinstance(target, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _workgroup_invitation_counts(workgroup):
+    invitations = PlatformInvitation.query.filter_by(invite_type='join_workgroup').all()
+    matching = []
+    for inv in invitations:
+        target = _load_platform_invite_target(inv)
+        if (
+            target.get('workgroup_id') == workgroup.id
+            or target.get('workgroup_acronym') == workgroup.acronym
+        ):
+            matching.append(inv)
+    sent = len([inv for inv in matching if inv.status != 'revoked'])
+    private_accepted = len([inv for inv in matching if inv.status == 'accepted'])
+    shareable_ids = [inv.id for inv in matching if getattr(inv, 'binding_mode', None) == 'shareable']
+    shareable_accepted = 0
+    if shareable_ids:
+        shareable_accepted = PlatformInvitationAcceptance.query.filter(
+            PlatformInvitationAcceptance.invitation_id.in_(shareable_ids)
+        ).count()
+    return sent, private_accepted + shareable_accepted
+
+
+def _approved_position_names(workgroup, position_key):
+    rows = WorkingGroupChair.query.filter(
+        WorkingGroupChair.group_acronym == workgroup.acronym,
+        WorkingGroupChair.position_key == position_key,
+        db.or_(
+            WorkingGroupChair.status == NOMINATION_STATUS_APPROVED,
+            WorkingGroupChair.approved.is_(True),
+        ),
+    ).order_by(WorkingGroupChair.set_at.asc()).all()
+    return [row.chair_name for row in rows if row.chair_name]
+
+
+@bp.route('/admin/dp-readiness/')
+@require_role('admin')
+def admin_dp_readiness():
+    """Recruitment readiness snapshot for DP Challenge workgroups."""
+    _format_base_template, generate_user_menu, _, BUILD_NUMBER, _, _ = _get_imports()
+    current_theme = session.get('theme', 'dark')
+    user_menu = generate_user_menu()
+
+    rows_html = []
+    workgroups = [wg for wg in Workgroup.query.order_by(Workgroup.name.asc()).all() if is_dp_workgroup(wg)]
+    for wg in workgroups:
+        lead_names = []
+        if wg.coordinator:
+            lead_names.append(wg.coordinator.displayName or wg.coordinator.username)
+        lead_names.extend(_approved_position_names(wg, 'chair'))
+        co_leads = _approved_position_names(wg, 'co_lead')
+        member_count = WorkingGroupMember.query.filter_by(group_acronym=wg.acronym).count()
+        pending_members = WorkgroupMemberRequest.query.filter_by(
+            group_acronym=wg.acronym,
+            status='pending',
+        ).count()
+        invites_sent, invites_accepted = _workgroup_invitation_counts(wg)
+        badge = dp_contributor_badge_status(wg)
+        badge_class = 'success' if badge['ready'] else 'warning'
+        rows_html.append(f"""
+        <tr>
+            <td>
+                <a href="/workgroups/{html_mod.escape(wg.slug or wg.acronym)}/">{html_mod.escape(wg.name)}</a>
+                <div class="small text-muted"><code>{html_mod.escape(wg.acronym or '')}</code></div>
+            </td>
+            <td>{html_mod.escape(', '.join(dict.fromkeys(lead_names)) or 'Unassigned')}</td>
+            <td>{html_mod.escape(', '.join(dict.fromkeys(co_leads)) or 'None')}</td>
+            <td class="text-end">{member_count}</td>
+            <td class="text-end">{invites_sent}</td>
+            <td class="text-end">{invites_accepted}</td>
+            <td class="text-end">{pending_members}</td>
+            <td>
+                <span class="badge bg-{badge_class}">{'Ready' if badge['ready'] else 'Needs setup'}</span>
+                <div class="small text-muted">{html_mod.escape(badge['note'])}</div>
+            </td>
+        </tr>
+        """)
+
+    if not rows_html:
+        rows_html.append(
+            '<tr><td colspan="8" class="text-center text-muted py-4">No DP workgroups found yet.</td></tr>'
+        )
+
+    content = f"""
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('DP Challenge readiness', 'Recruitment operations for July 1-15 workgroup launch', 'fa-clipboard-check', actions_html='<a href="/admin/member_requests/" class="btn btn-outline-secondary btn-sm">Member Requests</a>', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('DP Challenge readiness', None)]))}
+        <div class="alert alert-info">
+            <strong>Permissions:</strong> leads and co-leads can edit workgroups and invite members; members can participate after joining. Contributor badges are off-chain for now and may be preserved on Inscription Day in a future operations step.
+        </div>
+        <div class="living-module">
+            <div class="living-module-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Workgroup</th>
+                                <th>Lead</th>
+                                <th>Co-leads</th>
+                                <th class="text-end">Members</th>
+                                <th class="text-end">Invites sent</th>
+                                <th class="text-end">Accepted</th>
+                                <th class="text-end">Pending approvals</th>
+                                <th>Badge readiness</th>
+                            </tr>
+                        </thead>
+                        <tbody>{''.join(rows_html)}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    return _format_base_template(title="DP Challenge readiness - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+
 @bp.route('/admin/member_requests/')
 @require_role('admin')
 def admin_member_requests():
@@ -2286,7 +2412,7 @@ def admin_member_requests():
             <td>{req_at}</td>
             <td>
                 <a href="/admin/member_requests/{req.id}/approve" class="btn btn-sm btn-success">Approve</a>
-                <a href="/admin/member_requests/{req.id}/reject" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject this request?')">Reject</a>
+                <a href="/admin/member_requests/{req.id}/reject" class="btn btn-sm btn-outline-danger">Reject</a>
             </td>
         </tr>
         """

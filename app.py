@@ -324,4 +324,6 @@ def create_app():
 # Module-level app for direct import (e.g. from app import app)
 app = create_app()
 from middleware.campaign_host_wsgi import wrap_campaign_host_rewrite
+from middleware.dp_challenge_host_wsgi import wrap_dp_challenge_host_rewrite
 app.wsgi_app = wrap_campaign_host_rewrite(app.wsgi_app, app)
+app.wsgi_app = wrap_dp_challenge_host_rewrite(app.wsgi_app)
