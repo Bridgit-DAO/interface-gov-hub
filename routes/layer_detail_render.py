@@ -727,10 +727,16 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
 
+    function layerDetailApiUrl(slug) {{
+        const url = '/api/layers/by-slug/' + encodeURIComponent(slug) + '/';
+        const token = new URLSearchParams(window.location.search).get('ref_token');
+        return token ? url + '?ref_token=' + encodeURIComponent(token) : url;
+    }}
+
     async function refreshProjectFromApi() {{
         if (!projectSlug) return false;
         try {{
-            const resp = await fetch('/api/layers/by-slug/' + encodeURIComponent(projectSlug) + '/', {{ credentials: 'include' }});
+            const resp = await fetch(layerDetailApiUrl(projectSlug), {{ credentials: 'include' }});
             if (!resp.ok) return false;
             const detail = await resp.json();
             project = detail;
@@ -878,7 +884,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 return;
             }}
             const slug = String(projectSlug).trim();
-            const url = '/api/layers/by-slug/' + encodeURIComponent(slug) + '/';
+            const url = layerDetailApiUrl(slug);
             console.log('[LAYER] loadProject fetching:', url);
             const resp = await fetch(url, {{ credentials: 'include' }});
             console.log('[LAYER] loadProject response:', resp.status, resp.statusText, 'url=', resp.url);
