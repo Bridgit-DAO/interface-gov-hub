@@ -2397,18 +2397,49 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         return card;
     }}
 
+    async function copyTextToClipboard(text) {{
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+            try {{
+                await navigator.clipboard.writeText(text);
+                return true;
+            }} catch (e) {{
+                console.warn('Clipboard API copy failed:', e);
+            }}
+        }}
+
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.top = '-1000px';
+        textarea.style.left = '-1000px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        let copied = false;
+        try {{
+            copied = document.execCommand('copy');
+        }} catch (e) {{
+            console.warn('Fallback copy failed:', e);
+        }}
+        document.body.removeChild(textarea);
+        return copied;
+    }}
+
     async function copyLayerReferralLink() {{
         if (!project || !project.id) return;
         try {{
             const r = await fetch('/api/layers/' + project.id + '/referral-link/', {{ credentials: 'same-origin' }});
             const d = await r.json().catch(function() {{ return {{}}; }});
             if (!r.ok) throw new Error(d.error || 'Could not create referral link');
-            await navigator.clipboard.writeText(d.url);
+            const copied = await copyTextToClipboard(d.url);
             if (typeof GhDialog !== 'undefined') {{
                 await GhDialog.alert({{
-                    title: 'Referral link copied',
-                    message: 'Your scoped layer referral link is on the clipboard.',
-                    variant: 'success',
+                    title: copied ? 'Referral link copied' : 'Copy manually',
+                    message: copied
+                        ? 'Your scoped layer referral link is on the clipboard.'
+                        : 'Clipboard access was blocked. Select and copy this link:\\n\\n' + d.url,
+                    variant: copied ? 'success' : 'warning',
                 }});
             }}
         }} catch (e) {{
