@@ -7,7 +7,7 @@ from sqlalchemy import or_
 
 from extensions import db
 from models import User, LayerMember
-from services.identity import get_current_user, require_auth, get_or_create_referral_code
+from services.identity import get_current_user, require_auth
 from services.avatar import get_avatar_url
 from services.images import upload_image_600x600, upload_image
 
@@ -147,31 +147,6 @@ def api_badge_wallet():
         'error': err,
         'count': len(items),
     })
-
-
-# ============================================================================
-# Referral code
-# ============================================================================
-
-@bp.route('/api/user/referral-code/', methods=['GET'])
-@require_auth
-def api_get_referral_code():
-    """Get current user's referral code"""
-    current_user_data = get_current_user()
-    if not current_user_data:
-        return jsonify({'error': 'Authentication required'}), 401
-
-    user = User.query.get(current_user_data['id'])
-    referral_code = get_or_create_referral_code(user)
-
-    # Count referrals
-    referral_count = LayerMember.query.filter_by(referred_by_id=user.id).count()
-
-    return jsonify({
-        'referral_code': referral_code,
-        'referral_count': referral_count,
-        'referral_url': f"{request.host_url}?ref={referral_code}"
-    }), 200
 
 
 # ============================================================================

@@ -23,11 +23,18 @@ Shared contract and implementation artifacts for partial unification of referral
 
 Both products verify v1 and v2 with the same HMAC secret (`SHARE_REF_HMAC_SECRET` / Gov Hub `REFERRAL_TOKEN_SECRET`).
 
-## Query params
+## Query params (Gov Hub)
 
 | Param | Meaning |
 |-------|---------|
-| `ref_token` | Signed scoped attribution token (preferred) |
-| `ref` | Legacy Gov Hub 8-char user code or Canopi referrer UUID |
+| `ref_token` | Signed scoped attribution token (**required** for user referrals) |
+| ~~`ref`~~ | **Removed** — legacy 8-char user codes are no longer accepted |
 
-During rollout, Gov Hub accepts both; new links should use `ref_token`.
+Layer invitations still use `invite:{token}` on accept (server-side), not `?ref=`.
+
+## Gov Hub referral link APIs
+
+- `GET /api/layers/<id>/referral-link/` — scoped layer join link
+- `GET /api/waitlists/<id>/referral-link/` — scoped waitlist link (when referrals enabled)
+
+Waitlist list/get APIs include `referral_url` and `ref_token` when referrals are on.

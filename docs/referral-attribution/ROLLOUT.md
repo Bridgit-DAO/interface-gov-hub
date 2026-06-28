@@ -23,15 +23,15 @@ Phased delivery for shared scoped attribution. Each phase is independently shipp
 
 ## Phase 2 — Gov Hub scoped links + dual param support
 
-**Goal:** New links use `ref_token`; legacy `?ref=` still accepted.
+**Goal:** All referral links use `ref_token` only (legacy `?ref=` removed).
 
 | Task | Status |
 |------|--------|
-| `join_layer` / `join_waitlist` accept `ref_token` | Implemented |
-| Record `referral_attribution` on conversion | Implemented |
-| Layer detail UI passes `ref_token` from query | Implemented |
-| API: scoped referral link generation | `routes/referral_links.py` |
-| Waitlist list API returns scoped URL when referrals on | Follow-up |
+| `join_layer` / `join_waitlist` accept `ref_token` only | Done |
+| Record `referral_attribution` on conversion | Done |
+| Layer detail UI passes `ref_token` from query | Done |
+| API: scoped referral link generation | Done |
+| Remove legacy `?ref=CODE` paths | Done |
 
 **Success metrics:** % joins with `ref_token` vs legacy `ref`; zero join regressions.
 
@@ -65,7 +65,7 @@ Phased delivery for shared scoped attribution. Each phase is independently shipp
 
 ## Rollback
 
-- Phase 1–2: Stop issuing v2 links; legacy `?ref=` continues to work.
+- Rollback: re-enable legacy code lookup in `resolve_referrer_from_token` if needed (not recommended).
 - DB: New tables/columns are additive; no rollback required for core joins.
 - Remove `REFERRAL_TOKEN_SECRET` alignment only if disabling cross-verify (not recommended).
 

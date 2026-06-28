@@ -13,9 +13,10 @@ from models import (
     Layer, LayerMember, User,
     Waitlist, WaitlistEntry, WaitlistEmailSignup, WaitlistMilestone,
 )
-from services.identity import get_current_user, require_auth, get_or_create_referral_code
+from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin
 from services.events import emit_event
+from services.referral_attribution import issue_waitlist_referral_link, resolve_referrer_from_token, record_referral_attribution
 
 bp = Blueprint('waitlists', __name__, url_prefix='')
 
@@ -35,7 +36,10 @@ if(!email){area.innerHTML='<div class="wl-error">Please enter your email.</div>'
 if(email.indexOf('@')===-1||email.indexOf('.')===-1){area.innerHTML='<div class="wl-error">Please enter a valid email address.</div>';return;}
 joinInProgress=true;btn.disabled=true;btn.textContent='Sending...';
 try{
-var joinR=await fetch(API_BASE+'/api/waitlists/'+WAITLIST_ID+'/join-email/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,message:msg,source:'embed:'+SOURCE_DOMAIN,source_url:SOURCE_URL})});
+var refTok=(function(){try{if(c.refToken)return c.refToken;var p=new URLSearchParams(location.search);return p.get('ref_token')||'';}catch(e){return'';}})();
+var joinBody={email:email,message:msg,source:'embed:'+SOURCE_DOMAIN,source_url:SOURCE_URL};
+if(refTok)joinBody.ref_token=refTok;
+var joinR=await fetch(API_BASE+'/api/waitlists/'+WAITLIST_ID+'/join-email/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(joinBody)});
 var data=await joinR.json();
 if(joinR.ok){
 var msg=data.info||(data.message==='joined'?'You\'re on the list!'+(data.position?' #'+data.position:'')+'':'We have sent an email to confirm your place. Please check your inbox and click the link to confirm.');
@@ -167,8 +171,9 @@ def list_waitlists(layer_id):
             d['my_entry'] = {'position': entry.position, 'joined_at': entry.joined_at.isoformat()} if entry else None
             if w.referrals:
                 user = User.query.get(current_user['id'])
-                ref_code = get_or_create_referral_code(user)
-                d['referral_url'] = f"{request.host_url}layers/{project.slug}/waitlist/{w.id}/?ref={ref_code}"
+                link = issue_waitlist_referral_link(request.host_url, project, w, user)
+                d['referral_url'] = link['url']
+                d['ref_token'] = link['ref_token']
         else:
             d['my_entry'] = None
             d['referral_url'] = None
@@ -248,8 +253,9 @@ def get_waitlist(waitlist_id):
         d['my_entry'] = {'position': entry.position, 'joined_at': entry.joined_at.isoformat()} if entry else None
         if waitlist.referrals:
             user = User.query.get(current_user['id'])
-            ref_code = get_or_create_referral_code(user)
-            d['referral_url'] = f"{request.host_url}layers/{project.slug}/waitlist/{waitlist.id}/?ref={ref_code}"
+            link = issue_waitlist_referral_link(request.host_url, project, waitlist, user)
+            d['referral_url'] = link['url']
+            d['ref_token'] = link['ref_token']
     else:
         d['my_entry'] = None
         d['referral_url'] = None
@@ -340,6 +346,7 @@ def join_waitlist_email(waitlist_id):
     message = (data.get('message') or '').strip()
     source = data.get('source', 'embed')
     source_url = data.get('source_url', '')
+    ref_token = (data.get('ref_token') or '').strip() or None
 
     if not email:
         return jsonify({'error': 'Email is required'}), 400
@@ -376,6 +383,8 @@ def join_waitlist_email(waitlist_id):
         existing.message = message or existing.message
         existing.source = source
         existing.source_url = source_url
+        if ref_token:
+            existing.referral_token = ref_token
         db.session.commit()
         signup = existing
     else:
@@ -388,6 +397,7 @@ def join_waitlist_email(waitlist_id):
             position=position,
             source=source,
             source_url=source_url,
+            referral_token=ref_token,
         )
         db.session.add(signup)
         db.session.commit()
@@ -479,17 +489,13 @@ def join_waitlist(waitlist_id):
         data = request.get_json() or {}
         message = data.get('message', '')
         ref_token = data.get('ref_token')
-        referral_code = data.get('referral_code')
         source = data.get('source')
         source_url = data.get('source_url')
-        from services.referral_attribution import resolve_referrer, record_referral_attribution
 
-        referred_by_id, legacy_code, token_attr = resolve_referrer(
-            ref_token=ref_token,
-            referral_code=referral_code,
+        referred_by_id, token_attr = resolve_referrer_from_token(
+            ref_token,
             current_user_id=current_user['id'],
         )
-        stored_referral_code = legacy_code or (referral_code if not ref_token else None)
         if referred_by_id:
             pm = LayerMember.query.filter_by(layer_id=project.id, user_id=current_user['id'], status='active').first()
             if not pm:
@@ -497,7 +503,7 @@ def join_waitlist(waitlist_id):
                     layer_id=project.id,
                     user_id=current_user['id'],
                     referred_by_id=referred_by_id,
-                    referral_code=stored_referral_code,
+                    referral_code=None,
                     role='contributor',
                 )
                 db.session.add(pm)
@@ -508,7 +514,7 @@ def join_waitlist(waitlist_id):
             message=message,
             position=count + 1,
             referred_by_id=referred_by_id,
-            referral_code=stored_referral_code,
+            referral_code=None,
             source=source,
             source_url=source_url,
         )
@@ -526,7 +532,6 @@ def join_waitlist(waitlist_id):
                 campaign=(token_attr or {}).get('campaign'),
                 share_event_id=(token_attr or {}).get('share_event_id'),
                 referral_token=ref_token,
-                legacy_referral_code=stored_referral_code,
                 metadata={'layer_id': project.id},
             )
         emit_event('waitlist_joined', actor_type='user', actor_id=current_user['id'],
@@ -681,6 +686,9 @@ def embed_waitlist_widget(waitlist_id):
         req_attr = ' required' if msg_required else ''
         msg_html = f'<div class="wl-msg-wrap"><textarea id="wl-msg" class="wl-msg" rows="3" placeholder="{msg_ph_esc}"{req_attr}></textarea></div>'
     cfg = {'waitlistId': waitlist_id, 'msgRequired': msg_required, 'btnLabel': btn_esc}
+    ref_token = (request.args.get('ref_token') or '').strip()
+    if ref_token:
+        cfg['refToken'] = ref_token
     cfg_js = json.dumps(cfg).replace('</', '<\\u002F')
     widget_html = """<!DOCTYPE html>
 <html>

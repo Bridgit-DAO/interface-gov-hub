@@ -1,27 +1,9 @@
-"""Identity services: get_current_user, require_auth, require_role, referral codes."""
-import hashlib
-import time
+"""Identity services: get_current_user, require_auth, require_role."""
 
 from flask import session, flash, redirect, url_for, request
 
-from extensions import db
 from models import User
 from services.auth_redirect import login_url
-
-
-def generate_referral_code(username):
-    """Generate a unique referral code for a user."""
-    raw = f"{username}-{time.time()}"
-    hash_obj = hashlib.md5(raw.encode())
-    return hash_obj.hexdigest()[:8].upper()
-
-
-def get_or_create_referral_code(user):
-    """Get user's referral code or create one if it doesn't exist."""
-    if not user.referral_code:
-        user.referral_code = generate_referral_code(user.username)
-        db.session.commit()
-    return user.referral_code
 
 
 def get_current_user():

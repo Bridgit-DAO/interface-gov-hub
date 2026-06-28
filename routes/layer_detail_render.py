@@ -308,11 +308,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="text-muted mb-3">You will join this project as a contributor. Optionally add a referral code if you were invited via a link.</p>
-                    <div class="mb-0">
-                        <label for="join-project-referral" class="form-label">Referral code (optional)</label>
-                        <input type="text" class="form-control" id="join-project-referral" placeholder="Leave blank if none">
-                    </div>
+                    <p class="text-muted mb-0">You will join this layer as a contributor. If you arrived via a referral link, attribution is applied automatically.</p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -758,8 +754,17 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     let artifactKnowledgeFilter = '';
     let artifactTagFilters = [];
     
-    const referralRef = {json.dumps(request.args.get('ref') or '')};
     const referralRefToken = {json.dumps(request.args.get('ref_token') or '')};
+
+    (function() {{
+        if (!referralRefToken) return;
+        fetch('/api/referral/landings/', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ ref_token: referralRefToken, landing_url: window.location.href }}),
+            keepalive: true,
+        }}).catch(function() {{}});
+    }})();
     
     function getProjectTabKey(buttonId) {{
         if (!buttonId) return null;
@@ -941,8 +946,6 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             showMetawebPioneersJoinModal();
             return;
         }}
-        const refInput = document.getElementById('join-project-referral');
-        if (refInput) refInput.value = referralRef || '';
         const modal = new bootstrap.Modal(document.getElementById('joinProjectModal'));
         modal.show();
     }}
@@ -955,11 +958,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
     
     async function submitJoinProjectModal() {{
-        const refInput = document.getElementById('join-project-referral');
-        const ref = refInput && refInput.value ? refInput.value.trim() : (referralRef || '');
         const body = {{}};
         if (referralRefToken) body.ref_token = referralRefToken;
-        else if (ref) body.referral_code = ref;
         try {{
             const res = await fetch('/api/layers/' + project.id + '/join/', {{
                 method: 'POST',
@@ -2285,7 +2285,6 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         try {{
             const body = {{ message: msg || '' }};
             if (referralRefToken) body.ref_token = referralRefToken;
-            else if (referralRef) body.referral_code = referralRef;
             const res = await fetch('/api/waitlists/' + pendingWaitlistId + '/join/', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(body) }});
             const data = await res.json();
             if (res.ok) {{
@@ -3200,7 +3199,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         if (msg === null) return;
         try {{
             const body = {{ message: msg }};
-            if (referralRef) body.referral_code = referralRef;
+            if (referralRefToken) body.ref_token = referralRefToken;
             const res = await fetch('/api/waitlists/' + wlId + '/join/', {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},

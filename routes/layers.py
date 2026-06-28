@@ -957,15 +957,12 @@ def join_layer(layer_id):
 
     data = request.get_json() or {}
     ref_token = data.get('ref_token')
-    referral_code = data.get('referral_code')
-    from services.referral_attribution import resolve_referrer, record_referral_attribution
+    from services.referral_attribution import resolve_referrer_from_token, record_referral_attribution
 
-    referred_by_id, legacy_code, token_attr = resolve_referrer(
-        ref_token=ref_token,
-        referral_code=referral_code,
+    referred_by_id, token_attr = resolve_referrer_from_token(
+        ref_token,
         current_user_id=user.id,
     )
-    stored_referral_code = legacy_code or (referral_code if not ref_token else None)
 
     if existing:
         existing.status = 'active'
@@ -973,14 +970,14 @@ def join_layer(layer_id):
         existing.left_at = None
         if referred_by_id and not existing.referred_by_id:
             existing.referred_by_id = referred_by_id
-            existing.referral_code = stored_referral_code
+            existing.referral_code = None
         member = existing
     else:
         member = LayerMember(
             layer_id=layer_id,
             user_id=user.id,
             referred_by_id=referred_by_id,
-            referral_code=stored_referral_code,
+            referral_code=None,
             role='contributor'
         )
         db.session.add(member)
@@ -1000,7 +997,6 @@ def join_layer(layer_id):
             campaign=(token_attr or {}).get('campaign'),
             share_event_id=(token_attr or {}).get('share_event_id'),
             referral_token=ref_token,
-            legacy_referral_code=stored_referral_code,
         )
 
     emit_event(

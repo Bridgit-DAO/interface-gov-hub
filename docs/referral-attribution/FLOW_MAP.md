@@ -50,14 +50,14 @@ Maps existing product flows to the scoped attribution contract in [contract.json
 
 ## Gov Hub flows
 
-### 4. Layer join (`?ref=` / `?ref_token=`)
+### 4. Layer join (`?ref_token=`)
 
 | Stage | Storage | Contract mapping |
 |-------|---------|------------------|
-| Share | User link or scoped token | `entity_type=layer`, `scope_type=layer`, `scope_id=<layer_id>` |
+| Share | Scoped token link from referral-link API | `entity_type=layer`, `scope_type=layer`, `scope_id=<layer_id>` |
 | Conversion | `layer_member.referred_by_id` | `conversion_type=layer_member_join` |
 | Canonical | `referral_attribution` | Full scoped record |
-| Denorm | `layer_member.referral_code` | Legacy code or token trace |
+| Denorm | `layer_member.referral_code` | `invite:{token}` only (invitations) |
 
 **Handlers:** `gov-hub-prod/routes/layers.py` → `join_layer()`, `services/referral_attribution.py`
 
@@ -67,10 +67,10 @@ Maps existing product flows to the scoped attribution contract in [contract.json
 
 | Stage | Storage | Contract mapping |
 |-------|---------|------------------|
-| Share | Waitlist URL with `ref` or `ref_token` | `entity_type=waitlist`, `scope_type=waitlist`, `scope_id=<waitlist_id>` |
+| Share | Waitlist URL with `?ref_token=` | `entity_type=waitlist`, `scope_type=waitlist`, `scope_id=<waitlist_id>` |
 | Conversion | `waitlist_entry.referred_by_id` | `conversion_type=waitlist_join` |
 | Side effect | May create `layer_member` | Same referrer on layer if not member |
-| Denorm | `waitlist_entry.referral_code` | Legacy code |
+| Denorm | `waitlist_entry.referral_code` | Unused (token attribution in `referral_attribution`) |
 
 **Handlers:** `gov-hub-prod/routes/waitlists.py` → `join_waitlist()`
 
@@ -96,5 +96,6 @@ Gov Hub `User.id` and Canopi `AppUser.id` are **not assumed equal**. Scoped toke
 ## Resolution order (Gov Hub join endpoints)
 
 1. `ref_token` — verify HMAC, use `referrerUserId` from payload  
-2. `referral_code` — lookup `User.referral_code`  
-3. Self-referral blocked; existing `referred_by_id` preserved on rejoin (layer only)
+2. Self-referral blocked; existing `referred_by_id` preserved on rejoin (layer only)
+
+Legacy `?ref=CODE` user codes are **not** accepted. Layer invitations set `invite:{token}` server-side on accept (separate path).

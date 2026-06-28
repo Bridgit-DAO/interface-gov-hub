@@ -493,6 +493,7 @@ class WaitlistEmailSignup(db.Model):
     position = db.Column(db.Integer, nullable=False)
     source = db.Column(db.String(255), nullable=True)
     source_url = db.Column(db.String(500), nullable=True)
+    referral_token = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     left_at = db.Column(db.DateTime, nullable=True)
     
