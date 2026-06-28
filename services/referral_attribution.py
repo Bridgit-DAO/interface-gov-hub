@@ -118,6 +118,100 @@ def issue_waitlist_referral_link(host_url: str, layer, waitlist, user, channel: 
     }
 
 
+def resolve_waitlist_join_referrer(
+    *,
+    waitlist_id: str,
+    ref_token: Optional[str],
+    user_email: Optional[str],
+    current_user_id: Optional[str],
+) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Resolve referrer for waitlist join from explicit ref_token or a verified embed signup.
+    Returns (referrer_user_id, token_attr, effective_ref_token).
+    """
+    token = (ref_token or '').strip() or None
+    if not token and user_email:
+        from models import WaitlistEmailSignup
+
+        norm = user_email.strip().lower()
+        signup = (
+            WaitlistEmailSignup.query.filter_by(waitlist_id=waitlist_id, email=norm, left_at=None)
+            .filter(WaitlistEmailSignup.verified_at.isnot(None))
+            .first()
+        )
+        if signup and signup.referral_token:
+            token = signup.referral_token.strip()
+    referred_by_id, token_attr = resolve_referrer_from_token(
+        token,
+        current_user_id=current_user_id,
+    )
+    return referred_by_id, token_attr, token
+
+
+def record_embed_waitlist_email_attribution(signup, waitlist, layer) -> Optional[ReferralAttribution]:
+    """Record embed email waitlist signup as embed_signup conversion when ref_token present."""
+    ref_token = (getattr(signup, 'referral_token', None) or '').strip()
+    if not ref_token:
+        return None
+    referred_by_id, token_attr = resolve_referrer_from_token(ref_token)
+    if not referred_by_id:
+        return None
+
+    scope_type = (token_attr or {}).get('scope_type') or 'waitlist'
+    scope_id = (token_attr or {}).get('scope_id') or waitlist.id
+    existing = ReferralAttribution.query.filter_by(
+        scope_type=scope_type,
+        scope_id=scope_id,
+        conversion_type='embed_signup',
+        referral_token=ref_token,
+    ).first()
+    if existing:
+        return existing
+
+    return record_referral_attribution(
+        referrer_user_id=referred_by_id,
+        converted_user_id=None,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        entity_type='waitlist',
+        entity_id=waitlist.id,
+        conversion_type='embed_signup',
+        channel=(token_attr or {}).get('channel') or 'embed',
+        campaign=(token_attr or {}).get('campaign'),
+        share_event_id=(token_attr or {}).get('share_event_id'),
+        referral_token=ref_token,
+        metadata={
+            'email': signup.email,
+            'signup_id': signup.id,
+            'source': signup.source,
+            'source_url': signup.source_url,
+            'layer_id': layer.id,
+        },
+    )
+
+
+def upgrade_embed_signup_attribution(
+    *,
+    ref_token: str,
+    scope_type: str,
+    scope_id: str,
+    converted_user_id: str,
+) -> bool:
+    """When an embed signup user later joins as an authenticated member, attach their user id."""
+    row = ReferralAttribution.query.filter_by(
+        scope_type=scope_type,
+        scope_id=scope_id,
+        conversion_type='embed_signup',
+        referral_token=ref_token,
+        converted_user_id=None,
+    ).first()
+    if not row:
+        return False
+    row.converted_user_id = converted_user_id
+    row.conversion_type = 'waitlist_join'
+    return True
+
+
 def record_referral_landing(
     *,
     ref_token: str,
