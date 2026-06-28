@@ -9,7 +9,7 @@ from sqlalchemy import text
 from extensions import db
 from models import User, Workgroup, Submission, Comment, LayerMember, UserLinkedAccount, DpProposal
 
-from services.identity import get_current_user, require_auth, get_or_create_referral_code
+from services.identity import get_current_user, require_auth
 from services.avatar import get_avatar_url
 from services.directory_ui import gh_page_open, gh_page_close, gh_page_header
 from services.utils import coerce_storage_bool
@@ -296,10 +296,8 @@ def user_profile(username):
 
     project_memberships = LayerMember.query.filter_by(user_id=profile_user.id, status='active').order_by(LayerMember.joined_at.desc()).all()
 
-    referral_code = None
     referral_count = 0
     if is_own_profile:
-        referral_code = get_or_create_referral_code(profile_user)
         referral_count = LayerMember.query.filter_by(referred_by_id=profile_user.id).count()
 
     if is_admin_viewer and profile_user.email:
@@ -418,16 +416,6 @@ def user_profile(username):
                     <span class="stat-label">Referrals</span>
                 </div>''' if is_own_profile else ''}
             </div>
-
-            {f'''<!-- Referral Code -->
-            <div class="alert alert-info mt-3">
-                <strong><i class="fas fa-share-alt me-2"></i>Your Referral Code:</strong>
-                <code id="referral-code">{referral_code}</code>
-                <button class="btn btn-sm btn-outline-primary ms-2" onclick="copyReferralLink(this)">
-                    <i class="fas fa-copy me-1"></i>Copy Link
-                </button>
-                <small class="d-block mt-2">Share this link to get credit when people join projects!</small>
-            </div>''' if is_own_profile and referral_code else ''}
 
             {'''<!-- Badge wallet (private dashboard) -->
             <div class="card mt-4" id="badge-wallet-card">
@@ -605,18 +593,6 @@ def user_profile(username):
             if (tab) bootstrap.Tab.getOrCreateInstance(tab).show();
         }}
     }})();
-    function copyReferralLink(btn) {{
-        var el = document.getElementById('referral-code');
-        if (!el) return;
-        var url = window.location.origin + '/?ref=' + el.textContent;
-        navigator.clipboard.writeText(url).then(function() {{
-            if (btn) {{
-                var orig = btn.innerHTML;
-                btn.innerHTML = '<i class="fas fa-check me-1"></i>Copied!';
-                setTimeout(function() {{ btn.innerHTML = orig; }}, 2000);
-            }}
-        }}).catch(function() {{ alert('Failed to copy'); }});
-    }}
     {'' if not is_own_profile else '''
     async function loadBadgeWallet() {{
         const grid = document.getElementById('badge-wallet-grid');
@@ -873,6 +849,14 @@ def profile_edit():
     {gh_page_close()}
 
     <script>
+    async function ghNotify(opts) {{
+        if (window.GhDialog && typeof window.GhDialog.alert === 'function') {{
+            await window.GhDialog.alert(opts);
+            return;
+        }}
+        window.alert((opts.title ? opts.title + '\\n\\n' : '') + (opts.message || ''));
+    }}
+
     function previewImage(input, previewId) {{
         if (input.files && input.files[0]) {{
             const reader = new FileReader();
@@ -898,7 +882,7 @@ def profile_edit():
     async function uploadProfileImage() {{
         const fileInput = document.getElementById('profile-image-file');
         if (!fileInput.files || !fileInput.files[0]) {{
-            alert('Please select an image first');
+            await ghNotify({{ title: 'No image selected', message: 'Please select an image first.', variant: 'warning' }});
             return;
         }}
 
@@ -915,21 +899,21 @@ def profile_edit():
 
             const data = await response.json();
             if (response.ok) {{
-                alert('Profile picture uploaded successfully!');
+                await ghNotify({{ title: 'Profile picture updated', message: 'Your profile picture was uploaded successfully.', variant: 'success' }});
                 location.reload();
             }} else {{
-                alert(data.error || 'Failed to upload image');
+                await ghNotify({{ title: 'Upload failed', message: data.error || 'Failed to upload image', variant: 'danger' }});
             }}
         }} catch (error) {{
             console.error('Error uploading image:', error);
-            alert('Failed to upload image');
+            await ghNotify({{ title: 'Upload failed', message: 'Failed to upload image.', variant: 'danger' }});
         }}
     }}
 
     async function uploadBannerImage() {{
         const fileInput = document.getElementById('banner-image-file');
         if (!fileInput.files || !fileInput.files[0]) {{
-            alert('Please select an image first');
+            await ghNotify({{ title: 'No image selected', message: 'Please select an image first.', variant: 'warning' }});
             return;
         }}
 
@@ -946,14 +930,14 @@ def profile_edit():
 
             const data = await response.json();
             if (response.ok) {{
-                alert('Banner image uploaded successfully!');
+                await ghNotify({{ title: 'Banner updated', message: 'Your banner image was uploaded successfully.', variant: 'success' }});
                 location.reload();
             }} else {{
-                alert(data.error || 'Failed to upload image');
+                await ghNotify({{ title: 'Upload failed', message: data.error || 'Failed to upload image', variant: 'danger' }});
             }}
         }} catch (error) {{
             console.error('Error uploading image:', error);
-            alert('Failed to upload image');
+            await ghNotify({{ title: 'Upload failed', message: 'Failed to upload image.', variant: 'danger' }});
         }}
     }}
 
@@ -987,14 +971,14 @@ def profile_edit():
 
             const data = await response.json();
             if (response.ok) {{
-                alert('Profile updated successfully!');
+                await ghNotify({{ title: 'Profile updated', message: 'Your profile was saved successfully.', variant: 'success' }});
                 window.location.href = '/profile/{user.username}/';
             }} else {{
-                alert(data.error || 'Failed to update profile');
+                await ghNotify({{ title: 'Update failed', message: data.error || 'Failed to update profile', variant: 'danger' }});
             }}
         }} catch (error) {{
             console.error('Error updating profile:', error);
-            alert('Failed to update profile');
+            await ghNotify({{ title: 'Update failed', message: 'Failed to update profile.', variant: 'danger' }});
         }}
     }}
     </script>

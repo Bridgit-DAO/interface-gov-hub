@@ -2373,3 +2373,88 @@ def migrate_overweb_connection_types_seed(app):
                 print(f'✅ Seeded {created} Overweb connection type(s)')
     except Exception as e:
         print(f'⚠️  Error in migrate_overweb_connection_types_seed: {e}')
+        print(f'⚠️  Error in migrate_overweb_connection_types_seed: {e}')
+
+
+def migrate_referral_attribution_v1(app):
+    """Create referral_attribution table for scoped conversion records."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS referral_attribution (
+                id VARCHAR(36) PRIMARY KEY,
+                product VARCHAR(20) NOT NULL DEFAULT 'gov_hub',
+                referrer_user_id VARCHAR(36) NOT NULL,
+                converted_user_id VARCHAR(36),
+                scope_type VARCHAR(32) NOT NULL,
+                scope_id VARCHAR(36) NOT NULL,
+                entity_type VARCHAR(32) NOT NULL,
+                entity_id VARCHAR(36) NOT NULL,
+                conversion_type VARCHAR(32) NOT NULL,
+                channel VARCHAR(32),
+                campaign VARCHAR(64),
+                share_event_id VARCHAR(36),
+                referral_token TEXT,
+                legacy_referral_code VARCHAR(50),
+                metadata_json TEXT,
+                converted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(referrer_user_id) REFERENCES user(id),
+                FOREIGN KEY(converted_user_id) REFERENCES user(id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_referral_attr_scope ON referral_attribution(scope_type, scope_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_referral_attr_referrer ON referral_attribution(referrer_user_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_referral_attr_conversion ON referral_attribution(conversion_type)'
+        )
+        conn.commit()
+        conn.close()
+        print('✅ referral_attribution table ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_referral_attribution_v1: {e}')
+
+
+def migrate_referral_landing_v1(app):
+    """Create referral_landing table and waitlist_email_signup.referral_token."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS referral_landing (
+                id VARCHAR(36) PRIMARY KEY,
+                referrer_user_id VARCHAR(36),
+                scope_type VARCHAR(32) NOT NULL,
+                scope_id VARCHAR(36) NOT NULL,
+                entity_type VARCHAR(32) NOT NULL,
+                entity_id VARCHAR(36) NOT NULL,
+                channel VARCHAR(32),
+                landing_url VARCHAR(500) NOT NULL,
+                referral_token TEXT,
+                user_agent VARCHAR(500),
+                metadata_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(referrer_user_id) REFERENCES user(id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_referral_landing_scope ON referral_landing(scope_type, scope_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_referral_landing_referrer ON referral_landing(referrer_user_id)'
+        )
+        cursor.execute('PRAGMA table_info(waitlist_email_signup)')
+        email_cols = [c[1] for c in cursor.fetchall()]
+        if 'referral_token' not in email_cols:
+            cursor.execute('ALTER TABLE waitlist_email_signup ADD COLUMN referral_token TEXT')
+        conn.commit()
+        conn.close()
+        print('✅ referral_landing table ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_referral_landing_v1: {e}')

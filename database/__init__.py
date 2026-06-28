@@ -63,6 +63,8 @@ def init_db(app):
             migrate_bridgitdao_canopi_admin,
             migrate_layer_org_connections_v1,
             migrate_overweb_connection_types_seed,
+            migrate_referral_attribution_v1,
+            migrate_referral_landing_v1,
             migrate_hardcoded_users,
         )
 
@@ -123,5 +125,7 @@ def init_db(app):
         migrate_bridgitdao_canopi_admin(app)
         migrate_layer_org_connections_v1(app)
         migrate_overweb_connection_types_seed(app)
+        migrate_referral_attribution_v1(app)
+        migrate_referral_landing_v1(app)
 
         print(f"Database initialized: {User.query.count()} users")

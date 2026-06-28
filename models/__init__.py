@@ -2,6 +2,8 @@
 Gov Hub models. Import all models so db.create_all() registers them.
 Import order: identity -> coordination -> events -> artifact (Layer before EventLog).
 """
+from models.referral_attribution import ReferralAttribution
+from models.referral_landing import ReferralLanding
 from models.identity import User, UserLinkedAccount
 from models.custodial_wallet import CustodialWallet
 from models.coordination import (
@@ -55,4 +57,6 @@ __all__ = [
     'LayerTag', 'LayerTagLink', 'SUBJECT_ARTIFACT', 'SUBJECT_SUBMISSION',
     'ArtifactTag', 'ArtifactTagLink',
     'Bridge', 'BridgeSession',
+    'ReferralAttribution',
+    'ReferralLanding',
 ]

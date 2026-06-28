@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://govhub.local/schemas/referral-attribution/v1",
+  "title": "ScopedReferralAttributionContract",
+  "description": "Cross-product contract for Gov Hub and Canopi referral/share attribution.",
+  "definitions": {
+    "product": {
+      "type": "string",
+      "enum": ["canopi", "gov_hub"]
+    },
+    "scopeType": {
+      "type": "string",
+      "enum": ["platform", "org", "layer", "waitlist", "campaign", "community", "embed"]
+    },
+    "entityType": {
+      "type": "string",
+      "enum": [
+        "message",
+        "anchor",
+        "community",
+        "profile",
+        "layer",
+        "waitlist",
+        "user_signup",
+        "embed_instance"
+      ]
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "copy",
+        "x",
+        "linkedin",
+        "reddit",
+        "facebook",
+        "email",
+        "native",
+        "instagram",
+        "tiktok",
+        "profile",
+        "waitlist",
+        "layer_join",
+        "embed",
+        "unknown"
+      ]
+    },
+    "conversionType": {
+      "type": "string",
+      "enum": [
+        "user_signup",
+        "layer_member_join",
+        "waitlist_join",
+        "embed_signup",
+        "embed_visit",
+        "install_click"
+      ]
+    },
+    "shareRefTokenPayloadV1": {
+      "type": "object",
+      "required": ["v", "referrerUserId", "entityType", "entityId", "iat", "exp"],
+      "properties": {
+        "v": { "const": 1 },
+        "referrerUserId": { "type": "string", "format": "uuid" },
+        "entityType": { "$ref": "#/definitions/entityType" },
+        "entityId": { "type": "string", "minLength": 1 },
+        "shareEventId": { "type": "string", "format": "uuid" },
+        "iat": { "type": "integer" },
+        "exp": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "shareRefTokenPayloadV2": {
+      "type": "object",
+      "required": [
+        "v",
+        "referrerUserId",
+        "entityType",
+        "entityId",
+        "product",
+        "scopeType",
+        "scopeId",
+        "iat",
+        "exp"
+      ],
+      "properties": {
+        "v": { "const": 2 },
+        "referrerUserId": { "type": "string", "format": "uuid" },
+        "entityType": { "$ref": "#/definitions/entityType" },
+        "entityId": { "type": "string", "minLength": 1 },
+        "shareEventId": { "type": "string", "format": "uuid" },
+        "product": { "$ref": "#/definitions/product" },
+        "scopeType": { "$ref": "#/definitions/scopeType" },
+        "scopeId": { "type": "string", "minLength": 1 },
+        "campaign": { "type": "string", "maxLength": 64 },
+        "channel": { "$ref": "#/definitions/channel" },
+        "iat": { "type": "integer" },
+        "exp": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "shareEvent": {
+      "type": "object",
+      "required": ["id", "referrerUserId", "entityType", "entityId", "channel", "shareUrl"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "referrerUserId": { "type": "string", "format": "uuid" },
+        "entityType": { "$ref": "#/definitions/entityType" },
+        "entityId": { "type": "string" },
+        "channel": { "$ref": "#/definitions/channel" },
+        "product": { "$ref": "#/definitions/product" },
+        "scopeType": { "$ref": "#/definitions/scopeType" },
+        "scopeId": { "type": "string" },
+        "campaign": { "type": "string" },
+        "communityId": { "type": "string", "format": "uuid" },
+        "referralToken": { "type": "string" },
+        "shareUrl": { "type": "string", "format": "uri" },
+        "metadata": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "shareLanding": {
+      "type": "object",
+      "required": ["entityType", "entityId", "landingUrl"],
+      "properties": {
+        "shareEventId": { "type": "string", "format": "uuid" },
+        "entityType": { "$ref": "#/definitions/entityType" },
+        "entityId": { "type": "string" },
+        "referrerUserId": { "type": "string", "format": "uuid" },
+        "channel": { "$ref": "#/definitions/channel" },
+        "landingUrl": { "type": "string", "format": "uri" },
+        "userAgent": { "type": "string" },
+        "metadata": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "referralAttribution": {
+      "type": "object",
+      "required": [
+        "id",
+        "product",
+        "referrerUserId",
+        "scopeType",
+        "scopeId",
+        "entityType",
+        "entityId",
+        "conversionType"
+      ],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "product": { "$ref": "#/definitions/product" },
+        "referrerUserId": { "type": "string" },
+        "convertedUserId": { "type": "string" },
+        "scopeType": { "$ref": "#/definitions/scopeType" },
+        "scopeId": { "type": "string" },
+        "entityType": { "$ref": "#/definitions/entityType" },
+        "entityId": { "type": "string" },
+        "conversionType": { "$ref": "#/definitions/conversionType" },
+        "channel": { "$ref": "#/definitions/channel" },
+        "campaign": { "type": "string" },
+        "shareEventId": { "type": "string", "format": "uuid" },
+        "referralToken": { "type": "string" },
+        "legacyReferralCode": { "type": "string" },
+        "metadata": { "type": "object" },
+        "convertedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

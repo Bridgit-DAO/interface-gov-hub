@@ -456,7 +456,8 @@ class WaitlistEntry(db.Model):
     referred_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     referral_code = db.Column(db.String(50), nullable=True)
     source = db.Column(db.String(255), nullable=True)  # Track signup source (e.g., 'embed:example.com', 'direct', 'referral')
-    source_url = db.Column(db.String(500), nullable=True)  # Full URL where signup occurred
+    source_url = db.Column(db.String(500), nullable=True)
+    referral_token = db.Column(db.Text, nullable=True)  # Full URL where signup occurred
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     left_at = db.Column(db.DateTime, nullable=True)  # If set, user left
     
@@ -493,6 +494,7 @@ class WaitlistEmailSignup(db.Model):
     position = db.Column(db.Integer, nullable=False)
     source = db.Column(db.String(255), nullable=True)
     source_url = db.Column(db.String(500), nullable=True)
+    referral_token = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     left_at = db.Column(db.DateTime, nullable=True)
     

@@ -956,12 +956,13 @@ def join_layer(layer_id):
         return jsonify({'error': 'Already a member of this project'}), 400
 
     data = request.get_json() or {}
-    referral_code = data.get('referral_code')
-    referred_by_id = None
-    if referral_code:
-        referrer = User.query.filter_by(referral_code=referral_code).first()
-        if referrer and referrer.id != user.id:
-            referred_by_id = referrer.id
+    ref_token = data.get('ref_token')
+    from services.referral_attribution import resolve_referrer_from_token, record_referral_attribution
+
+    referred_by_id, token_attr = resolve_referrer_from_token(
+        ref_token,
+        current_user_id=user.id,
+    )
 
     if existing:
         existing.status = 'active'
@@ -969,17 +970,34 @@ def join_layer(layer_id):
         existing.left_at = None
         if referred_by_id and not existing.referred_by_id:
             existing.referred_by_id = referred_by_id
-            existing.referral_code = referral_code
+            existing.referral_code = None
         member = existing
     else:
         member = LayerMember(
             layer_id=layer_id,
             user_id=user.id,
             referred_by_id=referred_by_id,
-            referral_code=referral_code,
+            referral_code=None,
             role='contributor'
         )
         db.session.add(member)
+
+    if referred_by_id:
+        scope_type = (token_attr or {}).get('scope_type') or 'layer'
+        scope_id = (token_attr or {}).get('scope_id') or layer_id
+        record_referral_attribution(
+            referrer_user_id=referred_by_id,
+            converted_user_id=user.id,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            entity_type='layer',
+            entity_id=layer_id,
+            conversion_type='layer_member_join',
+            channel=(token_attr or {}).get('channel'),
+            campaign=(token_attr or {}).get('campaign'),
+            share_event_id=(token_attr or {}).get('share_event_id'),
+            referral_token=ref_token,
+        )
 
     emit_event(
         'member_joined',
