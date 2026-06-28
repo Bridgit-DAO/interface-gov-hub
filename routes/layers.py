@@ -32,11 +32,31 @@ from services.layer_features import (
     validate_layer_features_patch,
 )
 from services.event_registry import EXCLUDED_FROM_ACTIVITY_FEED
+from services.referral_tokens import attribution_from_token
 
 bp = Blueprint('layers', __name__, url_prefix='/api/layers')
 
 # Omit from default layer activity API; include via ?event_type= (see services/event_registry.py)
 ACTIVITY_FEED_EXCLUDED_EVENT_TYPES = EXCLUDED_FROM_ACTIVITY_FEED
+
+
+def _ref_token_allows_layer_detail(project) -> bool:
+    """Allow a scoped referral token to open the private layer landing page it targets."""
+    ref_token = (request.args.get('ref_token') or '').strip()
+    if not ref_token:
+        return False
+    attr = attribution_from_token(ref_token)
+    if not attr or not attr.get('valid') or attr.get('product') != 'gov_hub':
+        return False
+    if attr.get('scope_type') == 'layer' and attr.get('scope_id') == project.id:
+        return True
+    if attr.get('entity_type') == 'layer' and attr.get('entity_id') == project.id:
+        return True
+    if attr.get('scope_type') == 'waitlist' or attr.get('entity_type') == 'waitlist':
+        waitlist_id = attr.get('scope_id') if attr.get('scope_type') == 'waitlist' else attr.get('entity_id')
+        waitlist = Waitlist.query.get(waitlist_id) if waitlist_id else None
+        return bool(waitlist and waitlist.layer_id == project.id)
+    return False
 
 
 def _resolve_project_email_recipients(layer_id, groups):
@@ -220,7 +240,7 @@ def get_layer_by_slug(slug):
         abort(404)
     current_app.logger.info(f"[LAYER] api_get_project_by_slug: found project id={project.id} name={project.name}")
     current_user = get_current_user()
-    if not layer_listing_visible(project, current_user):
+    if not layer_listing_visible(project, current_user) and not _ref_token_allows_layer_detail(project):
         abort(404)
     workgroups_count = Workgroup.query.filter_by(layer_id=project.id).count()
     project_dict = project.to_dict()
@@ -253,7 +273,7 @@ def get_layer(layer_id):
     current_app.logger.info(f"[LAYER] api_get_project: found id={project.id} slug={project.slug}")
 
     current_user = get_current_user()
-    if not layer_listing_visible(project, current_user):
+    if not layer_listing_visible(project, current_user) and not _ref_token_allows_layer_detail(project):
         abort(404)
 
     workgroups_count = Workgroup.query.filter_by(layer_id=project.id).count()
