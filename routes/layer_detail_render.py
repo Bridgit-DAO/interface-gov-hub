@@ -2334,6 +2334,95 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
         }} catch (e) {{ alert(e.message); }}
     }}
+
+    function formatReferralConversionType(key) {{
+        const labels = {{
+            layer_member_join: 'Layer join',
+            waitlist_join: 'Waitlist join',
+            user_signup: 'Signup',
+            embed_signup: 'Embed signup',
+            embed_visit: 'Embed visit',
+            install_click: 'Install click',
+        }};
+        return labels[key] || key || '—';
+    }}
+
+    function renderReferralByType(byType) {{
+        if (!byType || typeof byType !== 'object') return '—';
+        const parts = Object.keys(byType).map(function(k) {{
+            return formatReferralConversionType(k) + ': ' + byType[k];
+        }});
+        return parts.length ? escapeHtml(parts.join(' · ')) : '—';
+    }}
+
+    function renderReferralStatsCard(stats, options) {{
+        options = options || {{}};
+        const title = options.title || 'Referral analytics';
+        const subtitle = options.subtitle || 'Scoped link visits and attributed joins for this layer.';
+        const landings = stats.landing_count || 0;
+        const conversions = stats.conversion_count || 0;
+        const referrers = stats.referrers || [];
+        let card = '<div class="card mb-4" id="layer-referral-stats-card"><div class="card-header d-flex justify-content-between align-items-center">';
+        card += '<h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>' + escapeHtml(title) + '</h5>';
+        card += '<div class="btn-group btn-group-sm"><button type="button" class="btn btn-outline-secondary" onclick="loadAdmins()" title="Refresh"><i class="fas fa-sync-alt"></i></button>';
+        if (options.showCopyLink) {{
+            card += '<button type="button" class="btn btn-outline-primary" onclick="copyLayerReferralLink()"><i class="fas fa-link me-1"></i>Copy my link</button>';
+        }}
+        card += '</div></div><div class="card-body">';
+        card += '<p class="text-muted small mb-3">' + escapeHtml(subtitle) + '</p>';
+        card += '<div class="row g-3 mb-3"><div class="col-md-4"><div class="border rounded p-3 text-center h-100">';
+        card += '<div class="fs-4 fw-bold">' + landings + '</div><div class="small text-muted">Link landings</div></div></div>';
+        card += '<div class="col-md-4"><div class="border rounded p-3 text-center h-100">';
+        card += '<div class="fs-4 fw-bold">' + conversions + '</div><div class="small text-muted">Attributed conversions</div></div></div>';
+        card += '<div class="col-md-4"><div class="border rounded p-3 text-center h-100">';
+        const rate = landings > 0 ? Math.round((conversions / landings) * 100) + '%' : '—';
+        card += '<div class="fs-4 fw-bold">' + rate + '</div><div class="small text-muted">Landing → conversion</div></div></div></div>';
+        if (!referrers.length) {{
+            card += '<p class="text-muted small mb-0">No referral activity recorded yet. Enable referrals on a waitlist so members receive shareable <code>?ref_token=</code> links.</p>';
+        }} else {{
+            card += '<div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">';
+            card += '<thead><tr><th>Referrer</th><th class="text-end">Landings</th><th class="text-end">Conversions</th><th>Breakdown</th></tr></thead><tbody>';
+            referrers.forEach(function(row) {{
+                const uname = escapeHtmlBasic(row.username || '');
+                const dname = escapeHtml(row.display_name || row.username || 'User');
+                const profile = uname ? '<a href="/profile/' + uname + '/" class="text-decoration-none">' + dname + '</a>' : dname;
+                card += '<tr><td>' + profile + '</td>';
+                card += '<td class="text-end">' + (row.landings || 0) + '</td>';
+                card += '<td class="text-end">' + (row.conversions || 0) + '</td>';
+                card += '<td class="small text-muted">' + renderReferralByType(row.by_type) + '</td></tr>';
+            }});
+            card += '</tbody></table></div>';
+        }}
+        card += '</div></div>';
+        return card;
+    }}
+
+    async function copyLayerReferralLink() {{
+        if (!project || !project.id) return;
+        try {{
+            const r = await fetch('/api/layers/' + project.id + '/referral-link/', {{ credentials: 'same-origin' }});
+            const d = await r.json().catch(function() {{ return {{}}; }});
+            if (!r.ok) throw new Error(d.error || 'Could not create referral link');
+            await navigator.clipboard.writeText(d.url);
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{
+                    title: 'Referral link copied',
+                    message: 'Your scoped layer referral link is on the clipboard.',
+                    variant: 'success',
+                }});
+            }}
+        }} catch (e) {{
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{
+                    title: 'Copy failed',
+                    message: e.message || 'Could not copy the referral link.',
+                    variant: 'danger',
+                }});
+            }} else {{
+                alert(e.message || 'Copy failed');
+            }}
+        }}
+    }}
     
     async function loadAdmins() {{
         const container = document.getElementById('admin-content');
@@ -2385,6 +2474,21 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 html += '<p class="small text-muted mt-2 mb-0" id="layer-nft-gate-msg"></p>';
             }}
             html += '</div></div>';
+            try {{
+                const refStatsRes = await fetch('/api/layers/' + project.id + '/referral-stats/', {{ credentials: 'same-origin' }});
+                if (refStatsRes.ok) {{
+                    const refStats = await refStatsRes.json();
+                    html += renderReferralStatsCard(refStats, {{
+                        title: 'Referral analytics',
+                        subtitle: 'Link landings and attributed joins for this layer (includes waitlist-driven layer joins).',
+                        showCopyLink: true,
+                    }});
+                }} else if (refStatsRes.status !== 403) {{
+                    html += '<div class="card mb-4"><div class="card-body"><p class="text-muted small mb-0">Referral stats could not be loaded.</p></div></div>';
+                }}
+            }} catch (refErr) {{
+                console.warn('Referral stats:', refErr);
+            }}
             html += '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Product features</h5></div><div class="card-body">';
             html += '<p class="text-muted small mb-3">Turn off capabilities for this layer only (among features enabled site-wide). Disabled areas are removed from navigation, tabs, and admin sections.</p>';
             html += '<div class="row g-2">';
@@ -2437,18 +2541,44 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 html += '<hr class="my-4"><div class="d-flex justify-content-between align-items-center mb-3"><h4>Waitlists</h4><button class="btn btn-primary btn-sm" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
                 const wlResponse = await fetch('/api/layers/' + project.id + '/waitlists/');
                 const wlData = await wlResponse.json();
+                const wlStatsMap = {{}};
+                if (wlData.waitlists && wlData.waitlists.length) {{
+                    const referralWaitlists = wlData.waitlists.filter(function(w) {{ return w.referrals; }});
+                    if (referralWaitlists.length) {{
+                        const statsResults = await Promise.all(referralWaitlists.map(async function(wl) {{
+                            try {{
+                                const sr = await fetch('/api/waitlists/' + wl.id + '/referral-stats/', {{ credentials: 'same-origin' }});
+                                if (sr.ok) return {{ id: wl.id, stats: await sr.json() }};
+                            }} catch (e) {{ /* ignore */ }}
+                            return null;
+                        }}));
+                        statsResults.filter(Boolean).forEach(function(entry) {{
+                            wlStatsMap[entry.id] = entry.stats;
+                        }});
+                    }}
+                }}
                 if (wlData.waitlists && wlData.waitlists.length > 0) {{
                     html += '<div class="list-group">';
                     wlData.waitlists.forEach(wl => {{
                         const statusBadge = wl.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>';
+                        const refBadge = wl.referrals ? ' <span class="badge bg-primary">Referrals on</span>' : '';
                         const wlNameEsc = escapeHtmlBasic(wl.name || '');
                         const wlDescEsc = escapeHtmlBasic(wl.description || 'No description');
                         const wlNameAttr = (wl.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+                        let refStatsLine = '';
+                        if (wl.referrals && wlStatsMap[wl.id]) {{
+                            const ws = wlStatsMap[wl.id];
+                            refStatsLine = '<p class="mb-0 small text-muted"><i class="fas fa-chart-line me-1"></i>' +
+                                (ws.landing_count || 0) + ' landings · ' + (ws.conversion_count || 0) + ' conversions</p>';
+                        }} else if (wl.referrals) {{
+                            refStatsLine = '<p class="mb-0 small text-muted">Referrals enabled — no activity yet</p>';
+                        }}
                         html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start">' +
                             '<div class="flex-grow-1">' +
-                            '<h6 class="mb-1"><a href="/waitlists/' + wl.id + '/" class="text-decoration-none">' + wlNameEsc + '</a> ' + statusBadge + '</h6>' +
+                            '<h6 class="mb-1"><a href="/waitlists/' + wl.id + '/" class="text-decoration-none">' + wlNameEsc + '</a> ' + statusBadge + refBadge + '</h6>' +
                             '<p class="mb-1 text-muted small">' + wlDescEsc + '</p>' +
                             '<p class="mb-0 small text-muted">Members: ' + wl.count + (wl.max_number ? ' / ' + wl.max_number : '') + '</p>' +
+                            refStatsLine +
                             '</div><div class="btn-group btn-group-sm">' +
                             '<button class="btn btn-outline-primary" onclick="showEmbedCodeFromEl(this)" data-waitlist-id="' + wl.id + '" data-waitlist-name="' + wlNameAttr + '"><i class="fas fa-code"></i></button>' +
                             '<a href="/waitlists/' + wl.id + '/" class="btn btn-outline-secondary"><i class="fas fa-external-link-alt"></i></a>' +
