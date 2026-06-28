@@ -2419,7 +2419,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                     variant: 'danger',
                 }});
             }} else {{
-                alert(e.message || 'Copy failed');
+                console.warn('Copy failed:', e);
             }}
         }}
     }}
