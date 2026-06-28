@@ -190,10 +190,22 @@ def test_accept_invitation_sets_referrer():
     assert r.status_code == 200, r.get_data(as_text=True)
 
     with app.app_context():
+        from models.referral_attribution import ReferralAttribution
+
         member = LayerMember.query.filter_by(layer_id=layer_id, user_id=invitee_id).first()
         assert member is not None
         assert member.status == 'active'
         assert member.referred_by_id == inviter_id
+        att = ReferralAttribution.query.filter_by(
+            referrer_user_id=inviter_id,
+            converted_user_id=invitee_id,
+            scope_type='layer',
+            scope_id=layer_id,
+            conversion_type='layer_member_join',
+        ).first()
+        assert att is not None
+        assert att.channel == 'invitation'
+        assert att.referral_token == f'invite:{token_val}'
 
 
 def test_preview_includes_layer_mission_and_description():

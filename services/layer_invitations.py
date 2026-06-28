@@ -387,6 +387,11 @@ def accept_layer_invitation(token: str, user_id: str) -> tuple[dict[str, Any], i
 
     existing = LayerMember.query.filter_by(layer_id=inv.layer_id, user_id=user.id).first()
     now = datetime.utcnow()
+    became_active = (
+        not existing
+        or existing.status != 'active'
+        or existing.left_at is not None
+    )
 
     if existing and existing.status == 'active' and existing.left_at is None:
         if not shareable:
@@ -427,8 +432,6 @@ def accept_layer_invitation(token: str, user_id: str) -> tuple[dict[str, Any], i
         inv.responded_at = now
         inv.invitee_id = user.id
 
-    # Only log join when membership becomes active (not duplicate accept clicks).
-    became_active = not existing or existing.status != 'active' or existing.left_at is not None
     if became_active:
         emit_event(
             'member_joined',
@@ -444,6 +447,24 @@ def accept_layer_invitation(token: str, user_id: str) -> tuple[dict[str, Any], i
                 'inviter_id': inv.inviter_id,
             },
         )
+        if (
+            inv.inviter_id
+            and inv.inviter_id != user.id
+            and member.referred_by_id == inv.inviter_id
+        ):
+            from services.referral_attribution import record_referral_attribution
+
+            record_referral_attribution(
+                referrer_user_id=inv.inviter_id,
+                converted_user_id=user.id,
+                scope_type='layer',
+                scope_id=inv.layer_id,
+                entity_type='layer',
+                entity_id=inv.layer_id,
+                conversion_type='layer_member_join',
+                channel='invitation',
+                referral_token=referral_code,
+            )
     db.session.commit()
 
     return {
