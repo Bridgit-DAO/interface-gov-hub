@@ -1200,6 +1200,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }} else {{
                 actionsHtml += '<div class="mb-3"><button class="btn btn-primary btn-sm w-100" onclick="showJoinProjectModal()"><i class="fas fa-plus me-2"></i>Join Layer</button></div>';
             }}
+        }} else if (referralRefToken && project && (project.join_policy || 'open') === 'open') {{
+            const joinNext = encodeURIComponent(window.location.pathname + window.location.search);
+            actionsHtml += '<div class="mb-3"><a href="/login/?next=' + joinNext + '" class="btn btn-primary btn-sm w-100"><i class="fas fa-sign-in-alt me-2"></i>Sign in to join</a></div>';
         }}
         actionsHtml += '<div class="mb-3"><a href="' + layerBase + 'connections/" class="btn btn-outline-primary btn-sm w-100"><i class="fas fa-handshake me-2"></i>Connect your organization</a></div>';
         if (isProjectAdmin) {{

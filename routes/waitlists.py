@@ -16,7 +16,13 @@ from models import (
 from services.identity import get_current_user, require_auth
 from services.coordination import is_layer_admin
 from services.events import emit_event
-from services.referral_attribution import issue_waitlist_referral_link, resolve_referrer_from_token, record_referral_attribution
+from services.referral_attribution import (
+    issue_waitlist_referral_link,
+    record_embed_waitlist_email_attribution,
+    record_referral_attribution,
+    resolve_waitlist_join_referrer,
+    upgrade_embed_signup_attribution,
+)
 
 bp = Blueprint('waitlists', __name__, url_prefix='')
 
@@ -408,6 +414,8 @@ def join_waitlist_email(waitlist_id):
         if is_dev and not os.environ.get('RESEND_API_KEY', '').strip():
             signup.verified_at = datetime.utcnow()
             signup.verification_token = None
+            project = Layer.query.get_or_404(waitlist.layer_id)
+            record_embed_waitlist_email_attribution(signup, waitlist, project)
             db.session.commit()
             return jsonify({
                 'message': 'joined',
@@ -435,11 +443,12 @@ def waitlist_confirm(token):
     signup.verified_at = datetime.utcnow()
     signup.verification_token = None
     waitlist = Waitlist.query.get_or_404(signup.waitlist_id)
+    project = Layer.query.get_or_404(waitlist.layer_id)
+    record_embed_waitlist_email_attribution(signup, waitlist, project)
     emit_event('waitlist_joined', actor_type='email', actor_id=None,
                subject_type='waitlist', subject_id=str(signup.waitlist_id), layer_id=waitlist.layer_id,
                payload={'waitlist_name': waitlist.name, 'position': signup.position})
     db.session.commit()
-    project = Layer.query.get_or_404(waitlist.layer_id)
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>You're on the list!</title></head>
@@ -458,6 +467,9 @@ def join_waitlist(waitlist_id):
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
+    user = User.query.get(current_user['id'])
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     waitlist = Waitlist.query.get_or_404(waitlist_id)
     project = Layer.query.get_or_404(waitlist.layer_id)
 
@@ -492,9 +504,11 @@ def join_waitlist(waitlist_id):
         source = data.get('source')
         source_url = data.get('source_url')
 
-        referred_by_id, token_attr = resolve_referrer_from_token(
-            ref_token,
-            current_user_id=current_user['id'],
+        referred_by_id, token_attr, ref_token = resolve_waitlist_join_referrer(
+            waitlist_id=waitlist_id,
+            ref_token=ref_token,
+            user_email=user.email,
+            current_user_id=user.id,
         )
         if referred_by_id:
             pm = LayerMember.query.filter_by(layer_id=project.id, user_id=current_user['id'], status='active').first()
@@ -519,21 +533,30 @@ def join_waitlist(waitlist_id):
             source_url=source_url,
         )
         db.session.add(entry)
-        if referred_by_id:
-            record_referral_attribution(
-                referrer_user_id=referred_by_id,
-                converted_user_id=current_user['id'],
-                scope_type=(token_attr or {}).get('scope_type') or 'waitlist',
-                scope_id=(token_attr or {}).get('scope_id') or waitlist_id,
-                entity_type='waitlist',
-                entity_id=waitlist_id,
-                conversion_type='waitlist_join',
-                channel=(token_attr or {}).get('channel'),
-                campaign=(token_attr or {}).get('campaign'),
-                share_event_id=(token_attr or {}).get('share_event_id'),
-                referral_token=ref_token,
-                metadata={'layer_id': project.id},
+        if referred_by_id and ref_token:
+            scope_type = (token_attr or {}).get('scope_type') or 'waitlist'
+            scope_id = (token_attr or {}).get('scope_id') or waitlist_id
+            upgraded = upgrade_embed_signup_attribution(
+                ref_token=ref_token,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                converted_user_id=user.id,
             )
+            if not upgraded:
+                record_referral_attribution(
+                    referrer_user_id=referred_by_id,
+                    converted_user_id=user.id,
+                    scope_type=scope_type,
+                    scope_id=scope_id,
+                    entity_type='waitlist',
+                    entity_id=waitlist_id,
+                    conversion_type='waitlist_join',
+                    channel=(token_attr or {}).get('channel'),
+                    campaign=(token_attr or {}).get('campaign'),
+                    share_event_id=(token_attr or {}).get('share_event_id'),
+                    referral_token=ref_token,
+                    metadata={'layer_id': project.id},
+                )
         emit_event('waitlist_joined', actor_type='user', actor_id=current_user['id'],
                    subject_type='waitlist', subject_id=str(waitlist_id), layer_id=waitlist.layer_id,
                    payload={'waitlist_name': waitlist.name, 'position': count + 1})
