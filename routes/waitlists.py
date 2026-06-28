@@ -478,21 +478,57 @@ def join_waitlist(waitlist_id):
     else:
         data = request.get_json() or {}
         message = data.get('message', '')
+        ref_token = data.get('ref_token')
         referral_code = data.get('referral_code')
         source = data.get('source')
         source_url = data.get('source_url')
-        referred_by_id = None
-        if referral_code:
-            referrer = User.query.filter_by(referral_code=referral_code).first()
-            if referrer and referrer.id != current_user['id']:
-                referred_by_id = referrer.id
-                pm = LayerMember.query.filter_by(layer_id=project.id, user_id=current_user['id'], status='active').first()
-                if not pm:
-                    pm = LayerMember(layer_id=project.id, user_id=current_user['id'], referred_by_id=referred_by_id, referral_code=referral_code, role='contributor')
-                    db.session.add(pm)
+        from services.referral_attribution import resolve_referrer, record_referral_attribution
 
-        entry = WaitlistEntry(waitlist_id=waitlist_id, user_id=current_user['id'], message=message, position=count + 1, referred_by_id=referred_by_id, referral_code=referral_code, source=source, source_url=source_url)
+        referred_by_id, legacy_code, token_attr = resolve_referrer(
+            ref_token=ref_token,
+            referral_code=referral_code,
+            current_user_id=current_user['id'],
+        )
+        stored_referral_code = legacy_code or (referral_code if not ref_token else None)
+        if referred_by_id:
+            pm = LayerMember.query.filter_by(layer_id=project.id, user_id=current_user['id'], status='active').first()
+            if not pm:
+                pm = LayerMember(
+                    layer_id=project.id,
+                    user_id=current_user['id'],
+                    referred_by_id=referred_by_id,
+                    referral_code=stored_referral_code,
+                    role='contributor',
+                )
+                db.session.add(pm)
+
+        entry = WaitlistEntry(
+            waitlist_id=waitlist_id,
+            user_id=current_user['id'],
+            message=message,
+            position=count + 1,
+            referred_by_id=referred_by_id,
+            referral_code=stored_referral_code,
+            source=source,
+            source_url=source_url,
+        )
         db.session.add(entry)
+        if referred_by_id:
+            record_referral_attribution(
+                referrer_user_id=referred_by_id,
+                converted_user_id=current_user['id'],
+                scope_type=(token_attr or {}).get('scope_type') or 'waitlist',
+                scope_id=(token_attr or {}).get('scope_id') or waitlist_id,
+                entity_type='waitlist',
+                entity_id=waitlist_id,
+                conversion_type='waitlist_join',
+                channel=(token_attr or {}).get('channel'),
+                campaign=(token_attr or {}).get('campaign'),
+                share_event_id=(token_attr or {}).get('share_event_id'),
+                referral_token=ref_token,
+                legacy_referral_code=stored_referral_code,
+                metadata={'layer_id': project.id},
+            )
         emit_event('waitlist_joined', actor_type='user', actor_id=current_user['id'],
                    subject_type='waitlist', subject_id=str(waitlist_id), layer_id=waitlist.layer_id,
                    payload={'waitlist_name': waitlist.name, 'position': count + 1})
