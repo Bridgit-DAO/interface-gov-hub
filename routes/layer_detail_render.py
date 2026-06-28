@@ -2355,6 +2355,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         return parts.length ? escapeHtml(parts.join(' · ')) : '—';
     }}
 
+    let layerReferralLinkUrl = '';
+
     function renderReferralStatsCard(stats, options) {{
         options = options || {{}};
         const title = options.title || 'Referral analytics';
@@ -2370,6 +2372,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
         card += '</div></div><div class="card-body">';
         card += '<p class="text-muted small mb-3">' + escapeHtml(subtitle) + '</p>';
+        if (options.referralUrl) {{
+            card += '<div class="input-group input-group-sm mb-3">';
+            card += '<span class="input-group-text"><i class="fas fa-link"></i></span>';
+            card += '<input type="text" class="form-control font-monospace" id="layer-referral-link-url" readonly value="' + escapeHtmlBasic(options.referralUrl) + '" onclick="this.select()">';
+            card += '<button type="button" class="btn btn-outline-primary" onclick="copyLayerReferralLink()">Copy</button>';
+            card += '</div>';
+        }}
         card += '<div class="row g-3 mb-3"><div class="col-md-4"><div class="border rounded p-3 text-center h-100">';
         card += '<div class="fs-4 fw-bold">' + landings + '</div><div class="small text-muted">Link landings</div></div></div>';
         card += '<div class="col-md-4"><div class="border rounded p-3 text-center h-100">';
@@ -2397,16 +2406,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         return card;
     }}
 
-    async function copyTextToClipboard(text) {{
-        if (navigator.clipboard && navigator.clipboard.writeText) {{
-            try {{
-                await navigator.clipboard.writeText(text);
-                return true;
-            }} catch (e) {{
-                console.warn('Clipboard API copy failed:', e);
-            }}
-        }}
-
+    function copyTextToClipboard(text) {{
         const textarea = document.createElement('textarea');
         textarea.value = text;
         textarea.setAttribute('readonly', '');
@@ -2423,22 +2423,31 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             console.warn('Fallback copy failed:', e);
         }}
         document.body.removeChild(textarea);
-        return copied;
+        if (copied) return Promise.resolve(true);
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+            return navigator.clipboard.writeText(text).then(function() {{
+                return true;
+            }}).catch(function(e) {{
+                console.warn('Clipboard API copy failed:', e);
+                return false;
+            }});
+        }}
+        return Promise.resolve(false);
     }}
 
     async function copyLayerReferralLink() {{
         if (!project || !project.id) return;
         try {{
-            const r = await fetch('/api/layers/' + project.id + '/referral-link/', {{ credentials: 'same-origin' }});
-            const d = await r.json().catch(function() {{ return {{}}; }});
-            if (!r.ok) throw new Error(d.error || 'Could not create referral link');
-            const copied = await copyTextToClipboard(d.url);
+            const input = document.getElementById('layer-referral-link-url');
+            const url = (input && input.value) || layerReferralLinkUrl;
+            if (!url) throw new Error('Referral link is not loaded yet. Refresh the Admin tab and try again.');
+            const copied = await copyTextToClipboard(url);
             if (typeof GhDialog !== 'undefined') {{
                 await GhDialog.alert({{
                     title: copied ? 'Referral link copied' : 'Copy manually',
                     message: copied
                         ? 'Your scoped layer referral link is on the clipboard.'
-                        : 'Clipboard access was blocked. Select and copy this link:\\n\\n' + d.url,
+                        : 'Clipboard access was blocked. The link field is visible above. Select it and press Cmd+C.',
                     variant: copied ? 'success' : 'warning',
                 }});
             }}
@@ -2509,10 +2518,20 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 const refStatsRes = await fetch('/api/layers/' + project.id + '/referral-stats/', {{ credentials: 'same-origin' }});
                 if (refStatsRes.ok) {{
                     const refStats = await refStatsRes.json();
+                    try {{
+                        const refLinkRes = await fetch('/api/layers/' + project.id + '/referral-link/', {{ credentials: 'same-origin' }});
+                        if (refLinkRes.ok) {{
+                            const refLink = await refLinkRes.json();
+                            layerReferralLinkUrl = refLink.url || '';
+                        }}
+                    }} catch (linkErr) {{
+                        console.warn('Referral link:', linkErr);
+                    }}
                     html += renderReferralStatsCard(refStats, {{
                         title: 'Referral analytics',
                         subtitle: 'Link landings and attributed joins for this layer (includes waitlist-driven layer joins).',
                         showCopyLink: true,
+                        referralUrl: layerReferralLinkUrl,
                     }});
                 }} else if (refStatsRes.status !== 403) {{
                     html += '<div class="card mb-4"><div class="card-body"><p class="text-muted small mb-0">Referral stats could not be loaded.</p></div></div>';
