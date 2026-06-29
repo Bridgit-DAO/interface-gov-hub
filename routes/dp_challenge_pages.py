@@ -134,15 +134,10 @@ def _short_dp_name(title: str) -> str:
 
 
 def format_dp_picker_label(sub) -> str:
-    """DPnn - [name] (ML-DRAFT nnn) for the hub doc picker."""
+    """DPnn - [name] for the hub doc picker."""
     dp_num = extract_dp_number_from_title(sub.title or '')
     name = _short_dp_name(sub.title or '') or (sub.title or '').strip() or 'Draft'
     dp_part = f'DP{dp_num:02d}' if dp_num is not None else 'DP'
-    ml = (sub.ml_number or '').strip()
-    if ml:
-        ml_match = re.match(r'ML-Draft-(\d+)', ml, re.IGNORECASE)
-        ml_num = ml_match.group(1) if ml_match else ml
-        return f'{dp_part} - {name} (ML-DRAFT {ml_num})'
     return f'{dp_part} - {name}'
 
 
