@@ -9,12 +9,11 @@
   "immortalize": false,
   "layers": true,
   "opportunities": false,
+  "patches": true,
   "quests": false,
   "roles": true,
   "soft_launch": false,
   "votes": false,
   "waitlists": true,
-  "workgroups": true,
-  "dp_proposals": true,
-  "document_edits": true
+  "workgroups": true
 }

@@ -2,7 +2,7 @@
 import re
 import secrets
 
-from flask import request, g, jsonify, session, current_app
+from flask import request, g, jsonify, session, current_app, redirect, flash
 
 from models import Layer
 from services.utils import _is_uuid_like
@@ -130,6 +130,13 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
         if _request_looks_like_browser_form():
             supplied = request.form.get('csrf_token') or request.headers.get('X-CSRFToken')
             if not csrf_token_valid(supplied, expected):
+                accept = (request.headers.get('Accept') or '').lower()
+                if 'text/html' in accept and request.referrer:
+                    flash(
+                        'Your session security token expired. Please refresh the page and try again.',
+                        'error',
+                    )
+                    return redirect(request.referrer)
                 return jsonify({'error': 'Invalid CSRF token'}), 400
             return None
 
@@ -171,7 +178,23 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
         return _inject_csrf_inputs(response)
 
     @app.before_request
+    def _resolve_campaign_host():
+        from services.campaign_pages import campaign_for_host
+
+        host = (request.headers.get('X-Forwarded-Host') or request.host).split(',')[0].strip().split(':')[0].lower()
+        cfg = campaign_for_host(host)
+        if not cfg:
+            return
+        g.campaign_slug = cfg.slug
+        g.campaign_config = cfg
+        path = request.path or '/'
+        if path.startswith(('/static/', '/api/', '/auth/', '/login/', '/_deploy/')):
+            return
+
+    @app.before_request
     def _resolve_layer():
+        if getattr(g, 'campaign_slug', None):
+            return
         _do_resolve_layer_from_host(base_domain, reserved_subdomains, base_domains)
 
     @app.before_request

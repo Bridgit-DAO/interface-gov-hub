@@ -25,6 +25,7 @@
   }
 
   function fitUserNavName(link) {
+    if (link.querySelector('.gh-profile-nav-icon')) return;
     var fullName = (link.getAttribute('data-gh-full-name') || link.textContent || '').trim();
     if (!fullName) return;
 

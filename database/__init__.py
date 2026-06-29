@@ -58,13 +58,14 @@ def init_db(app):
             migrate_comment_like_v1,
             migrate_invitation_shareable_v1,
             migrate_reader_comments_v1,
-            migrate_campaign_endorsements_v1,
-            migrate_monument_json_v1,
-            migrate_bridgitdao_canopi_admin,
             migrate_layer_org_connections_v1,
             migrate_overweb_connection_types_seed,
             migrate_referral_attribution_v1,
             migrate_referral_landing_v1,
+            migrate_layer_programs_v1,
+            migrate_dp_challenge_notify_waitlist_v1,
+            migrate_scoped_email_v1,
+            migrate_user_mfa_v1,
             migrate_hardcoded_users,
         )
 
@@ -120,12 +121,13 @@ def init_db(app):
         migrate_comment_like_v1(app)
         migrate_invitation_shareable_v1(app)
         migrate_reader_comments_v1(app)
-        migrate_campaign_endorsements_v1(app)
-        migrate_monument_json_v1(app)
-        migrate_bridgitdao_canopi_admin(app)
         migrate_layer_org_connections_v1(app)
         migrate_overweb_connection_types_seed(app)
         migrate_referral_attribution_v1(app)
         migrate_referral_landing_v1(app)
+        migrate_layer_programs_v1(app)
+        migrate_dp_challenge_notify_waitlist_v1(app)
+        migrate_scoped_email_v1(app)
+        migrate_user_mfa_v1(app)
 
         print(f"Database initialized: {User.query.count()} users")

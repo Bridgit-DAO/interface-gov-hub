@@ -204,6 +204,18 @@ def guild_invitation_accept(token):
     inv.responded_at = datetime.utcnow()
     inv.invitee_id = user.id
     db.session.commit()
+    try:
+        from services.scope_email import enqueue_after_join
+
+        enqueue_after_join(
+            scope_type='guild',
+            scope_id=inv.guild_id,
+            user_id=user.id,
+            anchor_kind='guild_member',
+            anchor_at=m.joined_at or datetime.utcnow(),
+        )
+    except Exception:
+        pass
     return jsonify({'success': True, 'guild_id': inv.guild_id}), 200
 
 

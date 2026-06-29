@@ -803,6 +803,17 @@ def profile_edit():
 
                 <div class="living-module mb-4">
                     <div class="living-module-header">
+                        <div class="living-module-icon"><i class="fas fa-shield-halved"></i></div>
+                        <h5 class="living-module-title">Security</h5>
+                    </div>
+                    <div class="living-module-body">
+                        <p class="text-muted small mb-2">Two-factor authentication with an authenticator app and backup codes.</p>
+                        <a href="/profile/security/" class="btn btn-outline-primary btn-sm"><i class="fas fa-lock me-1"></i>Manage two-factor auth</a>
+                    </div>
+                </div>
+
+                <div class="living-module mb-4">
+                    <div class="living-module-header">
                         <div class="living-module-icon"><i class="fas fa-bell"></i></div>
                         <h5 class="living-module-title">Notifications</h5>
                     </div>

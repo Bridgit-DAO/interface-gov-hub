@@ -1323,6 +1323,7 @@ def submission_status():
 def patch_submission_metadata(submission_id):
     """Update draft metadata (workgroup assignment, title, abstract)."""
     from models import Workgroup
+    from services.workgroup_links import workgroup_belongs_to_layer
 
     current_user = get_current_user()
     submission = get_submission_by_ref(submission_id)
@@ -1340,8 +1341,12 @@ def patch_submission_metadata(submission_id):
             wg = Workgroup.query.filter_by(acronym=group_val).first()
             if not wg:
                 return jsonify({'error': 'Unknown workgroup acronym'}), 400
-            if submission.layer_id and wg.layer_id != submission.layer_id:
-                return jsonify({'error': 'Workgroup must belong to the same layer as the draft'}), 400
+            if submission.layer_id and not workgroup_belongs_to_layer(
+                group_val, submission.layer_id
+            ):
+                return jsonify({
+                    'error': 'Workgroup is not available on this layer',
+                }), 400
         submission.group = group_val or None
         updated = True
 

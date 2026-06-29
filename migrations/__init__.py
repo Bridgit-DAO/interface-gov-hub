@@ -1,5 +1,6 @@
 """Database migrations. Run from init_db() with app context."""
 import sqlite3
+from datetime import datetime
 from uuid import uuid4
 
 from werkzeug.security import generate_password_hash
@@ -1502,35 +1503,6 @@ def migrate_hardcoded_users(app):
         )
 
 
-def migrate_bridgitdao_canopi_admin(app):
-    """Ensure Bridgit DAO can administer Canopi through Web3Auth email linking."""
-    import secrets
-
-    email = 'bridgitdao@gmail.com'
-    username = 'bridgitdao'
-    user = User.query.filter(db.func.lower(User.email) == email).first()
-    if not user:
-        existing_username = User.query.filter_by(username=username).first()
-        if existing_username:
-            username = f'bridgitdao-{uuid4().hex[:8]}'
-        user = User(
-            username=username,
-            password_hash=generate_password_hash(secrets.token_urlsafe(32)),
-            name='Bridgit DAO',
-            email=email,
-            role='admin',
-            theme='dark',
-        )
-        db.session.add(user)
-        db.session.commit()
-        print('✅ Created bridgitdao@gmail.com admin placeholder')
-        return
-    if user.role != 'admin':
-        user.role = 'admin'
-        db.session.commit()
-        print('✅ Promoted bridgitdao@gmail.com to admin')
-
-
 def migrate_layer_invitations(app):
     """Create layer_invitation table for member email invites."""
     try:
@@ -1700,15 +1672,17 @@ def migrate_dp_proposals(app):
                         cfg = json.loads(row.value)
                     except json.JSONDecodeError:
                         cfg = {}
-                if 'dp_proposals' not in cfg:
-                    cfg['dp_proposals'] = True
+                if 'patches' not in cfg and 'dp_proposals' not in cfg and 'document_edits' not in cfg:
+                    cfg['patches'] = True
+                    cfg.pop('dp_proposals', None)
+                    cfg.pop('document_edits', None)
                     payload = json.dumps(cfg, sort_keys=True)
                     if row:
                         row.value = payload
                     else:
                         db.session.add(SiteConfig(key=PRODUCT_ROLLOUT_SITE_CONFIG_KEY, value=payload))
                     db.session.commit()
-                    print('✅ Enabled dp_proposals in product_rollout (dev)')
+                    print('✅ Enabled patches in product_rollout (dev)')
     except Exception as e:
         print(f'⚠️  Error in migrate_dp_proposals: {e}')
 
@@ -2128,78 +2102,6 @@ def migrate_reader_comments_v1(app):
         print(f'⚠️  Error in migrate_reader_comments_v1: {e}')
 
 
-def migrate_campaign_endorsements_v1(app):
-    """Public campaign endorsements (moderated)."""
-    try:
-        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='campaign_endorsement'"
-        )
-        if not cursor.fetchone():
-            cursor.execute('''
-                CREATE TABLE campaign_endorsement (
-                    id VARCHAR(36) PRIMARY KEY,
-                    campaign_slug VARCHAR(80) NOT NULL,
-                    user_id VARCHAR(36) NOT NULL,
-                    endorsement_type VARCHAR(40) NOT NULL,
-                    display_name VARCHAR(200) NOT NULL,
-                    affiliation VARCHAR(300),
-                    comment TEXT,
-                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                    created_at DATETIME NOT NULL,
-                    reviewed_at DATETIME,
-                    reviewed_by_user_id VARCHAR(36),
-                    FOREIGN KEY(user_id) REFERENCES user(id),
-                    FOREIGN KEY(reviewed_by_user_id) REFERENCES user(id)
-                )
-            ''')
-            cursor.execute(
-                'CREATE INDEX idx_campaign_endorsement_slug ON campaign_endorsement (campaign_slug)'
-            )
-            cursor.execute(
-                'CREATE INDEX idx_campaign_endorsement_status ON campaign_endorsement (status)'
-            )
-            conn.commit()
-            print('✅ Created campaign_endorsement table')
-        else:
-            print('✅ campaign_endorsement table already exists')
-        conn.close()
-    except Exception as e:
-        print(f'⚠️  Error in migrate_campaign_endorsements_v1: {e}')
-
-
-def migrate_monument_json_v1(app):
-    """Book-capable monument fields for presentation and JSON node structure."""
-    try:
-        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute('PRAGMA table_info(monument)')
-        cols = {row[1] for row in cursor.fetchall()}
-        for col, col_type in (
-            ('campaign_slug', 'VARCHAR(80)'),
-            ('custom_domains_json', 'TEXT'),
-            ('presentation_json', 'TEXT'),
-            ('structure_json', 'TEXT'),
-        ):
-            if col not in cols:
-                cursor.execute(f'ALTER TABLE monument ADD COLUMN {col} {col_type}')
-                print(f'✅ Added monument.{col}')
-        try:
-            cursor.execute(
-                'CREATE UNIQUE INDEX idx_monument_campaign_slug ON monument (campaign_slug)'
-            )
-        except sqlite3.OperationalError:
-            pass
-        conn.commit()
-        conn.close()
-        print('✅ monument json v1 ready')
-    except Exception as e:
-        print(f'⚠️  Error in migrate_monument_json_v1: {e}')
-
-
 def migrate_layer_org_connections_v1(app):
     """Create layer_connection_type and layer_connection tables (org connections MVP)."""
     try:
@@ -2373,7 +2275,6 @@ def migrate_overweb_connection_types_seed(app):
                 print(f'✅ Seeded {created} Overweb connection type(s)')
     except Exception as e:
         print(f'⚠️  Error in migrate_overweb_connection_types_seed: {e}')
-        print(f'⚠️  Error in migrate_overweb_connection_types_seed: {e}')
 
 
 def migrate_referral_attribution_v1(app):
@@ -2458,3 +2359,345 @@ def migrate_referral_landing_v1(app):
         print('✅ referral_landing table ready')
     except Exception as e:
         print(f'⚠️  Error in migrate_referral_landing_v1: {e}')
+
+
+def migrate_layer_programs_v1(app):
+    """Create layer_program tables and seed DP Challenge on The Metaweb."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS layer_program (
+                id VARCHAR(36) PRIMARY KEY,
+                layer_id VARCHAR(36) NOT NULL,
+                slug VARCHAR(80) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                hub_path VARCHAR(255),
+                hub_mode VARCHAR(32),
+                waitlist_id VARCHAR(36),
+                workgroup_id VARCHAR(36),
+                launched_at TIMESTAMP,
+                archived_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(layer_id) REFERENCES layer(id),
+                FOREIGN KEY(waitlist_id) REFERENCES waitlist(id),
+                FOREIGN KEY(workgroup_id) REFERENCES working_group(id),
+                UNIQUE(layer_id, slug)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_layer_program_layer ON layer_program(layer_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_layer_program_hub_path ON layer_program(hub_path)'
+        )
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS layer_program_submission (
+                id VARCHAR(36) PRIMARY KEY,
+                program_id VARCHAR(36) NOT NULL,
+                submission_id VARCHAR(36) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(program_id) REFERENCES layer_program(id),
+                FOREIGN KEY(submission_id) REFERENCES submission(id),
+                UNIQUE(program_id, submission_id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_layer_program_submission_program '
+            'ON layer_program_submission(program_id)'
+        )
+
+        cursor.execute("SELECT id FROM layer WHERE slug = 'the-metaweb' LIMIT 1")
+        metaweb = cursor.fetchone()
+        if metaweb:
+            layer_id = metaweb[0]
+            cursor.execute(
+                "SELECT id FROM layer_program WHERE layer_id = ? AND slug = 'dp-challenge' LIMIT 1",
+                (layer_id,),
+            )
+            if not cursor.fetchone():
+                now = datetime.utcnow().isoformat(sep=' ', timespec='seconds')
+                program_id = str(uuid4())
+                cursor.execute(
+                    """
+                    INSERT INTO layer_program (
+                        id, layer_id, slug, name, description, status,
+                        hub_path, hub_mode, launched_at, created_at, updated_at
+                    ) VALUES (?, ?, 'dp-challenge', 'DP Challenge',
+                        'Propose patches on Meta-Layer DP drafts.',
+                        'active', '/dp-challenge/', 'dp', ?, ?, ?)
+                    """,
+                    (program_id, layer_id, now, now, now),
+                )
+                print('✅ Seeded DP Challenge program on The Metaweb')
+
+        conn.commit()
+        conn.close()
+        print('✅ layer_program tables ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_layer_programs_v1: {e}')
+
+
+def migrate_dp_challenge_notify_waitlist_v1(app):
+    """DP Challenge notify waitlist + July 16 2026 9:00 AM PT launch schedule."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('PRAGMA table_info(layer_program)')
+        prog_cols = [c[1] for c in cursor.fetchall()]
+        if 'launch_at' not in prog_cols:
+            cursor.execute('ALTER TABLE layer_program ADD COLUMN launch_at TIMESTAMP')
+            conn.commit()
+            print('✅ Added launch_at to layer_program')
+
+        cursor.execute('PRAGMA table_info(waitlist_entry)')
+        entry_cols = [c[1] for c in cursor.fetchall()]
+        if 'metadata_json' not in entry_cols:
+            cursor.execute('ALTER TABLE waitlist_entry ADD COLUMN metadata_json TEXT')
+            conn.commit()
+            print('✅ Added metadata_json to waitlist_entry')
+
+        launch_local = datetime(2026, 7, 16, 9, 0, 0, tzinfo=ZoneInfo('America/Los_Angeles'))
+        launch_utc = launch_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+        launch_utc_str = launch_utc.isoformat(sep=' ', timespec='seconds')
+
+        cursor.execute("SELECT id FROM layer WHERE slug = 'the-metaweb' LIMIT 1")
+        metaweb = cursor.fetchone()
+        if not metaweb:
+            conn.close()
+            return
+        layer_id = metaweb[0]
+
+        cursor.execute(
+            "SELECT id FROM waitlist WHERE layer_id = ? AND name LIKE 'DP Challenge%' LIMIT 1",
+            (layer_id,),
+        )
+        wl_row = cursor.fetchone()
+        if wl_row:
+            waitlist_id = wl_row[0]
+        else:
+            waitlist_id = str(uuid4())
+            now = datetime.utcnow().isoformat(sep=' ', timespec='seconds')
+            cursor.execute(
+                """
+                INSERT INTO waitlist (
+                    id, layer_id, name, description, public, referrals, active,
+                    start_date, closing_date, archived, milestones, show_milestones,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 1, 0, 1, ?, ?, 0, 0, 'all', ?, ?)
+                """,
+                (
+                    waitlist_id,
+                    layer_id,
+                    'DP Challenge — notify list',
+                    'Get notified when the DP Challenge opens in mid-July. Select the DPs you want to patch.',
+                    now,
+                    launch_utc_str,
+                    now,
+                    now,
+                ),
+            )
+            print('✅ Created DP Challenge notify waitlist')
+
+        cursor.execute(
+            "SELECT id FROM layer_program WHERE layer_id = ? AND slug = 'dp-challenge' LIMIT 1",
+            (layer_id,),
+        )
+        prog_row = cursor.fetchone()
+        if prog_row:
+            cursor.execute(
+                """
+                UPDATE layer_program
+                SET status = 'waitlist',
+                    waitlist_id = ?,
+                    launch_at = ?,
+                    launched_at = NULL,
+                    description = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    waitlist_id,
+                    launch_utc_str,
+                    'Propose patches on Meta-Layer DP drafts. Opens mid-July 2026.',
+                    datetime.utcnow().isoformat(sep=' ', timespec='seconds'),
+                    prog_row[0],
+                ),
+            )
+            print('✅ Configured DP Challenge program for pre-launch notify waitlist')
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_dp_challenge_notify_waitlist_v1: {e}')
+
+
+def migrate_scoped_email_v1(app):
+    """Scoped email campaigns + guild unsubscribe support."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scoped_email_campaign (
+                id VARCHAR(36) PRIMARY KEY,
+                scope_type VARCHAR(16) NOT NULL,
+                scope_id VARCHAR(36) NOT NULL,
+                created_by_id VARCHAR(36) NOT NULL,
+                subject VARCHAR(255) NOT NULL,
+                body TEXT NOT NULL,
+                schedule_mode VARCHAR(20) NOT NULL DEFAULT 'immediate',
+                scheduled_at TIMESTAMP,
+                delay_hours REAL,
+                anchor_kind VARCHAR(32),
+                recipient_spec_json TEXT NOT NULL DEFAULT '{}',
+                status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+                stats_sent INTEGER NOT NULL DEFAULT 0,
+                stats_failed INTEGER NOT NULL DEFAULT 0,
+                stats_total INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                FOREIGN KEY(created_by_id) REFERENCES user(id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_scoped_email_campaign_scope '
+            'ON scoped_email_campaign(scope_type, scope_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_scoped_email_campaign_status '
+            'ON scoped_email_campaign(status)'
+        )
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scoped_email_delivery (
+                id VARCHAR(36) PRIMARY KEY,
+                campaign_id VARCHAR(36) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                user_id VARCHAR(36),
+                anchor_at TIMESTAMP,
+                send_at TIMESTAMP NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                sent_at TIMESTAMP,
+                resend_id VARCHAR(64),
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(campaign_id) REFERENCES scoped_email_campaign(id),
+                FOREIGN KEY(user_id) REFERENCES user(id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_scoped_email_delivery_send_at '
+            'ON scoped_email_delivery(send_at, status)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_scoped_email_delivery_campaign '
+            'ON scoped_email_delivery(campaign_id)'
+        )
+
+        cursor.execute('PRAGMA table_info(email_unsubscribe)')
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'guild_id' not in cols:
+            cursor.execute('ALTER TABLE email_unsubscribe ADD COLUMN guild_id VARCHAR(36)')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_email_unsub_guild_user '
+                'ON email_unsubscribe(guild_id, user_id)'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_email_unsub_guild_email '
+                'ON email_unsubscribe(guild_id, email)'
+            )
+
+        conn.commit()
+        conn.close()
+        print('✅ scoped email campaign tables ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_scoped_email_v1: {e}')
+
+
+def migrate_user_mfa_v1(app):
+    """MFA tables: TOTP devices, recovery codes, login challenges."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_mfa_device'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE user_mfa_device (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    label VARCHAR(100) NOT NULL DEFAULT 'Authenticator',
+                    secret_ciphertext TEXT NOT NULL,
+                    confirmed_at DATETIME,
+                    last_used_at DATETIME,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    revoked_at DATETIME,
+                    FOREIGN KEY (user_id) REFERENCES user(id)
+                )
+                """
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_user_mfa_device_user '
+                'ON user_mfa_device(user_id)'
+            )
+            print('✅ Created user_mfa_device table')
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_mfa_recovery_code'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE user_mfa_recovery_code (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    code_hash VARCHAR(255) NOT NULL,
+                    used_at DATETIME,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES user(id)
+                )
+                """
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_user_mfa_recovery_user '
+                'ON user_mfa_recovery_code(user_id)'
+            )
+            print('✅ Created user_mfa_recovery_code table')
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_mfa_challenge'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE user_mfa_challenge (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    client_id VARCHAR(50) NOT NULL DEFAULT 'govhub',
+                    expires_at DATETIME NOT NULL,
+                    consumed_at DATETIME,
+                    failed_attempts INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES user(id)
+                )
+                """
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_user_mfa_challenge_user '
+                'ON user_mfa_challenge(user_id)'
+            )
+            print('✅ Created user_mfa_challenge table')
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_user_mfa_v1: {e}')

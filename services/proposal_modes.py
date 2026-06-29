@@ -35,7 +35,7 @@ PATCH_LABELS: Dict[str, str] = {
 PROPOSAL_MODES: Dict[ProposalMode, Dict[str, Any]] = {
     'dp': {
         'scope': 'dp',
-        'feature_flag': 'dp_proposals',
+        'feature_flag': 'patches',
         'hub_path': '/dp-challenge/',
         'recent_api_path': '/api/dp-challenge/recent',
         'page_title': 'DP Challenge',
@@ -61,7 +61,7 @@ PROPOSAL_MODES: Dict[ProposalMode, Dict[str, Any]] = {
     },
     'document': {
         'scope': 'document',
-        'feature_flag': 'document_edits',
+        'feature_flag': 'patches',
         'hub_path': '/suggest-edit/',
         'recent_api_path': '/api/suggest-edit/recent',
         'page_title': 'Propose a Patch',

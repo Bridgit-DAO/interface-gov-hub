@@ -9,10 +9,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from extensions import db
-from models import DpProposal, Submission, User, Workgroup
+from models import DpProposal, Submission, User, Workgroup, WorkingGroupChair
 from services.coordination import is_layer_admin, is_site_moderation_staff
 from services.submissions import get_submission_by_ref
-from services.workgroup_authority import is_workgroup_leadership
 
 
 def resolve_canonical_submission(submission: Optional[Submission]) -> Optional[Submission]:
@@ -63,6 +62,7 @@ def reassign_proposals_to_canonical_submissions() -> int:
         db.session.commit()
     return moved
 from services.workgroup_links import extract_dp_number_from_title, is_dp_workgroup
+from services.workgroup_positions import NOMINATION_STATUS_APPROVED
 
 _NBSP_RE = re.compile('\u00a0')
 _SENTENCE_RE = re.compile(r'[^.!?\u3002\n]+[.!?\u3002\n]+|[^.!?\u3002\n]+$')
@@ -242,7 +242,21 @@ def can_manage_amendments(user: Optional[dict], workgroup: Optional[Workgroup]) 
     if workgroup.layer_id and workgroup.layer:
         if is_layer_admin(workgroup.layer, user):
             return True
-    return is_workgroup_leadership(workgroup, user)
+    uid = user.get('id')
+    if uid and workgroup.coordinator_id == uid:
+        return True
+    if not workgroup.acronym or not uid:
+        return False
+    approved_chair = WorkingGroupChair.query.filter(
+        WorkingGroupChair.group_acronym == workgroup.acronym,
+        WorkingGroupChair.position_key == 'chair',
+        WorkingGroupChair.user_id == uid,
+        db.or_(
+            WorkingGroupChair.status == NOMINATION_STATUS_APPROVED,
+            WorkingGroupChair.approved.is_(True),
+        ),
+    ).first()
+    return approved_chair is not None
 
 
 def require_dp_proposals_enabled() -> Optional[Tuple[dict, int]]:
@@ -250,11 +264,11 @@ def require_dp_proposals_enabled() -> Optional[Tuple[dict, int]]:
 
     from services.product_rollout import is_feature_enabled
 
-    if not is_feature_enabled('dp_proposals'):
+    if not is_feature_enabled('patches'):
         return jsonify({
             'error': 'Patches are not enabled.',
             'error_code': 'FEATURE_DISABLED',
-            'feature': 'dp_proposals',
+            'feature': 'patches',
         }), 403
     return None
 
@@ -347,12 +361,184 @@ def serialize_context_anchor(raw: Any) -> Optional[str]:
     return None
 
 
-def list_proposals_for_submission(submission_id: str) -> List[DpProposal]:
+def _html_to_plain_text(content: str) -> str:
+    import html as html_mod
+
+    text = re.sub(r'<[^>]+>', ' ', content or '')
+    return normalize_proposal_text(html_mod.unescape(text))
+
+
+def _collapse_match_text(text: str) -> str:
+    return ' '.join((text or '').split())
+
+
+def passage_text_in_haystack(haystack: str, exact: str) -> bool:
+    """True when normalized passage text appears in document plain text."""
+    hay = normalize_proposal_text(haystack)
+    needle = normalize_proposal_text(exact)
+    if not needle:
+        return False
+    if needle in hay:
+        return True
+    return _collapse_match_text(needle) in _collapse_match_text(hay)
+
+
+def proposal_passage_text(proposal: DpProposal) -> str:
+    anchor = parse_stored_context_anchor(proposal.context_anchor)
+    if anchor:
+        text_quote = anchor.get('textQuote') if isinstance(anchor.get('textQuote'), dict) else None
+        if text_quote and text_quote.get('exact'):
+            return normalize_proposal_text(str(text_quote['exact']))
+    return normalize_proposal_text(proposal.original_text or '')
+
+
+def submission_family_refs(submission: Submission) -> set:
+    refs = {submission.id}
+    draft = (submission.draft_name or '').strip()
+    if draft:
+        refs.add(draft)
+    parent = (submission.parent_draft_name or '').strip()
+    if parent:
+        refs.add(parent)
+    ml = (submission.ml_number or '').strip()
+    if ml:
+        refs.add(ml)
+    return refs
+
+
+def submission_family_submissions(canonical: Submission) -> List[Submission]:
+    refs = list(submission_family_refs(canonical))
     return (
-        DpProposal.query.filter_by(submission_id=submission_id)
+        Submission.query.filter(
+            db.or_(
+                Submission.id.in_(refs),
+                Submission.draft_name.in_(refs),
+                Submission.parent_draft_name.in_(refs),
+                Submission.ml_number.in_(refs),
+            )
+        )
+        .all()
+    )
+
+
+def load_submission_plain_document_text(submission: Submission) -> str:
+    from services.draft_reader import build_draft_context, load_draft_document_body
+
+    ref = (submission.draft_name or submission.ml_number or submission.id or '').strip()
+    if not ref:
+        return ''
+    draft, sub = build_draft_context(ref)
+    if not draft or not sub:
+        return ''
+    content, render_html, _, _ = load_draft_document_body(draft, sub, ref)
+    if render_html:
+        return _html_to_plain_text(content)
+    return normalize_proposal_text(content)
+
+
+def classify_proposal_location(
+    proposal: DpProposal,
+    canonical: Optional[Submission] = None,
+) -> str:
+    """
+    Return how a patch relates to the current approved document body:
+    - current: passage text is in the canonical document
+    - superseded: passage is only in an older revision (content hash / revision row)
+    - bogus: not found in current or any revision in the document family
+    """
+    if not canonical:
+        canonical = resolve_canonical_submission(
+            Submission.query.get(proposal.submission_id)
+        )
+    if not canonical:
+        return 'bogus'
+
+    passage = proposal_passage_text(proposal)
+    if not passage:
+        return 'bogus'
+
+    current_body = load_submission_plain_document_text(canonical)
+    if passage_text_in_haystack(current_body, passage):
+        return 'current'
+
+    create_hash = (proposal.content_hash_at_create or '').strip().lower()
+    current_hash = (canonical.content_hash or '').strip().lower()
+
+    for row in submission_family_submissions(canonical):
+        if row.id == canonical.id:
+            continue
+        row_hash = (row.content_hash or '').strip().lower()
+        if create_hash and row_hash and row_hash != create_hash:
+            continue
+        body = load_submission_plain_document_text(row)
+        if passage_text_in_haystack(body, passage):
+            return 'superseded'
+
+    if create_hash and current_hash and create_hash != current_hash:
+        for row in submission_family_submissions(canonical):
+            row_hash = (row.content_hash or '').strip().lower()
+            if row_hash != create_hash:
+                continue
+            body = load_submission_plain_document_text(row)
+            if passage_text_in_haystack(body, passage):
+                return 'superseded'
+
+    return 'bogus'
+
+
+def passage_exists_in_current_document(submission: Submission, original_text: str) -> bool:
+    canonical = resolve_canonical_submission(submission) or submission
+    body = load_submission_plain_document_text(canonical)
+    return passage_text_in_haystack(body, original_text)
+
+
+def reconcile_dp_proposal_locations(*, dry_run: bool = False) -> Dict[str, Any]:
+    """
+    Delete bogus patches; mark superseded-revision patches as orphaned.
+    """
+    stats: Dict[str, Any] = {
+        'total': 0,
+        'current': 0,
+        'superseded_marked': 0,
+        'bogus_deleted': 0,
+        'deleted_ids': [],
+        'orphaned_ids': [],
+    }
+    for proposal in DpProposal.query.order_by(DpProposal.created_at.asc()).all():
+        stats['total'] += 1
+        kind = classify_proposal_location(proposal)
+        if kind == 'current':
+            stats['current'] += 1
+            if proposal.status == 'orphaned':
+                proposal.status = 'pending'
+            continue
+        if kind == 'superseded':
+            stats['superseded_marked'] += 1
+            stats['orphaned_ids'].append(proposal.id)
+            if proposal.status not in ('accepted', 'declined', 'incorporated'):
+                proposal.status = 'orphaned'
+            continue
+        stats['bogus_deleted'] += 1
+        stats['deleted_ids'].append(proposal.id)
+        db.session.delete(proposal)
+    if dry_run:
+        db.session.rollback()
+    else:
+        db.session.commit()
+    return stats
+
+
+def list_proposals_for_submission(submission_id: str) -> List[DpProposal]:
+    canonical = resolve_canonical_submission(Submission.query.get(submission_id))
+    sid = canonical.id if canonical else submission_id
+    rows = (
+        DpProposal.query.filter_by(submission_id=sid)
         .order_by(DpProposal.created_at.desc())
         .all()
     )
+    if not canonical:
+        return rows
+    return [row for row in rows if classify_proposal_location(row, canonical) != 'bogus']
 
 
 def proposal_counts(proposals: List[DpProposal]) -> Dict[str, Any]:
@@ -601,8 +787,10 @@ def user_display_label(user: Optional[User]) -> str:
     return (user.displayName or user.username or 'Participant').strip()
 
 
-def list_approved_submissions_for_mode(mode: str = 'dp') -> List[Submission]:
+def list_approved_submissions_for_mode(mode: str = 'dp', program=None) -> List[Submission]:
     """Approved drafts for a proposal hub mode, one row per ML number when present."""
+    from services.layer_programs import filter_submissions_for_program
+
     want_dp = mode == 'dp'
     subs = Submission.query.filter_by(status='approved', doc_type='draft').all()
     seen_ml: set = set()
@@ -624,7 +812,7 @@ def list_approved_submissions_for_mode(mode: str = 'dp') -> List[Submission]:
             out.append(canonical)
         else:
             out.append(sub)
-    return out
+    return filter_submissions_for_program(out, program)
 
 
 def list_approved_dp_submissions() -> List[Submission]:
@@ -636,24 +824,26 @@ def _proposal_scope_for_mode(mode: str) -> str:
     return get_proposal_mode(mode)['scope']
 
 
-def dashboard_dp_challenge_stats(mode: str = 'dp') -> Dict[str, Any]:
+def dashboard_dp_challenge_stats(mode: str = 'dp', program=None) -> Dict[str, Any]:
     from sqlalchemy import func
 
+    from services.layer_programs import filter_submission_id_set
+
     scope = _proposal_scope_for_mode(mode)
-    total = (
-        db.session.query(func.count(DpProposal.id))
-        .filter(DpProposal.scope == scope)
-        .scalar()
-    ) or 0
-    contributors = (
-        db.session.query(func.count(func.distinct(DpProposal.author_user_id)))
-        .filter(
-            DpProposal.author_user_id.isnot(None),
-            DpProposal.scope == scope,
-        )
-        .scalar()
-    ) or 0
-    docs = len(dashboard_dp_activity(limit=500, mode=mode))
+    allowed = filter_submission_id_set(program)
+    q = db.session.query(func.count(DpProposal.id)).filter(DpProposal.scope == scope)
+    cq = db.session.query(func.count(func.distinct(DpProposal.author_user_id))).filter(
+        DpProposal.author_user_id.isnot(None),
+        DpProposal.scope == scope,
+    )
+    if allowed is not None:
+        if not allowed:
+            return {'total_proposals': 0, 'contributors': 0, 'documents': 0}
+        q = q.filter(DpProposal.submission_id.in_(list(allowed)))
+        cq = cq.filter(DpProposal.submission_id.in_(list(allowed)))
+    total = q.scalar() or 0
+    contributors = cq.scalar() or 0
+    docs = len(dashboard_dp_activity(limit=500, mode=mode, program=program))
     return {
         'total_proposals': int(total),
         'contributors': int(contributors),
@@ -661,14 +851,17 @@ def dashboard_dp_challenge_stats(mode: str = 'dp') -> Dict[str, Any]:
     }
 
 
-def dashboard_dp_activity(limit: int = 100, mode: str = 'dp') -> List[dict]:
+def dashboard_dp_activity(limit: int = 100, mode: str = 'dp', program=None) -> List[dict]:
     """Rows for dashboards by document (ML number), not duplicate submission rows."""
     from sqlalchemy import case, func
 
+    from services.layer_programs import filter_submission_id_set
+
     scope = _proposal_scope_for_mode(mode)
     want_dp = mode == 'dp'
+    allowed = filter_submission_id_set(program)
     activity_expr = func.max(DpProposal.created_at)
-    rows = (
+    q = (
         db.session.query(
             DpProposal.submission_id,
             func.count(DpProposal.id).label('total'),
@@ -680,10 +873,12 @@ def dashboard_dp_activity(limit: int = 100, mode: str = 'dp') -> List[dict]:
             activity_expr.label('last_activity'),
         )
         .filter(DpProposal.scope == scope)
-        .group_by(DpProposal.submission_id)
-        .order_by(activity_expr.desc())
-        .all()
     )
+    if allowed is not None:
+        if not allowed:
+            return []
+        q = q.filter(DpProposal.submission_id.in_(list(allowed)))
+    rows = q.group_by(DpProposal.submission_id).order_by(activity_expr.desc()).all()
     merged: Dict[str, Dict[str, Any]] = {}
     for row in rows:
         submission = Submission.query.get(row.submission_id)
@@ -752,13 +947,16 @@ def _short_dp_title(title: str) -> str:
     return t
 
 
-def dashboard_dp_by_participant(limit: int = 100, mode: str = 'dp') -> List[dict]:
+def dashboard_dp_by_participant(limit: int = 100, mode: str = 'dp', program=None) -> List[dict]:
     """Contributor activity for proposal hubs (most proposals first)."""
     from sqlalchemy import case, func
 
+    from services.layer_programs import filter_submission_id_set
+
     scope = _proposal_scope_for_mode(mode)
+    allowed = filter_submission_id_set(program)
     activity_expr = func.max(DpProposal.created_at)
-    rows = (
+    q = (
         db.session.query(
             DpProposal.author_user_id,
             func.count(DpProposal.id).label('total'),
@@ -771,11 +969,12 @@ def dashboard_dp_by_participant(limit: int = 100, mode: str = 'dp') -> List[dict
             DpProposal.author_user_id.isnot(None),
             DpProposal.scope == scope,
         )
-        .group_by(DpProposal.author_user_id)
-        .order_by(activity_expr.desc())
-        .limit(limit)
-        .all()
     )
+    if allowed is not None:
+        if not allowed:
+            return []
+        q = q.filter(DpProposal.submission_id.in_(list(allowed)))
+    rows = q.group_by(DpProposal.author_user_id).order_by(activity_expr.desc()).limit(limit).all()
     out: List[dict] = []
     for row in rows:
         user = User.query.get(row.author_user_id)
@@ -814,32 +1013,33 @@ def challenge_recent_events(
     *,
     limit: int = 20,
     mode: str = 'dp',
+    program=None,
 ) -> List[dict]:
     """Recent proposal created + accepted events for live toasts."""
+    from services.layer_programs import filter_submission_id_set
+
     if since is None:
         since = datetime.utcnow() - timedelta(hours=24)
 
     scope = _proposal_scope_for_mode(mode)
-    created_rows = (
-        DpProposal.query.filter(
-            DpProposal.created_at > since,
-            DpProposal.scope == scope,
-        )
-        .order_by(DpProposal.created_at.desc())
-        .limit(limit)
-        .all()
+    allowed = filter_submission_id_set(program)
+    created_q = DpProposal.query.filter(
+        DpProposal.created_at > since,
+        DpProposal.scope == scope,
     )
-    accepted_rows = (
-        DpProposal.query.filter(
-            DpProposal.status == 'accepted',
-            DpProposal.reviewed_at.isnot(None),
-            DpProposal.reviewed_at > since,
-            DpProposal.scope == scope,
-        )
-        .order_by(DpProposal.reviewed_at.desc())
-        .limit(limit)
-        .all()
+    accepted_q = DpProposal.query.filter(
+        DpProposal.status == 'accepted',
+        DpProposal.reviewed_at.isnot(None),
+        DpProposal.reviewed_at > since,
+        DpProposal.scope == scope,
     )
+    if allowed is not None:
+        if not allowed:
+            return []
+        created_q = created_q.filter(DpProposal.submission_id.in_(list(allowed)))
+        accepted_q = accepted_q.filter(DpProposal.submission_id.in_(list(allowed)))
+    created_rows = created_q.order_by(DpProposal.created_at.desc()).limit(limit).all()
+    accepted_rows = accepted_q.order_by(DpProposal.reviewed_at.desc()).limit(limit).all()
 
     events: List[dict] = []
     for p in created_rows:

@@ -154,6 +154,8 @@ def create_app():
     from routes.pages import bp as pages_bp
     from routes.users import bp as users_bp
     from routes.profile_pages import bp as profile_pages_bp
+    from routes.security_pages import bp as security_pages_bp
+    from routes.mfa import bp as mfa_bp
     from routes.group import bp as group_bp
     from routes.directory import bp as directory_bp
     from routes.bridges import bp as bridges_bp
@@ -168,10 +170,11 @@ def create_app():
     from routes.platform_invitations import bp as platform_invitations_bp
     from routes.metaweb import bp as metaweb_bp
     from routes.canopi_internal import bp as canopi_internal_bp
-    from routes.campaign_pages import bp as campaign_pages_bp
+    from routes.scope_email import bp as scope_email_bp
     from routes.layer_connections import bp as layer_connections_bp
     from routes.layer_connections_pages import bp as layer_connections_pages_bp
     from routes.referral_links import bp as referral_links_bp
+    from routes.layer_programs import bp as layer_programs_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -204,6 +207,7 @@ def create_app():
     app.register_blueprint(guilds_pages_bp)
     app.register_blueprint(waitlists_bp)
     app.register_blueprint(referral_links_bp)
+    app.register_blueprint(layer_programs_bp)
     app.register_blueprint(votes_bp)
     app.register_blueprint(votes_pages_bp)
     app.register_blueprint(artifacts_bp)
@@ -221,6 +225,8 @@ def create_app():
     app.register_blueprint(pages_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(profile_pages_bp)
+    app.register_blueprint(security_pages_bp)
+    app.register_blueprint(mfa_bp)
     app.register_blueprint(group_bp)
     app.register_blueprint(directory_bp)
     app.register_blueprint(bridges_bp)
@@ -237,7 +243,7 @@ def create_app():
     app.register_blueprint(platform_invitations_bp)
     app.register_blueprint(metaweb_bp)
     app.register_blueprint(canopi_internal_bp)
-    app.register_blueprint(campaign_pages_bp)
+    app.register_blueprint(scope_email_bp)
     app.register_blueprint(layer_connections_bp)
     app.register_blueprint(layer_connections_pages_bp)
 
@@ -325,7 +331,3 @@ def create_app():
 
 # Module-level app for direct import (e.g. from app import app)
 app = create_app()
-from middleware.campaign_host_wsgi import wrap_campaign_host_rewrite
-from middleware.dp_challenge_host_wsgi import wrap_dp_challenge_host_rewrite
-app.wsgi_app = wrap_campaign_host_rewrite(app.wsgi_app, app)
-app.wsgi_app = wrap_dp_challenge_host_rewrite(app.wsgi_app)

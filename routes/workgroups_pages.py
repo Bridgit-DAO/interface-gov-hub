@@ -1000,10 +1000,16 @@ def workgroup_detail(workgroup_slug):
         sel.innerHTML = '<option value="">Loading documents...</option>';
         sel.disabled = true;
         try {{
-            const layerId = workgroup.layer_id || (project && project.id) || '';
-            const url = layerId ? ('/api/documents/?layer_id=' + encodeURIComponent(layerId)) : '/api/documents/';
-            const resp = await fetch(url);
+            const url = workgroup.id
+                ? ('/api/documents/?workgroup_id=' + encodeURIComponent(workgroup.id))
+                : ((workgroup.layer_id || (project && project.id))
+                    ? ('/api/documents/?layer_id=' + encodeURIComponent(workgroup.layer_id || project.id))
+                    : '/api/documents/');
+            const resp = await fetch(url, {{ credentials: 'same-origin' }});
             const data = await resp.json();
+            if (!resp.ok) {{
+                throw new Error(data.error || ('Could not load documents (' + resp.status + ')'));
+            }}
             const docs = data.documents || [];
             let html = '<option value="">— None —</option>';
             docs.forEach(function(d) {{
@@ -1016,10 +1022,12 @@ def workgroup_detail(workgroup_slug):
                 sel.innerHTML += '<option value="' + String(selectedId).replace(/"/g, '&quot;') + '" selected>Linked document (' + selectedId + ')</option>';
             }}
         }} catch (e) {{
+            console.warn('Workgroup document picker:', e);
             sel.innerHTML = '<option value="">— None —</option>';
             if (selectedId) {{
                 sel.innerHTML += '<option value="' + String(selectedId).replace(/"/g, '&quot;') + '" selected>Linked document (' + selectedId + ')</option>';
             }}
+            sel.innerHTML += '<option value="" disabled>Could not load draft list — refresh and try again</option>';
         }}
         sel.disabled = false;
     }}

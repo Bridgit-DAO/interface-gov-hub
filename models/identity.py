@@ -25,9 +25,10 @@ class User(db.Model):
     email = db.Column(db.String(100), unique=True, index=True)
     profileImage = db.Column(db.String(500))
 
-    # Wallet data
+    # Wallet data (EVM/SOL from Web3Auth; bitcoin = badge wallet for ordinals)
     evmAddress = db.Column(db.String(42), unique=True, index=True)
     solanaAddress = db.Column(db.String(44), unique=True, index=True)
+    bitcoinAddress = db.Column(db.String(128), unique=True, index=True)
 
     # Handle (unique identifier)
     handle = db.Column(db.String(50), unique=True, index=True)

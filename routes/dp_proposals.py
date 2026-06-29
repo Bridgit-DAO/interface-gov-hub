@@ -107,6 +107,15 @@ def create_proposal(draft_ref):
     if scope_err:
         return jsonify({'error': scope_err}), 400
 
+    from services.dp_proposals import passage_exists_in_current_document
+
+    if not passage_exists_in_current_document(submission, payload['original_text']):
+        return jsonify({
+            'error': 'Selected passage was not found in the current document. '
+                     'Refresh the reader and select text again.',
+            'error_code': 'PASSAGE_NOT_FOUND',
+        }), 400
+
     row = create_dp_proposal(
         submission,
         author_user_id=user.id,

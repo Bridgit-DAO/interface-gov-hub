@@ -214,6 +214,16 @@ def web3auth_login():
                 ensure_notification_unsubscribe_token(user)
                 db.session.commit()
 
+        from services.mfa import create_challenge, user_mfa_enabled
+
+        if user_mfa_enabled(user.id):
+            challenge = create_challenge(user.id, client_id='govhub')
+            return jsonify({
+                'success': False,
+                'mfaRequired': True,
+                'challengeToken': challenge.id,
+            })
+
         session['user'] = user.username
         session['theme'] = user.theme
         session.permanent = True
@@ -295,7 +305,10 @@ def _update_user_from_web3auth(
         user.displayNameSetAt = datetime.utcnow()
         user.oauthName = name
     if profile_image:
-        user.profileImage = profile_image
+        from services.avatar import is_user_uploaded_profile_image
+
+        if not is_user_uploaded_profile_image(user.profileImage):
+            user.profileImage = profile_image
     ensure_user_wallet_addresses(
         user,
         evm_address=evm_address,

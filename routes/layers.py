@@ -23,7 +23,6 @@ from services.coordination import is_layer_admin
 from services.events import emit_event
 from services.utils import create_slug
 from services.ordinals import fetch_meta_domain_from_inscription
-from services.email import make_unsubscribe_token
 from services.knowledge_layer import KNOWLEDGE_FORM_VALUES, canonical_knowledge_form
 from services.layer_features import (
     LAYER_FEATURE_ORDER,
@@ -57,65 +56,6 @@ def _ref_token_allows_layer_detail(project) -> bool:
         waitlist = Waitlist.query.get(waitlist_id) if waitlist_id else None
         return bool(waitlist and waitlist.layer_id == project.id)
     return False
-
-
-def _resolve_project_email_recipients(layer_id, groups):
-    """Resolve recipients: set of (email, user_id?) deduped by email, excluding unsubscribed."""
-    seen = set()
-    result = []
-
-    def add(email, user_id=None):
-        if not email or '@' not in email:
-            return
-        key = email.lower()
-        if key in seen:
-            return
-        q = EmailUnsubscribe.query.filter_by(layer_id=layer_id)
-        if user_id:
-            q = q.filter(or_(EmailUnsubscribe.email == key, EmailUnsubscribe.user_id == user_id))
-        else:
-            q = q.filter(EmailUnsubscribe.email == key)
-        if q.first():
-            return
-        seen.add(key)
-        result.append({'email': email, 'user_id': user_id})
-
-    if 'members' in groups:
-        for m in LayerMember.query.filter_by(layer_id=layer_id, status='active').filter(LayerMember.left_at.is_(None)).all():
-            if m.user and m.user.email:
-                add(m.user.email, m.user_id)
-
-    if 'role_holders' in groups:
-        for c in Claim.query.filter_by(layer_id=layer_id, status='active').all():
-            if c.claimant and c.claimant.email:
-                add(c.claimant.email, c.claimant_id)
-
-    for k in groups:
-        if k.startswith('waitlist_'):
-            wid = k.replace('waitlist_', '')
-            if not wid:
-                continue
-            wid = str(wid)
-            for e in WaitlistEntry.query.filter_by(waitlist_id=wid, left_at=None).all():
-                if e.user and e.user.email:
-                    add(e.user.email, e.user_id)
-            for e in WaitlistEmailSignup.query.filter_by(waitlist_id=wid, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).all():
-                add(e.email, None)
-
-    if 'workgroup_members' in groups:
-        wgs = Workgroup.query.filter_by(layer_id=layer_id).all()
-        for wg in wgs:
-            for m in WorkingGroupMember.query.filter_by(group_acronym=wg.acronym).all():
-                if m.user_id:
-                    u = User.query.get(m.user_id)
-                    if u and u.email:
-                        add(u.email, u.id)
-                elif m.user_name:
-                    u = User.query.filter(or_(User.username == m.user_name, User.name == m.user_name)).first()
-                    if u and u.email:
-                        add(u.email, u.id)
-
-    return result
 
 
 @bp.route('/', methods=['GET'])
@@ -1030,6 +970,20 @@ def join_layer(layer_id):
     )
     db.session.commit()
 
+    if not was_already_active:
+        try:
+            from services.scope_email import enqueue_after_join
+
+            enqueue_after_join(
+                scope_type='layer',
+                scope_id=layer_id,
+                user_id=user.id,
+                anchor_kind='layer_member',
+                anchor_at=member.joined_at or datetime.utcnow(),
+            )
+        except Exception:
+            current_app.logger.exception('after_join scoped email enqueue failed')
+
     kind = (getattr(project, 'layer_kind', None) or '').strip()
     if kind != 'auth_community':
         vid = (getattr(user, 'web3authVerifierId', None) or '').strip()
@@ -1095,19 +1049,11 @@ def api_project_email_recipients(layer_id):
     if not is_layer_admin(project, current_user):
         return jsonify({'error': 'Layer admin required'}), 403
 
-    members_count = LayerMember.query.filter_by(layer_id=layer_id, status='active').filter(LayerMember.left_at.is_(None)).count()
-    role_holders = db.session.query(Claim.claimant_id).filter_by(layer_id=layer_id, status='active').distinct().count()
-    waitlists = []
-    for w in Waitlist.query.filter_by(layer_id=layer_id).all():
-        uc = WaitlistEntry.query.filter_by(waitlist_id=w.id, left_at=None).count()
-        ec = WaitlistEmailSignup.query.filter_by(waitlist_id=w.id, left_at=None).filter(WaitlistEmailSignup.verified_at.isnot(None)).count()
-        waitlists.append({'id': w.id, 'name': w.name, 'count': uc + ec})
+    from services.resend_mail import get_resend_from
+    from services.scope_email import layer_recipient_groups
 
-    wg_count = 0
-    for wg in Workgroup.query.filter_by(layer_id=layer_id).all():
-        wg_count += WorkingGroupMember.query.filter_by(group_acronym=wg.acronym).count()
-
-    from_addr = os.environ.get('RESEND_FROM', 'MLGH <noreply@themetalayer.org>').strip()
+    from_config = get_resend_from()
+    from_addr = (from_config or {}).get('formatted') or 'Gov Hub <no-reply@govhub.live>'
     admin_emails = []
     if project.initiator and project.initiator.email:
         name = project.initiator.displayName or project.initiator.username or 'Initiator'
@@ -1118,12 +1064,7 @@ def api_project_email_recipients(layer_id):
             admin_emails.append({'value': f"{name} <{pa.user.email}>", 'label': f"{name} (admin)"})
 
     return jsonify({
-        'groups': {
-            'members': {'label': 'Project members', 'count': members_count},
-            'role_holders': {'label': 'Role holders', 'count': role_holders},
-            'workgroup_members': {'label': 'Workgroup members', 'count': wg_count},
-            **{f'waitlist_{w["id"]}': {'label': f"Waitlist: {w['name']}", 'count': w['count']} for w in waitlists},
-        },
+        'groups': layer_recipient_groups(layer_id),
         'from_options': [{'value': from_addr, 'label': 'Default (noreply)'}] + admin_emails,
     }), 200
 
@@ -1131,67 +1072,67 @@ def api_project_email_recipients(layer_id):
 @bp.route('/<layer_id>/send-email/', methods=['POST'])
 @require_auth
 def api_project_send_email(layer_id):
-    """Send email to selected recipient groups. Project admin only."""
+    """Send or schedule email to selected recipient groups. Layer admin only."""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
-    project = Layer.query.get_or_404(layer_id)
-    if not is_layer_admin(project, current_user):
-        return jsonify({'error': 'Layer admin required'}), 403
+    Layer.query.get_or_404(layer_id)
 
     data = request.get_json() or {}
-    groups = data.get('groups', [])
+    from services.scope_email import create_campaign
+
+    payload, err, code = _parse_scope_email_payload(data)
+    if err:
+        return jsonify({'error': err}), code
+
+    campaign, err, code = create_campaign(
+        scope_type='layer',
+        scope_id=layer_id,
+        user=current_user,
+        **payload,
+    )
+    if err:
+        return jsonify({'error': err}), code
+    return jsonify({
+        'campaign': campaign.to_dict(),
+        'sent': campaign.stats_sent,
+        'total': campaign.stats_total,
+    }), code
+
+
+def _parse_scope_email_payload(data: dict):
+    from dateutil import parser as date_parser
+
+    groups = data.get('groups') or []
+    user_ids = data.get('user_ids') or []
     subject = (data.get('subject') or '').strip()
     body = (data.get('body') or '').strip()
-    from_addr = (data.get('from') or os.environ.get('RESEND_FROM', 'MLGH <noreply@themetalayer.org>')).strip()
-
-    if not groups:
-        return jsonify({'error': 'Select at least one recipient group'}), 400
-    if not subject:
-        return jsonify({'error': 'Subject is required'}), 400
-    if not body:
-        return jsonify({'error': 'Message body is required'}), 400
-
-    recipients = _resolve_project_email_recipients(layer_id, groups)
-    if not recipients:
-        return jsonify({'error': 'No recipients found for selected groups'}), 400
-
-    scheme = 'https' if (request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https') else 'http'
-    base_url = f"{scheme}://{request.host}"
-
-    api_key = os.environ.get('RESEND_API_KEY', '').strip()
-    if not api_key:
-        return jsonify({'error': 'Email service not configured (RESEND_API_KEY)'}), 500
-
-    def _send_one(to_email, user_id_or_email):
-        unsub_token = make_unsubscribe_token(layer_id, str(user_id_or_email) if user_id_or_email else to_email)
-        unsub_url = f"{base_url}/unsubscribe?token={unsub_token}"
-        html_body = body.replace('\n', '<br>')
-        html_body += f'<br><br><hr style="border:none;border-top:1px solid #eee;"><p style="font-size:11px;color:#888;"><a href="{unsub_url}">Unsubscribe</a> from project emails from {project.name}.</p>'
+    schedule_mode = (data.get('schedule_mode') or 'immediate').strip().lower()
+    scheduled_at = None
+    if data.get('scheduled_at'):
         try:
-            import resend
-            resend.api_key = api_key
-            resend.Emails.send({
-                "from": from_addr,
-                "to": [to_email],
-                "subject": subject,
-                "html": html_body,
-            })
-            return True
-        except Exception as e:
-            current_app.logger.error(f"Failed to send to {to_email}: {e}")
-            return False
-
-    if len(recipients) > 100:
-        return jsonify({'error': f'Too many recipients ({len(recipients)}). Maximum 100 per send. Please select fewer groups.'}), 400
-
-    sent = 0
-    for r in recipients:
-        uid = r.get('user_id')
-        if _send_one(r['email'], uid):
-            sent += 1
-
-    return jsonify({'sent': sent, 'total': len(recipients)}), 200
+            scheduled_at = date_parser.parse(str(data.get('scheduled_at')))
+        except Exception:
+            return None, 'Invalid scheduled_at', 400
+    delay_hours = data.get('delay_hours')
+    if delay_hours is not None and delay_hours != '':
+        try:
+            delay_hours = float(delay_hours)
+        except (TypeError, ValueError):
+            return None, 'Invalid delay_hours', 400
+    else:
+        delay_hours = None
+    anchor_kind = (data.get('anchor_kind') or '').strip() or None
+    return {
+        'groups': groups,
+        'user_ids': user_ids,
+        'subject': subject,
+        'body': body,
+        'schedule_mode': schedule_mode,
+        'scheduled_at': scheduled_at,
+        'delay_hours': delay_hours,
+        'anchor_kind': anchor_kind,
+    }, None, None
 
 
 @bp.route('/<layer_id>/invitations/campaign/', methods=['POST'])

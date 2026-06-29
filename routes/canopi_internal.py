@@ -81,3 +81,50 @@ def workgroup_membership():
         'workgroupAcronym': workgroup.acronym,
         'email': email,
     })
+
+
+@bp.route('/api/internal/canopi/layer-admin', methods=['GET'])
+def layer_admin_check():
+    """
+    Check whether an email is a Gov Hub layer admin (owner or assigned admin).
+
+    Auth: GOV_HUB_API_KEY via Authorization: Bearer.
+    Query: layer_id, email
+    """
+    if not _canopi_internal_allowed():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    from models import Layer, LayerAdmin
+
+    layer_ref = request.args.get('layer_id') or request.args.get('layerId')
+    email = _normalize_email(request.args.get('email'))
+    if not layer_ref or not email:
+        return jsonify({'error': 'layer_id and email are required'}), 400
+
+    layer = Layer.query.get(layer_ref)
+    if not layer:
+        layer = Layer.query.filter(
+            (Layer.slug == layer_ref) | (Layer.acronym == layer_ref)
+        ).first()
+    if not layer:
+        return jsonify({'isAdmin': False, 'reason': 'layer_not_found'})
+
+    user = User.query.filter(db.func.lower(User.email) == email).first()
+    if not user:
+        return jsonify({'isAdmin': False, 'reason': 'user_not_found'})
+
+    is_admin = False
+    if getattr(layer, 'initiator_id', None) == user.id:
+        is_admin = True
+    elif LayerAdmin.query.filter_by(layer_id=layer.id, user_id=user.id).first():
+        is_admin = True
+    elif getattr(user, 'role', None) == 'admin':
+        is_admin = True
+
+    return jsonify({
+        'isAdmin': is_admin,
+        'layerId': layer.id,
+        'email': email,
+    })
+
+

@@ -2,7 +2,7 @@
 import json
 from datetime import datetime
 
-from flask import Blueprint, request, redirect, url_for, flash, session, g, render_template_string
+from flask import Blueprint, request, redirect, url_for, flash, session, g, render_template_string, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from extensions import db
@@ -52,6 +52,10 @@ def home():
         build_home_hub_cards_html,
         build_home_hero_subtitle,
     ) = _get_imports()
+    from services.platform_activity import (
+        build_home_activity_rotator_html,
+        get_platform_activity_items,
+    )
 
     if getattr(g, 'layer', None):
         path = url_for('layers_pages.layer_detail', layer_slug=g.layer.slug)
@@ -67,6 +71,7 @@ def home():
     ).count()
     hub_cards_html = build_home_hub_cards_html()
     hero_subtitle = build_home_hero_subtitle()
+    activity_html = build_home_activity_rotator_html(get_platform_activity_items(7))
 
     return _format_base_template(
         title="MLGH",
@@ -90,6 +95,7 @@ def home():
         <div class="gh-home-hero-tagline-box">
             <p class="gh-home-hero-tagline">{hero_subtitle}</p>
         </div>
+        {activity_html}
         <div class="row g-4">
             <div class="col-lg-8">
                 <div class="gh-home-hub">
@@ -111,6 +117,15 @@ def home():
     )
 
 
+@bp.route('/api/platform/activity/')
+def platform_activity_api():
+    """Recent platform activity for home rotator (JSON)."""
+    limit = request.args.get('limit', 7, type=int)
+    from services.platform_activity import get_platform_activity_items
+
+    return jsonify({'items': get_platform_activity_items(limit)})
+
+
 @bp.route('/my-layers/')
 @require_auth
 def my_projects():
@@ -128,10 +143,15 @@ def my_projects():
 @require_auth
 def profile():
     """User profile management."""
-    _format_base_template, generate_user_menu, BUILD_NUMBER, _, _, PROFILE_TEMPLATE = _get_imports()
-
     if request.method == 'GET':
-        return redirect(url_for('profile_pages.profile_edit'))
+        current_user = get_current_user()
+        if current_user:
+            user = User.query.get(current_user['id'])
+            if user and user.username:
+                return redirect(url_for('profile_pages.user_profile', username=user.username))
+        return redirect(url_for('pages.home'))
+
+    _format_base_template, generate_user_menu, BUILD_NUMBER, _, _, PROFILE_TEMPLATE, _, _ = _get_imports()
 
     current_user = get_current_user()
 
@@ -605,38 +625,51 @@ def unsubscribe_from_project():
         return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
         <h2>Invalid link</h2>
         <p>This unsubscribe link is invalid or expired.</p>
-        <p><a href="/">Return to MLGH</a></p></body></html>""", 400
+        <p><a href="/">Return to Gov Hub</a></p></body></html>""", 400
 
-    layer_id_val, user_id_or_email = decoded
-    project = Layer.query.get(layer_id_val)
-    if not project:
-        return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+    scope_type, scope_id_val, user_id_or_email = decoded
+    scope_name = 'this community'
+    if scope_type == 'layer':
+        project = Layer.query.get(scope_id_val)
+        if not project:
+            return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
         <h2>Layer not found</h2>
-        <p><a href="/">Return to MLGH</a></p></body></html>""", 404
+        <p><a href="/">Return to Gov Hub</a></p></body></html>""", 404
+        scope_name = project.name
+        filter_kwargs = {'layer_id': scope_id_val}
+    else:
+        from models import Guild
+        guild = Guild.query.get(scope_id_val)
+        if not guild:
+            return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+        <h2>Guild not found</h2>
+        <p><a href="/">Return to Gov Hub</a></p></body></html>""", 404
+        scope_name = guild.name
+        filter_kwargs = {'guild_id': scope_id_val}
 
     if user_id_or_email and len(str(user_id_or_email)) == 36 and '-' in str(user_id_or_email):
         uid = str(user_id_or_email)
-        existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, user_id=uid).first()
+        existing = EmailUnsubscribe.query.filter_by(**filter_kwargs, user_id=uid).first()
         if not existing:
-            db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=uid, email=None))
+            db.session.add(EmailUnsubscribe(user_id=uid, email=None, **filter_kwargs))
             db.session.commit()
     elif user_id_or_email and str(user_id_or_email).isdigit():
         try:
             uid = str(user_id_or_email)
-            existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, user_id=uid).first()
+            existing = EmailUnsubscribe.query.filter_by(**filter_kwargs, user_id=uid).first()
             if not existing:
-                db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=uid, email=None))
+                db.session.add(EmailUnsubscribe(user_id=uid, email=None, **filter_kwargs))
                 db.session.commit()
         except Exception:
             pass
     else:
         email = user_id_or_email.lower() if user_id_or_email else ''
-        existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, email=email).first()
+        existing = EmailUnsubscribe.query.filter_by(**filter_kwargs, email=email).first()
         if not existing:
-            db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=None, email=email))
+            db.session.add(EmailUnsubscribe(user_id=None, email=email, **filter_kwargs))
             db.session.commit()
 
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribed</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
     <h2 style="color:#00ba7c;">You've been unsubscribed</h2>
-    <p>You will no longer receive project emails from <strong>{project.name}</strong>.</p>
-    <p><a href="/">Return to MLGH</a></p></body></html>""", 200
+    <p>You will no longer receive emails from <strong>{scope_name}</strong> on Gov Hub.</p>
+    <p><a href="/">Return to Gov Hub</a></p></body></html>""", 200

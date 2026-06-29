@@ -555,7 +555,11 @@ def workgroups_directory():
                 if (response.ok) {{
                     modal.hide();
                     loadWorkgroups();
-                    alert('Workgroup created successfully! It will be visible once approved by the layer admin.');
+                    await GhDialog.alert({{
+                        title: 'Workgroup created',
+                        message: 'Your workgroup was submitted. It will be visible once approved by the layer admin.',
+                        variant: 'success',
+                    }});
                 }} else {{
                     throw new Error(data.error || 'Failed to create workgroup');
                 }}

@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy import or_, func
 from extensions import db
+from models.db_types import SafeBoolean
 
 
 class SiteConfig(db.Model):
@@ -50,19 +51,41 @@ class InscriptionOrder(db.Model):
 class Comment(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     draft_name = db.Column(db.String(255), index=True)  # Legacy: keep for backcompat with document comments
+    submission_id = db.Column(db.String(36), db.ForeignKey('submission.id'), nullable=True, index=True)
     artifact_id = db.Column(db.String(36), db.ForeignKey('artifact.id'), nullable=True, index=True)  # New: artifact comments
+    comment_scope = db.Column(db.String(20), nullable=False, default='document')  # document | passage
+    anchor_hash = db.Column(db.String(64), nullable=True, index=True)
+    context_anchor = db.Column(db.Text, nullable=True)
+    passage_excerpt = db.Column(db.Text, nullable=True)
     text = db.Column(db.Text)
     author = db.Column(db.String(100))  # Legacy: display name string
     author_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)  # New: proper user ref
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     parent_id = db.Column(db.String(36), db.ForeignKey('comment.id'), nullable=True)
     edited_at = db.Column(db.DateTime, nullable=True)
-    is_deleted = db.Column(db.Boolean, default=False)
+    is_deleted = db.Column(SafeBoolean, nullable=False, default=False)
     original_text = db.Column(db.Text, nullable=True)
 
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy=True)
     artifact = db.relationship('Artifact', backref=db.backref('comments', lazy='dynamic'), foreign_keys=[artifact_id])
     author_user = db.relationship('User', backref=db.backref('comments_authored', lazy='dynamic'), foreign_keys=[author_user_id])
+
+
+class CommentLike(db.Model):
+    """Persisted like on a draft document comment."""
+    __tablename__ = 'comment_like'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    comment_id = db.Column(db.String(36), db.ForeignKey('comment.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    comment = db.relationship('Comment', backref=db.backref('likes', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('comment_likes', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('comment_id', 'user_id', name='uq_comment_like_user'),
+    )
 
 
 class DocumentHistory(db.Model):

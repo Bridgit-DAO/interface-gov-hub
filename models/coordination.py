@@ -456,8 +456,8 @@ class WaitlistEntry(db.Model):
     referred_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     referral_code = db.Column(db.String(50), nullable=True)
     source = db.Column(db.String(255), nullable=True)  # Track signup source (e.g., 'embed:example.com', 'direct', 'referral')
-    source_url = db.Column(db.String(500), nullable=True)
-    referral_token = db.Column(db.Text, nullable=True)  # Full URL where signup occurred
+    source_url = db.Column(db.String(500), nullable=True)  # Full URL where signup occurred
+    metadata_json = db.Column(db.Text, nullable=True)  # JSON: dp_interests, notify preferences, etc.
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     left_at = db.Column(db.DateTime, nullable=True)  # If set, user left
     
@@ -473,7 +473,8 @@ class EmailUnsubscribe(db.Model):
     __tablename__ = 'email_unsubscribe'
     
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True, index=True)
+    guild_id = db.Column(db.String(36), db.ForeignKey('guild.id'), nullable=True, index=True)
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     email = db.Column(db.String(255), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -1499,10 +1500,6 @@ class Monument(db.Model):
     steward_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     uri = db.Column(db.String(500), nullable=True)
     provenance = db.Column(db.Text, nullable=True)
-    campaign_slug = db.Column(db.String(80), nullable=True, unique=True, index=True)
-    custom_domains_json = db.Column(db.Text, nullable=True)
-    presentation_json = db.Column(db.Text, nullable=True)
-    structure_json = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), default='active', nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)

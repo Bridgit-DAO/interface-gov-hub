@@ -231,6 +231,7 @@ def guild_detail(guild_slug):
         }} else {{
             if (isAdmin) {{
                 html += '<button class="btn btn-primary w-100 mb-2" onclick="inviteMember()"><i class="fas fa-user-plus me-2"></i>Invite Member</button>';
+                html += '<button class="btn btn-outline-primary w-100 mb-2" onclick="showGuildEmailModal()"><i class="fas fa-envelope me-2"></i>Email members</button>';
                 html += '<button class="btn btn-secondary w-100 mb-2" onclick="manageGuild()"><i class="fas fa-cog me-2"></i>Manage Guild</button>';
             }}
             const ms = userMembership.membership_state || 'active';
@@ -619,6 +620,104 @@ def guild_detail(guild_slug):
                 submitBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
             }}
         }};
+    }}
+
+    async function showGuildEmailModal() {{
+        if (!guild || !guildIsOfficerFn()) {{
+            await GhDialog.alert({{ title: 'Not allowed', message: 'Guild admin access required.', variant: 'warning' }});
+            return;
+        }}
+        if (document.getElementById('guildEmailModal')) {{
+            document.getElementById('guildEmailModal').remove();
+        }}
+        document.body.insertAdjacentHTML('beforeend', `
+            <div class="modal fade" id="guildEmailModal" tabindex="-1">
+                <div class="modal-dialog modal-lg"><div class="modal-content">
+                    <div class="modal-header"><h5 class="modal-title"><i class="fas fa-envelope me-2"></i>Email (guild admin)</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <div class="modal-body">
+                        <div id="guild-email-alert" class="alert d-none"></div>
+                        <div class="mb-3"><label class="form-label">Groups</label><div id="guild-email-groups" class="border rounded p-3 bg-light"></div></div>
+                        <div class="mb-3"><label class="form-label">Specific people</label><select class="form-select" id="guild-email-people" multiple size="4"></select></div>
+                        <div class="mb-3"><label class="form-label">When</label>
+                            <div class="form-check"><input class="form-check-input" type="radio" name="guild-email-mode" value="immediate" checked id="gem-immediate"><label class="form-check-label" for="gem-immediate">Send now</label></div>
+                            <div class="form-check"><input class="form-check-input" type="radio" name="guild-email-mode" value="at" id="gem-at"><label class="form-check-label" for="gem-at">Schedule date/time</label></div>
+                            <div class="form-check"><input class="form-check-input" type="radio" name="guild-email-mode" value="after_join" id="gem-after"><label class="form-check-label" for="gem-after">Hours after guild join</label></div>
+                        </div>
+                        <div class="mb-3 d-none" id="guild-email-at-wrap"><label class="form-label">Send at</label><input type="datetime-local" class="form-control" id="guild-email-at"></div>
+                        <div class="mb-3 d-none" id="guild-email-delay-wrap"><label class="form-label">Hours after join</label><input type="number" class="form-control" id="guild-email-delay" min="0.25" step="0.25"></div>
+                        <div class="mb-3"><label class="form-label">Subject</label><input class="form-control" id="guild-email-subject"></div>
+                        <div class="mb-3"><label class="form-label">Message</label><textarea class="form-control" id="guild-email-body" rows="5"></textarea></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" id="guild-email-submit">Send / schedule</button>
+                    </div>
+                </div></div>
+            </div>`);
+        const modal = new bootstrap.Modal(document.getElementById('guildEmailModal'));
+        const groupsEl = document.getElementById('guild-email-groups');
+        const peopleEl = document.getElementById('guild-email-people');
+        groupsEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        try {{
+            const res = await fetch('/api/scope-email/guilds/' + guild.id + '/recipients/');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to load recipients');
+            groupsEl.innerHTML = Object.entries(data.groups || {{}}).map(([key, info]) =>
+                '<div class="form-check"><input class="form-check-input guild-email-grp" type="checkbox" value="' + key + '" id="geg-' + key + '"><label class="form-check-label" for="geg-' + key + '">' + (info.label || key) + ' (' + (info.count || 0) + ')</label></div>'
+            ).join('') || '<p class="text-muted mb-0">No groups</p>';
+            peopleEl.innerHTML = (data.people || []).map(p => '<option value="' + p.user_id + '">' + (p.label || p.email) + '</option>').join('');
+        }} catch (e) {{
+            groupsEl.innerHTML = '<div class="text-danger">' + e.message + '</div>';
+        }}
+        function syncGuildEmailMode() {{
+            const mode = document.querySelector('input[name="guild-email-mode"]:checked')?.value || 'immediate';
+            document.getElementById('guild-email-at-wrap').classList.toggle('d-none', mode !== 'at');
+            document.getElementById('guild-email-delay-wrap').classList.toggle('d-none', mode !== 'after_join');
+        }}
+        document.querySelectorAll('input[name="guild-email-mode"]').forEach(el => {{ el.onchange = syncGuildEmailMode; }});
+        syncGuildEmailMode();
+        document.getElementById('guild-email-submit').onclick = async () => {{
+            const groups = Array.from(document.querySelectorAll('.guild-email-grp:checked')).map(cb => cb.value);
+            const userIds = Array.from(document.getElementById('guild-email-people').selectedOptions).map(o => o.value);
+            const subject = document.getElementById('guild-email-subject').value.trim();
+            const body = document.getElementById('guild-email-body').value.trim();
+            const mode = document.querySelector('input[name="guild-email-mode"]:checked')?.value || 'immediate';
+            const alertEl = document.getElementById('guild-email-alert');
+            alertEl.classList.add('d-none');
+            if (!groups.length && !userIds.length) {{
+                alertEl.textContent = 'Select recipients'; alertEl.className = 'alert alert-danger'; alertEl.classList.remove('d-none'); return;
+            }}
+            if (!subject || !body) {{
+                alertEl.textContent = 'Subject and message required'; alertEl.className = 'alert alert-danger'; alertEl.classList.remove('d-none'); return;
+            }}
+            const payload = {{ groups, user_ids: userIds, subject, body, schedule_mode: mode }};
+            if (mode === 'at') payload.scheduled_at = document.getElementById('guild-email-at').value;
+            if (mode === 'after_join') {{
+                payload.delay_hours = parseFloat(document.getElementById('guild-email-delay').value);
+                payload.anchor_kind = 'guild_member';
+            }}
+            const btn = document.getElementById('guild-email-submit');
+            btn.disabled = true;
+            try {{
+                const res = await fetch('/api/scope-email/guilds/' + guild.id + '/campaigns/', {{
+                    method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(payload)
+                }});
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed');
+                await GhDialog.alert({{
+                    title: mode === 'immediate' ? 'Email sent' : 'Email scheduled',
+                    message: mode === 'immediate' ? ('Sent to ' + (data.campaign?.stats_sent || 0) + ' recipient(s).') : 'Campaign saved.',
+                    variant: 'success',
+                }});
+                modal.hide();
+            }} catch (e) {{
+                alertEl.textContent = e.message; alertEl.className = 'alert alert-danger'; alertEl.classList.remove('d-none');
+            }} finally {{
+                btn.disabled = false;
+            }}
+        }};
+        modal.show();
     }}
 
     loadGuild();

@@ -19,6 +19,7 @@ from services.dp_proposals import (
     submission_draft_ref,
 )
 from services.identity import get_current_user
+from services.layer_programs import hub_access_state, resolve_program_for_hub
 from services.proposal_modes import ProposalMode, get_proposal_mode, is_mode_enabled
 from services.read_navigation import read_page_url
 from services.rendering import generate_user_menu, render_page
@@ -145,9 +146,9 @@ def format_dp_picker_label(sub) -> str:
     return f'{dp_part} - {name}'
 
 
-def _build_picker_docs(mode: str) -> List[dict]:
+def _build_picker_docs(mode: str, program=None) -> List[dict]:
     """Approved submissions for the searchable doc picker (JSON to the client)."""
-    subs = list_approved_submissions_for_mode(mode)
+    subs = list_approved_submissions_for_mode(mode, program=program)
     subs.sort(key=lambda s: _picker_sort_key(s, mode))
     docs = []
     for sub in subs:
@@ -167,6 +168,145 @@ def _build_picker_docs(mode: str) -> List[dict]:
     return docs
 
 
+def _render_prelaunch_hub_page(
+    mode_cfg: dict,
+    program: dict,
+    notify_config: dict,
+    current_user,
+    hub_path: str,
+) -> str:
+    launch_label = html_mod.escape(
+        notify_config.get('launch_at_label') or 'mid-July 2026 at 9:00 AM Pacific'
+    )
+    layer_slug = html_mod.escape(program.get('layer_slug') or 'the-metaweb')
+    layer_name = html_mod.escape(program.get('layer_name') or 'The Metaweb')
+    program_name = html_mod.escape(program.get('name') or mode_cfg['page_title'])
+    joined = bool(notify_config.get('joined'))
+    login_next = html_mod.escape(hub_path)
+    signed_in = bool(current_user)
+
+    hero_section = ''
+    if mode_cfg.get('show_hero'):
+        hero_light = html_mod.escape(mode_cfg['hero_image_light'])
+        hero_dark = html_mod.escape(mode_cfg['hero_image_dark'])
+        hero_alt = html_mod.escape(mode_cfg['hero_aria'])
+        hero_section = f'''
+        <section class="dp-challenge-hero living-module mb-4 dp-challenge-hero--prelaunch" aria-label="{hero_alt}">
+            <div class="dp-challenge-hero-banner">
+                <img src="{hero_light}" alt="" width="1024" height="576" loading="eager"
+                    class="dp-challenge-hero-img dp-challenge-hero-img--light dp-challenge-hero-img--dim" />
+                <img src="{hero_dark}" alt="" width="1024" height="576" loading="eager"
+                    class="dp-challenge-hero-img dp-challenge-hero-img--dark dp-challenge-hero-img--dim" aria-hidden="true" />
+            </div>
+        </section>'''
+
+    status_alert = ''
+    if joined:
+        status_alert = (
+            '<div class="alert alert-success py-2 px-3 mb-4">'
+            '<i class="fas fa-bell me-2"></i>You are on the notify list. We will email you when the Challenge opens.'
+            '</div>'
+        )
+
+    content = f'''
+    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=7">
+    <div class="gh-page container mt-4 dp-challenge-page dp-challenge-page--prelaunch">
+        {gh_page_header(
+            mode_cfg['page_title'],
+            'Opening soon — join the notify list for Meta-Layer DP patching.',
+            mode_cfg['icon'],
+            breadcrumb_html=gh_breadcrumb([('Participate', None), (mode_cfg['breadcrumb'], None)]),
+        )}
+
+        <div class="alert alert-secondary py-2 px-3 mb-4">
+            <span class="small mb-0">
+                <i class="fas fa-layer-group me-1"></i>
+                <strong>{program_name}</strong> is a program on
+                <a href="/layers/{layer_slug}/" class="alert-link">{layer_name}</a>.
+                Opens <strong>{launch_label}</strong>.
+            </span>
+        </div>
+
+        {status_alert}
+        {hero_section}
+
+        <div class="living-module mb-4">
+            <div class="living-module-body">
+                <h2 class="h5 mb-2">Be first to propose patches</h2>
+                <p class="text-muted mb-3">
+                    The {html_mod.escape(mode_cfg['page_title'])} opens in mid-July.
+                    Join the notify list and tell us which DP drafts you want to work on.
+                    We will let you know when patching goes live.
+                </p>
+                <button type="button" class="btn btn-primary" id="dpChallengeNotifyOpenBtn">
+                    <i class="fas fa-bell me-2"></i>{'Update my DP interests' if joined else 'Notify me when it opens'}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="dpChallengeNotifyModal" tabindex="-1" aria-labelledby="dpChallengeNotifyModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="dpChallengeNotifyModalLabel">
+                        <i class="fas fa-bell me-2"></i>Notify me when the Challenge opens
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">Opens {launch_label}. Select the DP drafts you want to patch (optional).</p>
+                    {'<p class="mb-3"><a href="/login/?next=' + login_next + '" class="btn btn-primary btn-sm">Sign in to join the notify list</a></p>' if not signed_in else ''}
+                    <div id="dpChallengeNotifyFormWrap" {'hidden' if not signed_in else ''}>
+                        <label class="form-label" for="dpChallengeNotifyDpSelect">DPs of interest</label>
+                        <select class="form-select" id="dpChallengeNotifyDpSelect" multiple size="8"
+                            aria-describedby="dpChallengeNotifyDpHelp"></select>
+                        <div id="dpChallengeNotifyDpHelp" class="form-text">
+                            Hold Ctrl (Windows/Linux) or Cmd (Mac) to select multiple drafts.
+                        </div>
+                        <p class="small text-muted mt-3 mb-0" id="dpChallengeNotifyMsg"></p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                    {'<button type="button" class="btn btn-primary" id="dpChallengeNotifySubmitBtn"><i class="fas fa-check me-1"></i>Join notify list</button>' if signed_in else ''}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    window.DP_CHALLENGE_NOTIFY = {json.dumps(notify_config)};
+    window.DP_CHALLENGE_PAGE = {{ returnTo: {json.dumps(hub_path)}, signedIn: {json.dumps(signed_in)} }};
+    </script>
+    <script src="/static/js/dp-challenge-notify.js?v=1" defer></script>
+    '''
+
+    return render_page(
+        f'{mode_cfg["page_title"]} — opening soon — MLGH',
+        content,
+        theme=session.get('theme', 'dark'),
+        user_menu=generate_user_menu(),
+    )
+
+
+def _program_context_banner(program) -> str:
+    if not program:
+        return ''
+    layer_name = html_mod.escape(program.get('layer_name') or 'The Metaweb')
+    layer_slug = html_mod.escape(program.get('layer_slug') or 'the-metaweb')
+    program_name = html_mod.escape(program.get('name') or 'Program')
+    return f'''
+        <div class="alert alert-secondary py-2 px-3 mb-4 d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span class="small mb-0">
+                <i class="fas fa-layer-group me-1"></i>
+                <strong>{program_name}</strong> is a program on
+                <a href="/layers/{layer_slug}/" class="alert-link">{layer_name}</a>.
+            </span>
+            <span class="badge text-bg-success text-uppercase">{html_mod.escape(program.get("status") or "active")}</span>
+        </div>'''
+
+
 def _render_proposal_hub_page(mode: ProposalMode):
     mode_cfg = get_proposal_mode(mode)
     if not is_mode_enabled(mode):
@@ -177,16 +317,38 @@ def _render_proposal_hub_page(mode: ProposalMode):
             user_menu=generate_user_menu(),
         )
 
-    stats = dashboard_dp_challenge_stats(mode=mode)
-    doc_rows = dashboard_dp_activity(mode=mode)
-    participant_rows = dashboard_dp_by_participant(mode=mode)
     current_user = get_current_user()
+    program_row = resolve_program_for_hub(
+        mode_cfg['hub_path'],
+        program_slug=(request.args.get('program') or '').strip() or None,
+        layer_slug=(request.args.get('layer') or '').strip() or None,
+    )
+    program = None
+    if program_row:
+        from services.layer_programs import notify_config_for_program, program_public_view
+
+        program = program_public_view(program_row, current_user)
+        access = hub_access_state(program_row, current_user)
+        if access == 'waitlist':
+            notify_config = notify_config_for_program(program_row, current_user)
+            return _render_prelaunch_hub_page(
+                mode_cfg, program, notify_config, current_user, mode_cfg['hub_path']
+            )
+        if access == 'draft' and not current_user:
+            notify_config = notify_config_for_program(program_row, current_user)
+            return _render_prelaunch_hub_page(
+                mode_cfg, program, notify_config, current_user, mode_cfg['hub_path']
+            )
+
+    stats = dashboard_dp_challenge_stats(mode=mode, program=program_row)
+    doc_rows = dashboard_dp_activity(mode=mode, program=program_row)
+    participant_rows = dashboard_dp_by_participant(mode=mode, program=program_row)
     current_user_id = current_user.get('id') if current_user else None
     labels = mode_cfg['labels']
     hub_path = mode_cfg['hub_path']
     show_dp = mode_cfg.get('show_dp_column', True)
 
-    picker_docs = _build_picker_docs(mode)
+    picker_docs = _build_picker_docs(mode, program=program_row)
     picker_placeholder = html_mod.escape(mode_cfg['picker_placeholder'])
     picker_empty = html_mod.escape(mode_cfg['picker_empty'])
     dp_header = ''
@@ -269,6 +431,8 @@ def _render_proposal_hub_page(mode: ProposalMode):
     elif login_cta:
         hero_section = f'<div class="mb-4">{login_cta}</div>'
 
+    program_banner = _program_context_banner(program)
+
     content = f'''
     <link rel="stylesheet" href="/static/css/dp-challenge.css?v=6">
     <div class="gh-page container mt-4 dp-challenge-page">
@@ -278,6 +442,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
             mode_cfg['icon'],
             breadcrumb_html=gh_breadcrumb([('Participate', None), (mode_cfg['breadcrumb'], None)]),
         )}
+        {program_banner}
 
         <div class="dp-challenge-cta-bar mb-4">
             <div class="dp-doc-picker" id="dpChallengeDocPicker" data-empty="{picker_empty}">
@@ -383,8 +548,14 @@ def _render_proposal_hub_page(mode: ProposalMode):
 def _recent_api(mode: ProposalMode):
     if not is_mode_enabled(mode):
         return jsonify({'events': [], 'enabled': False}), 200
+    mode_cfg = get_proposal_mode(mode)
+    program_row = resolve_program_for_hub(
+        mode_cfg['hub_path'],
+        program_slug=(request.args.get('program') or '').strip() or None,
+        layer_slug=(request.args.get('layer') or '').strip() or None,
+    )
     since = parse_challenge_since_param(request.args.get('since'))
-    events = challenge_recent_events(since=since, limit=25, mode=mode)
+    events = challenge_recent_events(since=since, limit=25, mode=mode, program=program_row)
     return jsonify({'events': events, 'enabled': True})
 
 

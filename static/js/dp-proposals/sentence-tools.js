@@ -422,6 +422,9 @@
     var box = document.createElement('div');
     box.className = 'dp-proposal-highlight-rect';
     box.dataset.dpAnchorHash = anchorHash;
+    if (anchorHash) {
+      box.id = 'gh-anchor-' + anchorHash;
+    }
     box.style.left = (union.left - rootRect.left + scrollLeft) + 'px';
     box.style.top = (union.top - rootRect.top + scrollTop) + 'px';
     box.style.width = union.width + 'px';

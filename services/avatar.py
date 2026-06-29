@@ -60,10 +60,15 @@ def avatar_url(url: Optional[str], size: int = 200) -> Optional[str]:
     return url
 
 
+def is_user_uploaded_profile_image(url: Optional[str]) -> bool:
+    """True when profileImage is a Gov Hub upload (not OAuth provider URL)."""
+    return bool(url and str(url).strip().startswith('/uploads/profile_images/profile_'))
+
+
 def get_avatar_url(user, size: int = 200, default: Optional[str] = None) -> str:
     """
     Get best available avatar URL for a user.
-    Checks: profileImage (Web3Auth), UserLinkedAccount avatars, then default.
+    Checks: profileImage (upload or Web3Auth), UserLinkedAccount avatars, then default.
     user: User model instance or dict (from get_current_user).
     """
     default = default or '/static/images/default-avatar.png'
@@ -71,17 +76,30 @@ def get_avatar_url(user, size: int = 200, default: Optional[str] = None) -> str:
     if not user:
         return default
 
-    # 1. Web3Auth / primary profile image
-    profile_image = user.get('profileImage') if isinstance(user, dict) else getattr(user, 'profileImage', None)
+    if isinstance(user, dict):
+        user_id = user.get('id')
+        if user_id:
+            try:
+                from models import User
+
+                row = User.query.get(user_id)
+                if row:
+                    user = row
+            except Exception:
+                pass
+
+    # 1. Web3Auth / uploaded profile image
+    profile_image = getattr(user, 'profileImage', None)
     if profile_image:
         return avatar_url(profile_image, size) or default
 
-    # 2. Linked accounts (prefer one with avatar) - only for User model
-    user_id = user.get('id') if isinstance(user, dict) else getattr(user, 'id', None)
-    if user_id and not isinstance(user, dict):
+    # 2. Linked accounts (prefer one with avatar)
+    user_id = getattr(user, 'id', None)
+    if user_id:
         try:
             from models import UserLinkedAccount
-            linked = UserLinkedAccount.query.filter_by(user_id=user.id).order_by(
+
+            linked = UserLinkedAccount.query.filter_by(user_id=user_id).order_by(
                 UserLinkedAccount.created_at.desc()
             ).all()
             for acc in linked:

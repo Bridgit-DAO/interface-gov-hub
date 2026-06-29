@@ -121,30 +121,20 @@ def _embed_widget_params():
 
 def _send_waitlist_verification_email(signup, waitlist, confirm_url):
     """Send verification email via Resend. Returns True on success."""
-    api_key = os.environ.get('RESEND_API_KEY', '').strip()
-    from_email = os.environ.get('RESEND_FROM', 'MLGH <onboarding@resend.dev>').strip()
-    if not api_key:
-        current_app.logger.warning("RESEND_API_KEY not set - skipping verification email")
-        return False
-    try:
-        import resend
-        resend.api_key = api_key
-        params = {
-            "from": from_email,
-            "to": [signup.email],
-            "subject": f"Confirm your place on {waitlist.name}",
-            "html": f"""<p>You requested to join the waitlist for <strong>{waitlist.name}</strong>.</p>
+    from services.resend_mail import send_resend_email
+
+    html_body = f"""<p>You requested to join the waitlist for <strong>{html_mod.escape(waitlist.name)}</strong>.</p>
 <p>Please click the link below to confirm your place on the list:</p>
-<p><a href="{confirm_url}" style="background:#1d9bf0;color:#fff;padding:8px 16px;text-decoration:none;border-radius:6px;display:inline-block;">Confirm my place</a></p>
-<p>Or copy this link: {confirm_url}</p>
+<p><a href="{html_mod.escape(confirm_url, quote=True)}" style="background:#1d9bf0;color:#fff;padding:8px 16px;text-decoration:none;border-radius:6px;display:inline-block;">Confirm my place</a></p>
+<p>Or copy this link: {html_mod.escape(confirm_url)}</p>
 <p>If you didn't request this, you can ignore this email.</p>
-<p>— MLGH</p>""",
-        }
-        resend.Emails.send(params)
-        return True
-    except Exception as e:
-        current_app.logger.error(f"Failed to send waitlist verification email: {e}")
-        return False
+<p>— Gov Hub</p>"""
+    return send_resend_email(
+        to=[signup.email],
+        subject=f'Confirm your place on {waitlist.name}',
+        html=html_body,
+        tags=[{'name': 'category', 'value': 'waitlist_verify'}],
+    )
 
 
 @bp.route('/api/layers/<layer_id>/waitlists/', methods=['GET'])
@@ -561,6 +551,19 @@ def join_waitlist(waitlist_id):
                    subject_type='waitlist', subject_id=str(waitlist_id), layer_id=waitlist.layer_id,
                    payload={'waitlist_name': waitlist.name, 'position': count + 1})
         db.session.commit()
+        try:
+            from services.scope_email import enqueue_after_join
+
+            enqueue_after_join(
+                scope_type='layer',
+                scope_id=project.id,
+                user_id=current_user['id'],
+                anchor_kind='waitlist_member',
+                anchor_at=entry.joined_at or datetime.utcnow(),
+                waitlist_id=waitlist_id,
+            )
+        except Exception:
+            pass
 
     entry = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id'], left_at=None).first()
     return jsonify({'entry': {'position': entry.position, 'joined_at': entry.joined_at.isoformat()}, 'waitlist': waitlist.to_dict()}), 201

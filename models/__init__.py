@@ -4,7 +4,10 @@ Import order: identity -> coordination -> events -> artifact (Layer before Event
 """
 from models.referral_attribution import ReferralAttribution
 from models.referral_landing import ReferralLanding
+from models.layer_program import LayerProgram, LayerProgramSubmission
+from models.scoped_email import ScopedEmailCampaign, ScopedEmailDelivery
 from models.identity import User, UserLinkedAccount
+from models.mfa import UserMfaChallenge, UserMfaDevice, UserMfaRecoveryCode
 from models.custodial_wallet import CustodialWallet
 from models.coordination import (
     Layer, LayerMember, LayerAdmin,
@@ -28,7 +31,6 @@ from models.artifact import (
 )
 from models.dp_proposal import DpProposal
 from models.platform_invitation import PlatformInvitation, PlatformInvitationAcceptance
-from models.campaign_endorsement import CampaignEndorsement
 from models.collection import ArtifactCollection, ArtifactCollectionItem
 from models.layer_tag import LayerTag, LayerTagLink, SUBJECT_ARTIFACT, SUBJECT_SUBMISSION
 # Legacy tables (migrated to layer_tag); models kept for old DB rows if present
@@ -37,12 +39,13 @@ from models.bridge import Bridge, BridgeSession
 
 __all__ = [
     'User', 'UserLinkedAccount', 'CustodialWallet',
+    'UserMfaDevice', 'UserMfaRecoveryCode', 'UserMfaChallenge',
     'UserEventSubscription', 'UserNotification',
     'EventLog', 'StatusChange',
     'Layer', 'LayerMember', 'LayerAdmin',
     'Waitlist', 'WaitlistEntry', 'WaitlistMilestone', 'EmailUnsubscribe', 'WaitlistEmailSignup',
     'Workgroup', 'WorkgroupLayerLink', 'WorkingGroupMember', 'WorkingGroupChair', 'CoordinatorRequest', 'WorkgroupMemberRequest',
-    'Guild', 'GuildMembership', 'GuildInvitation', 'LayerInvitation', 'PlatformInvitation', 'PlatformInvitationAcceptance', 'CampaignEndorsement', 'GuildLayerLink', 'GuildArtifactLink', 'GuildQuestLink',
+    'Guild', 'GuildMembership', 'GuildInvitation', 'LayerInvitation', 'PlatformInvitation', 'PlatformInvitationAcceptance', 'GuildLayerLink', 'GuildArtifactLink', 'GuildQuestLink',
     'LayerConnectionType', 'LayerConnection',
     'LAYER_CONNECTION_CONNECTOR_KINDS', 'LAYER_CONNECTION_STATUSES',
     'Cluster', 'Role', 'RoleImage', 'RoleImageVote',
@@ -59,4 +62,8 @@ __all__ = [
     'Bridge', 'BridgeSession',
     'ReferralAttribution',
     'ReferralLanding',
+    'LayerProgram',
+    'LayerProgramSubmission',
+    'ScopedEmailCampaign',
+    'ScopedEmailDelivery',
 ]

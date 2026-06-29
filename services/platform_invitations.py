@@ -6,18 +6,23 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from uuid import uuid4
 
 from extensions import db
 from models import (
+    Layer,
+    LayerAdmin,
     PlatformInvitation,
+    PlatformInvitationAcceptance,
     Submission,
     User,
     Workgroup,
-    WorkingGroupMember,
-    WorkgroupMemberRequest,
 )
-from services.coordination import is_layer_admin
+from services.invitation_binding import (
+    BINDING_PRIVATE,
+    BINDING_SHAREABLE,
+    platform_invitation_is_shareable,
+    resolve_platform_binding_mode,
+)
 from services.dp_proposals import (
     resolve_submission_for_proposals,
     submission_draft_ref,
@@ -32,6 +37,9 @@ from services.workgroup_membership import (
 
 _INVITE_TTL_DAYS = 7
 _STANDARD_DAILY_LIMIT = 10
+_ELEVATED_DAILY_LIMIT = 100
+# Bridgit DAO staff / org accounts (elevated invite quota).
+_BRIDGITDAO_EMAIL_SUFFIXES = ('@bridgit.io', '@bridgitdao.com', '@bridgitdao.io')
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 PARTICIPATION_TYPES = frozenset({'participate_dp'})
@@ -45,6 +53,26 @@ STANDARD_TYPES = frozenset({
 
 def normalize_invitee_email(email: str) -> str:
     return (email or '').strip().lower()
+
+
+def parse_invitee_email_list(raw: Any) -> list:
+    """Split comma/newline/semicolon-separated emails; dedupe preserving order."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        parts = raw
+    else:
+        parts = re.split(r'[\s,;]+', str(raw))
+    seen = set()
+    out = []
+    for part in parts:
+        email = normalize_invitee_email(part)
+        if not email or email in seen:
+            continue
+        if validate_invitee_email(email):
+            seen.add(email)
+            out.append(email)
+    return out
 
 
 def validate_invitee_email(email: str) -> bool:
@@ -65,11 +93,38 @@ def count_standard_invites_today(inviter_id: str) -> int:
     ).count()
 
 
+def _is_bridgitdao_user(user: User) -> bool:
+    """Site admins and Bridgit DAO org email addresses."""
+    if (user.role or '').lower() == 'admin':
+        return True
+    email = normalize_invitee_email(user.email or '')
+    return any(email.endswith(suffix) for suffix in _BRIDGITDAO_EMAIL_SUFFIXES)
+
+
+def _is_any_layer_admin(user: User) -> bool:
+    """Layer owner, assigned layer admin, or site admin."""
+    if (user.role or '').lower() == 'admin':
+        return True
+    if Layer.query.filter_by(initiator_id=user.id).first():
+        return True
+    return LayerAdmin.query.filter_by(user_id=user.id).first() is not None
+
+
+def inviter_daily_limit(inviter_id: str) -> int:
+    user = User.query.get(inviter_id)
+    if not user:
+        return _STANDARD_DAILY_LIMIT
+    if _is_bridgitdao_user(user) or _is_any_layer_admin(user):
+        return _ELEVATED_DAILY_LIMIT
+    return _STANDARD_DAILY_LIMIT
+
+
 def check_rate_limit(inviter_id: str, rate_category: str) -> Optional[str]:
     if rate_category == 'participation':
         return None
-    if count_standard_invites_today(inviter_id) >= _STANDARD_DAILY_LIMIT:
-        return 'Invitation limit reached for today (10). Try again tomorrow.'
+    limit = inviter_daily_limit(inviter_id)
+    if count_standard_invites_today(inviter_id) >= limit:
+        return f'Invitation limit reached for today ({limit}). Try again tomorrow.'
     return None
 
 
@@ -150,23 +205,6 @@ def can_invite(inviter_id: str, invite_type: str, target: dict) -> Tuple[bool, s
     return False, 'Unsupported invitation type'
 
 
-def _is_workgroup_member(group_acronym: str, user_id: str) -> bool:
-    if not group_acronym or not user_id:
-        return False
-    return WorkingGroupMember.query.filter_by(
-        group_acronym=group_acronym,
-        user_id=user_id,
-    ).first() is not None
-
-
-def _workgroup_requires_approval(acronym: str) -> bool:
-    from services.groups import load_group_data
-    for g in load_group_data():
-        if g.get('acronym') == acronym:
-            return bool(g.get('members_require_approval'))
-    return False
-
-
 def strip_invite_query_params(path: str) -> str:
     """Remove invite flow query params after accept so the landing modal does not re-open."""
     if not path or not path.startswith('/'):
@@ -229,15 +267,135 @@ def _target_title(inv: PlatformInvitation) -> str:
 def _invitation_response(inv: PlatformInvitation, *, email_sent: bool = False) -> dict:
     inviter = User.query.get(inv.inviter_id)
     path = build_landing_path(inv)
+    shareable = platform_invitation_is_shareable(inv)
     return {
         'success': True,
         'email_sent': email_sent,
+        'shareable': shareable,
+        'binding_mode': getattr(inv, 'binding_mode', None) or ('shareable' if shareable else 'private'),
         'invitation': inv.to_dict(),
         'invite_path': path,
         'landing_url': None,  # filled by route with origin if needed
         'inviter_name': (inviter.displayName or inviter.username) if inviter else None,
         'target_title': _target_title(inv),
     }
+
+
+def _invitation_is_revoked(inv: PlatformInvitation) -> bool:
+    return bool(getattr(inv, 'revoked_at', None))
+
+
+def _find_shareable_platform_campaign(
+    invite_type: str,
+    inviter_id: str,
+    target_key: str,
+) -> Optional[PlatformInvitation]:
+    return PlatformInvitation.query.filter_by(
+        invite_type=invite_type,
+        inviter_id=inviter_id,
+        target_json=target_key,
+        binding_mode=BINDING_SHAREABLE,
+        status='pending',
+    ).filter(PlatformInvitation.revoked_at.is_(None)).first()
+
+
+def get_or_create_shareable_platform_invitation(
+    *,
+    invite_type: str,
+    inviter_id: str,
+    target: dict,
+    message: Optional[str] = None,
+) -> Tuple[PlatformInvitation, bool]:
+    """Return (invitation, created). Reuses one pending shareable row per inviter+type+target."""
+    target_key = _dump_target(target)
+    existing = _find_shareable_platform_campaign(invite_type, inviter_id, target_key)
+    now = datetime.utcnow()
+    if existing:
+        existing.inviter_id = inviter_id
+        if (message or '').strip():
+            existing.message = (message or '').strip()
+        existing.expires_at = None
+        db.session.commit()
+        return existing, False
+
+    inv = PlatformInvitation(
+        invite_type=invite_type,
+        rate_category='participation' if invite_type in PARTICIPATION_TYPES else 'standard',
+        inviter_id=inviter_id,
+        invitee_email='',
+        message=(message or '').strip() or None,
+        target_json=target_key,
+        status='pending',
+        binding_mode=BINDING_SHAREABLE,
+        token=generate_invitation_token(),
+        expires_at=None,
+    )
+    db.session.add(inv)
+    db.session.commit()
+    return inv, True
+
+
+def get_shareable_platform_campaign(
+    *,
+    invite_type: str,
+    inviter_id: str,
+    target: Optional[dict] = None,
+    message: Optional[str] = None,
+) -> Tuple[dict, int]:
+    """Ensure a shareable campaign exists and return its link (no email required)."""
+    target = target if isinstance(target, dict) else {}
+    ok, err = can_invite(inviter_id, invite_type, target)
+    if not ok:
+        return {'error': err}, 403
+    if resolve_platform_binding_mode(invite_type, target) != BINDING_SHAREABLE:
+        return {'error': 'This invitation type is not shareable'}, 400
+
+    if invite_type in ('edit_document', 'edit_document_passage'):
+        sub, err = _submission_from_target(target)
+        if err or not sub:
+            return {'error': err or 'Document not found'}, 404
+        invite_type = _resolve_document_invite_type(sub, invite_type)
+        target = dict(target)
+        target['submission_id'] = sub.id
+        target['draft_ref'] = submission_draft_ref(sub)
+    if invite_type == 'participate_dp':
+        target = {}
+    if invite_type == 'join_workgroup':
+        wg_id = (target.get('workgroup_id') or '').strip()
+        wg = Workgroup.query.get(wg_id)
+        if not wg:
+            return {'error': 'Workgroup not found'}, 404
+        target = {
+            'workgroup_id': wg.id,
+            'workgroup_slug': wg.slug or wg.acronym,
+            'workgroup_name': wg.name,
+            'workgroup_acronym': wg.acronym,
+            'layer_id': wg.layer_id,
+        }
+
+    inv, _created = get_or_create_shareable_platform_invitation(
+        invite_type=invite_type,
+        inviter_id=inviter_id,
+        target=target,
+        message=message,
+    )
+    body = _invitation_response(inv)
+    return body, 200
+
+
+def _record_shareable_acceptance(inv: PlatformInvitation, user: User) -> None:
+    existing = PlatformInvitationAcceptance.query.filter_by(
+        invitation_id=inv.id,
+        user_id=user.id,
+    ).first()
+    if not existing:
+        db.session.add(
+            PlatformInvitationAcceptance(
+                invitation_id=inv.id,
+                user_id=user.id,
+            )
+        )
+        db.session.commit()
 
 
 def create_invitation(
@@ -259,6 +417,15 @@ def create_invitation(
     ok, err = can_invite(inviter_id, invite_type, target)
     if not ok:
         return {'error': err}, 403
+
+    if resolve_platform_binding_mode(invite_type, target) == BINDING_SHAREABLE:
+        return _create_shareable_platform_invitation(
+            invite_type=invite_type,
+            inviter_id=inviter_id,
+            invitee_email=invitee_email,
+            message=message,
+            target=target,
+        )
 
     email = normalize_invitee_email(invitee_email)
     if not validate_invitee_email(email):
@@ -370,6 +537,7 @@ def create_invitation(
         message=(message or '').strip() or None,
         target_json=_dump_target(target),
         status='pending',
+        binding_mode=BINDING_PRIVATE,
         token=token,
         expires_at=now + timedelta(days=_INVITE_TTL_DAYS),
     )
@@ -387,10 +555,248 @@ def create_invitation(
     return body, 201
 
 
+def _create_shareable_platform_invitation(
+    *,
+    invite_type: str,
+    inviter_id: str,
+    invitee_email: str,
+    message: Optional[str],
+    target: dict,
+) -> Tuple[dict, int]:
+    """One shareable link per campaign; optional email only delivers that link."""
+    if invite_type in ('edit_document', 'edit_document_passage'):
+        sub, err = _submission_from_target(target)
+        if err or not sub:
+            return {'error': err or 'Document not found'}, 404
+        invite_type = _resolve_document_invite_type(sub, invite_type)
+        target = dict(target)
+        target['submission_id'] = sub.id
+        target['draft_ref'] = submission_draft_ref(sub)
+
+    if invite_type == 'join_workgroup':
+        wg_id = (target.get('workgroup_id') or '').strip()
+        wg = Workgroup.query.get(wg_id)
+        if not wg:
+            return {'error': 'Workgroup not found'}, 404
+        target = {
+            'workgroup_id': wg.id,
+            'workgroup_slug': wg.slug or wg.acronym,
+            'workgroup_name': wg.name,
+            'workgroup_acronym': wg.acronym,
+            'layer_id': wg.layer_id,
+        }
+
+    if invite_type == 'participate_dp':
+        target = {}
+
+    inviter = User.query.get(inviter_id)
+    if not inviter:
+        return {'error': 'Inviter not found'}, 404
+
+    inv, _created = get_or_create_shareable_platform_invitation(
+        invite_type=invite_type,
+        inviter_id=inviter_id,
+        target=target,
+        message=message,
+    )
+
+    email = normalize_invitee_email(invitee_email)
+    sent = False
+    if email:
+        if not validate_invitee_email(email):
+            return {'error': 'Valid email address is required'}, 400
+        if (inviter.email or '').strip().lower() == email:
+            return {'error': 'You cannot invite yourself'}, 400
+        rate_category = 'participation' if invite_type in PARTICIPATION_TYPES else 'standard'
+        rate_err = check_rate_limit(inviter_id, rate_category)
+        if rate_err:
+            return {'error': rate_err}, 429
+        sent = send_platform_invitation_email(
+            invitation=inv,
+            inviter=inviter,
+            invitee_email=email,
+            landing_url=_public_base_url() + build_landing_path(inv),
+            target_title=_target_title(inv),
+        )
+
+    body = _invitation_response(inv, email_sent=sent)
+    return body, 201 if _created else 200
+
+
+def create_invitations_bulk(
+    *,
+    invite_type: str,
+    inviter_id: str,
+    emails: Optional[list] = None,
+    invitee_user_ids: Optional[list] = None,
+    message: Optional[str] = None,
+    target: Optional[dict] = None,
+) -> Tuple[dict, int]:
+    """Create invitations for many emails and/or Gov Hub users (by user id)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    parsed_emails = list(parse_invitee_email_list(emails or []))
+    targets = list(parsed_emails)
+    user_ids_requested = 0
+    user_ids_resolved = 0
+    user_ids_skipped_no_email = 0
+    for uid in invitee_user_ids or []:
+        uid = (uid or '').strip()
+        if not uid:
+            continue
+        user_ids_requested += 1
+        user = User.query.get(uid)
+        if not user or not user.email:
+            user_ids_skipped_no_email += 1
+            logger.warning(
+                'invite batch: skip user_id=%s (missing user or email)', uid
+            )
+            continue
+        user_ids_resolved += 1
+        email = normalize_invitee_email(user.email)
+        if email and email not in targets:
+            targets.append(email)
+    if not targets:
+        return {'error': 'At least one valid email or Gov Hub user is required'}, 400
+    if len(targets) > 25:
+        return {'error': 'Maximum 25 invitations per batch'}, 400
+
+    if resolve_platform_binding_mode(invite_type, target if isinstance(target, dict) else {}) == BINDING_SHAREABLE:
+        return _create_shareable_platform_batch(
+            invite_type=invite_type,
+            inviter_id=inviter_id,
+            emails=targets,
+            message=message,
+            target=target if isinstance(target, dict) else {},
+        )
+
+    logger.info(
+        'invite batch inviter=%s type=%s emails_parsed=%d user_ids_requested=%d '
+        'user_ids_resolved=%d user_ids_skipped=%d unique_recipients=%d',
+        inviter_id,
+        invite_type,
+        len(parsed_emails),
+        user_ids_requested,
+        user_ids_resolved,
+        user_ids_skipped_no_email,
+        len(targets),
+    )
+
+    results = []
+    sent_count = 0
+    error_count = 0
+    for email in targets:
+        body, status = create_invitation(
+            invite_type=invite_type,
+            inviter_id=inviter_id,
+            invitee_email=email,
+            message=message,
+            target=target,
+        )
+        entry = {
+            'email': email,
+            'ok': 200 <= status < 300,
+            'status': status,
+            'duplicate': bool(body.get('duplicate')),
+        }
+        if entry['ok']:
+            if body.get('email_sent'):
+                sent_count += 1
+            entry['invite_path'] = body.get('invite_path')
+        else:
+            error_count += 1
+            entry['error'] = body.get('error') or 'Failed'
+        results.append(entry)
+
+    return {
+        'success': error_count == 0,
+        'count': len(results),
+        'sent_email_count': sent_count,
+        'error_count': error_count,
+        'stats': {
+            'emails_parsed': len(parsed_emails),
+            'user_ids_requested': user_ids_requested,
+            'user_ids_resolved': user_ids_resolved,
+            'user_ids_skipped_no_email': user_ids_skipped_no_email,
+            'unique_recipients': len(targets),
+        },
+        'results': results,
+    }, 200 if error_count == 0 else 207
+
+
+def _create_shareable_platform_batch(
+    *,
+    invite_type: str,
+    inviter_id: str,
+    emails: list,
+    message: Optional[str],
+    target: dict,
+) -> Tuple[dict, int]:
+    """Send many emails pointing at the same shareable campaign link."""
+    body, status = _create_shareable_platform_invitation(
+        invite_type=invite_type,
+        inviter_id=inviter_id,
+        invitee_email='',
+        message=message,
+        target=target,
+    )
+    if status >= 400:
+        return body, status
+
+    inv_token = (body.get('invite_path') or '').split('invite=')[-1].split('&')[0]
+    inv = PlatformInvitation.query.filter_by(token=inv_token).first() if inv_token else None
+    if not inv:
+        return body, status
+
+    inviter = User.query.get(inviter_id)
+    share_path = body.get('invite_path') or build_landing_path(inv)
+    landing_url = _public_base_url() + share_path
+    results = []
+    sent_count = 0
+    error_count = 0
+    for email in emails:
+        try:
+            sent = send_platform_invitation_email(
+                invitation=inv,
+                inviter=inviter,
+                invitee_email=email,
+                landing_url=landing_url,
+                target_title=_target_title(inv),
+            )
+            if sent:
+                sent_count += 1
+            results.append({
+                'email': email,
+                'ok': True,
+                'status': 200,
+                'duplicate': False,
+                'invite_path': share_path,
+            })
+        except Exception:
+            error_count += 1
+            results.append({
+                'email': email,
+                'ok': False,
+                'status': 500,
+                'error': 'Failed to send email',
+            })
+
+    return {
+        'success': error_count == 0,
+        'count': len(results),
+        'sent_email_count': sent_count,
+        'error_count': error_count,
+        'shareable': True,
+        'invite_path': share_path,
+        'results': results,
+    }, 200 if error_count == 0 else 207
+
+
 def _public_base_url() -> str:
     from flask import current_app
-    from config import PUBLIC_BASE_URL
-    return (current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL).rstrip('/')
+    from config import PUBLIC_BASE_URL, resolved_public_base_url
+    return resolved_public_base_url(current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL)
 
 
 def _passage_excerpt_from_target(target: dict) -> str:
@@ -426,31 +832,41 @@ def preview_invitation(token: str) -> Tuple[dict, int]:
     inv = PlatformInvitation.query.filter_by(token=token.strip()).first()
     if not inv:
         return {'error': 'Invalid invitation'}, 404
+    if _invitation_is_revoked(inv):
+        return {'error': 'This invitation has been revoked'}, 410
     if inv.status == 'duplicate':
         return {'error': inv.outcome_note or 'Invitation duplicate'}, 409
+    if inv.status == 'revoked' or _invitation_is_revoked(inv):
+        return {'error': 'This invitation has been revoked'}, 410
     if inv.status != 'pending':
         return {'error': f'Invitation is {inv.status}'}, 404
-    if inv.expires_at and inv.expires_at < datetime.utcnow():
+    shareable = platform_invitation_is_shareable(inv)
+    if not shareable and inv.expires_at and inv.expires_at < datetime.utcnow():
         inv.status = 'expired'
         db.session.commit()
         return {'error': 'Invitation expired'}, 410
 
     inviter = User.query.get(inv.inviter_id)
     email = inv.invitee_email or ''
-    masked = email[:2] + '***' + email[email.index('@'):] if '@' in email else '***'
+    masked = ''
+    if email and '@' in email:
+        masked = email[:2] + '***' + email[email.index('@'):]
     target = _load_target(inv)
     body: Dict[str, Any] = {
         'valid': True,
         'invite_type': inv.invite_type,
+        'shareable': shareable,
+        'binding_mode': getattr(inv, 'binding_mode', None) or ('shareable' if shareable else 'private'),
         'inviter_name': (inviter.displayName or inviter.username) if inviter else None,
-        'invitee_email_masked': masked,
-        'invitee_email': email,
         'message': inv.message,
         'target_title': _target_title(inv),
         'landing_path': build_landing_path(inv),
         'target': target,
         'authenticated': 'user' in session,
     }
+    if not shareable:
+        body['invitee_email_masked'] = masked
+        body['invitee_email'] = email
     if inv.invite_type == 'edit_document_passage':
         excerpt = _passage_excerpt_from_target(target)
         if excerpt:
@@ -470,11 +886,12 @@ def _email_matches_invite(inv: PlatformInvitation, user: User) -> bool:
     return normalize_invitee_email(inv.invitee_email) == normalize_invitee_email(user.email)
 
 
-def _accept_participate_dp(inv: PlatformInvitation, user: User) -> Tuple[dict, int]:
-    inv.status = 'accepted'
-    inv.responded_at = datetime.utcnow()
-    inv.invitee_id = user.id
-    db.session.commit()
+def _accept_participate_dp(inv: PlatformInvitation, user: User, *, finalize_invite: bool = True) -> Tuple[dict, int]:
+    if finalize_invite:
+        inv.status = 'accepted'
+        inv.responded_at = datetime.utcnow()
+        inv.invitee_id = user.id
+        db.session.commit()
     return {
         'success': True,
         'invite_type': inv.invite_type,
@@ -482,11 +899,12 @@ def _accept_participate_dp(inv: PlatformInvitation, user: User) -> Tuple[dict, i
     }, 200
 
 
-def _accept_document(inv: PlatformInvitation, user: User) -> Tuple[dict, int]:
-    inv.status = 'accepted'
-    inv.responded_at = datetime.utcnow()
-    inv.invitee_id = user.id
-    db.session.commit()
+def _accept_document(inv: PlatformInvitation, user: User, *, finalize_invite: bool = True) -> Tuple[dict, int]:
+    if finalize_invite:
+        inv.status = 'accepted'
+        inv.responded_at = datetime.utcnow()
+        inv.invitee_id = user.id
+        db.session.commit()
     return {
         'success': True,
         'invite_type': inv.invite_type,
@@ -495,7 +913,7 @@ def _accept_document(inv: PlatformInvitation, user: User) -> Tuple[dict, int]:
     }, 200
 
 
-def _accept_join_workgroup(inv: PlatformInvitation, user: User) -> Tuple[dict, int]:
+def _accept_join_workgroup(inv: PlatformInvitation, user: User, *, finalize_invite: bool = True) -> Tuple[dict, int]:
     target = _load_target(inv)
     acronym = (target.get('workgroup_acronym') or '').strip()
     slug = (target.get('workgroup_slug') or '').strip()
@@ -503,11 +921,12 @@ def _accept_join_workgroup(inv: PlatformInvitation, user: User) -> Tuple[dict, i
         return {'error': 'Invalid invitation target'}, 400
 
     if is_workgroup_member(acronym, user.id):
-        inv.status = 'duplicate'
-        inv.outcome_note = 'Already a member'
-        inv.responded_at = datetime.utcnow()
-        inv.invitee_id = user.id
-        db.session.commit()
+        if finalize_invite:
+            inv.status = 'duplicate'
+            inv.outcome_note = 'Already a member'
+            inv.responded_at = datetime.utcnow()
+            inv.invitee_id = user.id
+            db.session.commit()
         return {
             'success': True,
             'duplicate': True,
@@ -523,10 +942,13 @@ def _accept_join_workgroup(inv: PlatformInvitation, user: User) -> Tuple[dict, i
     if not result.get('ok'):
         return {'error': result.get('error') or 'Could not join workgroup'}, 400
 
-    inv.status = 'accepted'
-    inv.responded_at = datetime.utcnow()
-    inv.invitee_id = user.id
-    db.session.commit()
+    if finalize_invite:
+        inv.status = 'accepted'
+        inv.responded_at = datetime.utcnow()
+        inv.invitee_id = user.id
+        db.session.commit()
+    else:
+        db.session.commit()
     return {
         'success': True,
         'redirect_path': f'/workgroups/{slug}/' if slug else '/workgroups/',
@@ -538,9 +960,13 @@ def accept_invitation(token: str, user_id: str) -> Tuple[dict, int]:
     inv = PlatformInvitation.query.filter_by(token=token.strip()).first()
     if not inv:
         return {'error': 'Invalid invitation'}, 404
+    if _invitation_is_revoked(inv):
+        return {'error': 'This invitation has been revoked'}, 410
     if inv.status != 'pending':
         return {'error': f'Invitation is {inv.status}'}, 404
-    if inv.expires_at and inv.expires_at < datetime.utcnow():
+
+    shareable = platform_invitation_is_shareable(inv)
+    if not shareable and inv.expires_at and inv.expires_at < datetime.utcnow():
         inv.status = 'expired'
         db.session.commit()
         return {'error': 'Invitation expired'}, 410
@@ -548,15 +974,23 @@ def accept_invitation(token: str, user_id: str) -> Tuple[dict, int]:
     user = User.query.get(user_id)
     if not user:
         return {'error': 'User not found'}, 404
-    if not _email_matches_invite(inv, user):
-        return {'error': 'This invitation was sent to a different email address'}, 403
+    if not user.email:
+        return {'error': 'Sign in with an account that has an email address on file'}, 400
+
+    if shareable:
+        _record_shareable_acceptance(inv, user)
+        finalize = False
+    else:
+        if not _email_matches_invite(inv, user):
+            return {'error': 'This invitation was sent to a different email address'}, 403
+        finalize = True
 
     if inv.invite_type == 'participate_dp':
-        return _accept_participate_dp(inv, user)
+        return _accept_participate_dp(inv, user, finalize_invite=finalize)
     if inv.invite_type in ('edit_document', 'edit_document_passage', 'review_document'):
-        return _accept_document(inv, user)
+        return _accept_document(inv, user, finalize_invite=finalize)
     if inv.invite_type == 'join_workgroup':
-        return _accept_join_workgroup(inv, user)
+        return _accept_join_workgroup(inv, user, finalize_invite=finalize)
     return {'error': 'Unsupported invitation type'}, 400
 
 
@@ -564,13 +998,23 @@ def decline_invitation(token: str, user_id: str) -> Tuple[dict, int]:
     inv = PlatformInvitation.query.filter_by(token=token.strip()).first()
     if not inv or inv.status != 'pending':
         return {'error': 'Invalid invitation'}, 404
-    if inv.expires_at and inv.expires_at < datetime.utcnow():
+    if _invitation_is_revoked(inv):
+        return {'error': 'This invitation has been revoked'}, 410
+
+    shareable = platform_invitation_is_shareable(inv)
+    if not shareable and inv.expires_at and inv.expires_at < datetime.utcnow():
         inv.status = 'expired'
         db.session.commit()
         return {'error': 'Invitation expired'}, 410
 
     user = User.query.get(user_id)
-    if not user or not _email_matches_invite(inv, user):
+    if not user:
+        return {'error': 'User not found'}, 404
+
+    if shareable:
+        return {'success': True, 'note': 'Shareable invitation remains active for others'}, 200
+
+    if not _email_matches_invite(inv, user):
         return {'error': 'This invitation was sent to a different email address'}, 403
 
     inv.status = 'declined'
@@ -578,3 +1022,26 @@ def decline_invitation(token: str, user_id: str) -> Tuple[dict, int]:
     inv.invitee_id = user.id
     db.session.commit()
     return {'success': True}, 200
+
+
+def revoke_invitation(token: str, user_id: str) -> Tuple[dict, int]:
+    """Revoke a pending invitation (inviter or site admin)."""
+    inv = PlatformInvitation.query.filter_by(token=token.strip()).first()
+    if not inv:
+        return {'error': 'Invalid invitation'}, 404
+    if inv.status != 'pending':
+        return {'error': f'Cannot revoke invitation in status {inv.status}'}, 400
+    if _invitation_is_revoked(inv):
+        return {'success': True, 'already_revoked': True}, 200
+
+    user = User.query.get(user_id)
+    if not user:
+        return {'error': 'User not found'}, 404
+    is_admin = (user.role or '').lower() == 'admin'
+    if inv.inviter_id != user_id and not is_admin:
+        return {'error': 'Only the inviter or a site admin can revoke this link'}, 403
+
+    inv.revoked_at = datetime.utcnow()
+    inv.status = 'revoked'
+    db.session.commit()
+    return {'success': True, 'revoked': True}, 200

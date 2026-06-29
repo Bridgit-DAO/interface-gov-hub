@@ -23,8 +23,7 @@ def _enable_dp_proposals(app):
         cfg = {}
         if row and row.value:
             cfg = json.loads(row.value)
-        cfg['dp_proposals'] = True
-        cfg['document_edits'] = True
+        cfg['patches'] = True
         payload = json.dumps(cfg, sort_keys=True)
         if row:
             row.value = payload
@@ -51,6 +50,75 @@ def _find_approved_dp_submission():
         if is_dp_submission(sub):
             return sub
     return None
+
+
+def _sample_passage_from_submission(sub):
+    from services.dp_proposals import load_submission_plain_document_text
+    import re
+
+    body = load_submission_plain_document_text(sub)
+    if not body:
+        return None
+    for sentence in re.split(r'(?<=[.!?])\s+', body):
+        sentence = sentence.strip()
+        if len(sentence.split()) >= 6:
+            return sentence
+    return body[:120].strip() if body else None
+
+
+def test_classify_bogus_proposal_not_in_document():
+    from app import app
+    from models import DpProposal
+    from services.dp_proposals import classify_proposal_location
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        if not sub:
+            return
+        proposal = DpProposal(
+            submission_id=sub.id,
+            scope='dp',
+            status='pending',
+            anchor_hash='deadbeef',
+            original_text='The quick brown fox jumps over the lazy dog.',
+            proposed_text='The quick brown fox jumps over the lazy dog. Revised.',
+            content_hash_at_create=sub.content_hash,
+        )
+        assert classify_proposal_location(proposal, sub) == 'bogus'
+
+
+def test_reconcile_dp_proposal_locations_deletes_bogus():
+    from app import app
+    from extensions import db
+    from models import DpProposal, User
+    from services.dp_proposals import classify_proposal_location, reconcile_dp_proposal_locations
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        if not sub:
+            return
+        user = User.query.first()
+        if not user:
+            return
+        bogus = DpProposal(
+            submission_id=sub.id,
+            scope='dp',
+            status='pending',
+            anchor_hash='bogus-anchor-hash',
+            original_text='Alpha sentence one.',
+            proposed_text='Alpha sentence one. Revised.',
+            content_hash_at_create=sub.content_hash,
+            author_user_id=user.id,
+        )
+        db.session.add(bogus)
+        db.session.commit()
+        bogus_id = bogus.id
+        assert classify_proposal_location(bogus, sub) == 'bogus'
+        stats = reconcile_dp_proposal_locations()
+        assert bogus_id in stats['deleted_ids']
+        assert DpProposal.query.get(bogus_id) is None
 
 
 def test_compute_anchor_hash_stable():
@@ -185,14 +253,17 @@ def test_create_and_list_proposal():
             return
         ref = sub.id
         username = user.username
+        passage = _sample_passage_from_submission(sub)
+        if not passage:
+            return
 
     client = _auth_client(app, username)
     r = client.post(
         f'/api/doc/draft/{ref}/proposals/',
         json={
-            'original_text': 'The quick brown fox jumps over the lazy dog.',
-            'proposed_text': 'The quick brown fox leaps over the lazy dog.',
-            'context_anchor': {'textQuote': {'exact': 'The quick brown fox jumps over the lazy dog.'}},
+            'original_text': passage,
+            'proposed_text': passage + ' Revised.',
+            'context_anchor': {'textQuote': {'exact': passage}},
         },
     )
     assert r.status_code == 201, r.get_data(as_text=True)
@@ -221,14 +292,17 @@ def test_create_proposal_with_rationale_and_reference():
             return
         ref = sub.id
         username = user.username
+        passage = _sample_passage_from_submission(sub)
+        if not passage:
+            return
 
     client = _auth_client(app, username)
     r = client.post(
         f'/api/doc/draft/{ref}/proposals/',
         json={
-            'original_text': 'Alpha sentence one.',
-            'proposed_text': 'Alpha sentence two.',
-            'context_anchor': {'textQuote': {'exact': 'Alpha sentence one.'}},
+            'original_text': passage,
+            'proposed_text': passage + ' Revised.',
+            'context_anchor': {'textQuote': {'exact': passage}},
             'rationale': 'Clearer wording for readers.',
             'reference_url': 'https://example.com/rfc',
         },
@@ -237,6 +311,8 @@ def test_create_proposal_with_rationale_and_reference():
     prop = r.get_json()['proposal']
     assert prop['rationale'] == 'Clearer wording for readers.'
     assert prop['reference_url'] == 'https://example.com/rfc'
+
+
 
 
 def test_reference_url_rejects_non_http():
@@ -261,13 +337,16 @@ def test_accept_proposal_requires_site_admin():
             return
         ref = sub.id
         outsider_name = outsider.username
+        passage = _sample_passage_from_submission(sub)
+        if not passage:
+            return
 
     client = _auth_client(app, outsider_name)
     create = client.post(
         f'/api/doc/draft/{ref}/proposals/',
         json={
-            'original_text': 'Alpha sentence one.',
-            'proposed_text': 'Alpha sentence two.',
+            'original_text': passage,
+            'proposed_text': passage + ' Revised.',
         },
     )
     if create.status_code != 201:

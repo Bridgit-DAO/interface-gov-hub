@@ -269,5 +269,5 @@ def render_dp_proposal_reader_assets(
 
     <script src="/static/js/dp-proposals/sentence-tools.js?v=20260527h"></script>
     <script src="/static/js/dp-proposals/proposal-display.js?v=20260526h"></script>
-    <script defer src="/static/js/dp-proposals/reader.js?v=20260604patchpage"></script>
+    <script defer src="/static/js/dp-proposals/reader.js?v=20260607orphananchors"></script>
     '''
