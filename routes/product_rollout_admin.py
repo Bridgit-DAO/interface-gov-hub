@@ -41,7 +41,7 @@ FEATURE_LABELS = {
     'quests': 'Quests (layer quest pages, /api/quests/, guild quest links, open quests)',
     'bridges': 'Bridges (list/create pages and /api/bridges/)',
     'opportunities': 'Opportunities directory and layer /opportunities/ surfaces',
-    'dp_proposals': 'Patches (sentence-level text changes on DP drafts, /admin/dp-proposals/)',
+    'patches': 'Patches (DP Challenge, Propose a Patch, reader patches, /admin/dp-proposals/)',
 }
 
 FEATURE_ICONS = {
@@ -61,7 +61,7 @@ FEATURE_ICONS = {
     'quests': 'fa-tasks',
     'bridges': 'fa-link',
     'opportunities': 'fa-bullseye',
-    'dp_proposals': 'fa-highlighter',
+    'patches': 'fa-code-branch',
 }
 
 

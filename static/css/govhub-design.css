@@ -1676,12 +1676,13 @@ img.gh-entity-thumb {
 
 .gh-profile-nav-icon {
   display: block;
-  width: 1.35em;
-  height: 1.35em;
-  min-width: 1.35em;
-  min-height: 1.35em;
-  object-fit: contain;
+  width: 1.75rem;
+  height: 1.75rem;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  object-fit: cover;
   border-radius: 50%;
+  border: 1px solid var(--border-color, rgba(77, 159, 255, 0.2));
 }
 
 .dropdown-menu .dropdown-item.active {
@@ -2002,4 +2003,23 @@ a.gh-passage-comment-link:focus {
 
 .gh-page-hero-overlay .gh-page-hero-text {
   color: rgba(200, 210, 235, 0.9);
+}
+
+/* GhImageCrop modal viewport */
+.gh-crop-viewport {
+  width: 100%;
+  max-height: 400px;
+  min-height: 300px;
+  overflow: hidden;
+  background: #111;
+}
+.gh-crop-viewport img {
+  max-width: 100%;
+}
+#ghImageCropModal .cropper-view-box {
+  border-radius: 0;
+  outline: 2px solid rgba(0, 191, 255, 0.7);
+}
+#ghImageCropModal .cropper-face {
+  background: transparent;
 }

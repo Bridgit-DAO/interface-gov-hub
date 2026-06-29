@@ -4,6 +4,7 @@ Import order: identity -> coordination -> events -> artifact (Layer before Event
 """
 from models.referral_attribution import ReferralAttribution
 from models.referral_landing import ReferralLanding
+from models.layer_program import LayerProgram, LayerProgramSubmission
 from models.identity import User, UserLinkedAccount
 from models.custodial_wallet import CustodialWallet
 from models.coordination import (
@@ -58,4 +59,6 @@ __all__ = [
     'Bridge', 'BridgeSession',
     'ReferralAttribution',
     'ReferralLanding',
+    'LayerProgram',
+    'LayerProgramSubmission',
 ]

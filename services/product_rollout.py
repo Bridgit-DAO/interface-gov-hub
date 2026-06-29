@@ -35,12 +35,11 @@ FEATURE_KEYS: List[str] = [
     'quests',
     'bridges',
     'opportunities',
-    'dp_proposals',
-    'document_edits',
+    'patches',
 ]
 
 # Features off until explicitly enabled in Product rollout (site-wide).
-_FEATURE_OFF_BY_DEFAULT = frozenset({'immortalize', 'dp_proposals', 'document_edits'})
+_FEATURE_OFF_BY_DEFAULT = frozenset({'immortalize', 'patches'})
 
 # When no `product_rollout` row exists, legacy features stay on; new gated features stay off.
 _LEGACY_ALL_ENABLED: Dict[str, bool] = {
@@ -57,6 +56,8 @@ _DEFAULTS_WHEN_ROW_EXISTS: Dict[str, bool] = {
 _ROLLOUT_KEY_ALIASES: Dict[str, str] = {
     'softlaunch': 'soft_launch',
     'civicmason': 'civic_mason',
+    'dp_proposals': 'patches',
+    'document_edits': 'patches',
 }
 
 
@@ -79,11 +80,17 @@ def _coerce_bool_map(raw: Any) -> Dict[str, bool]:
         if nk is None:
             continue
         if isinstance(v, bool):
-            out[nk] = v
+            bool_val = v
         elif isinstance(v, (int, float)) and v in (0, 1):
-            out[nk] = bool(int(v))
+            bool_val = bool(int(v))
         elif isinstance(v, str):
-            out[nk] = v.strip().lower() in ('1', 'true', 'yes', 'on')
+            bool_val = v.strip().lower() in ('1', 'true', 'yes', 'on')
+        else:
+            continue
+        if nk == 'patches' and nk in out:
+            out[nk] = out[nk] or bool_val
+        else:
+            out[nk] = bool_val
     return out
 
 
@@ -381,12 +388,16 @@ def _path_needs_artifacts(p: str) -> bool:
     return False
 
 
-def _path_needs_dp_proposals(p: str) -> bool:
+def _path_needs_patches(p: str) -> bool:
     if p.startswith('/admin/dp-proposals'):
         return True
     if p.startswith('/dp-challenge'):
         return True
     if p.startswith('/api/dp-challenge'):
+        return True
+    if p.startswith('/suggest-edit'):
+        return True
+    if p.startswith('/api/suggest-edit'):
         return True
     if p.startswith('/api/doc/draft/') and ('/proposals/' in p or p.endswith('/read-meta/')):
         return True
@@ -438,8 +449,8 @@ def path_requires_feature_flags(path: str) -> set:
         need.add('waitlists')
     if _path_needs_immortalize(p):
         need.add('immortalize')
-    if _path_needs_dp_proposals(p):
-        need.add('dp_proposals')
+    if _path_needs_patches(p):
+        need.add('patches')
     is_layer = p.startswith('/layer/') or p.startswith('/layers/') or p.startswith('/api/layers/')
     if is_layer:
         need.add('layers')

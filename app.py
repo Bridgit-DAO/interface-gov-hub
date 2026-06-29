@@ -171,6 +171,7 @@ def create_app():
     from routes.layer_connections import bp as layer_connections_bp
     from routes.layer_connections_pages import bp as layer_connections_pages_bp
     from routes.referral_links import bp as referral_links_bp
+    from routes.layer_programs import bp as layer_programs_bp
     try:
         from routes.social_connect import bp as social_connect_bp, google_bp, github_bp, discord_bp, twitter_bp
         # Register each OAuth blueprint independently so one failure doesn't break others
@@ -203,6 +204,7 @@ def create_app():
     app.register_blueprint(guilds_pages_bp)
     app.register_blueprint(waitlists_bp)
     app.register_blueprint(referral_links_bp)
+    app.register_blueprint(layer_programs_bp)
     app.register_blueprint(votes_bp)
     app.register_blueprint(votes_pages_bp)
     app.register_blueprint(artifacts_bp)

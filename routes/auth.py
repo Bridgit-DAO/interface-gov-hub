@@ -295,7 +295,10 @@ def _update_user_from_web3auth(
         user.displayNameSetAt = datetime.utcnow()
         user.oauthName = name
     if profile_image:
-        user.profileImage = profile_image
+        from services.avatar import is_user_uploaded_profile_image
+
+        if not is_user_uploaded_profile_image(user.profileImage):
+            user.profileImage = profile_image
     ensure_user_wallet_addresses(
         user,
         evm_address=evm_address,

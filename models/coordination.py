@@ -457,6 +457,7 @@ class WaitlistEntry(db.Model):
     referral_code = db.Column(db.String(50), nullable=True)
     source = db.Column(db.String(255), nullable=True)  # Track signup source (e.g., 'embed:example.com', 'direct', 'referral')
     source_url = db.Column(db.String(500), nullable=True)  # Full URL where signup occurred
+    metadata_json = db.Column(db.Text, nullable=True)  # JSON: dp_interests, notify preferences, etc.
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     left_at = db.Column(db.DateTime, nullable=True)  # If set, user left
     

@@ -1,6 +1,30 @@
-/* DP Challenge public hub — uses Gov Hub brand tokens */
+.dp-challenge-page--prelaunch .dp-challenge-hero-img--dim {
+  opacity: 0.55;
+  filter: saturate(0.85);
+}
 
-.dp-challenge-cta-bar {
+.dp-challenge-page--prelaunch .living-module {
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+}
+
+#dpChallengeNotifyModal .form-select[multiple] {
+  min-height: 12rem;
+}
+
+#dpChallengeNotifyModal .modal-content {
+  background: var(--bg-secondary, #111827);
+  color: var(--text-primary, #f3f4f6);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+}
+
+#dpChallengeNotifyModal .form-select,
+#dpChallengeNotifyModal .form-control {
+  background: var(--bg-primary, #0b1220);
+  color: var(--text-primary, #f3f4f6);
+  border-color: var(--border-color, rgba(255, 255, 255, 0.15));
+}
+
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;

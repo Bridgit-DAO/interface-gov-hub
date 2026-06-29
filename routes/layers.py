@@ -1107,7 +1107,10 @@ def api_project_email_recipients(layer_id):
     for wg in Workgroup.query.filter_by(layer_id=layer_id).all():
         wg_count += WorkingGroupMember.query.filter_by(group_acronym=wg.acronym).count()
 
-    from_addr = os.environ.get('RESEND_FROM', 'MLGH <noreply@themetalayer.org>').strip()
+    from services.resend_mail import get_resend_from
+
+    from_config = get_resend_from()
+    from_addr = (from_config or {}).get('formatted') or 'Gov Hub <no-reply@govhub.live>'
     admin_emails = []
     if project.initiator and project.initiator.email:
         name = project.initiator.displayName or project.initiator.username or 'Initiator'
@@ -1143,7 +1146,6 @@ def api_project_send_email(layer_id):
     groups = data.get('groups', [])
     subject = (data.get('subject') or '').strip()
     body = (data.get('body') or '').strip()
-    from_addr = (data.get('from') or os.environ.get('RESEND_FROM', 'MLGH <noreply@themetalayer.org>')).strip()
 
     if not groups:
         return jsonify({'error': 'Select at least one recipient group'}), 400
@@ -1159,8 +1161,9 @@ def api_project_send_email(layer_id):
     scheme = 'https' if (request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https') else 'http'
     base_url = f"{scheme}://{request.host}"
 
-    api_key = os.environ.get('RESEND_API_KEY', '').strip()
-    if not api_key:
+    from services.resend_mail import resend_configured, send_resend_email
+
+    if not resend_configured():
         return jsonify({'error': 'Email service not configured (RESEND_API_KEY)'}), 500
 
     def _send_one(to_email, user_id_or_email):
@@ -1168,19 +1171,13 @@ def api_project_send_email(layer_id):
         unsub_url = f"{base_url}/unsubscribe?token={unsub_token}"
         html_body = body.replace('\n', '<br>')
         html_body += f'<br><br><hr style="border:none;border-top:1px solid #eee;"><p style="font-size:11px;color:#888;"><a href="{unsub_url}">Unsubscribe</a> from project emails from {project.name}.</p>'
-        try:
-            import resend
-            resend.api_key = api_key
-            resend.Emails.send({
-                "from": from_addr,
-                "to": [to_email],
-                "subject": subject,
-                "html": html_body,
-            })
-            return True
-        except Exception as e:
-            current_app.logger.error(f"Failed to send to {to_email}: {e}")
-            return False
+        return send_resend_email(
+            to=[to_email],
+            subject=subject,
+            html=html_body,
+            list_unsubscribe_url=unsub_url,
+            tags=[{'name': 'category', 'value': 'layer_broadcast'}],
+        )
 
     if len(recipients) > 100:
         return jsonify({'error': f'Too many recipients ({len(recipients)}). Maximum 100 per send. Please select fewer groups.'}), 400

@@ -309,7 +309,19 @@
         if (flashTargets.indexOf(box) < 0) flashTargets.push(box);
       });
     }
-    if (!flashTargets.length) return false;
+    if (!flashTargets.length) {
+      if (entry && entry.unlocated) {
+        if (entry.proposals && entry.proposals.length) {
+          openListModal(hash);
+          return true;
+        }
+        if (entry.comments && entry.comments.length) {
+          openListModal(hash);
+          return true;
+        }
+      }
+      return false;
+    }
     revealAnchorForFlash(hash, flashTargets, entry);
     (el || flashTargets[0]).scrollIntoView({ behavior: 'smooth', block: 'center' });
     global.setTimeout(function () {
@@ -1138,21 +1150,8 @@
       return;
     }
 
-    var floatingBadge = document.createElement('button');
-    floatingBadge.type = 'button';
-    floatingBadge.className = 'dp-proposal-badge dp-proposal-badge-floating';
-    floatingBadge.dataset.dpAnchorHash = hash;
-    floatingBadge.textContent = String(total);
-    floatingBadge.title = total + ' — ' + label('location_not_found', 'location not found in document');
-    floatingBadge.addEventListener('click', function () {
-      if (bundle.proposals && bundle.proposals.length) {
-        openListModal(hash);
-      } else if (bundle.comments && bundle.comments.length) {
-        scrollToGhAnchor(hash);
-      }
-    });
-    document.body.appendChild(floatingBadge);
-    entry.floatingBadge = floatingBadge;
+    // Passage not found in current document text — keep in registry for list/deep-link only.
+    entry.unlocated = true;
   }
 
   function totalOverlayCount() {
@@ -1896,7 +1895,6 @@
       }
       byAnchor[c.anchor_hash].comments.push(c);
     });
-    var orphanIndex = 0;
     Object.keys(byAnchor).forEach(function (hash) {
       var bundle = byAnchor[hash];
       var located = null;
@@ -1911,17 +1909,6 @@
         overlay = tools.createHighlightOverlays(bodyEl, located, hash);
       }
       mountPassageAnchor(hash, bundle, overlay);
-      if (!overlay || !overlay.boxes.length) {
-        var badge = document.querySelector(
-          '.dp-proposal-badge-floating[data-dp-anchor-hash="' + hash + '"]'
-        );
-        if (badge) {
-          badge.style.right = (16 + orphanIndex * 36) + 'px';
-          badge.style.top = (88 + orphanIndex * 36) + 'px';
-          badge.style.left = 'auto';
-          orphanIndex += 1;
-        }
-      }
     });
     positionAllPins();
     positionFloatingBadges();

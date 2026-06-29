@@ -1,5 +1,6 @@
 """Database migrations. Run from init_db() with app context."""
 import sqlite3
+from datetime import datetime
 from uuid import uuid4
 
 from werkzeug.security import generate_password_hash
@@ -2358,3 +2359,182 @@ def migrate_referral_landing_v1(app):
         print('✅ referral_landing table ready')
     except Exception as e:
         print(f'⚠️  Error in migrate_referral_landing_v1: {e}')
+
+
+def migrate_layer_programs_v1(app):
+    """Create layer_program tables and seed DP Challenge on The Metaweb."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS layer_program (
+                id VARCHAR(36) PRIMARY KEY,
+                layer_id VARCHAR(36) NOT NULL,
+                slug VARCHAR(80) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                hub_path VARCHAR(255),
+                hub_mode VARCHAR(32),
+                waitlist_id VARCHAR(36),
+                workgroup_id VARCHAR(36),
+                launched_at TIMESTAMP,
+                archived_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(layer_id) REFERENCES layer(id),
+                FOREIGN KEY(waitlist_id) REFERENCES waitlist(id),
+                FOREIGN KEY(workgroup_id) REFERENCES working_group(id),
+                UNIQUE(layer_id, slug)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_layer_program_layer ON layer_program(layer_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_layer_program_hub_path ON layer_program(hub_path)'
+        )
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS layer_program_submission (
+                id VARCHAR(36) PRIMARY KEY,
+                program_id VARCHAR(36) NOT NULL,
+                submission_id VARCHAR(36) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(program_id) REFERENCES layer_program(id),
+                FOREIGN KEY(submission_id) REFERENCES submission(id),
+                UNIQUE(program_id, submission_id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_layer_program_submission_program '
+            'ON layer_program_submission(program_id)'
+        )
+
+        cursor.execute("SELECT id FROM layer WHERE slug = 'the-metaweb' LIMIT 1")
+        metaweb = cursor.fetchone()
+        if metaweb:
+            layer_id = metaweb[0]
+            cursor.execute(
+                "SELECT id FROM layer_program WHERE layer_id = ? AND slug = 'dp-challenge' LIMIT 1",
+                (layer_id,),
+            )
+            if not cursor.fetchone():
+                now = datetime.utcnow().isoformat(sep=' ', timespec='seconds')
+                program_id = str(uuid4())
+                cursor.execute(
+                    """
+                    INSERT INTO layer_program (
+                        id, layer_id, slug, name, description, status,
+                        hub_path, hub_mode, launched_at, created_at, updated_at
+                    ) VALUES (?, ?, 'dp-challenge', 'DP Challenge',
+                        'Propose patches on Meta-Layer DP drafts.',
+                        'active', '/dp-challenge/', 'dp', ?, ?, ?)
+                    """,
+                    (program_id, layer_id, now, now, now),
+                )
+                print('✅ Seeded DP Challenge program on The Metaweb')
+
+        conn.commit()
+        conn.close()
+        print('✅ layer_program tables ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_layer_programs_v1: {e}')
+
+
+def migrate_dp_challenge_notify_waitlist_v1(app):
+    """DP Challenge notify waitlist + July 16 2026 9:00 AM PT launch schedule."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('PRAGMA table_info(layer_program)')
+        prog_cols = [c[1] for c in cursor.fetchall()]
+        if 'launch_at' not in prog_cols:
+            cursor.execute('ALTER TABLE layer_program ADD COLUMN launch_at TIMESTAMP')
+            conn.commit()
+            print('✅ Added launch_at to layer_program')
+
+        cursor.execute('PRAGMA table_info(waitlist_entry)')
+        entry_cols = [c[1] for c in cursor.fetchall()]
+        if 'metadata_json' not in entry_cols:
+            cursor.execute('ALTER TABLE waitlist_entry ADD COLUMN metadata_json TEXT')
+            conn.commit()
+            print('✅ Added metadata_json to waitlist_entry')
+
+        launch_local = datetime(2026, 7, 16, 9, 0, 0, tzinfo=ZoneInfo('America/Los_Angeles'))
+        launch_utc = launch_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+        launch_utc_str = launch_utc.isoformat(sep=' ', timespec='seconds')
+
+        cursor.execute("SELECT id FROM layer WHERE slug = 'the-metaweb' LIMIT 1")
+        metaweb = cursor.fetchone()
+        if not metaweb:
+            conn.close()
+            return
+        layer_id = metaweb[0]
+
+        cursor.execute(
+            "SELECT id FROM waitlist WHERE layer_id = ? AND name LIKE 'DP Challenge%' LIMIT 1",
+            (layer_id,),
+        )
+        wl_row = cursor.fetchone()
+        if wl_row:
+            waitlist_id = wl_row[0]
+        else:
+            waitlist_id = str(uuid4())
+            now = datetime.utcnow().isoformat(sep=' ', timespec='seconds')
+            cursor.execute(
+                """
+                INSERT INTO waitlist (
+                    id, layer_id, name, description, public, referrals, active,
+                    start_date, closing_date, archived, milestones, show_milestones,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 1, 0, 1, ?, ?, 0, 0, 'all', ?, ?)
+                """,
+                (
+                    waitlist_id,
+                    layer_id,
+                    'DP Challenge — notify list',
+                    'Get notified when the DP Challenge opens in mid-July. Select the DPs you want to patch.',
+                    now,
+                    launch_utc_str,
+                    now,
+                    now,
+                ),
+            )
+            print('✅ Created DP Challenge notify waitlist')
+
+        cursor.execute(
+            "SELECT id FROM layer_program WHERE layer_id = ? AND slug = 'dp-challenge' LIMIT 1",
+            (layer_id,),
+        )
+        prog_row = cursor.fetchone()
+        if prog_row:
+            cursor.execute(
+                """
+                UPDATE layer_program
+                SET status = 'waitlist',
+                    waitlist_id = ?,
+                    launch_at = ?,
+                    launched_at = NULL,
+                    description = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    waitlist_id,
+                    launch_utc_str,
+                    'Propose patches on Meta-Layer DP drafts. Opens mid-July 2026.',
+                    datetime.utcnow().isoformat(sep=' ', timespec='seconds'),
+                    prog_row[0],
+                ),
+            )
+            print('✅ Configured DP Challenge program for pre-launch notify waitlist')
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_dp_challenge_notify_waitlist_v1: {e}')

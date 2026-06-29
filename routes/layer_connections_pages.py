@@ -58,11 +58,54 @@ def _render(layer_slug: str, standalone: bool = False):
         else '<p class="text-muted">No organizational connections yet.</p>'
     )
 
+    open_types = [t for t in types if t.is_open]
     type_options = ''.join(
         f'<option value="{html_mod.escape(t.id)}">{html_mod.escape(t.title)}</option>'
-        for t in types
-        if t.is_open
+        for t in open_types
     )
+
+    # Build requirements section visible to everyone
+    requirements_cards = []
+    for t in open_types:
+        desc = html_mod.escape(t.description or '')
+        agreement = html_mod.escape(t.agreement_text or '')
+        approval_badge = (
+            '<span class="badge text-bg-warning ms-2">Requires approval</span>'
+            if t.requires_approval
+            else '<span class="badge text-bg-success ms-2">Auto-approved</span>'
+        )
+        card = (
+            f'<div class="card mb-3 border-secondary">'
+            f'<div class="card-body">'
+            f'<h3 class="h6 card-title mb-1">{html_mod.escape(t.title)}{approval_badge}</h3>'
+        )
+        if desc:
+            card += f'<p class="text-muted small mb-2">{desc}</p>'
+        if agreement:
+            card += (
+                f'<div class="mt-2 p-3 rounded" style="background: var(--bs-tertiary-bg, rgba(255,255,255,0.03)); border: 1px solid var(--bs-border-color-translucent, rgba(255,255,255,0.1));">'
+                f'<p class="small fw-semibold mb-1"><i class="fas fa-file-contract me-1"></i>Requirements & commitments</p>'
+                f'<p class="small mb-0">{agreement}</p>'
+                f'</div>'
+            )
+        card += '</div></div>'
+        requirements_cards.append(card)
+
+    requirements_section = ''
+    if requirements_cards:
+        requirements_section = (
+            '<div class="living-module mt-4">'
+            '<div class="living-module-header"><h2 class="h5 mb-0"><i class="fas fa-clipboard-list me-2"></i>Connection Types &amp; Requirements</h2></div>'
+            '<div class="living-module-body">'
+            + ''.join(requirements_cards)
+            + '</div></div>'
+        )
+
+    # JSON map of type_id -> agreement text for dynamic display in form
+    type_agreements_json = json.dumps({
+        t.id: t.agreement_text or '' for t in open_types
+    })
+
     guilds = Guild.query.filter_by(status='active').order_by(Guild.name.asc()).limit(200).all()
     guild_opts = ''.join(
         f'<option value="{html_mod.escape(g.id)}">{html_mod.escape(g.name)}</option>' for g in guilds
@@ -83,7 +126,7 @@ def _render(layer_slug: str, standalone: bool = False):
             <form id="connectionApplyForm" class="row g-3">
               <div class="col-md-6">
                 <label class="form-label">Connection type</label>
-                <select class="form-select" name="connection_type_id" required>{type_options}</select>
+                <select class="form-select" name="connection_type_id" id="connectionTypeSelect" required>{type_options}</select>
               </div>
               <div class="col-md-6">
                 <label class="form-label">I am applying as</label>
@@ -115,10 +158,16 @@ def _render(layer_slug: str, standalone: bool = False):
                 <label class="form-label">Message (optional)</label>
                 <textarea class="form-control" name="message" rows="2" maxlength="2000"></textarea>
               </div>
+              <div class="col-12" id="agreementDisplay" style="display:none;">
+                <div class="p-3 rounded" style="background: var(--bs-tertiary-bg, rgba(255,255,255,0.03)); border: 1px solid var(--bs-border-color-translucent, rgba(255,255,255,0.1));">
+                  <p class="small fw-semibold mb-1"><i class="fas fa-file-contract me-1"></i>You are agreeing to the following:</p>
+                  <p class="small mb-0" id="agreementText"></p>
+                </div>
+              </div>
               <div class="col-12">
                 <div class="form-check">
                   <input class="form-check-input" type="checkbox" name="agreement_accepted" id="agreementAccepted" value="1">
-                  <label class="form-check-label" for="agreementAccepted">I agree to the requirements for this connection type.</label>
+                  <label class="form-check-label" for="agreementAccepted">I agree to the requirements for the selected connection type.</label>
                 </div>
               </div>
               <div class="col-12">
@@ -129,6 +178,23 @@ def _render(layer_slug: str, standalone: bool = False):
         </div>
         <script>
         (function() {{
+          const typeAgreements = {type_agreements_json};
+          const typeSelect = document.getElementById('connectionTypeSelect');
+          const agreementDisplay = document.getElementById('agreementDisplay');
+          const agreementText = document.getElementById('agreementText');
+
+          function syncAgreement() {{
+            const text = typeAgreements[typeSelect.value] || '';
+            if (text) {{
+              agreementText.textContent = text;
+              agreementDisplay.style.display = '';
+            }} else {{
+              agreementDisplay.style.display = 'none';
+            }}
+          }}
+          typeSelect.addEventListener('change', syncAgreement);
+          syncAgreement();
+
           const kind = document.getElementById('connectorKind');
           const fields = {{
             guild: document.getElementById('fieldGuild'),
@@ -142,6 +208,7 @@ def _render(layer_slug: str, standalone: bool = False):
           }}
           kind.addEventListener('change', syncFields);
           syncFields();
+
           document.getElementById('connectionApplyForm').addEventListener('submit', async (e) => {{
             e.preventDefault();
             const fd = new FormData(e.target);
@@ -262,6 +329,7 @@ def _render(layer_slug: str, standalone: bool = False):
         <div class="living-module-header"><h2 class="h5 mb-0">Active connections</h2></div>
         <div class="living-module-body"><div class="row g-3">{active_html}</div></div>
       </div>
+      {requirements_section}
       {apply_section}
       {admin_section}
     </div>

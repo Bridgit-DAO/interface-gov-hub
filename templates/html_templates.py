@@ -63,8 +63,9 @@ BASE_TEMPLATE = """
         }};
     }})();
     </script>
-    <link rel="icon" type="image/png" href="/static/images/overweb_logo.png">
-    <link rel="shortcut icon" type="image/png" href="/static/images/overweb_logo.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     {font_awesome_link}
     <script src="{govhub_i18n_js}"></script>
@@ -956,6 +957,7 @@ BASE_TEMPLATE = """
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/gh-return-nav.js"></script>
     <script src="/static/js/gh-dialog.js"></script>
+    <script src="/static/js/gh-image-crop.js"></script>
     <script src="/static/js/gh-invite.js?v=18"></script>
     <script src="/static/js/gh-theme.js?v=2" defer></script>
     <script>
@@ -1183,6 +1185,10 @@ BASE_TEMPLATE = """
                 const instance = new Web3AuthConstructor(web3AuthConfig);
                 await instance.init();
                 web3auth = instance;
+                if (web3auth.connected && window.location.pathname === '/login/') {{
+                    console.log('Web3Auth: clearing stale session on login page');
+                    try {{ await web3auth.logout(); }} catch (_e) {{}}
+                }}
                 console.log('Web3Auth initialized successfully');
                 setWeb3AuthUiState('ready');
                 return web3auth;
@@ -1483,10 +1489,12 @@ BASE_TEMPLATE = """
                     window.location.replace(dest);
                 }} else {{
                     console.error('Backend error:', result);
+                    try {{ await web3auth.logout(); }} catch (_e) {{}}
                     alert('Login failed: ' + (result.error || 'Unknown error'));
                 }}
             }} catch (error) {{
                 console.error('Login failed:', error);
+                try {{ if (web3auth) await web3auth.logout(); }} catch (_e) {{}}
                 if (error.message && !error.message.includes('user closed')) {{
                     var msg = error.message;
                     if (/could not verify identity/i.test(msg)) {{

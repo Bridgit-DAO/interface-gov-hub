@@ -2473,6 +2473,46 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
+    async function launchLayerProgram(programId, promoteWaitlist) {{
+        if (!project || !project.id || !programId) return;
+        const ok = typeof GhDialog !== 'undefined'
+            ? await GhDialog.confirm({{
+                title: 'Launch program',
+                message: promoteWaitlist
+                    ? 'Open this program and promote waitlist members to layer contributors?'
+                    : 'Open this program for participation?',
+                variant: 'warning',
+                confirmLabel: 'Launch',
+            }})
+            : window.confirm('Launch this program?');
+        if (!ok) return;
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/programs/' + programId + '/launch/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ promote_waitlist: !!promoteWaitlist }}),
+            }});
+            const data = await res.json().catch(function() {{ return {{}}; }});
+            if (!res.ok) throw new Error(data.error || res.statusText);
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{
+                    title: 'Program launched',
+                    message: promoteWaitlist && data.promoted_waitlist_members
+                        ? ('Program is active. Promoted ' + data.promoted_waitlist_members + ' waitlist member(s).')
+                        : 'Program is now active.',
+                    variant: 'success',
+                }});
+            }}
+            loadAdmins();
+        }} catch (e) {{
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{ title: 'Launch failed', message: e.message || 'Could not launch program.', variant: 'danger' }});
+            }} else {{
+                console.warn('Launch failed:', e);
+            }}
+        }}
+    }}
+
     async function loadAdmins() {{
         const container = document.getElementById('admin-content');
         if (!container) return;
@@ -2548,6 +2588,57 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }} catch (refErr) {{
                 console.warn('Referral stats:', refErr);
             }}
+
+            html += '<div class="card mb-4" id="layer-programs-card"><div class="card-header d-flex justify-content-between align-items-center">';
+            html += '<h5 class="mb-0"><i class="fas fa-rocket me-2"></i>Programs</h5>';
+            html += '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadAdmins()" title="Refresh"><i class="fas fa-sync-alt"></i></button>';
+            html += '</div><div class="card-body">';
+            html += '<p class="text-muted small mb-3">Time-bounded initiatives on this layer (e.g. DP Challenge). Start in <code>waitlist</code> or <code>draft</code>, then launch to open the hub.</p>';
+            try {{
+                const progRes = await fetch('/api/layers/' + project.id + '/programs/', {{ credentials: 'same-origin' }});
+                if (progRes.ok) {{
+                    const progData = await progRes.json();
+                    const programs = progData.programs || [];
+                    if (!programs.length) {{
+                        html += '<p class="text-muted small mb-0">No programs yet. Seed or create one via API (slug, name, hub_path, hub_mode).</p>';
+                    }} else {{
+                        html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0">';
+                        html += '<thead><tr><th>Program</th><th>Status</th><th>Hub</th><th class="text-end">Actions</th></tr></thead><tbody>';
+                        programs.forEach(function(p) {{
+                            const pid = escapeForJsAttr(String(p.id || ''));
+                            const hub = p.hub_path ? '<a href="' + escapeHtmlBasic(p.hub_path) + '" target="_blank" rel="noopener">' + escapeHtmlBasic(p.hub_path) + '</a>' : '—';
+                            const statusBadge = p.status === 'active'
+                                ? '<span class="badge bg-success">Active</span>'
+                                : (p.status === 'waitlist'
+                                    ? '<span class="badge bg-warning text-dark">Waitlist</span>'
+                                    : '<span class="badge bg-secondary">' + escapeHtmlBasic(p.status || 'draft') + '</span>');
+                            let actions = '';
+                            if (p.status !== 'active' && p.status !== 'archived') {{
+                                actions += '<button type="button" class="btn btn-sm btn-primary me-1" onclick="launchLayerProgram(\\'' + pid + '\\', false)">Launch</button>';
+                                if (p.waitlist_id) {{
+                                    actions += '<button type="button" class="btn btn-sm btn-outline-primary" onclick="launchLayerProgram(\\'' + pid + '\\', true)">Launch + promote waitlist</button>';
+                                }}
+                            }} else if (p.hub_path) {{
+                                actions = '<a class="btn btn-sm btn-outline-secondary" href="' + escapeHtmlBasic(p.hub_path) + '" target="_blank" rel="noopener">Open hub</a>';
+                            }}
+                            html += '<tr><td><strong>' + escapeHtml(p.name || p.slug || '') + '</strong><br><span class="small text-muted">' + escapeHtmlBasic(p.slug || '') + '</span></td>';
+                            html += '<td>' + statusBadge;
+                            if (p.launch_at_label) {{
+                                html += '<br><span class="small text-muted">Opens ' + escapeHtml(p.launch_at_label) + '</span>';
+                            }}
+                            html += '</td><td class="small">' + hub + '</td><td class="text-end">' + actions + '</td></tr>';
+                        }});
+                        html += '</tbody></table></div>';
+                    }}
+                }} else {{
+                    html += '<p class="text-muted small mb-0">Programs could not be loaded.</p>';
+                }}
+            }} catch (progErr) {{
+                console.warn('Programs:', progErr);
+                html += '<p class="text-muted small mb-0">Programs could not be loaded.</p>';
+            }}
+            html += '</div></div>';
+
             html += '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Product features</h5></div><div class="card-body">';
             html += '<p class="text-muted small mb-3">Turn off capabilities for this layer only (among features enabled site-wide). Disabled areas are removed from navigation, tabs, and admin sections.</p>';
             html += '<div class="row g-2">';
