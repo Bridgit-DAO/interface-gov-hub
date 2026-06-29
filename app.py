@@ -168,6 +168,7 @@ def create_app():
     from routes.platform_invitations import bp as platform_invitations_bp
     from routes.metaweb import bp as metaweb_bp
     from routes.canopi_internal import bp as canopi_internal_bp
+    from routes.scope_email import bp as scope_email_bp
     from routes.layer_connections import bp as layer_connections_bp
     from routes.layer_connections_pages import bp as layer_connections_pages_bp
     from routes.referral_links import bp as referral_links_bp
@@ -238,6 +239,7 @@ def create_app():
     app.register_blueprint(platform_invitations_bp)
     app.register_blueprint(metaweb_bp)
     app.register_blueprint(canopi_internal_bp)
+    app.register_blueprint(scope_email_bp)
     app.register_blueprint(layer_connections_bp)
     app.register_blueprint(layer_connections_pages_bp)
 

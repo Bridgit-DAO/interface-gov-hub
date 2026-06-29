@@ -2538,3 +2538,86 @@ def migrate_dp_challenge_notify_waitlist_v1(app):
         conn.close()
     except Exception as e:
         print(f'⚠️  Error in migrate_dp_challenge_notify_waitlist_v1: {e}')
+
+
+def migrate_scoped_email_v1(app):
+    """Scoped email campaigns + guild unsubscribe support."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scoped_email_campaign (
+                id VARCHAR(36) PRIMARY KEY,
+                scope_type VARCHAR(16) NOT NULL,
+                scope_id VARCHAR(36) NOT NULL,
+                created_by_id VARCHAR(36) NOT NULL,
+                subject VARCHAR(255) NOT NULL,
+                body TEXT NOT NULL,
+                schedule_mode VARCHAR(20) NOT NULL DEFAULT 'immediate',
+                scheduled_at TIMESTAMP,
+                delay_hours REAL,
+                anchor_kind VARCHAR(32),
+                recipient_spec_json TEXT NOT NULL DEFAULT '{}',
+                status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+                stats_sent INTEGER NOT NULL DEFAULT 0,
+                stats_failed INTEGER NOT NULL DEFAULT 0,
+                stats_total INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                FOREIGN KEY(created_by_id) REFERENCES user(id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_scoped_email_campaign_scope '
+            'ON scoped_email_campaign(scope_type, scope_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_scoped_email_campaign_status '
+            'ON scoped_email_campaign(status)'
+        )
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scoped_email_delivery (
+                id VARCHAR(36) PRIMARY KEY,
+                campaign_id VARCHAR(36) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                user_id VARCHAR(36),
+                anchor_at TIMESTAMP,
+                send_at TIMESTAMP NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                sent_at TIMESTAMP,
+                resend_id VARCHAR(64),
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(campaign_id) REFERENCES scoped_email_campaign(id),
+                FOREIGN KEY(user_id) REFERENCES user(id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_scoped_email_delivery_send_at '
+            'ON scoped_email_delivery(send_at, status)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_scoped_email_delivery_campaign '
+            'ON scoped_email_delivery(campaign_id)'
+        )
+
+        cursor.execute('PRAGMA table_info(email_unsubscribe)')
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'guild_id' not in cols:
+            cursor.execute('ALTER TABLE email_unsubscribe ADD COLUMN guild_id VARCHAR(36)')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_email_unsub_guild_user '
+                'ON email_unsubscribe(guild_id, user_id)'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_email_unsub_guild_email '
+                'ON email_unsubscribe(guild_id, email)'
+            )
+
+        conn.commit()
+        conn.close()
+        print('✅ scoped email campaign tables ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_scoped_email_v1: {e}')

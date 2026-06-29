@@ -545,20 +545,49 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="fas fa-envelope me-2"></i>Email Recipients</h5>
+                    <h5 class="modal-title"><i class="fas fa-envelope me-2"></i>Email (layer admin)</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div id="email-modal-alert" class="alert d-none" role="alert"></div>
                     <form id="emailForm">
                         <div class="mb-3">
-                            <label class="form-label">Recipients (max 100)</label>
+                            <label class="form-label">Recipients (max 100 per immediate send)</label>
                             <div id="email-recipient-groups" class="border rounded p-3 bg-light"></div>
-                            <div class="form-text">Select one or more groups. Unsubscribed users are excluded.</div>
+                            <div class="form-text">Select groups and/or specific people. Unsubscribed users are excluded.</div>
                         </div>
                         <div class="mb-3">
-                            <label for="email-from" class="form-label">From</label>
-                            <select class="form-select" id="email-from"></select>
+                            <label for="email-people" class="form-label">Specific people (optional)</label>
+                            <select class="form-select" id="email-people" multiple size="4"></select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">When to send</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="email-schedule-mode" id="email-schedule-immediate" value="immediate" checked>
+                                <label class="form-check-label" for="email-schedule-immediate">Send now</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="email-schedule-mode" id="email-schedule-at" value="at">
+                                <label class="form-check-label" for="email-schedule-at">Schedule for date/time</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="email-schedule-mode" id="email-schedule-after-join" value="after_join">
+                                <label class="form-check-label" for="email-schedule-after-join">Hours after join</label>
+                            </div>
+                        </div>
+                        <div class="mb-3 d-none" id="email-scheduled-at-wrap">
+                            <label for="email-scheduled-at" class="form-label">Send at</label>
+                            <input type="datetime-local" class="form-control" id="email-scheduled-at">
+                        </div>
+                        <div class="mb-3 d-none" id="email-delay-wrap">
+                            <label for="email-delay-hours" class="form-label">Hours after join</label>
+                            <input type="number" class="form-control" id="email-delay-hours" min="0.25" step="0.25" placeholder="e.g. 24">
+                            <label for="email-anchor-kind" class="form-label mt-2">Join event</label>
+                            <select class="form-select" id="email-anchor-kind">
+                                <option value="layer_member">Layer membership join</option>
+                                <option value="waitlist_member">Waitlist join</option>
+                            </select>
+                            <div class="form-text">New joiners matching selected groups will also receive this email.</div>
                         </div>
                         <div class="mb-3">
                             <label for="email-subject" class="form-label">Subject *</label>
@@ -570,10 +599,15 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                             <div class="form-text">An unsubscribe link is added automatically to every email.</div>
                         </div>
                     </form>
+                    <div id="email-scheduled-list-wrap" class="d-none">
+                        <hr>
+                        <h6 class="mb-2">Scheduled campaigns</h6>
+                        <div id="email-scheduled-list" class="small"></div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="email-submit-btn" onclick="submitEmail()"><i class="fas fa-paper-plane me-2"></i>Send</button>
+                    <button type="button" class="btn btn-primary" id="email-submit-btn" onclick="submitEmail()"><i class="fas fa-paper-plane me-2"></i>Send / schedule</button>
                 </div>
             </div>
         </div>
@@ -1871,12 +1905,15 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     async function showEmailModal() {{
         document.getElementById('email-modal-alert').classList.add('d-none');
         document.getElementById('emailForm').reset();
+        document.getElementById('email-schedule-immediate').checked = true;
+        document.getElementById('email-scheduled-at-wrap').classList.add('d-none');
+        document.getElementById('email-delay-wrap').classList.add('d-none');
         const groupsEl = document.getElementById('email-recipient-groups');
-        const fromEl = document.getElementById('email-from');
+        const peopleEl = document.getElementById('email-people');
         groupsEl.innerHTML = '<div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading...</div>';
-        fromEl.innerHTML = '<option>Loading...</option>';
+        peopleEl.innerHTML = '';
         try {{
-            const res = await fetch('/api/layers/' + project.id + '/email-recipients/');
+            const res = await fetch('/api/scope-email/layers/' + project.id + '/recipients/');
             const data = await res.json();
             if (!res.ok) {{
                 groupsEl.innerHTML = '<div class="text-danger">' + (data.error || 'Failed to load') + '</div>';
@@ -1890,24 +1927,84 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 html += '<div class="form-check"><input class="form-check-input" type="checkbox" value="' + escapeHtmlBasic(key) + '" id="email-grp-' + escapeHtmlBasic(key) + '"><label class="form-check-label" for="email-grp-' + escapeHtmlBasic(key) + '">' + escapeHtml(label) + ' (' + count + ')</label></div>';
             }}
             groupsEl.innerHTML = html || '<p class="text-muted mb-0">No recipient groups available.</p>';
-            const fromOpts = data.from_options || [];
-            fromEl.innerHTML = fromOpts.map(o => '<option value="' + escapeHtmlBasic(o.value) + '">' + escapeHtml(o.label) + '</option>').join('');
+            const people = data.people || [];
+            peopleEl.innerHTML = people.map(p => '<option value="' + escapeHtmlBasic(p.user_id) + '">' + escapeHtml(p.label || p.email) + '</option>').join('');
+            await loadScheduledEmailCampaigns();
+            document.querySelectorAll('input[name="email-schedule-mode"]').forEach(el => {{
+                el.onchange = syncEmailScheduleFields;
+            }});
+            syncEmailScheduleFields();
             const modal = new bootstrap.Modal(document.getElementById('emailModal'));
             modal.show();
         }} catch (e) {{
             groupsEl.innerHTML = '<div class="text-danger">Error: ' + escapeHtml(e.message) + '</div>';
         }}
     }}
+
+    function syncEmailScheduleFields() {{
+        const mode = document.querySelector('input[name="email-schedule-mode"]:checked')?.value || 'immediate';
+        document.getElementById('email-scheduled-at-wrap').classList.toggle('d-none', mode !== 'at');
+        document.getElementById('email-delay-wrap').classList.toggle('d-none', mode !== 'after_join');
+    }}
+
+    async function loadScheduledEmailCampaigns() {{
+        const wrap = document.getElementById('email-scheduled-list-wrap');
+        const list = document.getElementById('email-scheduled-list');
+        if (!wrap || !list) return;
+        try {{
+            const res = await fetch('/api/scope-email/layers/' + project.id + '/campaigns/');
+            const data = await res.json();
+            const rows = (data.campaigns || []).filter(c => c.status === 'scheduled' || c.status === 'active');
+            if (!rows.length) {{
+                wrap.classList.add('d-none');
+                return;
+            }}
+            wrap.classList.remove('d-none');
+            list.innerHTML = rows.map(c => {{
+                const when = c.schedule_mode === 'at' ? (c.scheduled_at || 'scheduled') :
+                    c.schedule_mode === 'after_join' ? (c.delay_hours + 'h after ' + (c.anchor_kind || 'join')) :
+                    'immediate';
+                return '<div class="d-flex justify-content-between align-items-start border rounded p-2 mb-2">' +
+                    '<div><strong>' + escapeHtml(c.subject || '') + '</strong><br><span class="text-muted">' + escapeHtml(when) + ' · ' + escapeHtml(c.status) + '</span></div>' +
+                    (c.status !== 'completed' && c.status !== 'cancelled' ?
+                        '<button type="button" class="btn btn-sm btn-outline-danger" onclick="cancelEmailCampaign(\\'' + escapeHtmlBasic(c.id) + '\\')">Cancel</button>' : '') +
+                    '</div>';
+            }}).join('');
+        }} catch (e) {{
+            wrap.classList.add('d-none');
+        }}
+    }}
+
+    async function cancelEmailCampaign(campaignId) {{
+        const ok = await GhDialog.confirm({{
+            title: 'Cancel scheduled email',
+            message: 'Cancel this scheduled email campaign?',
+            variant: 'warning',
+            confirmLabel: 'Cancel campaign',
+        }});
+        if (!ok) return;
+        const res = await fetch('/api/scope-email/campaigns/' + campaignId + '/', {{ method: 'DELETE' }});
+        const data = await res.json();
+        if (!res.ok) {{
+            await GhDialog.alert({{ title: 'Could not cancel', message: data.error || 'Failed', variant: 'danger' }});
+            return;
+        }}
+        await loadScheduledEmailCampaigns();
+    }}
     
     async function submitEmail() {{
         const groups = Array.from(document.querySelectorAll('#email-recipient-groups input:checked')).map(cb => cb.value);
-        const fromAddr = document.getElementById('email-from').value;
+        const userIds = Array.from(document.getElementById('email-people').selectedOptions || []).map(o => o.value);
         const subject = document.getElementById('email-subject').value.trim();
         const body = document.getElementById('email-body').value.trim();
+        const scheduleMode = document.querySelector('input[name="email-schedule-mode"]:checked')?.value || 'immediate';
+        const scheduledAt = document.getElementById('email-scheduled-at').value;
+        const delayHours = document.getElementById('email-delay-hours').value;
+        const anchorKind = document.getElementById('email-anchor-kind').value;
         const alertEl = document.getElementById('email-modal-alert');
         alertEl.classList.add('d-none');
-        if (!groups.length) {{
-            alertEl.textContent = 'Select at least one recipient group';
+        if (!groups.length && !userIds.length) {{
+            alertEl.textContent = 'Select at least one recipient group or person';
             alertEl.className = 'alert alert-danger';
             alertEl.classList.remove('d-none');
             return;
@@ -1918,14 +2015,38 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             alertEl.classList.remove('d-none');
             return;
         }}
+        if (scheduleMode === 'at' && !scheduledAt) {{
+            alertEl.textContent = 'Choose a date/time to schedule';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        if (scheduleMode === 'after_join' && !(parseFloat(delayHours) > 0)) {{
+            alertEl.textContent = 'Enter hours after join (must be greater than 0)';
+            alertEl.className = 'alert alert-danger';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
         const btn = document.getElementById('email-submit-btn');
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Sending...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
         try {{
+            const payload = {{
+                groups: groups,
+                user_ids: userIds,
+                subject: subject,
+                body: body,
+                schedule_mode: scheduleMode,
+            }};
+            if (scheduleMode === 'at') payload.scheduled_at = scheduledAt;
+            if (scheduleMode === 'after_join') {{
+                payload.delay_hours = parseFloat(delayHours);
+                payload.anchor_kind = anchorKind;
+            }}
             const res = await fetch('/api/layers/' + project.id + '/send-email/', {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify({{ groups: groups, subject: subject, body: body, from: fromAddr }})
+                body: JSON.stringify(payload)
             }});
             const data = await res.json();
             if (!res.ok) {{
@@ -1934,20 +2055,27 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 alertEl.classList.remove('d-none');
                 return;
             }}
-            alertEl.textContent = 'Sent to ' + (data.sent || 0) + ' recipient(s).';
+            const campaign = data.campaign || {{}};
+            const msg = scheduleMode === 'immediate'
+                ? ('Sent to ' + (data.sent || campaign.stats_sent || 0) + ' recipient(s).')
+                : (scheduleMode === 'at' ? 'Email scheduled.' : 'After-join email campaign active.');
+            alertEl.textContent = msg;
             alertEl.className = 'alert alert-success';
             alertEl.classList.remove('d-none');
-            document.getElementById('emailForm').reset();
-            setTimeout(() => {{
-                bootstrap.Modal.getInstance(document.getElementById('emailModal')).hide();
-            }}, 1500);
+            if (scheduleMode === 'immediate') {{
+                setTimeout(() => {{
+                    bootstrap.Modal.getInstance(document.getElementById('emailModal')).hide();
+                }}, 1500);
+            }} else {{
+                await loadScheduledEmailCampaigns();
+            }}
         }} catch (e) {{
             alertEl.textContent = 'Error: ' + e.message;
             alertEl.className = 'alert alert-danger';
             alertEl.classList.remove('d-none');
         }} finally {{
             btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send';
+            btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send / schedule';
         }}
     }}
     

@@ -551,6 +551,19 @@ def join_waitlist(waitlist_id):
                    subject_type='waitlist', subject_id=str(waitlist_id), layer_id=waitlist.layer_id,
                    payload={'waitlist_name': waitlist.name, 'position': count + 1})
         db.session.commit()
+        try:
+            from services.scope_email import enqueue_after_join
+
+            enqueue_after_join(
+                scope_type='layer',
+                scope_id=project.id,
+                user_id=current_user['id'],
+                anchor_kind='waitlist_member',
+                anchor_at=entry.joined_at or datetime.utcnow(),
+                waitlist_id=waitlist_id,
+            )
+        except Exception:
+            pass
 
     entry = WaitlistEntry.query.filter_by(waitlist_id=waitlist_id, user_id=current_user['id'], left_at=None).first()
     return jsonify({'entry': {'position': entry.position, 'joined_at': entry.joined_at.isoformat()}, 'waitlist': waitlist.to_dict()}), 201

@@ -625,38 +625,51 @@ def unsubscribe_from_project():
         return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
         <h2>Invalid link</h2>
         <p>This unsubscribe link is invalid or expired.</p>
-        <p><a href="/">Return to MLGH</a></p></body></html>""", 400
+        <p><a href="/">Return to Gov Hub</a></p></body></html>""", 400
 
-    layer_id_val, user_id_or_email = decoded
-    project = Layer.query.get(layer_id_val)
-    if not project:
-        return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+    scope_type, scope_id_val, user_id_or_email = decoded
+    scope_name = 'this community'
+    if scope_type == 'layer':
+        project = Layer.query.get(scope_id_val)
+        if not project:
+            return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
         <h2>Layer not found</h2>
-        <p><a href="/">Return to MLGH</a></p></body></html>""", 404
+        <p><a href="/">Return to Gov Hub</a></p></body></html>""", 404
+        scope_name = project.name
+        filter_kwargs = {'layer_id': scope_id_val}
+    else:
+        from models import Guild
+        guild = Guild.query.get(scope_id_val)
+        if not guild:
+            return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
+        <h2>Guild not found</h2>
+        <p><a href="/">Return to Gov Hub</a></p></body></html>""", 404
+        scope_name = guild.name
+        filter_kwargs = {'guild_id': scope_id_val}
 
     if user_id_or_email and len(str(user_id_or_email)) == 36 and '-' in str(user_id_or_email):
         uid = str(user_id_or_email)
-        existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, user_id=uid).first()
+        existing = EmailUnsubscribe.query.filter_by(**filter_kwargs, user_id=uid).first()
         if not existing:
-            db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=uid, email=None))
+            db.session.add(EmailUnsubscribe(user_id=uid, email=None, **filter_kwargs))
             db.session.commit()
     elif user_id_or_email and str(user_id_or_email).isdigit():
         try:
             uid = str(user_id_or_email)
-            existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, user_id=uid).first()
+            existing = EmailUnsubscribe.query.filter_by(**filter_kwargs, user_id=uid).first()
             if not existing:
-                db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=uid, email=None))
+                db.session.add(EmailUnsubscribe(user_id=uid, email=None, **filter_kwargs))
                 db.session.commit()
         except Exception:
             pass
     else:
         email = user_id_or_email.lower() if user_id_or_email else ''
-        existing = EmailUnsubscribe.query.filter_by(layer_id=layer_id_val, email=email).first()
+        existing = EmailUnsubscribe.query.filter_by(**filter_kwargs, email=email).first()
         if not existing:
-            db.session.add(EmailUnsubscribe(layer_id=layer_id_val, user_id=None, email=email))
+            db.session.add(EmailUnsubscribe(user_id=None, email=email, **filter_kwargs))
             db.session.commit()
 
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribed</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
     <h2 style="color:#00ba7c;">You've been unsubscribed</h2>
-    <p>You will no longer receive project emails from <strong>{project.name}</strong>.</p>
-    <p><a href="/">Return to MLGH</a></p></body></html>""", 200
+    <p>You will no longer receive emails from <strong>{scope_name}</strong> on Gov Hub.</p>
+    <p><a href="/">Return to Gov Hub</a></p></body></html>""", 200

@@ -473,7 +473,8 @@ class EmailUnsubscribe(db.Model):
     __tablename__ = 'email_unsubscribe'
     
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
-    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=True, index=True)
+    guild_id = db.Column(db.String(36), db.ForeignKey('guild.id'), nullable=True, index=True)
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     email = db.Column(db.String(255), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

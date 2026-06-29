@@ -64,6 +64,7 @@ def init_db(app):
             migrate_referral_landing_v1,
             migrate_layer_programs_v1,
             migrate_dp_challenge_notify_waitlist_v1,
+            migrate_scoped_email_v1,
             migrate_hardcoded_users,
         )
 
@@ -125,5 +126,6 @@ def init_db(app):
         migrate_referral_landing_v1(app)
         migrate_layer_programs_v1(app)
         migrate_dp_challenge_notify_waitlist_v1(app)
+        migrate_scoped_email_v1(app)
 
         print(f"Database initialized: {User.query.count()} users")
