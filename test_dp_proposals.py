@@ -315,6 +315,77 @@ def test_create_proposal_with_rationale_and_reference():
 
 
 
+def test_assist_context_lists_comment_and_patch_actions():
+    from services.assist import get_available_actions
+
+    comment_actions = [a['id'] for a in get_available_actions('comment')]
+    patch_actions = [a['id'] for a in get_available_actions('patch')]
+
+    assert 'draft_comment' in comment_actions
+    assert 'improve_patch' not in comment_actions
+    assert 'improve_patch' in patch_actions
+    assert 'draft_comment' not in patch_actions
+
+
+def test_assist_context_endpoint_for_patch():
+    from app import app
+    from models import User
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        if not sub:
+            return
+        user = User.query.first()
+        if not user:
+            return
+        ref = sub.id
+        username = user.username
+        passage = _sample_passage_from_submission(sub)
+        if not passage:
+            return
+
+    client = _auth_client(app, username)
+    r = client.post(
+        f'/api/doc/draft/{ref}/assist/context/',
+        json={
+            'mode': 'patch',
+            'selected_passage': passage,
+            'proposed_text': passage + ' Revised.',
+            'rationale': 'Clearer wording.',
+        },
+    )
+    assert r.status_code == 200, r.get_data(as_text=True)
+    data = r.get_json()
+    assert data['context']['mode'] == 'patch'
+    assert data['context']['selected_passage']
+    assert any(a['id'] == 'improve_patch' for a in data['actions'])
+
+
+def test_assist_generate_uses_monkeypatched_llm(monkeypatch):
+    from services import assist
+
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
+    monkeypatch.setattr(assist, 'call_llm', lambda messages, cfg: 'Improved draft.')
+
+    result = assist.generate_draft(
+        'improve_comment',
+        {
+            'mode': 'comment',
+            'submission': {'title': 'Draft title', 'draft_ref': 'draft-1'},
+            'document': {'body': 'Document text.'},
+            'user_draft': 'rough draft',
+            'sources': {},
+        },
+        user_prompt=None,
+        user_id='u1',
+    )
+
+    assert result['draft'] == 'Improved draft.'
+    assert result['ai_assisted'] is True
+    assert result['provider'] == 'openai'
+
+
 def test_reference_url_rejects_non_http():
     from services.dp_proposals import validate_reference_url
 

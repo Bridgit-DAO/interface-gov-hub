@@ -1,7 +1,7 @@
 """DP Proposal API and admin dashboard (scaffolding)."""
 import html as html_mod
 
-from flask import Blueprint, jsonify, redirect, request, session, url_for
+from flask import Blueprint, current_app, jsonify, redirect, request, session, url_for
 
 from extensions import db
 from models import DpProposal
@@ -223,6 +223,57 @@ def list_reader_comments_route(draft_ref):
 
     body, status = list_reader_comments_for_draft(draft_ref, current_user=get_current_user())
     return jsonify(body), status
+
+
+@bp.route('/<path:draft_ref>/assist/context/', methods=['POST'])
+@require_auth
+def assist_context_route(draft_ref):
+    from services.assist import assemble_context, get_available_actions, llm_configured
+
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    body = request.get_json(silent=True) or {}
+    context, err = assemble_context(draft_ref, body)
+    if err:
+        return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    return jsonify({
+        'ok': True,
+        'context': context,
+        'sources': context.get('sources') or {},
+        'actions': get_available_actions(context.get('mode') or 'comment'),
+        'llm_configured': llm_configured(),
+    })
+
+
+@bp.route('/<path:draft_ref>/assist/generate/', methods=['POST'])
+@require_auth
+def assist_generate_route(draft_ref):
+    from services.assist import generate_draft
+
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    body = request.get_json(silent=True) or {}
+    action = (body.get('action') or '').strip()
+    context = body.get('context')
+    if not action or not isinstance(context, dict):
+        return jsonify({'error': 'action and context are required'}), 400
+    try:
+        result = generate_draft(
+            action,
+            context,
+            user_prompt=body.get('user_prompt'),
+            user_id=current_user.get('id'),
+        )
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({'error': 'AI Assist unavailable', 'details': str(e)}), 503
+    except Exception as e:
+        current_app.logger.exception('Assist generation failed')
+        return jsonify({'error': 'Generation failed', 'details': str(e)}), 500
+    return jsonify({'ok': True, **result})
 
 
 @bp.route('/<path:draft_ref>/reader-comments/', methods=['POST'])
