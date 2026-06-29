@@ -2667,7 +2667,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 }} else {{
                     html += '<p class="text-muted small mb-3">No guilds linked yet.</p>';
                 }}
-                html += '<div class="card card-body py-2 bg-light mb-2"><label class="form-label small mb-1">Attach guild (UUID from guild API or URL)</label><div class="input-group input-group-sm"><input type="text" class="form-control" id="layer-attach-guild-id" placeholder="Guild id"><button class="btn btn-primary" type="button" onclick="attachGuildToLayer()">Attach</button></div><p class="small mt-1 mb-0 text-muted" id="layer-attach-guild-msg"></p></div>';
+                html += '<div class="card card-body py-2 mb-2"><label class="form-label small mb-1">Attach guild (UUID from guild API or URL)</label><div class="input-group input-group-sm"><input type="text" class="form-control" id="layer-attach-guild-id" placeholder="Guild id"><button class="btn btn-primary" type="button" onclick="attachGuildToLayer()">Attach</button></div><p class="small mt-1 mb-0 text-muted" id="layer-attach-guild-msg"></p></div>';
             }}
             
             // About page section
