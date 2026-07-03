@@ -2504,7 +2504,13 @@
   // beginProposalFromSelection → openComposeModal path the desktop code uses,
   // so the existing #dpProposalComposeModal opens with its existing
   // Comment/Propose + Whole document/Passage tabs. No new modal, no new UI.
-  if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+  // (pointer: coarse) AND (hover: none) is the textbook "touch-only
+  // device" check. (pointer: coarse) alone is true on some 2-in-1
+  // laptops where the user primarily uses mouse — adding (hover: none)
+  // excludes those without affecting phones or tablets.
+  if (window.matchMedia &&
+      window.matchMedia('(pointer: coarse)').matches &&
+      window.matchMedia('(hover: none)').matches) {
     function captureSelectionFromMobileEvent() {
       var sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
