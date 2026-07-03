@@ -69,9 +69,13 @@ def add_to_document_history(draft_name, action, user, details=""):
     DOCUMENT_HISTORY[draft_name].insert(0, entry)
 
 
-def get_next_ml_number(doc_type='draft'):
-    """Get the next ML number (ML-Draft-001 or ML-RFC-001)."""
-    prefix = f"ML-{doc_type.capitalize()}-"
+def get_next_ml_number(doc_type='draft', layer_prefix='ML'):
+    """Get the next ML number (ML-Draft-001, ML-RFC-001, or CL-Draft-001 if a layer prefix is supplied)."""
+    # Fall back to the legacy 'ML' prefix when no per-layer prefix is provided
+    # or when the supplied value is empty/None. The 2-letter prefix token
+    # replaces the literal 'ML' in the generated identifier.
+    prefix_token = (layer_prefix or 'ML').strip().upper() or 'ML'
+    prefix = f"{prefix_token}-{doc_type.capitalize()}-"
     max_ml = db.session.query(db.func.max(Submission.ml_number)).filter(
         Submission.ml_number.like(f"{prefix}%"),
         Submission.status.in_(['submitted', 'approved', 'published']),
