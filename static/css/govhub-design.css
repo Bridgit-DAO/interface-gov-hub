@@ -2023,3 +2023,165 @@ a.gh-passage-comment-link:focus {
 #ghImageCropModal .cropper-face {
   background: transparent;
 }
+
+/* ============================================================================
+ * Layer-prefix chip + dropdown (header)
+ *
+ * The site header surfaces a 2-letter prefix (e.g. "ML") that the user can
+ * click to switch to a different layer-prefix (a draft identifier prefix).
+ * The trigger looks like a pill (matching .doc-tag-wrap-chip) and the menu
+ * inherits Bootstrap dropdown-menu styling with .gh-prefix-menu-item /
+ * .gh-prefix-menu-manage anchors inside.
+ * ========================================================================== */
+
+#gh-prefix-chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.25rem;
+}
+
+#gh-prefix-chip-wrap > .gh-prefix-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--gh-radius-pill, 999px);
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--bs-font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+#gh-prefix-chip-wrap > .gh-prefix-chip:hover,
+#gh-prefix-chip-wrap > .gh-prefix-chip:focus {
+  border-color: var(--accent-color, var(--gh-accent-blue, #667eea));
+  color: var(--gh-accent-blue, var(--accent-color, #667eea));
+  outline: none;
+}
+
+#gh-prefix-chip-wrap > .gh-prefix-chip::after {
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  font-size: 0.7rem;
+  opacity: 0.65;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-chip-code {
+  font-variant-numeric: tabular-nums;
+  min-width: 1.6em;
+  text-align: center;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-chip-label {
+  font-family: var(--bs-body-font-family, inherit);
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--text-muted, #888);
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#gh-prefix-chip-wrap .dropdown-menu.gh-prefix-dropdown {
+  min-width: 16rem;
+  padding: 0.4rem 0;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  font-weight: 500;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-menu-item .gh-prefix-menu-item-code {
+  display: inline-block;
+  min-width: 2.25rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--gh-radius-pill, 999px);
+  background: var(--bg-tertiary, rgba(127,127,127,0.18));
+  border: 1px solid var(--border-color);
+  font-family: var(--bs-font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 700;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-menu-item.active {
+  background: var(--gh-accent-blue-soft, rgba(102, 126, 234, 0.12));
+  color: var(--gh-accent-blue, var(--accent-color, #667eea));
+}
+
+#gh-prefix-chip-wrap .gh-prefix-menu-item.active .gh-prefix-menu-item-code {
+  background: var(--gh-accent-blue, var(--accent-color, #667eea));
+  border-color: var(--gh-accent-blue, var(--accent-color, #667eea));
+  color: #fff;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-menu-item-name {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-menu-default-badge {
+  font-size: 0.65rem;
+  background: var(--gh-accent-blue, var(--accent-color, #667eea));
+  color: #fff;
+  border-radius: var(--gh-radius-pill, 999px);
+  padding: 0.1rem 0.4rem;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-menu-manage {
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-menu-manage i {
+  opacity: 0.8;
+}
+
+#gh-prefix-chip-wrap .gh-prefix-empty,
+#gh-prefix-chip-wrap .gh-prefix-no-access {
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+}
+
+/* Layer admin: Prefixes card */
+#layer-prefixes-card .gh-prefix-admin-row {
+  font-family: var(--bs-font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+}
+
+#layer-prefixes-card .gh-prefix-admin-default {
+  background: rgba(40, 167, 69, 0.12);
+  color: var(--bs-success, #28a745);
+  border-radius: var(--gh-radius-pill, 999px);
+  padding: 0.2rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Ensure the navbar chip sits visually next to the theme toggle in compact headers */
+@media (max-width: 991.98px) {
+  #gh-prefix-chip-wrap .gh-prefix-chip-label { display: none; }
+}

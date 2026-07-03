@@ -59,5 +59,28 @@
     "switchToDark": "切换到深色模式",
     "systemAuto": "跟随系统（自动）— 点击切换",
     "toggle": "切换主题"
+  },
+  "prefix": {
+    "menuHeader": "当前草稿前缀",
+    "label": "前缀",
+    "choose": "选择前缀",
+    "add": "添加前缀",
+    "delete": "删除",
+    "setDefault": "设为默认",
+    "default": "默认",
+    "isDefault": "默认",
+    "taken": "该前缀已被使用。",
+    "invalidFormat": "前缀必须恰好是两个大写字母。",
+    "cannotDeleteDefault": "无法删除默认前缀。请先将其他前缀设为默认。",
+    "lastPrefix": "每个 layer 必须至少保留一个前缀。",
+    "addPlaceholder": "两个字母（例如 ML）",
+    "manage": "在 layer 管理中管理",
+    "switchHint": "切换当前草稿前缀",
+    "empty": "暂无可用的 layer 前缀。请联系 layer 管理员在 Admin 选项卡中添加。",
+    "noAccess": "登录后选择草稿前缀。",
+    "confirmDeleteTitle": "删除前缀",
+    "confirmDeleteBody": "删除此前缀？已创建的草稿将保留其标识符。",
+    "confirmDeleteDefaultBody": "这是当前默认前缀。请先将其他前缀设为默认，再删除此项。",
+    "manageNothing": "尚未选择 layer — 请先打开一个 layer 页面。"
   }
 }

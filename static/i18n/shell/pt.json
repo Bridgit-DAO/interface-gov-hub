@@ -59,5 +59,28 @@
     "switchToDark": "Mudar para modo escuro",
     "systemAuto": "Tema do sistema (auto) — clique para alternar",
     "toggle": "Alternar tema"
+  },
+  "prefix": {
+    "menuHeader": "Prefixo de rascunho ativo",
+    "label": "Prefixo",
+    "choose": "Escolher prefixo",
+    "add": "Adicionar prefixo",
+    "delete": "Excluir",
+    "setDefault": "Tornar padrão",
+    "default": "Padrão",
+    "isDefault": "Padrão",
+    "taken": "Esse prefixo já está em uso.",
+    "invalidFormat": "O prefixo deve ter exatamente 2 letras maiúsculas.",
+    "cannotDeleteDefault": "Não é possível excluir o prefixo padrão. Defina outro prefixo como padrão primeiro.",
+    "lastPrefix": "Uma camada deve ter pelo menos um prefixo.",
+    "addPlaceholder": "Duas letras (ex. ML)",
+    "manage": "Gerenciar na admin da camada",
+    "switchHint": "Trocar o prefixo de rascunho ativo",
+    "empty": "Nenhum prefixo de camada disponível. Peça a um admin para adicionar um na aba Admin.",
+    "noAccess": "Entre para escolher um prefixo de rascunho.",
+    "confirmDeleteTitle": "Excluir prefixo",
+    "confirmDeleteBody": "Excluir este prefixo? Os rascunhos já criados manterão seus identificadores.",
+    "confirmDeleteDefaultBody": "Este é o prefixo padrão atual. Defina outro como padrão antes de excluir este.",
+    "manageNothing": "Nenhuma camada selecionada — abra uma página de camada primeiro."
   }
 }

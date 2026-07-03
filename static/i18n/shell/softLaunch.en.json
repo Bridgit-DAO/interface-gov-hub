@@ -251,5 +251,28 @@
       "hoursSuffix": "hours",
       "evidenceBridgeName": "Evidence for artifact"
     }
+  },
+  "prefix": {
+    "menuHeader": "Active draft prefix",
+    "label": "Prefix",
+    "choose": "Choose prefix",
+    "add": "Add prefix",
+    "delete": "Delete",
+    "setDefault": "Set as default",
+    "default": "Default",
+    "isDefault": "Default",
+    "taken": "That prefix is already in use.",
+    "invalidFormat": "Prefix must be exactly 2 uppercase letters.",
+    "cannotDeleteDefault": "Cannot delete the default prefix. Set another prefix as default first.",
+    "lastPrefix": "A layer must have at least one prefix.",
+    "addPlaceholder": "Two letters (e.g. ML)",
+    "manage": "Manage in layer admin",
+    "switchHint": "Switch active draft prefix",
+    "empty": "No layer prefixes available. Ask a layer admin to add one in the layer's Admin tab.",
+    "noAccess": "Sign in to choose a draft prefix.",
+    "confirmDeleteTitle": "Delete prefix",
+    "confirmDeleteBody": "Delete this prefix? Drafts already created will keep their existing identifier.",
+    "confirmDeleteDefaultBody": "This is the current default prefix. Mark another prefix as default first, then delete this one.",
+    "manageNothing": "No layer selected — open a layer page first to manage that layer's prefixes."
   }
 }

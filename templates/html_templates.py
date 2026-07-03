@@ -914,6 +914,7 @@ BASE_TEMPLATE = """
             </ul>
             <ul class="navbar-nav ms-auto">
                 {user_menu}
+                {prefix_chip_html}
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle gh-lang-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n-aria="lang.menuLabel" data-gh-i18n-title="lang.menuLabel"><img src="/static/images/language-icon.png?v=20260601" alt="" class="gh-lang-icon" aria-hidden="true"></a>
                     <ul class="dropdown-menu dropdown-menu-end">
@@ -960,6 +961,7 @@ BASE_TEMPLATE = """
     <script src="/static/js/gh-image-crop.js"></script>
     <script src="/static/js/gh-invite.js?v=18"></script>
     <script src="/static/js/gh-theme.js?v=2" defer></script>
+    <script src="/static/js/gh-layer-prefix.js?v=1" defer></script>
     <script>
         (function () {{
             var HOVER_MQ = window.matchMedia('(min-width: 992px)');
@@ -1592,6 +1594,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
             </ul>
             <ul class="navbar-nav ms-auto">
                 {user_menu}
+                {prefix_chip_html}
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle gh-lang-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n-aria="lang.menuLabel" data-gh-i18n-title="lang.menuLabel"><img src="/static/images/language-icon.png?v=20260601" alt="" class="gh-lang-icon" aria-hidden="true"></a>
                     <ul class="dropdown-menu dropdown-menu-end">
@@ -1629,6 +1632,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
             </ul>
             <ul class="navbar-nav ms-auto">
                 {user_menu}
+                {prefix_chip_html}
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle gh-lang-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-gh-i18n-aria="lang.menuLabel" data-gh-i18n-title="lang.menuLabel"><img src="/static/images/language-icon.png?v=20260601" alt="" class="gh-lang-icon" aria-hidden="true"></a>
                     <ul class="dropdown-menu dropdown-menu-end">

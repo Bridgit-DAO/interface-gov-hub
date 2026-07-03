@@ -68,6 +68,138 @@ def generate_lang_menu_html():
     return '\n'.join(lines)
 
 
+def generate_prefix_chip_html():
+    """Render the #gh-prefix-chip-wrap dropdown for the navbar.
+
+    Computed from `prefixes_for_user(current_user_id)`. Returns an empty
+    string (no dropdown) when the user has no layers with prefixes or is
+    not signed in. Falls back to "Sign in" hint for anonymous users.
+
+    The returned HTML contains ``data-gh-prefix-id`` and
+    ``data-gh-active-layer-slug`` attributes that ``gh-layer-prefix.js``
+    wires to the ``POST /api/layers/active-prefix/`` endpoint.
+    """
+    from flask import has_request_context, session
+
+    if not has_request_context():
+        return ''
+
+    from services.identity import get_current_user
+    from services.layer_prefixes import prefixes_for_user
+
+    user = None
+    try:
+        user = get_current_user()
+    except Exception:
+        user = None
+
+    user_id = user.get('id') if isinstance(user, dict) else None
+    prefixes = prefixes_for_user(user_id) if user_id else []
+
+    def _esc(value):
+        return html.escape(str(value), quote=True)
+
+    def _esc_attr(value):
+        return html.escape(str(value), quote=True)
+
+    if not user_id:
+        # Anonymous: show a soft hint chip with no dropdown contents.
+        return (
+            '<li class="nav-item d-none d-lg-flex">'
+            '<div id="gh-prefix-chip-wrap" class="dropdown">'
+            '<a class="nav-link gh-prefix-chip" href="#" '
+            'data-gh-i18n-title="prefix.noAccess" '
+            'title="Sign in to choose a draft prefix.">'
+            '<span class="gh-prefix-chip-code">···</span>'
+            '</a>'
+            '</div>'
+            '</li>'
+        )
+
+    if not prefixes:
+        return (
+            '<li class="nav-item d-none d-lg-flex">'
+            '<div id="gh-prefix-chip-wrap" class="dropdown">'
+            '<a class="nav-link gh-prefix-chip" href="#" '
+            'data-gh-i18n-title="prefix.empty" '
+            'title="No layer prefixes available.">'
+            '<span class="gh-prefix-chip-code">···</span>'
+            '</a>'
+            '</div>'
+            '</li>'
+        )
+
+    # Choose the active display:
+    #   1. session['active_layer_prefix_id'] (set via /api/layers/active-prefix/)
+    #   2. the user's first-layer default
+    active_prefix_id = session.get('active_layer_prefix_id')
+    active = next((p for p in prefixes if p.get('id') == active_prefix_id), None)
+    if active is None:
+        for p in prefixes:
+            if p.get('is_default'):
+                active = p
+                break
+    if active is None:
+        active = prefixes[0]
+
+    active_layer_slug = active.get('layer_slug') or ''
+    active_layer_name = active.get('layer_name') or ''
+    active_label = _esc(active.get('prefix') or '??')
+
+    rows = []
+    for p in prefixes:
+        p_id = _esc_attr(p.get('id') or '')
+        p_value = _esc_attr(p.get('prefix') or '')
+        p_name = _esc(p.get('layer_name') or '')
+        p_slug = _esc_attr(p.get('layer_slug') or '')
+        is_active = p.get('id') == active.get('id')
+        is_default = bool(p.get('is_default'))
+        cls = 'dropdown-item gh-prefix-menu-item'
+        if is_active:
+            cls += ' active'
+        aria = ' aria-current="true"' if is_active else ''
+        default_badge = (
+            '<span class="gh-prefix-menu-default-badge ms-auto" '
+            'data-gh-i18n="prefix.isDefault">Default</span>' if is_default else ''
+        )
+        rows.append(
+            f'<li><button type="button" class="{cls}" {aria} '
+            f'data-gh-prefix-id="{p_id}" '
+            f'data-gh-prefix-value="{p_value}" '
+            f'data-gh-prefix-layer-name="{p_name}" '
+            f'data-gh-prefix-layer-slug="{p_slug}">'
+            f'<span class="gh-prefix-menu-item-code">{p_value}</span>'
+            f'<span class="gh-prefix-menu-item-name">{p_name}</span>'
+            f'{default_badge}'
+            f'</button></li>'
+        )
+
+    rows_html = '\n'.join(rows)
+    manage_label = html.escape('Manage in layer admin', quote=False)
+
+    return (
+        '<li class="nav-item d-none d-lg-flex">'
+        '<div id="gh-prefix-chip-wrap" class="dropdown">'
+        f'<a class="nav-link dropdown-toggle gh-prefix-chip" '
+        f'data-bs-toggle="dropdown" aria-expanded="false" '
+        f'data-gh-active-prefix="{_esc_attr(active.get("prefix") or "")}" '
+        f'data-gh-active-layer-name="{_esc_attr(active_layer_name)}" '
+        f'data-gh-active-layer-slug="{_esc_attr(active_layer_slug)}" '
+        f'title="{_esc_attr(active_layer_name)}">'
+        f'<span class="gh-prefix-chip-code">{active_label}</span>'
+        '</a>'
+        '<ul class="dropdown-menu dropdown-menu-end gh-prefix-dropdown">'
+        f'<li><h6 class="dropdown-header" data-gh-i18n="prefix.menuHeader">Active draft prefix</h6></li>'
+        f'{rows_html}'
+        '<li><hr class="dropdown-divider"></li>'
+        f'<li><a class="dropdown-item gh-prefix-menu-manage" href="#" '
+        f'data-gh-i18n="prefix.manage">{manage_label}</a></li>'
+        '</ul>'
+        '</div>'
+        '</li>'
+    )
+
+
 def _product_rollout_flags():
     """Defaults all True when outside request or before g is set."""
     try:
@@ -426,6 +558,7 @@ def _format_base_template(**kwargs):
     kwargs.setdefault('learn_nav_html', generate_learn_nav_html(layer_slug))
     kwargs.setdefault('civic_mason_nav_li', generate_civic_mason_nav_li())
     kwargs.setdefault('lang_menu', generate_lang_menu_html())
+    kwargs.setdefault('prefix_chip_html', generate_prefix_chip_html())
     kwargs.setdefault('flash_messages', render_flash_messages_html())
     if has_request_context():
         from services.csrf import get_or_create_csrf_token
@@ -526,6 +659,7 @@ def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_i
         html_lang=locale,
         site_locale_json=json.dumps(locale),
         lang_menu=generate_lang_menu_html(),
+        prefix_chip_html=generate_prefix_chip_html(),
         govhub_i18n_js=govhub_js,
         civic_mason_nav_li=generate_civic_mason_nav_li(),
         flash_messages=render_flash_messages_html(),
