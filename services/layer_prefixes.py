@@ -1,0 +1,201 @@
+"""Per-layer two-letter draft prefix CRUD."""
+from __future__ import annotations
+
+import re
+from typing import Optional
+
+from sqlalchemy.exc import IntegrityError
+
+from extensions import db
+from models import LayerPrefix
+
+LAYER_PREFIX_FORMAT_RE = re.compile(r'^[A-Z]{2}$')
+
+
+def _normalize_prefix(raw: object) -> str:
+    if not isinstance(raw, str):
+        return ''
+    return raw.strip().upper()
+
+
+def is_valid_prefix_format(value: object) -> bool:
+    """Two uppercase ASCII letters, e.g. 'ML', 'CL'."""
+    return bool(LAYER_PREFIX_FORMAT_RE.match(_normalize_prefix(value)))
+
+
+def get_default_prefix(layer_id: str) -> Optional[LayerPrefix]:
+    return LayerPrefix.query.filter_by(
+        layer_id=layer_id, is_default=True,
+    ).order_by(LayerPrefix.created_at.asc()).first()
+
+
+def list_prefixes(layer_id: str) -> list[LayerPrefix]:
+    return (
+        LayerPrefix.query
+        .filter_by(layer_id=layer_id)
+        .order_by(LayerPrefix.is_default.desc(), LayerPrefix.created_at.asc())
+        .all()
+    )
+
+
+def add_prefix(layer_id: str, raw_prefix: str, created_by: Optional[str]) -> tuple[dict, int]:
+    """Add a prefix to a layer.
+
+    Returns (body, status_code). 400 on format errors, 409 on global uniqueness
+    conflict, 201 on success.
+    """
+    prefix = _normalize_prefix(raw_prefix)
+    if not is_valid_prefix_format(prefix):
+        return {
+            'error': 'Prefix must be exactly two uppercase ASCII letters (e.g. "ML").',
+            'code': 'invalid_format',
+        }, 400
+
+    existing = LayerPrefix.query.filter_by(prefix=prefix).first()
+    if existing:
+        return {
+            'error': f'Prefix "{prefix}" is already taken by another layer.',
+            'code': 'prefix_taken',
+        }, 409
+
+    row = LayerPrefix(
+        layer_id=layer_id,
+        prefix=prefix,
+        is_default=False,
+        created_by=created_by,
+    )
+    try:
+        db.session.add(row)
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return {
+            'error': f'Prefix "{prefix}" is already taken by another layer.',
+            'code': 'prefix_taken',
+        }, 409
+    return {'prefix': row.to_dict()}, 201
+
+
+def update_prefix(layer_id: str, prefix_id: str, raw_prefix: str) -> tuple[dict, int]:
+    """Rename a prefix (must still be 2 uppercase letters and globally unique)."""
+    prefix = _normalize_prefix(raw_prefix)
+    if not is_valid_prefix_format(prefix):
+        return {
+            'error': 'Prefix must be exactly two uppercase ASCII letters (e.g. "ML").',
+            'code': 'invalid_format',
+        }, 400
+
+    row = LayerPrefix.query.filter_by(id=prefix_id, layer_id=layer_id).first()
+    if not row:
+        return {'error': 'Prefix not found'}, 404
+
+    conflict = LayerPrefix.query.filter(
+        LayerPrefix.prefix == prefix,
+        LayerPrefix.id != prefix_id,
+    ).first()
+    if conflict:
+        return {
+            'error': f'Prefix "{prefix}" is already taken by another layer.',
+            'code': 'prefix_taken',
+        }, 409
+
+    row.prefix = prefix
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return {
+            'error': f'Prefix "{prefix}" is already taken by another layer.',
+            'code': 'prefix_taken',
+        }, 409
+    return {'prefix': row.to_dict()}, 200
+
+
+def delete_prefix(layer_id: str, prefix_id: str) -> tuple[dict, int]:
+    """Delete a prefix. Refuses to delete the current default; the layer
+    must mark another prefix as default first.
+    """
+    row = LayerPrefix.query.filter_by(id=prefix_id, layer_id=layer_id).first()
+    if not row:
+        return {'error': 'Prefix not found'}, 404
+    if bool(row.is_default):
+        return {
+            'error': (
+                'This is the default prefix for the layer. Mark another prefix '
+                'as default first, then delete this one.'
+            ),
+            'code': 'cannot_delete_default',
+        }, 400
+    # Refuse to delete the last remaining prefix (a layer should always
+    # have at least one prefix available).
+    remaining = LayerPrefix.query.filter_by(layer_id=layer_id).count()
+    if remaining <= 1:
+        return {
+            'error': 'A layer must always have at least one prefix. Add another one first.',
+            'code': 'last_prefix',
+        }, 400
+
+    db.session.delete(row)
+    db.session.commit()
+    return {'success': True}, 200
+
+
+def set_default_prefix(layer_id: str, prefix_id: str) -> tuple[dict, int]:
+    """Mark `prefix_id` as the active default for the layer (clear all others)."""
+    row = LayerPrefix.query.filter_by(id=prefix_id, layer_id=layer_id).first()
+    if not row:
+        return {'error': 'Prefix not found'}, 404
+
+    LayerPrefix.query.filter_by(layer_id=layer_id).update({'is_default': False})
+    row.is_default = True
+    db.session.commit()
+    return {'prefix': row.to_dict()}, 200
+
+
+def prefixes_for_user(user_id: str) -> list[dict]:
+    """All prefixes for layers the user can access (admin or active member).
+
+    Returns a flat list of dicts enriched with the owning layer's name/slug.
+    Used by the header dropdown.
+    """
+    if not user_id:
+        return []
+    from models import Layer, LayerAdmin, LayerMember
+
+    admin_layer_ids = [
+        la.layer_id for la in
+        LayerAdmin.query.filter_by(user_id=user_id).all()
+    ]
+    member_layer_ids = [
+        lm.layer_id for lm in
+        LayerMember.query.filter_by(user_id=user_id, status='active').all()
+    ] 
+    owner_layer_ids = [
+        l.id for l in
+        Layer.query.filter_by(initiator_id=user_id).all()
+    ]
+    all_layer_ids = set(admin_layer_ids) | set(member_layer_ids) | set(owner_layer_ids)
+    if not all_layer_ids:
+        return []
+
+    prefixes = (
+        LayerPrefix.query
+        .filter(LayerPrefix.layer_id.in_(all_layer_ids))
+        .order_by(LayerPrefix.layer_id, LayerPrefix.is_default.desc(), LayerPrefix.created_at.asc())
+        .all()
+    )
+    layers = {
+        l.id: l for l in
+        Layer.query.filter(Layer.id.in_(all_layer_ids)).all()
+    }
+    out = []
+    for p in prefixes:
+        layer = layers.get(p.layer_id)
+        if not layer:
+            continue
+        out.append({
+            **p.to_dict(),
+            'layer_name': layer.name,
+            'layer_slug': layer.slug,
+        })
+    return out
