@@ -61,11 +61,26 @@
     "toggle": "Alternar tema"
   },
   "prefix": {
-    "menuHeader": "Active draft prefix",
-    "default": "Default",
-    "manage": "Manage in layer admin",
-    "switchHint": "Switch active draft prefix",
-    "empty": "No layer prefixes available. Ask a layer admin to add one in the layer's Admin tab.",
-    "noAccess": "Sign in to choose a draft prefix."
+    "menuHeader": "Prefixo de rascunho ativo",
+    "default": "Padrão",
+    "manage": "Gerenciar na admin da camada",
+    "switchHint": "Trocar o prefixo de rascunho ativo",
+    "empty": "Nenhum prefixo de camada disponível. Peça a um admin para adicionar um na aba Admin.",
+    "noAccess": "Entre para escolher um prefixo de rascunho.",
+    "label": "Prefixo",
+    "choose": "Escolher prefixo",
+    "add": "Adicionar prefixo",
+    "delete": "Excluir",
+    "setDefault": "Tornar padrão",
+    "isDefault": "Padrão",
+    "taken": "Esse prefixo já está em uso.",
+    "invalidFormat": "O prefixo deve ter exatamente 2 letras maiúsculas.",
+    "cannotDeleteDefault": "Não é possível excluir o prefixo padrão. Defina outro prefixo como padrão primeiro.",
+    "lastPrefix": "Uma camada deve ter pelo menos um prefixo.",
+    "addPlaceholder": "Duas letras (ex. ML)",
+    "confirmDeleteTitle": "Excluir prefixo",
+    "confirmDeleteBody": "Excluir este prefixo? Os rascunhos já criados manterão seus identificadores.",
+    "confirmDeleteDefaultBody": "Este é o prefixo padrão atual. Defina outro como padrão antes de excluir este.",
+    "manageNothing": "Nenhuma camada selecionada — abra uma página de camada primeiro."
   }
 }

@@ -14,6 +14,7 @@ def ensure_schema_migrations():
             migrate_layer_invitations,
             migrate_dp_proposals,
             migrate_user_mfa_v1,
+            migrate_layer_prefix_v1,
         )
         from extensions import db
 
@@ -24,3 +25,4 @@ def ensure_schema_migrations():
         migrate_layer_invitations(app)
         migrate_dp_proposals(app)
         migrate_user_mfa_v1(app)
+        migrate_layer_prefix_v1(app)

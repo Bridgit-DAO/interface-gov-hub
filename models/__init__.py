@@ -9,6 +9,7 @@ from models.scoped_email import ScopedEmailCampaign, ScopedEmailDelivery
 from models.identity import User, UserLinkedAccount
 from models.mfa import UserMfaChallenge, UserMfaDevice, UserMfaRecoveryCode
 from models.custodial_wallet import CustodialWallet
+from models.layer_prefix import LayerPrefix
 from models.coordination import (
     Layer, LayerMember, LayerAdmin,
     Waitlist, WaitlistEntry, WaitlistMilestone, EmailUnsubscribe, WaitlistEmailSignup,
@@ -66,4 +67,5 @@ __all__ = [
     'LayerProgramSubmission',
     'ScopedEmailCampaign',
     'ScopedEmailDelivery',
+    'LayerPrefix',
 ]

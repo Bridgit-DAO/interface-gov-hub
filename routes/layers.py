@@ -32,6 +32,16 @@ from services.layer_features import (
 )
 from services.event_registry import EXCLUDED_FROM_ACTIVITY_FEED
 from services.referral_tokens import attribution_from_token
+from services.layer_prefixes import (
+    list_prefixes as _svc_list_prefixes,
+    get_default_prefix as _svc_get_default_prefix,
+    add_prefix as _svc_add_prefix,
+    update_prefix as _svc_update_prefix,
+    delete_prefix as _svc_delete_prefix,
+    set_default_prefix as _svc_set_default_prefix,
+    prefixes_for_user as _svc_prefixes_for_user,
+    is_valid_prefix_format as _svc_is_valid_prefix_format,
+)
 
 bp = Blueprint('layers', __name__, url_prefix='/api/layers')
 
@@ -1175,3 +1185,257 @@ def layer_invitations(layer_id):
         message=data.get('message'),
     )
     return jsonify(body), status
+
+
+# ============================================================================
+# Per-layer two-letter draft prefix CRUD
+# ============================================================================
+# Endpoint map (all under /api/layers):
+#   GET    /<layer_id>/prefixes/                  - list prefixes for a layer
+#   POST   /<layer_id>/prefixes/                  - add a new prefix (layer admin)
+#   PATCH  /<layer_id>/prefixes/<prefix_id>/      - rename a prefix (layer admin)
+#   DELETE /<layer_id>/prefixes/<prefix_id>/      - delete a prefix (layer admin)
+#   POST   /<layer_id>/prefixes/<prefix_id>/default/ - mark default (layer admin)
+#   GET    /my-prefixes/                          - all prefixes for layers the user can access
+#   POST   /active-prefix/                        - set the current draft prefix (auth required)
+#
+# The auth + permission checks follow the same pattern as the rest of
+# routes/layers.py: ``@require_auth`` plus an explicit ``is_layer_admin`` for
+# write endpoints.
+
+ACTIVE_PREFIX_SESSION_KEY = 'active_layer_prefix_id'
+
+
+def _ensure_layer_for_prefixes(layer_id):
+    layer = Layer.query.get(layer_id)
+    if not layer:
+        layer = Layer.query.filter_by(slug=layer_id).first()
+    return layer
+
+
+@bp.route('/<layer_id>/prefixes/', methods=['GET'])
+def list_layer_prefixes(layer_id):
+    """List all two-letter draft prefixes for a layer.
+
+    Anonymous read access — the list is the same public knowledge as the
+    layer's draft codes are deterministic from the layer existence.
+    """
+    project = _ensure_layer_for_prefixes(layer_id)
+    if not project:
+        return jsonify({'error': 'Layer not found', 'code': 'not_found'}), 404
+
+    rows = _svc_list_prefixes(project.id)
+    return jsonify({
+        'prefixes': [r.to_dict() for r in rows],
+        'count': len(rows),
+    }), 200
+
+
+@bp.route('/<layer_id>/prefixes/', methods=['POST'])
+@require_auth
+def add_layer_prefix(layer_id):
+    """Add a new two-letter prefix to a layer. Layer admin only."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    project = _ensure_layer_for_prefixes(layer_id)
+    if not project:
+        return jsonify({'error': 'Layer not found', 'code': 'not_found'}), 404
+
+    if not is_layer_admin(project, current_user):
+        return jsonify({
+            'error': 'Only layer admins can add prefixes',
+            'code': 'forbidden',
+        }), 403
+
+    data = request.get_json() or {}
+    body, status = _svc_add_prefix(
+        project.id, data.get('prefix', ''), current_user.get('id'),
+    )
+    return jsonify(body), status
+
+
+@bp.route('/<layer_id>/prefixes/<prefix_id>/', methods=['PATCH'])
+@require_auth
+def update_layer_prefix(layer_id, prefix_id):
+    """Rename a prefix. Layer admin only."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    project = _ensure_layer_for_prefixes(layer_id)
+    if not project:
+        return jsonify({'error': 'Layer not found', 'code': 'not_found'}), 404
+
+    if not is_layer_admin(project, current_user):
+        return jsonify({
+            'error': 'Only layer admins can rename prefixes',
+            'code': 'forbidden',
+        }), 403
+
+    data = request.get_json() or {}
+    body, status = _svc_update_prefix(
+        project.id, prefix_id, data.get('prefix', ''),
+    )
+    return jsonify(body), status
+
+
+@bp.route('/<layer_id>/prefixes/<prefix_id>/', methods=['DELETE'])
+@require_auth
+def delete_layer_prefix(layer_id, prefix_id):
+    """Delete a prefix. Layer admin only.
+
+    Refuses the layer default and the last remaining prefix; those 400s
+    come back from the service layer with stable codes so the UI can
+    surface precise errors via GhDialog.
+    """
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    project = _ensure_layer_for_prefixes(layer_id)
+    if not project:
+        return jsonify({'error': 'Layer not found', 'code': 'not_found'}), 404
+
+    if not is_layer_admin(project, current_user):
+        return jsonify({
+            'error': 'Only layer admins can delete prefixes',
+            'code': 'forbidden',
+        }), 403
+
+    body, status = _svc_delete_prefix(project.id, prefix_id)
+    return jsonify(body), status
+
+
+@bp.route('/<layer_id>/prefixes/<prefix_id>/default/', methods=['POST'])
+@require_auth
+def set_default_layer_prefix(layer_id, prefix_id):
+    """Mark a prefix as the layer default (clears any other default)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    project = _ensure_layer_for_prefixes(layer_id)
+    if not project:
+        return jsonify({'error': 'Layer not found', 'code': 'not_found'}), 404
+
+    if not is_layer_admin(project, current_user):
+        return jsonify({
+            'error': 'Only layer admins can set the default prefix',
+            'code': 'forbidden',
+        }), 403
+
+    body, status = _svc_set_default_prefix(project.id, prefix_id)
+    return jsonify(body), status
+
+
+@bp.route('/my-prefixes/', methods=['GET'])
+def my_layer_prefixes():
+    """All prefixes for layers the current user can access.
+
+    Anonymous users get an empty list (the JS uses this to show a
+    "sign in" hint). For full functionality the user must be a layer
+    admin, an active layer member, or the layer owner.
+    """
+    from flask import has_request_context, session
+
+    user_id = None
+    if has_request_context():
+        cur = get_current_user()
+        if cur and isinstance(cur, dict):
+            user_id = cur.get('id')
+
+    prefixes = _svc_prefixes_for_user(user_id)
+    return jsonify({'prefixes': prefixes, 'count': len(prefixes)}), 200
+
+
+@bp.route('/active-prefix/', methods=['POST'])
+@require_auth
+def set_active_prefix():
+    """Persist the user's chosen draft prefix in their session.
+
+    Body: ``{"prefix_id": "<UUID>"}``. Returns the chosen prefix row so
+    the chip + any page-level consumers can update in place.
+    """
+    from flask import session
+
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    data = request.get_json() or {}
+    prefix_id = (data.get('prefix_id') or '').strip()
+    if not prefix_id:
+        return jsonify({'error': 'prefix_id is required', 'code': 'invalid_format'}), 400
+
+    from models import LayerPrefix
+
+    prefix = LayerPrefix.query.get(prefix_id)
+    if not prefix:
+        return jsonify({'error': 'Prefix not found', 'code': 'not_found'}), 404
+
+    user_id = current_user.get('id')
+    if not user_id:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    # Authorize: user must be a layer admin, an active member, or the
+    # layer owner for the prefix's owning layer.
+    from models import LayerAdmin, LayerMember
+
+    project = Layer.query.get(prefix.layer_id)
+    if not project:
+        return jsonify({'error': 'Layer not found', 'code': 'not_found'}), 404
+
+    authorized = (
+        project.initiator_id == user_id
+        or LayerAdmin.query.filter_by(layer_id=project.id, user_id=user_id).first()
+        or LayerMember.query.filter_by(
+            layer_id=project.id, user_id=user_id, status='active',
+        ).first()
+        or current_user.get('role') == 'admin'
+    )
+    if not authorized:
+        return jsonify({
+            'error': 'You do not have access to this prefix',
+            'code': 'forbidden',
+        }), 403
+
+    session[ACTIVE_PREFIX_SESSION_KEY] = prefix_id
+    return jsonify({'prefix': prefix.to_dict()}), 200
+
+
+@bp.route('/active-prefix/', methods=['GET'])
+def get_active_prefix():
+    """Return the user's currently-active draft prefix, if any.
+
+    Resolution order: session → first available layer default for a
+    layer the user can access. Anonymous users get an empty response.
+    """
+    from flask import has_request_context, session
+
+    cur = None
+    user_id = None
+    if has_request_context():
+        cur = get_current_user()
+        if cur and isinstance(cur, dict):
+            user_id = cur.get('id')
+
+    active_id = session.get(ACTIVE_PREFIX_SESSION_KEY) if has_request_context() else None
+    if active_id:
+        from models import LayerPrefix
+
+        prefix = LayerPrefix.query.get(active_id)
+        if prefix:
+            return jsonify({'prefix': prefix.to_dict()}), 200
+
+    if not user_id:
+        return jsonify({'prefix': None}), 200
+
+    available = _svc_prefixes_for_user(user_id)
+    for p in available:
+        if p.get('is_default'):
+            return jsonify({'prefix': p}), 200
+    if available:
+        return jsonify({'prefix': available[0]}), 200
+    return jsonify({'prefix': None}), 200

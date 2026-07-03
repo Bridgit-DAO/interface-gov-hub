@@ -160,6 +160,7 @@ def create_app():
         Artifact, ArtifactRelation,
         ArtifactCollection, ArtifactCollectionItem,
         Bridge, BridgeSession,
+        LayerPrefix,
     )
 
     # Blueprints

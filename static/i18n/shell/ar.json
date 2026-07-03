@@ -61,11 +61,26 @@
     "toggle": "تبديل السمة"
   },
   "prefix": {
-    "menuHeader": "Active draft prefix",
-    "default": "Default",
-    "manage": "Manage in layer admin",
-    "switchHint": "Switch active draft prefix",
-    "empty": "No layer prefixes available. Ask a layer admin to add one in the layer's Admin tab.",
-    "noAccess": "Sign in to choose a draft prefix."
+    "menuHeader": "بادئة المسودة النشطة",
+    "default": "افتراضي",
+    "manage": "إدارة في لوحة الطبقة",
+    "switchHint": "تبديل بادئة المسودة النشطة",
+    "empty": "لا تتوفر بادئات طبقة. اطلب من مسؤول الطبقة إضافة واحدة في تبويب الإدارة.",
+    "noAccess": "سجّل الدخول لاختيار بادئة المسودة.",
+    "label": "بادئة",
+    "choose": "اختر بادئة",
+    "add": "إضافة بادئة",
+    "delete": "حذف",
+    "setDefault": "تعيين كافتراضي",
+    "isDefault": "افتراضي",
+    "taken": "هذه البادئة مستخدمة بالفعل.",
+    "invalidFormat": "يجب أن تتكون البادئة من حرفين لاتينيين كبيرين.",
+    "cannotDeleteDefault": "لا يمكن حذف البادئة الافتراضية. عيّن بادئة أخرى كافتراضية أولاً.",
+    "lastPrefix": "يجب أن تمتلك الطبقة بادئة واحدة على الأقل.",
+    "addPlaceholder": "حرفان (مثال: ML)",
+    "confirmDeleteTitle": "حذف البادئة",
+    "confirmDeleteBody": "حذف هذه البادئة؟ ستبقى المسودات المنشأة بأرقامها الحالية.",
+    "confirmDeleteDefaultBody": "هذه هي البادئة الافتراضية الحالية. عيّن بادئة أخرى كافتراضية أولاً ثم احذف هذه.",
+    "manageNothing": "لم تختر طبقة — افتح صفحة طبقة أولاً لإدارة بادئاتها."
   }
 }
