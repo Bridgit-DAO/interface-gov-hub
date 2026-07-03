@@ -1473,7 +1473,8 @@ def migrate_hardcoded_users(app):
     import secrets
 
     hardcoded_users = {
-        'admin': {'name': 'Admin User', 'email': 'admin@metalayer.org', 'role': 'admin', 'theme': 'dark'},
+        'admin': {'name': 'Admin User', 'email': 'admin@govhub.org', 'role': 'admin', 'theme': 'dark'},
+        'info': {'name': 'GovHub Info', 'email': 'info@themetalayer.org', 'role': 'editor', 'theme': 'dark'},
         'daveed': {'name': 'Daveed', 'email': 'daveed@bridgit.io', 'role': 'admin', 'theme': 'dark'},
         'john': {'name': 'John Doe', 'email': 'john@example.com', 'role': 'editor', 'theme': 'dark'},
         'jane': {'name': 'Jane Smith', 'email': 'jane@example.com', 'role': 'user', 'theme': 'dark'},
