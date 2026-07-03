@@ -2242,10 +2242,14 @@ def update_submission_status(submission_id):
                 submission.rfc_number = int(rfc_number)
             except (ValueError, TypeError):
                 return jsonify({'success': False, 'message': 'Invalid RFC number'}), 400
-        if submission.ml_number and submission.ml_number.startswith('ML-Draft-'):
-            draft_num = submission.ml_number.split('-')[-1]
-            submission.ml_number = f"ML-RFC-{draft_num}"
-        submission.doc_type = 'rfc'
+        if submission.ml_number and '-' in submission.ml_number:
+            # ml_number may be either 'ML-Draft-001' or 'CL-Draft-001' (per-layer
+            # prefix). Preserve the leading 2-letter prefix when promoting the
+            # draft to an RFC so layer-prefixed drafts keep their prefix.
+            parts = submission.ml_number.split('-')
+            if len(parts) >= 3 and parts[1].upper() == 'DRAFT' and parts[2].isdigit():
+                prefix_token = parts[0]
+                submission.ml_number = f"{prefix_token}-RFC-{parts[2]}"
 
     db.session.commit()
 

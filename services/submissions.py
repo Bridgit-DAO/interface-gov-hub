@@ -75,7 +75,12 @@ def get_next_ml_number(doc_type='draft', layer_prefix='ML'):
     # or when the supplied value is empty/None. The 2-letter prefix token
     # replaces the literal 'ML' in the generated identifier.
     prefix_token = (layer_prefix or 'ML').strip().upper() or 'ML'
-    prefix = f"{prefix_token}-{doc_type.capitalize()}-"
+    # Normalize the doc-type segment to the canonical mixed-case label so
+    # 'rfc' -> 'RFC' (not 'Rfc') while 'draft' stays 'Draft'. Existing data
+    # uses 'ML-Draft-NNN' (capital D), so we keep 'Draft' title-cased.
+    raw_kind = (doc_type or 'draft').strip().lower()
+    kind = 'Draft' if raw_kind == 'draft' else raw_kind.upper()
+    prefix = f"{prefix_token}-{kind}-"
     max_ml = db.session.query(db.func.max(Submission.ml_number)).filter(
         Submission.ml_number.like(f"{prefix}%"),
         Submission.status.in_(['submitted', 'approved', 'published']),
