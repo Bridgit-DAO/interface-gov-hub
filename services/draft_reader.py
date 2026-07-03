@@ -348,6 +348,46 @@ def docx_body_to_safe_html(docx_path: str) -> Tuple[str, int]:
         except Exception:
             return False
 
+    def _cell_shading(tc) -> str:
+        """Return a hex color string if the cell has explicit shading, else ''."""
+        try:
+            tcPr = tc.find(_qn('w:tcPr'))
+            if tcPr is None:
+                return ''
+            shd = tcPr.find(_qn('w:shd'))
+            if shd is None:
+                return ''
+            fill = shd.get(_qn('w:fill')) or ''
+            fill = fill.strip().lower()
+            # 'auto' / 'FFFFFF' treated as no shading to avoid white-on-white
+            if not fill or fill in ('auto', 'ffffff'):
+                return ''
+            return fill
+        except Exception:
+            return ''
+
+    def _cell_style_attrs(tc) -> str:
+        """Inline style attributes for a cell (background-color, color).
+
+        Light fills (perceived luminance > 0.6) keep dark text; dark fills keep
+        light text. Auto/white fills are skipped so we don't override the page.
+        """
+        fill = _cell_shading(tc)
+        if not fill:
+            return ''
+        try:
+            r = int(fill[0:2], 16)
+            g = int(fill[2:4], 16)
+            b = int(fill[4:6], 16)
+        except ValueError:
+            return ''
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+        text_color = '#0a1628' if luminance > 0.6 else '#eef2ff'
+        # Use 90% alpha tint for the dark theme so the row blends with the
+        # navy card background instead of glowing against it.
+        style = f'background-color:#{fill};color:{text_color};'
+        return style
+
     parts: list = []
     word_count = 0
 
@@ -390,7 +430,14 @@ def docx_body_to_safe_html(docx_path: str) -> Tuple[str, int]:
                 col_count = max(col_count, len(row.cells))
             if col_count == 0:
                 continue
-            tbl_html = ['<table class="table table-striped table-bordered docx-table">']
+            # Drop `table-striped` so Bootstrap doesn't recolor odd rows with
+            # its light-mode body color (`#212529`), which is unreadable on the
+            # dark card background. `table-bordered` keeps visible cell edges.
+            tbl_html = ['<table class="table table-bordered docx-table">']
+            if header:
+                tbl_html.append('<thead>')
+            else:
+                tbl_html.append('<tbody>')
             for ri, row in enumerate(rows):
                 cells = list(row.cells)
                 # python-docx repeats the same cell object for horizontally-merged
@@ -411,6 +458,8 @@ def docx_body_to_safe_html(docx_path: str) -> Tuple[str, int]:
                     if cell is None:
                         tbl_html.append(f'<{row_tag}></{row_tag}>')
                         continue
+                    style_attrs = _cell_style_attrs(cell._tc)
+                    style_part = f' style="{style_attrs}"' if style_attrs else ''
                     # Render each paragraph in the cell as a separate line.
                     inner = []
                     for p in cell.paragraphs:
@@ -420,8 +469,13 @@ def docx_body_to_safe_html(docx_path: str) -> Tuple[str, int]:
                         word_count += len(t.split())
                         inner.append(_escape(t, quote=False))
                     cell_html = '<br>'.join(inner) if inner else ''
-                    tbl_html.append(f'<{row_tag}>{cell_html}</{row_tag}>')
+                    tbl_html.append(f'<{row_tag}{style_part}>{cell_html}</{row_tag}>')
                 tbl_html.append('</tr>')
+            if header:
+                tbl_html.append('</thead><tbody>')
+                tbl_html.append('</tbody>')
+            else:
+                tbl_html.append('</tbody>')
             tbl_html.append('</table>')
             parts.append(''.join(tbl_html))
         # sectPr / sdt / other nodes → ignored (page breaks, content controls)

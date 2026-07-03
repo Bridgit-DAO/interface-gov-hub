@@ -401,6 +401,29 @@
     rgba(5, 11, 26, 0.98) 55%,
     rgba(10, 18, 36, 0.92) 100%
   );
+  /* Bootstrap 5.1's `.table-striped` hardcodes color to #212529 (its
+     light-mode body color). Without this override the first row of any
+     striped table renders dark gray on dark navy. */
+  --bs-table-striped-color: var(--text-primary);
+  --bs-table-striped-bg: rgba(77, 159, 255, 0.06);
+  --bs-table-color: var(--text-primary);
+  --bs-table-bg: transparent;
+  --bs-table-border-color: var(--border-color);
+  --bs-table-hover-color: var(--text-primary);
+  --bs-table-hover-bg: rgba(77, 159, 255, 0.10);
+}
+
+/* Docx-rendered tables: headers stay bold and use the primary text
+   color, body cells stay readable on the dark card background. Bootstrap's
+   `:nth-of-type(odd)` rule no longer applies because the docx renderer
+   uses <thead> + <tbody>, but we keep this as a safety net. */
+.docx-table > thead th {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+.docx-table > tbody td {
+  color: var(--text-primary);
 }
 
 /* --- Layer feature pills (top tabs) --- */
