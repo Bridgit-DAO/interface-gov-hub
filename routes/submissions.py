@@ -320,7 +320,7 @@ SUBMISSION_STATUS_TEMPLATE = """
                     <p class="small">If you have questions about your submission:</p>
                     <ul class="small">
                         <li>Check the <a href="#" target="_blank">submission guidelines</a></li>
-                        <li>Contact the <a href="mailto:draft@metalayer.org">MLGH Secretariat</a></li>
+                        <li>Contact the <a href="mailto:info@metalayer.org">GovHub</a></li>
                         <li>Join the <a href="#" target="_blank">MLGH discussion list</a></li>
                     </ul>
                 </div>
