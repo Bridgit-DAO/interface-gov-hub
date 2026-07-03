@@ -320,7 +320,7 @@ def build_home_hub_cards_html():
     if r.get('layers', True):
         cards.append(_home_hub_card(
             '/layers/', 'fa-layer-group', 'Layers',
-            'Browse MLTF layers, workgroups, and living layer maps.',
+            'Browse layers, workgroups, and living layer maps.',
             'View Layers', primary=True,
         ))
     if r.get('workgroups', True):
@@ -343,7 +343,7 @@ def build_home_hub_cards_html():
         ))
     cards.append(_home_hub_card(
         '/person/', 'fa-user-friends', 'People',
-        'Directory of Meta-Layer participants and contributors.',
+        'Directory of Gov Hub participants and contributors.',
         'View People',
     ))
     if r.get('badges', True):
@@ -375,14 +375,14 @@ def build_home_hero_subtitle():
         if r.get(key, True):
             labels.append(label)
     if not labels:
-        return 'Welcome to the Meta-Layer Governance Hub — coordination in one place.'
+        return 'Welcome to Gov Hub — Interface Governance Hub. Coordination in one place.'
     if len(labels) == 1:
         joined = labels[0]
     elif len(labels) == 2:
         joined = f'{labels[0]} and {labels[1]}'
     else:
         joined = ', '.join(labels[:-1]) + f', and {labels[-1]}'
-    return f'Welcome to the Meta-Layer Governance Hub — {joined}, and coordination in one place.'
+    return f'Welcome to Gov Hub — Interface Governance Hub. {joined.capitalize()}, and coordination in one place.'
 
 
 def generate_civic_mason_nav_li():

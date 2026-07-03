@@ -74,7 +74,7 @@ def home():
     activity_html = build_home_activity_rotator_html(get_platform_activity_items(7))
 
     return _format_base_template(
-        title="MLGH",
+        title="Gov Hub",
         theme=current_theme,
         user_menu=user_menu,
         content=f"""
@@ -83,7 +83,7 @@ def home():
             <div class="gh-home-hero-banner">
                 <img
                     src="/static/images/gov-hub-home-hero.png"
-                    alt="Gov Hub — Meta-Layer Governance Hub"
+                    alt="Gov Hub — Interface Governance Hub"
                     width="1600"
                     height="900"
                     loading="eager"
