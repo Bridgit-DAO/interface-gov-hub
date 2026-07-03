@@ -768,11 +768,11 @@ def submit_draft():
         # Validate layer_id when layers exist
         if not layer_id and layers:
             flash('Please select a layer for this submission.', 'error')
-            return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+            return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
         if group and layer_id and not workgroup_belongs_to_layer(group, layer_id):
             flash('Selected workgroup is not valid for this layer.', 'error')
-            return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+            return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
         from services.submission_dedup import (
             compute_content_hash_for_file,
@@ -800,17 +800,17 @@ def submit_draft():
             # Validation
             if not title or not authors or not ordinal_id:
                 flash('Title, authors, and inscription ID are required', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             if not ordinal_content_url:
                 flash('Please preview the ordinal before submitting', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             try:
                 ordinal_content_url = validate_ordinals_fetch_url(ordinal_content_url)
             except ValueError:
                 flash('Invalid ordinal content URL', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             # Fetch ordinal content and calculate pages/words
             try:
@@ -846,7 +846,7 @@ def submit_draft():
             )
             if conflict:
                 flash(conflict_message(conflict[0], conflict[1]), 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             # Create submission record with ordinal data
             current_user_info = get_current_user()
@@ -887,12 +887,12 @@ def submit_draft():
             # Validation
             if not title or not authors or not file:
                 flash('Title, authors, and file are required', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             stored_name, file_path, upload_err = save_submission_upload(file, submission_id)
             if upload_err:
                 flash(upload_err, 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             filename = stored_name
 
             # Calculate pages and words
@@ -909,7 +909,7 @@ def submit_draft():
                     os.remove(file_path)
                 except OSError:
                     pass
-                return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             # Create submission record with file data
             submission = Submission(
@@ -945,7 +945,7 @@ def submit_draft():
         flash('Draft submitted successfully!', 'success')
         return redirect(url_for('submissions.submission_detail', submission_id=submission.draft_name or submission.id))
 
-    return _format_base_template(title="Submit a Meta-Layer Draft - MLGH", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+    return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
 
 @bp.route('/submit/revision/<draft_name>/', methods=['GET', 'POST'])
@@ -1315,7 +1315,7 @@ def submission_status():
     </div>
     """
 
-    return _format_base_template(title="My Submissions - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return _format_base_template(title="My Submissions - GovHub", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/api/submissions/<submission_id>/metadata/', methods=['PATCH'])
@@ -1648,7 +1648,7 @@ def submission_detail(submission_id):
 
     rendered_content = render_template_string(SUBMISSION_STATUS_TEMPLATE, **template_vars)
     return _format_base_template(
-        title=f'{status_doc_title} - MLGH',
+        title=f'{status_doc_title} - GovHub',
         theme=current_theme,
         user_menu=user_menu,
         content=rendered_content,
@@ -2101,7 +2101,7 @@ def admin_submissions():
     """
 
     return _format_base_template(
-        title="Submission Management - MLGH",
+        title="Submission Management - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)

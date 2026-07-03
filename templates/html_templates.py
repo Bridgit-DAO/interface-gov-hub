@@ -277,7 +277,7 @@ BASE_TEMPLATE = """
             object-fit: contain;
         }}
 
-        /* White logo for dark mode — only for default MLGH logo, not layer logos */
+        /* White logo for dark mode — only for default GovHub logo, not layer logos */
         [data-theme="dark"] .navbar-brand img.navbar-brand-logo-invert {{
             filter: brightness(0) invert(1);
         }}
@@ -1566,7 +1566,7 @@ BASE_TEMPLATE = """
 </html>
 """
 
-# Standalone layer view: layer branding in navbar, View in MLGH button. Same structure as BASE_TEMPLATE.
+# Standalone layer view: layer branding in navbar, View in GovHub button. Same structure as BASE_TEMPLATE.
 LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
     '''    <nav class="navbar navbar-expand-lg">
         <div class="container">
@@ -1747,7 +1747,7 @@ SUBMIT_TEMPLATE = """
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="terms" required>
                                         <label class="form-check-label" for="terms">
-                                            I agree to the <a href="#" class="mlgh-terms-link" data-checkbox-id="terms">MLGH submission terms</a>
+                                            I agree to the <a href="#" class="mlgh-terms-link" data-checkbox-id="terms">GovHub submission terms</a>
                                         </label>
                                     </div>
                                 </div>
@@ -1850,7 +1850,7 @@ SUBMIT_TEMPLATE = """
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="ordinalTerms" required>
                                         <label class="form-check-label" for="ordinalTerms">
-                                            I agree to the <a href="#" class="mlgh-terms-link" data-checkbox-id="ordinalTerms">MLGH submission terms</a>
+                                            I agree to the <a href="#" class="mlgh-terms-link" data-checkbox-id="ordinalTerms">GovHub submission terms</a>
                                         </label>
                                     </div>
                                 </div>
@@ -2091,7 +2091,7 @@ SUBMIT_TEMPLATE = """
                     <ul class="small">
                         <li>PDF format preferred</li>
                         <li>Maximum 16MB file size</li>
-                        <li>Use standard MLGH formatting</li>
+                        <li>Use standard GovHub formatting</li>
                     </ul>
                     
                     <h6>Ordinal Requirements:</h6>
@@ -2106,7 +2106,7 @@ SUBMIT_TEMPLATE = """
                         <li>Clear, descriptive title</li>
                         <li>Complete author information</li>
                         <li>Abstract describing the work</li>
-                        <li>Proper MLGH document structure</li>
+                        <li>Proper GovHub document structure</li>
                     </ul>
                     
                     <h6>Review Process:</h6>
@@ -2122,28 +2122,28 @@ SUBMIT_TEMPLATE = """
     </div>
 </div>
 
-<!-- MLGH submission terms modal -->
+<!-- GovHub submission terms modal -->
 <div class="modal fade" id="mlghTermsModal" tabindex="-1" aria-labelledby="mlghTermsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="mlghTermsModalLabel">MLGH Submission Terms</h5>
+                <h5 class="modal-title" id="mlghTermsModalLabel">GovHub Submission Terms</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <p class="text-muted small">Draft placeholder — final legal text to be provided.</p>
                 <h6>1. Grant of submission</h6>
-                <p>By submitting a draft to the Meta-Layer Governance Hub (MLGH), you represent that you have the right to submit the work and that it does not infringe the rights of others.</p>
+                <p>By submitting a draft to the Interface Governance Hub, you represent that you have the right to submit the work and that it does not infringe the rights of others.</p>
                 <h6>2. Review process</h6>
-                <p>Submissions are subject to technical review, workgroup consideration, and publication decisions according to MLGH governance procedures. Submission does not guarantee approval or publication.</p>
+                <p>Submissions are subject to technical review, workgroup consideration, and publication decisions according to GovHub governance procedures. Submission does not guarantee approval or publication.</p>
                 <h6>3. Content standards</h6>
-                <p>Submitted materials must meet MLGH formatting and content requirements. Ordinals and uploaded files must be complete, accurately described, and accompanied by correct author attribution.</p>
+                <p>Submitted materials must meet GovHub formatting and content requirements. Ordinals and uploaded files must be complete, accurately described, and accompanied by correct author attribution.</p>
                 <h6>4. Licensing</h6>
                 <p>You agree that approved documents may be published and distributed under the layer’s chosen open documentation license unless otherwise agreed in writing.</p>
                 <h6>5. Ordinal submissions</h6>
                 <p>For Bitcoin Ordinal submissions, you confirm the inscription ID refers to content you intend to submit and that previewed content matches what reviewers will evaluate.</p>
                 <h6>6. Privacy</h6>
-                <p>Contact information associated with your account may be used for submission-related correspondence. See the MLGH privacy policy for details.</p>
+                <p>Contact information associated with your account may be used for submission-related correspondence. See the GovHub privacy policy for details.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -2440,7 +2440,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return div.innerHTML;
     }
 
-    // MLGH submission terms modal
+    // GovHub submission terms modal
     let termsTargetCheckbox = null;
     const mlghTermsModalEl = document.getElementById('mlghTermsModal');
     document.querySelectorAll('.mlgh-terms-link').forEach(function(link) {

@@ -33,7 +33,7 @@ def _email_shell(title: str, body_html: str) -> str:
 <html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#222;max-width:560px;margin:0 auto;padding:24px;">
 <h2 style="color:#667eea;margin-top:0;">{html.escape(title)}</h2>
 {body_html}
-<p style="font-size:12px;color:#888;margin-top:32px;">Gov Hub · Meta-Layer Governance Hub</p>
+<p style="font-size:12px;color:#888;margin-top:32px;">Gov Hub · Interface Governance Hub</p>
 </body></html>"""
 
 

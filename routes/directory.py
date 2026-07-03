@@ -148,7 +148,7 @@ def people():
     }})();
     </script>
     """
-    return render_page("People - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("People - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/meeting/')
@@ -159,16 +159,16 @@ def meetings():
 
     content = f"""
     {gh_page_open()}
-    {gh_page_header('Meetings', 'Upcoming MLGH meetings and sessions — coming soon', 'fa-calendar', actions_html='<a href="/" class="btn btn-outline-secondary btn-sm">Home</a>')}
+    {gh_page_header('Meetings', 'Upcoming GovHub meetings and sessions — coming soon', 'fa-calendar', actions_html='<a href="/" class="btn btn-outline-secondary btn-sm">Home</a>')}
     <div class="living-module">
         <div class="living-module-body text-center py-5">
             <i class="fas fa-calendar fa-3x text-muted mb-3"></i>
-            <p class="text-muted mb-0">Information about upcoming MLGH meetings will be available here.</p>
+            <p class="text-muted mb-0">Information about upcoming GovHub meetings will be available here.</p>
         </div>
     </div>
     {gh_page_close()}
     """
-    return render_page("Meetings - MLGH", content, theme=session.get('theme', 'dark'), user_menu=user_menu)
+    return render_page("Meetings - GovHub", content, theme=session.get('theme', 'dark'), user_menu=user_menu)
 
 
 @bp.route('/layers/')
@@ -293,7 +293,7 @@ def projects_directory():
     GhDirectory.bindControls('search-input', 'sort-filter', filterProjects);
     </script>
     """
-    return render_page("Layers Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Layers Directory - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/workgroups/')
@@ -583,7 +583,7 @@ def workgroups_directory():
     </script>
     """
     
-    return render_page("Workgroups Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Workgroups Directory - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/votes/')
@@ -598,7 +598,7 @@ def votes_directory():
     {gh_page_header('Votes', 'Votes and elections are organized by layer', 'fa-vote-yea', actions_html='<a href="/layers/" class="btn btn-primary btn-sm"><i class="fas fa-layer-group me-1"></i>Browse Layers</a>')}
     {gh_page_close()}
     """
-    return render_page("Votes - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Votes - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/artifacts/')
@@ -728,7 +728,7 @@ def artifacts_directory():
     loadArtifactsDirectory();
     </script>
     """
-    return render_page("Artifacts - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Artifacts - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/opportunities/')
@@ -750,7 +750,7 @@ def opportunities_directory():
     {gh_page_header('Opportunities', opp_blurb + ' Browse layers to find opportunities.', 'fa-bullseye', '<a href="/layers/" class="btn btn-primary"><i class="fas fa-layer-group me-2"></i>Browse Layers</a>')}
     {gh_page_close()}
     """
-    return render_page("Opportunities - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Opportunities - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 def build_waitlists_content(layer_slug=None):
@@ -963,7 +963,7 @@ def waitlists_directory():
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
     content = build_waitlists_content(None)
-    return render_page("Waitlists Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Waitlists Directory - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/guilds/')
@@ -1055,4 +1055,4 @@ def guilds_directory():
     GhDirectory.bindControls('search-input', 'sort-filter', filterGuilds);
     </script>
     """
-    return render_page("Guilds Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Guilds Directory - GovHub", content, theme=current_theme, user_menu=user_menu)

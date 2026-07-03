@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MLGH Data Viewer - Entry point.
+GovHub Entry point.
 
 Runs the Flask app. Use: python run.py
 """

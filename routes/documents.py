@@ -422,7 +422,7 @@ def all_documents():
     </script>
     """
 
-    return _format_base_template(title="Documents - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return _format_base_template(title="Documents - GovHub", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/doc/draft/<path:draft_name>.txt')
@@ -1663,7 +1663,7 @@ Meta-Layer Initiative
         title_id = draft['name']
 
     return _format_base_template(
-        title=f"{title_id} - MLGH",
+        title=f"{title_id} - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=content,

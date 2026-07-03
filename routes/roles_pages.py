@@ -163,7 +163,7 @@ def roles_directory():
     </script>
     """
 
-    return render_page("Roles Directory - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Roles Directory - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 # ============================================================================
@@ -471,7 +471,7 @@ def role_images_directory():
     </script>
     """
 
-    return render_page("Badges - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Badges - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 # ============================================================================
@@ -627,7 +627,7 @@ def one_time_badges_page():
     loadProjects().then(() => loadOTBs());
     </script>
     """
-    return render_page("One-Time Badges - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("One-Time Badges - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 # ============================================================================
@@ -741,7 +741,7 @@ def _render_role_detail(role_slug, layer_slug=None, layer_id=None, use_layer_sta
     loadRole();
     </script>
     """
-    title = f"Role: {role_slug} - MLGH"
+    title = f"Role: {role_slug} - GovHub"
     if use_layer_standalone and layer_slug:
         return render_layer_standalone_page(
             title, content,
@@ -800,7 +800,7 @@ def claim_role_page(role_slug):
     loadRole();
     </script>
     """
-    return render_page(f"Claim Role: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page(f"Claim Role: {role_slug} - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 # ============================================================================
@@ -1299,7 +1299,7 @@ def role_images_gallery(role_slug):
     </script>
     """
 
-    return render_page(f"Designs: {role_title} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page(f"Designs: {role_title} - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/roles/<role_slug>/images/<image_id>/')
@@ -1594,4 +1594,4 @@ def role_image_detail(role_slug, image_id):
     </script>
     """
 
-    return render_page(f"Image Detail: {role_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page(f"Image Detail: {role_slug} - GovHub", content, theme=current_theme, user_menu=user_menu)

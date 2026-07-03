@@ -1,7 +1,7 @@
-# Twitter/X Thread: MLTF Datatracker Early Access
+# Twitter/X Thread: GovHub Early Access
 
-**Thread Structure:** 8-10 tweets  
-**Hashtags:** Use sparingly (1-2 per tweet max)  
+**Thread Structure:** 8-10 tweets
+**Hashtags:** Use sparingly (1-2 per tweet max)
 **Format:** Number each tweet for easy posting
 
 ---
@@ -10,7 +10,7 @@
 
 🚀 Help build the next internet.
 
-MLTF Datatracker Early Access is now open.
+GovHub Early Access is now open.
 
 We're building the next level of the internet — where meaning, identity, and trust are formed. Your voice shapes the foundation.
 
@@ -18,7 +18,7 @@ We're building the next level of the internet — where meaning, identity, and t
 
 rfc.themetalayer.org
 
-#MLTF
+#GovHub
 
 ---
 
@@ -30,7 +30,7 @@ This is our constitutional document — it sets the rules for everything that fo
 
 Your input on this draft shapes:
 • Governance frameworks
-• Terminology & ontology  
+• Terminology & ontology
 • Substrate requirements
 • Pilot programs
 
@@ -46,7 +46,7 @@ The current internet works at the technical level. The next internet needs gover
 
 We're building governance frameworks that are:
 ✅ Transparent
-✅ Participatory  
+✅ Participatory
 ✅ Regenerative
 ✅ People-centered
 
@@ -86,7 +86,7 @@ rfc.themetalayer.org
 
 We're accepting comments on ML-Draft-001 for the next two weeks.
 
-This is a time-bound opportunity to shape the foundational document that will guide the MLTF for years to come.
+This is a time-bound opportunity to shape the foundational document that will guide the Interface Governance Hub for years to come.
 
 Your comments now = lasting impact.
 
@@ -131,7 +131,7 @@ Read ML-Draft-001. Share your perspective. Shape the foundation.
 
 rfc.themetalayer.org
 
-#MLTF #NextInternet
+#GovHub #NextInternet
 
 ---
 
@@ -145,7 +145,7 @@ Early Access. Open participation. Your voice matters.
 
 👉 rfc.themetalayer.org
 
-#MLTF #EarlyAccess
+#GovHub #EarlyAccess
 
 ---
 
@@ -154,16 +154,16 @@ Early Access. Open participation. Your voice matters.
 ### Tweet 1/6
 🚀 Help build the next internet.
 
-MLTF Datatracker Early Access is live! ML-Draft-001 sets the foundation — your input shapes everything.
+GovHub Early Access is live! ML-Draft-001 sets the foundation — your input shapes everything.
 
 Read it: rfc.themetalayer.org/doc/draft/rbpa16we/
 
-#MLTF #NextInternet
+#GovHub #NextInternet
 
 ### Tweet 2/6
 📋 ML-Draft-001 is our constitutional document.
 
-It establishes how the MLTF operates and sets rules for:
+It establishes how the Interface Governance Hub operates and sets rules for:
 • Governance frameworks
 • Terminology & ontology
 • Substrate requirements
@@ -210,7 +210,7 @@ Read ML-Draft-001. Share your perspective. Build the next level of the internet 
 
 👉 rfc.themetalayer.org
 
-#MLTF #NextInternet
+#GovHub #NextInternet
 
 ---
 

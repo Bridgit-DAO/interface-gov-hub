@@ -2428,7 +2428,7 @@ def migrate_layer_programs_v1(app):
                         id, layer_id, slug, name, description, status,
                         hub_path, hub_mode, launched_at, created_at, updated_at
                     ) VALUES (?, ?, 'dp-challenge', 'DP Challenge',
-                        'Propose patches on Meta-Layer DP drafts.',
+                        'Propose patches on the Desirable Property drafts.',
                         'active', '/dp-challenge/', 'dp', ?, ?, ?)
                     """,
                     (program_id, layer_id, now, now, now),
@@ -2527,7 +2527,7 @@ def migrate_dp_challenge_notify_waitlist_v1(app):
                 (
                     waitlist_id,
                     launch_utc_str,
-                    'Propose patches on Meta-Layer DP drafts. Opens mid-July 2026.',
+                    'Propose patches on the Desirable Property drafts. Opens mid-July 2026.',
                     datetime.utcnow().isoformat(sep=' ', timespec='seconds'),
                     prog_row[0],
                 ),

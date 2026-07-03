@@ -724,7 +724,7 @@ def guild_detail(guild_slug):
     </script>
     """
 
-    return render_page(f"Guild: {guild_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page(f"Guild: {guild_slug} - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/guilds/invite/<path:invite_token>/')
@@ -802,7 +802,7 @@ def guild_invite_landing(invite_token):
     }})();
     </script>
     """
-    return render_page("Guild invitation - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Guild invitation - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/guilds/create/')
@@ -900,4 +900,4 @@ def create_guild_page():
     </script>
     """
 
-    return render_page("Create Guild - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Create Guild - GovHub", content, theme=current_theme, user_menu=user_menu)

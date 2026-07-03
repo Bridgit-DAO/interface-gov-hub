@@ -144,7 +144,7 @@ def _render_layer_standalone(project_slug, waitlist_id=None):
 
 def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     """Shared logic for project detail page. waitlist_id when from /layers/<slug>/waitlist/<id>/.
-    standalone=True: layer branding (logo, name), View in MLGH button."""
+    standalone=True: layer branding (logo, name), View in GovHub button."""
     from services.rendering import render_page, render_layer_standalone_page, generate_user_menu
 
     current_app.logger.info(f"[LAYER] _render_project_detail: project_slug={project_slug!r} waitlist_id={waitlist_id}")
@@ -4736,7 +4736,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             user_menu=user_menu,
         )
     else:
-        html = render_page(f"Layer: {project_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+        html = render_page(f"Layer: {project_slug} - GovHub", content, theme=current_theme, user_menu=user_menu)
     resp = make_response(html)
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'

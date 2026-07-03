@@ -1031,4 +1031,4 @@ def workgroup_detail(workgroup_slug):
     </script>
     """
 
-    return render_page(f"Workgroup: {workgroup_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page(f"Workgroup: {workgroup_slug} - GovHub", content, theme=current_theme, user_menu=user_menu)

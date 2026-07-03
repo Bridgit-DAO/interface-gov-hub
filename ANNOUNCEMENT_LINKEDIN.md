@@ -1,12 +1,12 @@
-# LinkedIn Announcement: MLTF Datatracker Early Access
+# LinkedIn Announcement: GovHub Early Access
 
 ---
 
-**🚀 Help Build the Next Internet — MLTF Datatracker Early Access Now Open**
+**🚀 Help Build the Next Internet — GovHub Early Access Now Open**
 
 We're building the next level of the internet, and we need your voice to shape it.
 
-Today, we're launching **Early Access** to the MLTF Datatracker — a participatory platform where we're developing the foundational practices, terminology, and standards that will govern the next internet. This is about the interface layer: where meaning, identity, trust, and human–agent interaction are formed.
+Today, we're launching **Early Access** to GovHub — a participatory platform where we're developing the foundational practices, terminology, and standards that will govern the next internet. This is about the interface layer: where meaning, identity, trust, and human–agent interaction are formed.
 
 **Why This Matters**
 
@@ -16,7 +16,7 @@ This isn't just about technology — it's about building a people-centered gover
 
 **ML-Draft-001: Foundational Governance Practices**
 
-We're starting with the most important document: **ML-Draft-001**, which establishes how the MLTF itself will operate. This draft sets the rules for all future work, including:
+We're starting with the most important document: **ML-Draft-001**, which establishes how the Interface Governance Hub itself will operate. This draft sets the rules for all future work, including:
 - Governance frameworks
 - Desirable Properties of the Meta-Layer
 - Terminology and ontology
@@ -59,6 +59,6 @@ This is early access — you're among the first to help build the next level of 
 
 👉 **Get started**: [rfc.themetalayer.org](https://rfc.themetalayer.org)
 
-#MLTF #InternetGovernance #MetaLayer #OpenStandards #CommunityBuilding #TechGovernance #EarlyAccess
+#GovHub #InternetGovernance #MetaLayer #OpenStandards #CommunityBuilding #TechGovernance #EarlyAccess
 
 ---

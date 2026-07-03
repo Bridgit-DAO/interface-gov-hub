@@ -193,7 +193,7 @@ def user_profile(username):
         profile_user = User.query.filter_by(handle=username).first()
 
     if not profile_user:
-        return render_page("User Not Found - MLGH", f"""
+        return render_page("User Not Found - GovHub", f"""
             <div class="container mt-5">
                 <div class="alert alert-danger">
                     <h4>User Not Found</h4>
@@ -641,7 +641,7 @@ def user_profile(username):
     </script>
     """
 
-    return render_page(f"{profile_user.displayName or profile_user.username} - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page(f"{profile_user.displayName or profile_user.username} - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/profile/edit/')
@@ -984,4 +984,4 @@ def profile_edit():
     </script>
     """
 
-    return render_page("Edit Profile - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Edit Profile - GovHub", content, theme=current_theme, user_menu=user_menu)

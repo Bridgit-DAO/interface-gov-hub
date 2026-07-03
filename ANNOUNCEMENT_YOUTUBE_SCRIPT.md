@@ -1,7 +1,7 @@
-# YouTube Announcement Script: MLTF Datatracker Early Access
+# YouTube Announcement Script: GovHub Early Access
 
-**Target Length:** 3-5 minutes  
-**Tone:** Inviting, clear, purpose-driven  
+**Target Length:** 3-5 minutes
+**Tone:** Inviting, clear, purpose-driven
 **Visual Style:** Screen recording of platform + talking head
 
 ---
@@ -18,7 +18,7 @@
 
 ---
 
-## [0:30-1:30] What is MLTF?
+## [0:30-1:30] What is GovHub?
 
 **[Screen: Visual diagram of meta-layer concept]**
 
@@ -26,7 +26,7 @@
 
 **[Screen: Platform demo - Documents page]**
 
-"The MLTF Datatracker is our participatory platform for developing the foundational practices, terminology, and standards for the next internet. It's built on proven principles: rough consensus, transparency, and open participation. Anyone can contribute, and everyone's voice matters."
+"GovHub is our participatory platform for developing the foundational practices, terminology, and standards for the next internet. It's built on proven principles: rough consensus, transparency, and open participation. Anyone can contribute, and everyone's voice matters."
 
 ---
 
@@ -34,7 +34,7 @@
 
 **[Screen: ML-Draft-001 page]**
 
-"We're starting with the most important document: **ML-Draft-001: Foundational Governance Practices**. This draft establishes how the MLTF itself will operate — it's essentially our constitution."
+"We're starting with the most important document: **ML-Draft-001: Foundational Governance Practices**. This draft establishes how the Interface Governance Hub itself will operate — it's essentially our constitution."
 
 **[Screen: Scroll through document]**
 
@@ -87,7 +87,7 @@
 "After ML-Draft-001, we'll publish drafts on:
 - Desirable Properties of the Meta-Layer
 - Terminology and ontology
-- Substrate requirements  
+- Substrate requirements
 - Pilot programs"
 
 "And anyone can submit their own drafts. This is an open, participatory process."
@@ -119,11 +119,11 @@
 
 ## Key Messages to Emphasize:
 
-✅ Early Access (not beta)  
-✅ ML-Draft-001 is foundational  
-✅ Quality comments matter  
-✅ 2-week deadline  
-✅ Open to anyone  
+✅ Early Access (not beta)
+✅ ML-Draft-001 is foundational
+✅ Quality comments matter
+✅ 2-week deadline
+✅ Open to anyone
 ✅ First-mover advantage
 
 ---
