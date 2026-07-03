@@ -105,9 +105,42 @@ def create_app():
             del connection_record
             cursor = dbapi_connection.cursor()
             cursor.execute('PRAGMA journal_mode=WAL')
+            # Auto-checkpoint when WAL reaches ~200 pages (~800 KB) instead of
+            # the default 1000 pages (~4 MB). Prevents WAL from growing large
+            # enough to cause 'disk I/O error' on read paths on a long-running
+            # dev/prod server that has minimal write traffic.
+            cursor.execute('PRAGMA wal_autocheckpoint=200')
             cursor.execute('PRAGMA busy_timeout=30000')
             cursor.execute('PRAGMA foreign_keys=ON')
             cursor.close()
+
+        # Periodic best-effort WAL checkpoint so the file stays small even when
+        # nothing is writing (default autocheckpoint only fires on writes).
+        # Without this the WAL can grow to MB on dev where the long-running
+        # Flask process only does a handful of writes.
+        import threading
+        import time as _time
+
+        def _sqlite_wal_periodic_checkpoint():
+            interval = int(os.environ.get('SQLITE_WAL_CHECKPOINT_SECS', '60'))
+            while True:
+                _time.sleep(interval)
+                try:
+                    with app.app_context():
+                        with db.engine.connect() as _conn:
+                            _conn.exec_driver_sql('PRAGMA wal_checkpoint(PASSIVE)')
+                            _conn.commit()
+                except Exception as _err:  # noqa: BLE001
+                    try:
+                        app.logger.warning('WAL checkpoint failed: %s', _err)
+                    except Exception:
+                        pass
+
+        threading.Thread(
+            target=_sqlite_wal_periodic_checkpoint,
+            name='sqlite-wal-checkpoint',
+            daemon=True,
+        ).start()
 
     # Models (must be after db.init_app)
     from models import (

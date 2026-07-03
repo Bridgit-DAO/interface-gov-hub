@@ -90,6 +90,12 @@ __pycache__
 instance/*.db
 instance_dev/*.db
 *.db
+instance/*.db-wal
+instance/*.db-shm
+instance_dev/*.db-wal
+instance_dev/*.db-shm
+*.db-wal
+*.db-shm
 instance/**/*.log
 instance_dev/**/*.log
 
