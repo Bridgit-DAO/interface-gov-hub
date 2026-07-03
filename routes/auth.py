@@ -79,7 +79,7 @@ def login():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     return _format_base_template(
-        title="Sign In - MLGH",
+        title="Sign In - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=LOGIN_TEMPLATE,

@@ -82,7 +82,7 @@ def groups():
     </div>
     """
     return _format_base_template(
-        title="Workgroups - MLGH",
+        title="Workgroups - GovHub",
         theme=current_theme,
         content=content,
         user_menu=user_menu, build_number=BUILD_NUMBER)
@@ -244,7 +244,7 @@ def group_detail(acronym):
     </script>
     """
     return _format_base_template(
-        title=f"{group['name']} - MLGH",
+        title=f"{group['name']} - GovHub",
         theme=current_theme,
         content=content,
         user_menu=user_menu, build_number=BUILD_NUMBER)

@@ -1,8 +1,8 @@
-# Hero Image Prompt for MLTF Datatracker Announcement
+# Hero Image Prompt for GovHub Announcement
 
 ## Primary Hero Image (LinkedIn/Website Header)
 
-**Style:** Modern, professional, tech-forward, optimistic  
+**Style:** Modern, professional, tech-forward, optimistic
 **Dimensions:** 1200x627px (LinkedIn), 1920x1080px (YouTube thumbnail), 1600x900px (Website hero)
 
 ---
@@ -36,7 +36,7 @@ COLOR PALETTE:
 
 TEXT OVERLAY AREA:
 - Leave space in center or bottom third for text
-- "MLTF Datatracker - Early Access" or "ML-Draft-001"
+- "GovHub - Early Access" or "ML-Draft-001"
 - "Help Build the Next Internet" or "Building the Next Level of the Internet"
 
 STYLE REFERENCES:
@@ -67,13 +67,13 @@ Technical diagram aesthetic: layered internet architecture showing current inter
 
 ## YouTube Thumbnail Image
 
-**Dimensions:** 1280x720px  
+**Dimensions:** 1280x720px
 **Style:** Bold, eye-catching, text-heavy
 
 ### Prompt
 
 ```
-YouTube thumbnail design for "MLTF Datatracker Early Access Launch":
+YouTube thumbnail design for "GovHub Early Access Launch":
 
 VISUAL:
 - Split screen: left side shows abstract network/layer visualization (blue/purple)
@@ -83,7 +83,7 @@ VISUAL:
 
 TEXT ELEMENTS (to be added in design tool):
 - Large headline: "Help Build the Next Internet"
-- Subheadline: "MLTF Datatracker Early Access"
+- Subheadline: "GovHub Early Access"
 - Callout badge: "ML-Draft-001"
 - Small text: "rfc.themetalayer.org"
 
@@ -181,7 +181,7 @@ Text Medium: #666666
 
 1. **Consistency:** Use same color palette across all images
 2. **Text Overlay:** Always ensure text is readable (high contrast)
-3. **Branding:** Include "MLTF" or "rfc.themetalayer.org" subtly
+3. **Branding:** Include "GovHub" or "rfc.themetalayer.org" subtly
 4. **Versions:** Create multiple versions for A/B testing
 5. **Accessibility:** Ensure color contrast meets WCAG AA standards
 

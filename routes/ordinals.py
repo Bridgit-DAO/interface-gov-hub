@@ -578,7 +578,7 @@ def immortalize_success(order_id):
 </script>
 '''
     return _format_base_template(
-        title="Order Confirmed - MLGH",
+        title="Order Confirmed - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=content,

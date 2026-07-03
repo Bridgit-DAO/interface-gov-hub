@@ -110,7 +110,7 @@ def send_platform_invitation_email(
 <html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#222;max-width:560px;margin:0 auto;padding:24px;">
 <h2 style="color:#667eea;margin-top:0;">Invitation — {html.escape(short_name)}</h2>
 {body}
-<p style="font-size:12px;color:#888;margin-top:32px;">Gov Hub · Meta-Layer Governance Hub</p>
+<p style="font-size:12px;color:#888;margin-top:32px;">Gov Hub · Interface Governance Hub</p>
 </body></html>"""
     return send_resend_email(
         to=[invitee_email.strip()],

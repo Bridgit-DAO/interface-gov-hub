@@ -45,7 +45,7 @@
     "myLayers": "My Layers",
     "mySubmissions": "My Submissions",
     "viewStandalone": "View standalone",
-    "viewInMLGH": "View in MLGH",
+    "viewInMLGH": "View in GovHub",
     "adminDashboard": "Admin Dashboard",
     "logout": "Logout",
     "signIn": "Sign In"
@@ -59,6 +59,14 @@
     "switchToDark": "Switch to dark mode",
     "systemAuto": "System theme (auto) — click to switch",
     "toggle": "Toggle theme"
+  },
+  "prefix": {
+    "menuHeader": "Active draft prefix",
+    "default": "Default",
+    "manage": "Manage in layer admin",
+    "switchHint": "Switch active draft prefix",
+    "empty": "No layer prefixes available. Ask a layer admin to add one in the layer's Admin tab.",
+    "noAccess": "Sign in to choose a draft prefix."
   },
   "api": {
     "errors": {

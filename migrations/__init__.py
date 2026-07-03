@@ -2428,7 +2428,7 @@ def migrate_layer_programs_v1(app):
                         id, layer_id, slug, name, description, status,
                         hub_path, hub_mode, launched_at, created_at, updated_at
                     ) VALUES (?, ?, 'dp-challenge', 'DP Challenge',
-                        'Propose patches on Meta-Layer DP drafts.',
+                        'Propose patches on the Desirable Property drafts.',
                         'active', '/dp-challenge/', 'dp', ?, ?, ?)
                     """,
                     (program_id, layer_id, now, now, now),
@@ -2527,7 +2527,7 @@ def migrate_dp_challenge_notify_waitlist_v1(app):
                 (
                     waitlist_id,
                     launch_utc_str,
-                    'Propose patches on Meta-Layer DP drafts. Opens mid-July 2026.',
+                    'Propose patches on the Desirable Property drafts. Opens mid-July 2026.',
                     datetime.utcnow().isoformat(sep=' ', timespec='seconds'),
                     prog_row[0],
                 ),
@@ -2701,3 +2701,132 @@ def migrate_user_mfa_v1(app):
         conn.close()
     except Exception as e:
         print(f'⚠️  Error in migrate_user_mfa_v1: {e}')
+
+
+def migrate_layer_prefix_v1(app):
+    """Layer-scoped two-letter draft prefix table (e.g. "ML", "CL").
+
+    Globally unique per prefix. Seeds "ML" as the default prefix for the
+    first existing layer (preserving legacy ML-Draft-NNN references); other
+    layers get a deterministic placeholder ("L1", "L2", ...) that admins can
+    rename to their real two-letter code via the new Prefixes tab.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='layer_prefix'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE layer_prefix (
+                    id VARCHAR(36) PRIMARY KEY,
+                    layer_id VARCHAR(36) NOT NULL,
+                    prefix VARCHAR(2) NOT NULL,
+                    is_default VARCHAR(1) NOT NULL DEFAULT '0',
+                    created_by VARCHAR(36),
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (layer_id) REFERENCES layer(id),
+                    FOREIGN KEY (created_by) REFERENCES user(id),
+                    CONSTRAINT uq_layer_prefix_global UNIQUE (prefix)
+                )
+                """
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_layer_prefix_layer '
+                'ON layer_prefix(layer_id)'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_layer_prefix_prefix '
+                'ON layer_prefix(prefix)'
+            )
+            print('✅ Created layer_prefix table')
+
+        # Backfill default prefix for every layer that has none (idempotent).
+        # Only the first layer gets "ML"; subsequent layers get a stable
+        # placeholder so admins can rename in the new Prefixes tab without
+        # colliding on the global UNIQUE(prefix) constraint.
+        cursor.execute(
+            """
+            SELECT l.id
+            FROM layer l
+            LEFT JOIN layer_prefix lp
+              ON lp.layer_id = l.id AND lp.is_default = '1'
+            WHERE lp.id IS NULL
+            ORDER BY l.created_at ASC, l.id ASC
+            """
+        )
+        layers_without_default = [row[0] for row in cursor.fetchall()]
+
+        cursor.execute("SELECT 1 FROM layer_prefix WHERE prefix = 'ML'")
+        ml_taken = cursor.fetchone() is not None
+
+        for layer_id in layers_without_default:
+            if not ml_taken:
+                chosen_prefix = 'ML'
+                ml_taken = True  # ML is now taken for any subsequent layers
+            else:
+                # Generate the next available "Ln" placeholder deterministically.
+                cursor.execute(
+                    "SELECT prefix FROM layer_prefix WHERE prefix GLOB 'L?' ORDER BY prefix"
+                )
+                used = {row[0] for row in cursor.fetchall()}
+                chosen_prefix = next(
+                    (f'L{n}' for n in range(1, 10)
+                     if f'L{n}' not in used),
+                    None,
+                )
+                if chosen_prefix is None:
+                    # L1-L9 exhausted (e.g. on rerun with many layers).
+                    # Fall back to a stable 2-letter hash of layer_id so the
+                    # migration stays idempotent. Deterministic so the same
+                    # layer gets the same placeholder across re-runs.
+                    digits = ''.join(c for c in layer_id if c.isalnum())
+                    if not digits:
+                        digits = layer_id or uuid4().hex
+                    h1 = sum(ord(c) for c in digits)
+                    h2 = sum(ord(c) for c in reversed(digits))
+                    cand = '{}{}'.format(
+                        chr(ord('A') + (h1 % 26)),
+                        chr(ord('A') + (h2 % 26)),
+                    )
+                    if cand in used:
+                        # Try shifting the hash by an increasing offset
+                        # before giving up. With 26² codes and 4-letter
+                        # aliases this almost never happens in practice.
+                        offset = 0
+                        while offset < 26 and cand in used:
+                            cand = '{}{}'.format(
+                                chr(ord('A') + (h1 % 26)),
+                                chr(ord('A') + ((h2 + offset) % 26)),
+                            )
+                            offset += 1
+                    if cand in used:
+                        print(
+                            '⚠️  Could not derive a free hash-based prefix '
+                            f'for layer {layer_id} — skipping prefix backfill'
+                        )
+                        continue
+                    chosen_prefix = cand
+
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO layer_prefix
+                    (id, layer_id, prefix, is_default, created_by, created_at)
+                VALUES (?, ?, ?, '1', NULL, CURRENT_TIMESTAMP)
+                """,
+                (str(uuid4()), layer_id, chosen_prefix),
+            )
+        if layers_without_default:
+            print(
+                f'✅ Backfilled default prefix for {len(layers_without_default)}'
+                ' layer(s) — rename placeholders in Admin → Prefixes'
+            )
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_layer_prefix_v1: {e}')

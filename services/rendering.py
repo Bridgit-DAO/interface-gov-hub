@@ -483,7 +483,7 @@ def render_page(title, content, theme=None, user_menu=None, font_awesome=True, b
 
 def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_image_url=None,
                                  theme=None, user_menu=None, font_awesome=True):
-    """Render page with layer branding: layer logo+name in navbar, View in MLGH button."""
+    """Render page with layer branding: layer logo+name in navbar, View in GovHub button."""
     from services.identity import get_current_user
     from templates.html_templates import LAYER_STANDALONE_BASE_TEMPLATE
 
@@ -536,7 +536,7 @@ def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_i
 def generate_user_menu(layer_slug=None, view_in_mlgh_slug=None):
     """Generate user menu HTML for navbar.
     layer_slug: when on a layer page (non-standalone), add View standalone link.
-    view_in_mlgh_slug: when on layer standalone page, add View in MLGH link to profile dropdown."""
+    view_in_mlgh_slug: when on layer standalone page, add View in GovHub link to profile dropdown."""
     from services.identity import get_current_user
 
     current_user = get_current_user()
@@ -560,7 +560,7 @@ def generate_user_menu(layer_slug=None, view_in_mlgh_slug=None):
         if view_in_mlgh_slug:
             view_in_mlgh_link = (
                 f'<li><a class="dropdown-item" href="/layers/{view_in_mlgh_slug}/">'
-                f'<i class="fas fa-external-link-alt me-1"></i><span data-gh-i18n="user.viewInMLGH">View in MLGH</span></a></li>'
+                f'<i class="fas fa-external-link-alt me-1"></i><span data-gh-i18n="user.viewInMLGH">View in GovHub</span></a></li>'
                 '<li><hr class="dropdown-divider"></li>'
             )
         # Display name priority: displayName > oauthName > name > username
@@ -602,7 +602,7 @@ def generate_user_menu(layer_slug=None, view_in_mlgh_slug=None):
             <a class="nav-link" href="#" onclick="event.preventDefault(); loginWithWeb3Auth(); return false;" data-gh-i18n="user.signIn">Sign In</a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" href="/layers/{view_in_mlgh_slug}/"><span data-gh-i18n="user.viewInMLGH">View in MLGH</span></a>
+            <a class="nav-link" href="/layers/{view_in_mlgh_slug}/"><span data-gh-i18n="user.viewInMLGH">View in GovHub</span></a>
         </li>
         """
         return """

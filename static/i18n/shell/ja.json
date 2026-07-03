@@ -45,7 +45,7 @@
     "myLayers": "マイレイヤー",
     "mySubmissions": "マイ提出",
     "viewStandalone": "スタンドアロンで表示",
-    "viewInMLGH": "MLGH で表示",
+    "viewInMLGH": "GovHub で表示",
     "adminDashboard": "管理ダッシュボード",
     "logout": "ログアウト",
     "signIn": "サインイン"
@@ -59,5 +59,13 @@
     "switchToDark": "ダークモードに切り替え",
     "systemAuto": "システムテーマ（自動）— クリックで切り替え",
     "toggle": "テーマを切り替え"
+  },
+  "prefix": {
+    "menuHeader": "Active draft prefix",
+    "default": "Default",
+    "manage": "Manage in layer admin",
+    "switchHint": "Switch active draft prefix",
+    "empty": "No layer prefixes available. Ask a layer admin to add one in the layer's Admin tab.",
+    "noAccess": "Sign in to choose a draft prefix."
   }
 }

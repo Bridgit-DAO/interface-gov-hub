@@ -123,4 +123,4 @@ def profile_security():
     <script src="/static/js/gh-mfa.js"></script>
     """
 
-    return render_page('Security - MLGH', content, theme=current_theme, user_menu=user_menu)
+    return render_page('Security - GovHub', content, theme=current_theme, user_menu=user_menu)

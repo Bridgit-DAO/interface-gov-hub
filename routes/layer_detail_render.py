@@ -155,7 +155,7 @@ def _render_layer_standalone(project_slug, waitlist_id=None):
 
 def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     """Shared logic for project detail page. waitlist_id when from /layers/<slug>/waitlist/<id>/.
-    standalone=True: layer branding (logo, name), View in MLGH button."""
+    standalone=True: layer branding (logo, name), View in GovHub button."""
     from services.rendering import render_page, render_layer_standalone_page, generate_user_menu
 
     current_app.logger.info(f"[LAYER] _render_project_detail: project_slug={project_slug!r} waitlist_id={waitlist_id}")
@@ -2855,6 +2855,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             html += '</select></div><div class="col-md-6 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="layer-nav-pill-tooltips" ' + (tipsOn ? 'checked' : '') + '><label class="form-check-label" for="layer-nav-pill-tooltips">Show newcomer tips on hover</label></div></div></div>';
             html += '<button type="button" class="btn btn-primary btn-sm mt-2" onclick="saveNavPillConfig()"><i class="fas fa-save me-1"></i>Save navigation pills</button>';
             html += '<p class="small text-muted mt-2 mb-0" id="layer-nav-pill-save-msg"></p></div></div>';
+            html += renderPrefixesCard();
             html += '<div class="d-flex justify-content-between align-items-center mb-3"><h4>Layer admins</h4><button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button></div><p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p><div class="list-group"><div class="list-group-item d-flex justify-content-between align-items-center"><div><a href="/profile/' + ownerUserEsc + '/" class="fw-bold text-decoration-none">' + ownerNameEsc + '</a><span class="badge bg-primary ms-2">Owner</span></div><span class="text-muted">—</span></div>';
             (data.admins || []).forEach(a => {{
                 html += '<div class="list-group-item d-flex justify-content-between align-items-center"><a href="/profile/' + escapeHtmlBasic(a.username || '') + '/" class="text-decoration-none">' + escapeHtml(a.display_name || '') + '</a><button class="btn btn-outline-danger btn-sm" onclick="removeAdmin(\\'' + (a.user_id || '') + '\\', this)">Remove</button></div>';
@@ -2978,6 +2979,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             renderCarouselCustomItems(carouselConfig.custom_items || []);
             const nftRulesEl = document.getElementById('layer-nft-gate-rules');
             if (nftRulesEl) nftRulesEl.value = nftGateRulesFromProject();
+            // Hydrate the new prefixes card now that the admin pane is in the DOM.
+            try {{ loadPrefixes(); }} catch (prefixErr) {{ console.warn('Prefixes:', prefixErr); }}
         }} catch (error) {{
             console.error('Error loading admins:', error);
             container.innerHTML = '<div class="alert alert-danger">Error loading admins</div>';
@@ -4782,6 +4785,251 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
+    // ------------------------------------------------------------------------
+    // Per-layer two-letter draft prefixes (admin UI)
+    // ------------------------------------------------------------------------
+    function renderPrefixesCard() {{
+        return (
+            '<div class="card mb-4" id="layer-prefixes-card">' +
+                '<div class="card-header d-flex justify-content-between align-items-center">' +
+                    '<h5 class="mb-0"><i class="fas fa-tag me-2"></i>Draft prefixes</h5>' +
+                    '<div class="btn-group btn-group-sm">' +
+                        '<button type="button" class="btn btn-outline-secondary" onclick="loadPrefixes()" title="Refresh"><i class="fas fa-sync-alt"></i></button>' +
+                        '<button type="button" class="btn btn-primary" onclick="showAddPrefixModal()"><i class="fas fa-plus me-1"></i>Add prefix</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="card-body">' +
+                    '<p class="text-muted small mb-3">Two-letter prefix prepended to draft identifiers in this layer (e.g. <code>ML-001</code>, <code>CL-013</code>). ' +
+                    'Prefixes are <strong>globally unique across the entire Gov Hub</strong> — pick a code another layer isn\\'t using.</p>' +
+                    '<div id="layer-prefixes-list"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>' +
+                    '<p class="small text-muted mt-2 mb-0">The active prefix is the one shown in the header chip. Make sure every layer has at least one prefix so admins can always switch.</p>' +
+                '</div>' +
+            '</div>' +
+            '<div class="modal fade" id="addPrefixModal" tabindex="-1" aria-hidden="true">' +
+                '<div class="modal-dialog modal-dialog-centered">' +
+                    '<div class="modal-content">' +
+                        '<div class="modal-header">' +
+                            '<h5 class="modal-title"><i class="fas fa-tag me-2"></i>Add draft prefix</h5>' +
+                            '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>' +
+                        '</div>' +
+                        '<div class="modal-body">' +
+                            '<div id="add-prefix-alert" class="alert d-none" role="alert"></div>' +
+                            '<label for="add-prefix-input" class="form-label">Prefix (2 uppercase letters)</label>' +
+                            '<input type="text" id="add-prefix-input" class="form-control text-uppercase" maxlength="3" placeholder="ML" autocomplete="off">' +
+                            '<div class="form-text">Letters will be uppercased. Reserved: ML (legacy meta-layer default).</div>' +
+                        '</div>' +
+                        '<div class="modal-footer">' +
+                            '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>' +
+                            '<button type="button" class="btn btn-primary" id="add-prefix-submit" onclick="submitAddPrefix()"><i class="fas fa-plus me-1"></i>Add</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>'
+        );
+    }}
+
+    async function loadPrefixes() {{
+        const container = document.getElementById('layer-prefixes-list');
+        if (!container || !project) return;
+        container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div>';
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/', {{ credentials: 'same-origin' }});
+            if (res.status === 403) {{
+                container.innerHTML = '<div class="alert alert-warning small mb-0">You do not have permission to view prefixes.</div>';
+                return;
+            }}
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to load prefixes');
+            const items = data.prefixes || [];
+            if (!items.length) {{
+                container.innerHTML = '<p class="text-muted small mb-0">No prefixes yet — add one to get started.</p>';
+                return;
+            }}
+            let html = '<div class="list-group">';
+            items.forEach(function (p) {{
+                const isDefault = !!p.is_default;
+                const idAttr = escapeForJsAttr(String(p.id || ''));
+                const prefixAttr = escapeForJsAttr(String(p.prefix || ''));
+                const badge = isDefault
+                    ? '<span class="badge bg-success ms-2">Default</span>'
+                    : '';
+                const defaultAction = isDefault
+                    ? ''
+                    : '<button type="button" class="btn btn-outline-success btn-sm me-1" onclick="setDefaultPrefix(\\'' + idAttr + '\\')" title="Make this the default"><i class="fas fa-check"></i></button>';
+                const renameAction = '<button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="showRenamePrefixPrompt(\\'' + idAttr + '\\', \\'' + prefixAttr + '\\')" title="Rename"><i class="fas fa-pen"></i></button>';
+                const deleteAction = '<button type="button" class="btn btn-outline-danger btn-sm" onclick="deletePrefix(\\'' + idAttr + '\\', ' + isDefault + ')" title="Delete"><i class="fas fa-trash"></i></button>';
+                html += '<div class="list-group-item d-flex justify-content-between align-items-center">' +
+                    '<div><span class="font-monospace fs-5 fw-bold">' + escapeHtmlBasic(p.prefix || '') + '</span>' + badge +
+                    (isDefault ? '<span class="ms-2 small text-success"><i class="fas fa-star me-1"></i>Active draft prefix</span>' : '') +
+                    '</div>' +
+                    '<div class="btn-group btn-group-sm">' + defaultAction + renameAction + deleteAction + '</div>' +
+                    '</div>';
+            }});
+            html += '</div>';
+            container.innerHTML = html;
+        }} catch (e) {{
+            container.innerHTML = '<div class="alert alert-danger small mb-0">Could not load prefixes: ' + escapeHtml(e.message || '') + '</div>';
+        }}
+    }}
+
+    function showAddPrefixModal() {{
+        const input = document.getElementById('add-prefix-input');
+        if (input) {{ input.value = ''; }}
+        const alert = document.getElementById('add-prefix-alert');
+        if (alert) {{ alert.classList.add('d-none'); alert.innerHTML = ''; }}
+        const modalEl = document.getElementById('addPrefixModal');
+        if (!modalEl) return;
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+        setTimeout(function () {{
+            if (input) input.focus();
+        }}, 200);
+    }}
+
+    async function submitAddPrefix() {{
+        const input = document.getElementById('add-prefix-input');
+        const alertEl = document.getElementById('add-prefix-alert');
+        const submitBtn = document.getElementById('add-prefix-submit');
+        if (!input || !alertEl) return;
+        const value = (input.value || '').trim();
+        if (!/^[A-Za-z]{{2}}$/.test(value)) {{
+            alertEl.className = 'alert alert-danger small';
+            alertEl.textContent = 'Enter exactly two letters.';
+            alertEl.classList.remove('d-none');
+            return;
+        }}
+        alertEl.classList.add('d-none');
+        if (submitBtn) submitBtn.disabled = true;
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/', {{
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ prefix: value }}),
+            }});
+            const data = await res.json().catch(function () {{ return {{}}; }});
+            if (!res.ok) throw new Error(data.error || 'Failed to add prefix');
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{
+                    title: 'Prefix added',
+                    message: 'Prefix "' + value.toUpperCase() + '" was added to this layer.',
+                    variant: 'success',
+                }});
+            }}
+            const modalEl = document.getElementById('addPrefixModal');
+            if (modalEl) {{
+                const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.hide();
+            }}
+            loadPrefixes();
+        }} catch (e) {{
+            alertEl.className = 'alert alert-danger small';
+            alertEl.textContent = e.message || 'Could not add prefix.';
+            alertEl.classList.remove('d-none');
+        }} finally {{
+            if (submitBtn) submitBtn.disabled = false;
+        }}
+    }}
+
+    async function setDefaultPrefix(prefixId) {{
+        if (!prefixId) return;
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/' + prefixId + '/default/', {{
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{}}),
+            }});
+            const data = await res.json().catch(function () {{ return {{}}; }});
+            if (!res.ok) throw new Error(data.error || 'Failed to set default');
+            loadPrefixes();
+        }} catch (e) {{
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{ title: 'Could not set default', message: e.message || 'Unknown error', variant: 'danger' }});
+            }}
+        }}
+    }}
+
+    async function deletePrefix(prefixId, isDefault) {{
+        if (!prefixId) return;
+        const message = isDefault
+            ? 'This is the current default prefix. Mark another prefix as default first, then delete this one.'
+            : 'Delete this prefix? Drafts already created will keep their existing identifier.';
+        if (typeof GhDialog !== 'undefined') {{
+            const ok = await GhDialog.confirm({{
+                title: 'Delete prefix',
+                message: message,
+                variant: isDefault ? 'warning' : 'danger',
+                confirmLabel: 'Delete',
+            }});
+            if (!ok) return;
+        }}
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/' + prefixId + '/', {{
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{}}),
+            }});
+            const data = await res.json().catch(function () {{ return {{}}; }});
+            if (!res.ok) throw new Error(data.error || 'Failed to delete');
+            loadPrefixes();
+        }} catch (e) {{
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{ title: 'Could not delete prefix', message: e.message || 'Unknown error', variant: 'danger' }});
+            }}
+        }}
+    }}
+
+    function showRenamePrefixPrompt(prefixId, currentPrefix) {{
+        if (!prefixId) return;
+        const next = window.prompt('New prefix (2 uppercase letters):', currentPrefix || '');
+        if (next == null) return;
+        const value = next.trim().toUpperCase();
+        if (!/^[A-Z]{{2}}$/.test(value)) {{
+            if (typeof GhDialog !== 'undefined') {{
+                GhDialog.alert({{ title: 'Invalid prefix', message: 'Prefix must be exactly two uppercase ASCII letters.', variant: 'danger' }});
+            }} else {{
+                alert('Invalid prefix format');
+            }}
+            return;
+        }}
+        fetch('/api/layers/' + project.id + '/prefixes/' + prefixId + '/', {{
+            method: 'PATCH',
+            credentials: 'same-origin',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ prefix: value }}),
+        }}).then(function (res) {{ return res.json().then(function (data) {{ return {{ ok: res.ok, data: data }}; }}); }})
+        .then(async function (resp) {{
+            if (!resp.ok) throw new Error(resp.data.error || 'Failed to rename');
+            loadPrefixes();
+        }}).catch(async function (e) {{
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{ title: 'Could not rename prefix', message: e.message || 'Unknown error', variant: 'danger' }});
+            }} else {{
+                alert('Rename failed: ' + e.message);
+            }}
+        }});
+    }}
+
+    // Wire the add-prefix input to uppercase + live-validate. Triggers after
+    // the modal becomes visible.
+    document.addEventListener('DOMContentLoaded', function () {{
+        const input = document.getElementById('add-prefix-input');
+        if (!input) return;
+        input.addEventListener('input', function () {{
+            // Strip non-letters and cap at 2 chars.
+            const cleaned = (input.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+            if (cleaned !== input.value) input.value = cleaned;
+        }});
+        input.addEventListener('keydown', function (ev) {{
+            if (ev.key === 'Enter') {{
+                ev.preventDefault();
+                submitAddPrefix();
+            }}
+        }});
+    }});
+
     // Load project on page load
     loadProject();
     </script>
@@ -4800,7 +5048,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             user_menu=user_menu,
         )
     else:
-        html = render_page(f"Layer: {project_slug} - MLGH", content, theme=current_theme, user_menu=user_menu)
+        html = render_page(f"Layer: {project_slug} - GovHub", content, theme=current_theme, user_menu=user_menu)
     resp = make_response(html)
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'

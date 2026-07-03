@@ -1,6 +1,6 @@
 """
-MLGH Data Viewer - Application factory.
-Creates and configures the Flask app for Meta-Layer Task Force governance.
+GovHub Application factory.
+Creates and configures the Flask app for the Interface Governance Hub.
 
 Use: app = create_app() or from app import app
 """

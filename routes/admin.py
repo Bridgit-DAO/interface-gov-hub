@@ -355,7 +355,7 @@ def admin_dashboard():
     """
 
     return _format_base_template(
-        title="Admin Dashboard - MLGH",
+        title="Admin Dashboard - GovHub",
         theme=get_current_user().get('theme', 'dark'),
         content=content,
         user_menu=user_menu, build_number=BUILD_NUMBER)
@@ -551,7 +551,7 @@ def admin_users():
     """
 
     return _format_base_template(
-        title="User Management - MLGH",
+        title="User Management - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
@@ -860,7 +860,7 @@ def admin_posts():
     """
 
     return _format_base_template(
-        title="Post Moderation - MLGH",
+        title="Post Moderation - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=content,
@@ -1186,7 +1186,7 @@ def admin_analytics():
         """
 
     return _format_base_template(
-        title="Analytics - MLGH",
+        title="Analytics - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
@@ -1346,7 +1346,7 @@ def admin_chairs():
     """
 
     return _format_base_template(
-        title="Coordinator Management - MLGH",
+        title="Coordinator Management - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
@@ -1418,7 +1418,7 @@ def add_coordinator_for_user(user_id):
         </div>
     </div>
     """
-    return render_page("Add as coordinator - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Add as coordinator - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/admin/coordinator_requests/<req_id>/approve', methods=['POST'])
@@ -1758,7 +1758,7 @@ def admin_projects():
     </script>
     """
 
-    return render_page("Admin: Manage Layers - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Admin: Manage Layers - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/admin/workgroups/')
@@ -1959,7 +1959,7 @@ def admin_workgroups():
     </script>
     """
 
-    return render_page("Admin: Manage Workgroups - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Admin: Manage Workgroups - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 # ============================================================================
@@ -2297,7 +2297,7 @@ def admin_chair_nominations():
     </script>
     """
 
-    return render_page("Admin: Chair Nominations - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Admin: Chair Nominations - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/admin/roles/')
@@ -2443,7 +2443,7 @@ def admin_roles():
     </script>
     """
 
-    return render_page("Admin: Manage Roles - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Admin: Manage Roles - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 @bp.route('/admin/badges/')
@@ -2668,7 +2668,7 @@ def admin_badges():
     </script>
     """
 
-    return render_page("Admin: Manage Badges - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Admin: Manage Badges - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
 def _load_platform_invite_target(invitation):
@@ -2789,7 +2789,7 @@ def admin_dp_readiness():
         </div>
     </div>
     """
-    return _format_base_template(title="DP Challenge readiness - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return _format_base_template(title="DP Challenge readiness - GovHub", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/admin/member_requests/')
@@ -2835,7 +2835,7 @@ def admin_member_requests():
         </div>
     </div>
     """
-    return _format_base_template(title="Member requests - MLGH", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+    return _format_base_template(title="Member requests - GovHub", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
 
 
 @bp.route('/admin/member_requests/<req_id>/approve')

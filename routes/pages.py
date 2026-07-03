@@ -216,7 +216,7 @@ def profile():
         session_user=session['user']
     )
     return render_template_string(_format_base_template(
-        title="Profile - MLGH",
+        title="Profile - GovHub",
         theme=current_theme,
         user_menu=user_menu,
         content=profile_content,
@@ -405,7 +405,7 @@ def layer_standalone_roles(layer_ref):
 @bp.route('/layer/<layer_ref>/artifacts/')
 @bp.route('/layer/<layer_ref>/opportunities/')
 def layer_standalone_section(layer_ref):
-    """Layer-scoped section placeholder. Links to full view in MLGH."""
+    """Layer-scoped section placeholder. Links to full view in GovHub."""
     from services.rendering import render_layer_standalone_page, generate_user_menu
     from services.utils import _is_uuid_like
 
@@ -420,7 +420,7 @@ def layer_standalone_section(layer_ref):
     layer_name_esc = html_mod.escape(project.name or project.slug)
     content = f'''
     <div class="gh-page container mt-4">
-        {gh_page_header(section_title, f'View full {section} in MLGH', 'fa-compass', actions_html=f'<a href="/layers/{project.slug}/#{section}" class="btn btn-primary btn-sm me-1"><i class="fas fa-external-link-alt me-1"></i>View in MLGH</a><a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li><li class="breadcrumb-item active">{section_title}</li></ol></nav>')}
+        {gh_page_header(section_title, f'View full {section} in GovHub', 'fa-compass', actions_html=f'<a href="/layers/{project.slug}/#{section}" class="btn btn-primary btn-sm me-1"><i class="fas fa-external-link-alt me-1"></i>View in GovHub</a><a href="/layer/{project.slug}/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Layer</a>', breadcrumb_html=f'<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/layer/{project.slug}/">{layer_name_esc}</a></li><li class="breadcrumb-item active">{section_title}</li></ol></nav>')}
     </div>
     '''
     return render_layer_standalone_page(
@@ -494,7 +494,7 @@ def layer_standalone_guilds(layer_ref):
 
 @bp.route('/layer/<layer_ref>/artifacts/<artifact_id>/')
 def layer_standalone_artifact(layer_ref, artifact_id):
-    """Redirect to artifact detail in full MLGH view."""
+    """Redirect to artifact detail in full GovHub view."""
     if _is_uuid_like(layer_ref):
         project = Layer.query.filter_by(public_id=layer_ref).first_or_404()
     else:
@@ -504,7 +504,7 @@ def layer_standalone_artifact(layer_ref, artifact_id):
 
 @bp.route('/layer/<layer_ref>/quests/<quest_id>/')
 def layer_standalone_quest(layer_ref, quest_id):
-    """Redirect to quest detail in full MLGH view (no layer-scoped quest page yet)."""
+    """Redirect to quest detail in full GovHub view (no layer-scoped quest page yet)."""
     if _is_uuid_like(layer_ref):
         project = Layer.query.filter_by(public_id=layer_ref).first_or_404()
     else:
@@ -618,7 +618,7 @@ def unsubscribe_from_project():
         return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Unsubscribe</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
         <h2>Invalid link</h2>
         <p>This unsubscribe link is invalid.</p>
-        <p><a href="/">Return to MLGH</a></p></body></html>""", 400
+        <p><a href="/">Return to GovHub</a></p></body></html>""", 400
 
     decoded = verify_unsubscribe_token(token)
     if not decoded:

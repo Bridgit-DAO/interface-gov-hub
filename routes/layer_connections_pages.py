@@ -335,7 +335,7 @@ def _render(layer_slug: str, standalone: bool = False):
     </div>
     '''
 
-    title = f'Connections — {layer.name or slug} - MLGH'
+    title = f'Connections — {layer.name or slug} - GovHub'
     user_menu = generate_user_menu()
     theme = session.get('theme', 'dark')
     if standalone:

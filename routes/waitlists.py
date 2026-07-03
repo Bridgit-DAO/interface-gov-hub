@@ -428,7 +428,7 @@ def waitlist_confirm(token):
         return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invalid link</title></head><body style="font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;">
         <h2>Invalid or expired link</h2>
         <p>This confirmation link is invalid or has already been used.</p>
-        <p><a href="/">Return to MLGH</a></p></body></html>""", 404
+        <p><a href="/">Return to GovHub</a></p></body></html>""", 404
 
     signup.verified_at = datetime.utcnow()
     signup.verification_token = None
@@ -446,7 +446,7 @@ def waitlist_confirm(token):
 <h1 style="color:#00ba7c;">You're on the list!</h1>
 <p>Your place on <strong>{waitlist.name}</strong> has been confirmed.</p>
 <p>We'll be in touch. In the meantime, you can <a href="/layers/{project.slug}/">visit the project</a>.</p>
-<p><a href="/" style="color:#1d9bf0;">Return to MLGH</a></p>
+<p><a href="/" style="color:#1d9bf0;">Return to GovHub</a></p>
 </body></html>""", 200
 
 
@@ -756,7 +756,7 @@ def embed_waitlist_widget(waitlist_id):
 <button class="wl-btn" onclick="joinWaitlist()" id="join-btn"%s>%s</button>
 </div>
 <div id="message-area"></div>
-<div class="wl-footer">Powered by <a href="%s" target="_blank">MLGH</a></div>
+<div class="wl-footer">Powered by <a href="%s" target="_blank">GovHub</a></div>
 </div>
 </div>
 <script>window.__WL_CFG=%s;</script>
@@ -924,7 +924,7 @@ scheduleUpdate(true);
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Embed: {html_mod.escape(waitlist.name or '')} - MLGH</title>
+<title>Embed: {html_mod.escape(waitlist.name or '')} - GovHub</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>body{{background:#0d1117;color:#c9d1d9;}} .card{{background:#161b22;border-color:#30363d;}} .card-header{{border-color:#30363d;}} .form-control,.form-select{{background:#0d1117;border-color:#30363d;color:#c9d1d9;}} .breadcrumb{{background:transparent;}} .breadcrumb-item a{{color:#58a6ff;}}</style>
 </head>

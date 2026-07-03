@@ -208,7 +208,7 @@ def _render_prelaunch_hub_page(
     <div class="gh-page container mt-4 dp-challenge-page dp-challenge-page--prelaunch">
         {gh_page_header(
             mode_cfg['page_title'],
-            'Opening soon — join the notify list for Meta-Layer DP patching.',
+            'Opening soon — join the notify list for Desirable Property patching.',
             mode_cfg['icon'],
             breadcrumb_html=gh_breadcrumb([('Participate', None), (mode_cfg['breadcrumb'], None)]),
         )}
@@ -278,7 +278,7 @@ def _render_prelaunch_hub_page(
     '''
 
     return render_page(
-        f'{mode_cfg["page_title"]} — opening soon — MLGH',
+        f'{mode_cfg["page_title"]} — opening soon — GovHub',
         content,
         theme=session.get('theme', 'dark'),
         user_menu=generate_user_menu(),
@@ -306,7 +306,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
     mode_cfg = get_proposal_mode(mode)
     if not is_mode_enabled(mode):
         return render_page(
-            f'{mode_cfg["page_title"]} — MLGH',
+            f'{mode_cfg["page_title"]} — GovHub',
             f'<div class="container mt-5"><p class="text-muted">{html_mod.escape(mode_cfg["page_title"])} is not available on this site yet.</p></div>',
             theme=session.get('theme', 'dark'),
             user_menu=generate_user_menu(),
@@ -533,7 +533,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
     '''
 
     return render_page(
-        f'{mode_cfg["page_title"]} — MLGH',
+        f'{mode_cfg["page_title"]} — GovHub',
         content,
         theme=session.get('theme', 'dark'),
         user_menu=generate_user_menu(),

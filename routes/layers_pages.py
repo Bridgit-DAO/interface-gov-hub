@@ -66,7 +66,7 @@ def layer_about(layer_slug):
         </div>
     </div>
     '''
-    title = f"About {layer.name or layer_slug} - MLGH"
+    title = f"About {layer.name or layer_slug} - GovHub"
     return render_page(title, content, theme=current_theme, user_menu=user_menu)
 
 
@@ -609,4 +609,4 @@ def create_project_page():
     </script>
     """
 
-    return render_page("Create Layer - MLGH", content, theme=current_theme, user_menu=user_menu)
+    return render_page("Create Layer - GovHub", content, theme=current_theme, user_menu=user_menu)
