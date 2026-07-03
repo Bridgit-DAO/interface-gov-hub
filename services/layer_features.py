@@ -37,6 +37,7 @@ LAYER_FEATURE_ORDER: List[str] = list(FEATURE_KEYS)
 # Layer detail tab id → product feature key
 LAYER_TAB_FEATURE: Dict[str, str] = {
     'workgroups': 'workgroups',
+    'docs': 'docs',
     'clusters': 'roles',
     'roles': 'roles',
     'claims': 'roles',

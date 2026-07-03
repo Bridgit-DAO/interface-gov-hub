@@ -56,6 +56,17 @@ def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='
             '<div id="project-header" class="mb-4"></div><div id="overview-content"></div>',
         ),
         ('workgroups', 'Workgroups', 'workgroups', False, 'fa-users-cog', 'core', '<div id="workgroups-content"></div>'),
+        (
+            'docs', 'Docs', 'docs', False, 'fa-file-alt', 'core',
+            '<div class="living-module mb-4"><div class="living-module-header">'
+            '<div class="living-module-icon"><i class="fas fa-file-alt"></i></div>'
+            '<h5 class="living-module-title">Docs &amp; drafts</h5></div>'
+            '<div class="living-module-body"><p class="text-muted small">Every draft submitted to this layer &mdash; '
+            'approved, pending, or in revision.</p>'
+            '<div id="docs-tab-container"><div class="text-center py-4">'
+            '<div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>'
+            '</div></div>',
+        ),
         ('clusters', 'Clusters', 'clusters', False, 'fa-project-diagram', 'core', '<div id="clusters-content"></div>'),
         ('roles', 'Roles', 'roles', False, 'fa-user-tag', 'core', '<div id="roles-content"></div>'),
         ('claims', 'Claims', 'claims', False, 'fa-hand-paper', 'core', '<div id="claims-content"></div>'),
@@ -1556,6 +1567,58 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
+    async function loadDocs() {{
+        const container = document.getElementById('docs-tab-container');
+        if (!container || !project) return;
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/docs/', {{ credentials: 'same-origin' }});
+            const data = await res.json();
+            if (!res.ok) {{
+                container.innerHTML = '<p class="text-muted small">Unable to load docs.</p>';
+                return;
+            }}
+            const docs = data.docs || [];
+            if (docs.length === 0) {{
+                container.innerHTML = '<p class="text-muted small mb-0">No drafts yet. Submit a draft from a workgroup or the global submit form to see it here.</p>';
+                return;
+            }}
+            const statusMap = {{
+                approved: 'bg-success',
+                submitted: 'bg-warning text-dark',
+                rejected: 'bg-danger',
+            }};
+            const statusLabel = {{
+                approved: 'Approved',
+                submitted: 'Pending',
+                rejected: 'Rejected',
+            }};
+            const rows = docs.map(function (d) {{
+                const statusKey = (d.status || '').toLowerCase();
+                const badgeCls = statusMap[statusKey] || 'bg-secondary';
+                const badgeText = statusLabel[statusKey] || (d.status || '—');
+                const ref = d.draft_name || d.id;
+                const href = '/doc/draft/' + encodeURIComponent(ref) + '/';
+                const title = (d.title || ref).toString();
+                const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const ml = d.ml_number ? '<span class="badge bg-info flex-shrink-0">' + d.ml_number + '</span>' : '';
+                const submitter = d.submitted_by ? '<span class="text-muted small">' + d.submitted_by + '</span>' : '';
+                return (
+                    '<li class="list-group-item px-0 py-2 border-bottom">' +
+                    '<div class="d-flex align-items-center gap-2 text-nowrap" style="min-width:0">' +
+                    ml +
+                    '<a href="' + href + '" class="text-decoration-none text-truncate flex-grow-1" style="min-width:0" title="' + safeTitle + '">' + safeTitle + '</a>' +
+                    submitter +
+                    '<span class="badge ' + badgeCls + ' flex-shrink-0">' + badgeText + '</span>' +
+                    '</div></li>'
+                );
+            }}).join('');
+            container.innerHTML = '<ul class="list-group list-group-flush">' + rows + '</ul>';
+        }} catch (err) {{
+            console.error('loadDocs:', err);
+            container.innerHTML = '<p class="text-muted small">Unable to load docs.</p>';
+        }}
+    }}
+
     async function loadArtifacts() {{
         const container = document.getElementById('artifacts-tab-container');
         if (!container || !project) return;
@@ -2227,6 +2290,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     if (!showCarousel) {{
         const tabLoaders = [
             ['workgroups-tab', loadWorkgroups],
+            ['docs-tab', loadDocs],
             ['clusters-tab', loadClusters],
             ['roles-tab', loadRoles],
             ['claims-tab', loadClaims],

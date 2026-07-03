@@ -1684,6 +1684,36 @@ def list_layer_submissions(layer_id):
     })
 
 
+@bp.route('/api/layers/<layer_id>/docs/', methods=['GET'])
+def list_layer_docs(layer_id):
+    """List all docs (submissions of doc_type='draft') for a layer — any status.
+
+    Used by the layer detail page 'Docs' tab so contributors can find a draft
+    they added to a workgroup-less layer. Returns the most recent first; pending
+    (status=submitted) drafts are included so the author can locate their own work
+    in progress. Drafts marked deleted are filtered out.
+    """
+    Layer.query.get_or_404(layer_id)
+    submissions = Submission.query.filter(
+        Submission.layer_id == layer_id,
+        Submission.doc_type == 'draft',
+    ).order_by(Submission.submitted_at.desc()).limit(200).all()
+    return jsonify({
+        'docs': [{
+            'id': s.id,
+            'public_id': s.public_id,
+            'title': s.title or s.draft_name or 'Untitled',
+            'draft_name': s.draft_name,
+            'ml_number': s.ml_number,
+            'group': s.group,
+            'status': s.status,
+            'document_category': s.document_category,
+            'submitted_at': s.submitted_at.isoformat() if s.submitted_at else None,
+            'submitted_by': s.submitted_by,
+        } for s in submissions]
+    })
+
+
 @bp.route('/submit/approve/<submission_id>', methods=['POST'])
 @require_role('admin')
 def approve_submission(submission_id):
