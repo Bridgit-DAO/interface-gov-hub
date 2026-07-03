@@ -49,6 +49,32 @@ def _strip_immortalize_from_submit_template(template: str) -> str:
     return template
 
 
+def _layer_prefix_for_submission(submission) -> str:
+    """Return the 2-letter draft prefix for a submission's primary layer.
+
+    Falls back to 'ML' when the submission has no layer, the layer has no
+    default ``LayerPrefix`` row, or the ``LayerPrefix`` model is unavailable
+    (the model is currently untracked WIP).
+    """
+    if submission is None:
+        return 'ML'
+    layer_id = (
+        getattr(submission, 'primary_layer_id', None)
+        or getattr(submission, 'layer_id', None)
+    )
+    if not layer_id:
+        return 'ML'
+    try:
+        from models import LayerPrefix  # untracked WIP model
+        row = LayerPrefix.query.filter_by(layer_id=layer_id, is_default=True).first()
+        if row is None:
+            return 'ML'
+        prefix = (getattr(row, 'prefix', None) or '').strip().upper()
+        return prefix or 'ML'
+    except Exception:
+        return 'ML'
+
+
 # ---------------------------------------------------------------------------
 # Submission form routes (submit_draft, submit_revision, submission_status, submission_detail)
 # ---------------------------------------------------------------------------
@@ -1752,13 +1778,13 @@ def approve_submission(submission_id):
         elif not submission.ml_number:
             try:
                 doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
-                submission.ml_number = get_next_ml_number(doc_type)
+                submission.ml_number = get_next_ml_number(doc_type, layer_prefix=_layer_prefix_for_submission(submission))
             except Exception:
                 pass
     elif not submission.ml_number:
         try:
             doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
-            submission.ml_number = get_next_ml_number(doc_type)
+            submission.ml_number = get_next_ml_number(doc_type, layer_prefix=_layer_prefix_for_submission(submission))
         except Exception:
             pass
 
@@ -2193,7 +2219,7 @@ def update_submission_status(submission_id):
             else:
                 try:
                     doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
-                    ml_number = get_next_ml_number(doc_type)
+                    ml_number = get_next_ml_number(doc_type, layer_prefix=_layer_prefix_for_submission(submission))
                     submission.ml_number = ml_number
                     submission.approved_at = datetime.utcnow()
                 except Exception as e:
@@ -2201,7 +2227,7 @@ def update_submission_status(submission_id):
         else:
             try:
                 doc_type = getattr(submission, 'doc_type', 'draft') or 'draft'
-                ml_number = get_next_ml_number(doc_type)
+                ml_number = get_next_ml_number(doc_type, layer_prefix=_layer_prefix_for_submission(submission))
                 submission.ml_number = ml_number
                 submission.approved_at = datetime.utcnow()
             except Exception as e:

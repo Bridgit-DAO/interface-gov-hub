@@ -208,7 +208,7 @@ def _render_prelaunch_hub_page(
     <div class="gh-page container mt-4 dp-challenge-page dp-challenge-page--prelaunch">
         {gh_page_header(
             mode_cfg['page_title'],
-            'Opening soon — join the notify list for Desirable Property patching.',
+            'Opening soon — join the notify list for the start of public input.',
             mode_cfg['icon'],
             breadcrumb_html=gh_breadcrumb([('Participate', None), (mode_cfg['breadcrumb'], None)]),
         )}
