@@ -609,11 +609,9 @@ def artifacts_directory():
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
-    layers = (
-        Layer.query.filter(Layer.approval_status == 'approved')
-        .group_by(Layer.name)
-        .order_by(Layer.name.asc())
-        .all()
+    from services.layer_prefixes import visible_layers_for_user
+    layers = visible_layers_for_user(
+        (get_current_user() or {}).get('id'),
     )
     layer_opts = '<option value="">All layers</option>' + ''.join(
         f'<option value="{html_mod.escape(p.id)}">{html_mod.escape(p.name or "")}</option>'

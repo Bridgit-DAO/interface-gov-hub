@@ -717,6 +717,27 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                                 <p class="small text-muted mt-2 mb-0">The active (default) prefix is the one shown in the header chip. A layer must always have at least one prefix.</p>
                             </div>
                         </div>
+
+                        <div class="card bg-secondary bg-opacity-10 mb-2" id="edit-modal-display-status-card">
+                            <div class="card-body py-3">
+                                <h6 class="card-title mb-2"><i class="fas fa-eye me-2"></i>Visibility</h6>
+                                <p class="text-muted small mb-2">Control whether this layer is listed publicly. Independent of GovHub super-admin approval.</p>
+                                <div class="mb-2">
+                                    <label for="edit-project-display-status" class="form-label small">Display status</label>
+                                    <select class="form-select" id="edit-project-display-status">
+                                        <option value="pending">Pending — only admins can see this layer</option>
+                                        <option value="active">Active — listed publicly</option>
+                                    </select>
+                                </div>
+                                <div class="d-flex gap-2 align-items-center">
+                                    <button type="button" class="btn btn-primary btn-sm" id="edit-modal-display-status-save-btn" onclick="saveDisplayStatus()">
+                                        <i class="fas fa-save me-1"></i>Save visibility
+                                    </button>
+                                    <span id="edit-modal-display-status-feedback" class="small text-muted"></span>
+                                </div>
+                                <p class="small text-muted mt-2 mb-0">Switch to <strong>Active</strong> once your layer is ready to receive public submissions.</p>
+                            </div>
+                        </div>
                     </form>
                 </div>
                 <div class="modal-footer">
@@ -4190,6 +4211,16 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const alertEl = document.getElementById('edit-project-alert');
         alertEl.classList.add('d-none');
         alertEl.textContent = '';
+        // Visibility card — initialize from the live project data.
+        const displayStatusSelect = document.getElementById('edit-project-display-status');
+        if (displayStatusSelect) {{
+            displayStatusSelect.value = (project.display_status || 'pending');
+        }}
+        const displayStatusFeedback = document.getElementById('edit-modal-display-status-feedback');
+        if (displayStatusFeedback) {{
+            displayStatusFeedback.textContent = '';
+            displayStatusFeedback.className = 'small text-muted';
+        }}
         loadEditModalAdmins();
         loadEditModalPrefixes();
         const modal = new bootstrap.Modal(document.getElementById('editProjectModal'));
@@ -4613,7 +4644,48 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
         saveBtn.disabled = false;
     }}
-    
+
+    async function saveDisplayStatus() {{
+        if (!project) return;
+        const select = document.getElementById('edit-project-display-status');
+        const feedback = document.getElementById('edit-modal-display-status-feedback');
+        const saveBtn = document.getElementById('edit-modal-display-status-save-btn');
+        if (!select || !feedback || !saveBtn) return;
+
+        const newStatus = select.value;
+        if (newStatus !== 'pending' && newStatus !== 'active') {{
+            feedback.textContent = 'Please pick Pending or Active.';
+            feedback.className = 'small text-danger';
+            return;
+        }}
+
+        saveBtn.disabled = true;
+        feedback.textContent = 'Saving...';
+        feedback.className = 'small text-muted';
+
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/display-status/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                credentials: 'same-origin',
+                body: JSON.stringify({{ display_status: newStatus }}),
+            }});
+            const data = await res.json().catch(function () {{ return {{}}; }});
+            if (res.ok) {{
+                feedback.textContent = 'Saved — layer is now ' + newStatus + '.';
+                feedback.className = 'small text-success';
+                project.display_status = newStatus;
+            }} else {{
+                feedback.textContent = data.error || 'Failed to save.';
+                feedback.className = 'small text-danger';
+            }}
+        }} catch (e) {{
+            feedback.textContent = 'Network error.';
+            feedback.className = 'small text-danger';
+        }}
+        saveBtn.disabled = false;
+    }}
+
     function createWorkgroup() {{
         const modalHtml = `
             <div class="modal fade" id="projectCreateWorkgroupModal" tabindex="-1">
