@@ -26,6 +26,8 @@ REGISTERED_EVENT_TYPES: Dict[str, EventTypeDef] = {
     # —— Document / draft (Meta-Layer submissions) ——
     'draft_comment_added': EventTypeDef('Comment on draft', True, 'comment'),
     'draft_comment_liked': EventTypeDef('Comment liked on draft', True, 'comment'),
+    'comment_moderation_edit': EventTypeDef('Comment moderation edit', False, None),
+    'comment_moderation_delete': EventTypeDef('Comment moderation delete', False, None),
     'draft_created': EventTypeDef('Draft created', True, 'state_change'),
     'draft_submission_approved': EventTypeDef('Draft approved (initial)', True, 'state_change'),
     'draft_revision_approved': EventTypeDef('Draft revision approved', True, 'revision'),

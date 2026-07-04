@@ -456,18 +456,11 @@ def draft_text(draft_name):
                 with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
                     document_content = f.read()
             elif ext == '.docx':
-                from docx import Document
-                doc = Document(submission.file_path)
-                content_parts = []
-                for paragraph in doc.paragraphs:
-                    if paragraph.text.strip():
-                        content_parts.append(paragraph.text)
-                for table in doc.tables:
-                    for row in table.rows:
-                        for cell in row.cells:
-                            if cell.text.strip():
-                                content_parts.append(cell.text)
-                document_content = '\n\n'.join(content_parts)
+                from services.draft_reader import docx_body_to_safe_html
+                try:
+                    document_content, _ = docx_body_to_safe_html(submission.file_path)
+                except Exception as docx_exc:
+                    document_content = f'Error loading .docx content: {docx_exc}'
             elif ext == '.pdf':
                 from PyPDF2 import PdfReader
                 reader = PdfReader(submission.file_path)
@@ -914,19 +907,12 @@ def draft_detail(draft_name):
                 else:
                     document_content = raw_text
             elif ext == '.docx':
-                from docx import Document
-                doc = Document(submission.file_path)
-                content_parts = []
-                for paragraph in doc.paragraphs:
-                    if paragraph.text.strip():
-                        content_parts.append(paragraph.text)
-                for table in doc.tables:
-                    for row in table.rows:
-                        for cell in row.cells:
-                            if cell.text.strip():
-                                content_parts.append(cell.text)
-                document_content = '\n\n'.join(content_parts)
-                words = len(document_content.split())
+                from services.draft_reader import docx_body_to_safe_html
+                try:
+                    document_content, words = docx_body_to_safe_html(submission.file_path)
+                except Exception as docx_exc:
+                    document_content = f'Error loading .docx content: {docx_exc}'
+                    words = 0
                 calculated_pages = max(1, (words + 499) // 500)
                 calculated_words = words
             elif ext == '.pdf':

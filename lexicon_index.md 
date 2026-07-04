@@ -1,0 +1,421 @@
+# Abstract
+
+This draft proposes a framework for identifying, tracking, and analyzing the emergence of Metaweb-native terminology.
+
+The central hypothesis is that major shifts in digital infrastructure are preceded and accompanied by shifts in language. As the Metaweb emerges as a contextual, overlay-based, trust-aware layer above today's Web, a corresponding vocabulary will emerge that reflects new forms of participation, governance, identity, and coordination.
+
+The Metaweb Lexical Emergence Framework (MLEF) establishes candidate terminology, measurement methodologies, and indicators that can be tracked longitudinally to assess Meta-Layer adoption and cultural penetration.
+
+
+# 1. Problem Statement
+
+The Web introduced new concepts that required new language:
+
+* hyperlink
+* homepage
+* browser
+* bookmark
+* search engine
+* blog
+* tweet
+* feed
+* meme
+* app
+
+These terms were not merely descriptive.
+
+They changed how people conceptualized and interacted with the Internet and each other.
+
+The Metaweb introduces new primitives:
+
+* overlays
+* smart tags
+* bridges
+* presence
+* composable governance
+* trust signals
+* contextual identity
+* civic layers
+
+A corresponding vocabulary is expected to emerge.
+
+Understanding this linguistic transition may provide an early indicator of Metaweb adoption.
+
+
+# 2. Core Hypothesis
+
+**H1:**
+
+As the Metaweb emerges, discourse will shift from page-centric and platform-centric language toward context-centric and coordination-centric language.
+
+Examples:
+
+| Web Language | Metaweb Language |
+| ------------ | ---------------- |
+| page         | context          |
+| site         | layer            |
+| platform     | substrate        |
+| profile      | identity         |
+| comment      | annotation       |
+| moderation   | governance       |
+| follower     | presence         |
+| feed         | filter           |
+| post         | signal           |
+| share        | bridge           |
+
+---
+
+# 3. Lexical Categories
+
+## 3.1 Lexical Strata
+
+The Metaweb is expected to generate vocabulary at multiple layers of abstraction. Not all terms are expected to achieve the same level of public adoption.
+
+The framework therefore distinguishes between four lexical strata.
+
+### Layer 1: Interface Vocabulary
+
+These are terms participants may use daily while navigating the Metaweb.
+
+Characteristics:
+
+* Short
+* Action-oriented
+* Easily verbalized
+* Directly connected to interface interactions
+
+Examples:
+
+* Bridge
+* Patch
+* Tag
+* Layer
+* Signal
+* Presence
+* Verify
+* Auth
+
+Examples of use:
+
+* "Bridge that claim."
+* "Patch this article."
+* "Auth the source."
+* "Tag it for the community."
+
+These terms are expected to become the strongest indicators of broad Metaweb adoption.
+
+---
+
+### Layer 2: Trust and Identity Vocabulary
+
+These terms describe the mechanisms by which trust, authenticity, and identity are established across the Metaweb.
+
+Examples:
+
+* Auth
+* Provenance
+* Attestation
+* Credential
+* Trust Trail
+* Reputation Graph
+* Verification Layer
+* Identity Layer
+
+Notably, the term "auth" may become especially significant because it sits at the intersection of:
+
+* Authentication
+* Authenticity
+* Authority
+
+Potential future usage:
+
+* "What's the auth?"
+* "That source has strong auth."
+* "Check the auth trail."
+
+---
+
+### Layer 3: Governance Vocabulary
+
+These terms describe collective coordination and civic infrastructure.
+
+Examples:
+
+* Stewardship
+* Composable Governance
+* Consent Stack
+* Meta-Community
+* Policy Layer
+* Civic Layer
+* Trust Primitive
+
+These terms are expected to be common among builders, organizers, governance participants, and researchers.
+
+---
+
+### Layer 4: Civilizational Vocabulary
+
+These terms describe the larger meaning and purpose of the Metaweb.
+
+Examples:
+
+* Noosphere
+* Collective Intelligence
+* Cognitive Commons
+* Planetary Cognition
+* Regenerative Internet
+* Shared Context
+* Global Sensemaking
+
+These terms are unlikely to become everyday interface language but may become foundational concepts for understanding the Metaweb's role in society.
+
+Example:
+
+"The Metaweb provides infrastructure for the emerging noosphere."
+
+---
+
+### Lexical Emergence Prediction
+
+A successful Metaweb ecosystem will likely exhibit adoption across all four layers.
+
+The strongest signal of mainstream adoption will not be the spread of philosophical terms such as "noosphere."
+
+Instead, it will be the normalization of interface verbs such as:
+
+* bridge
+* patch
+* auth
+* tag
+* verify
+* signal
+
+When these terms begin appearing naturally in public discourse, the Metaweb will have transitioned from a technical architecture into a cultural reality.
+
+
+## 3.2 Context Primitives
+
+Terms associated with contextual awareness.
+
+Examples:
+
+* context
+* overlay
+* layer
+* contextual
+* ambient
+* trust layer
+* civic layer
+* context graph
+
+
+## 3.3 Coordination Primitives
+
+Terms associated with collective intelligence and navigation.
+
+Examples:
+
+* bridge
+* bridging
+* witness
+* signal
+* trust trail
+* navigation layer
+* consensus marker
+
+
+## 3.4 Action Verbs
+
+Potential Metaweb-native verbs.
+
+Examples:
+
+* bridge it
+* patch it
+* layer it
+* tag it
+* witness it
+* verify it
+* signal it
+* annotate it
+
+
+## 3.5 Governance Vocabulary
+
+Terms associated with decentralized civic participation.
+
+Examples:
+
+* composable governance
+* stewardship
+* consent stack
+* policy layer
+* civic protocol
+* reputation graph
+* trust primitive
+
+
+# 4. Candidate High-Signal Terms
+
+Initial tracking set:
+
+1. Bridge
+2. Patch
+3. Signal
+4. Presence
+5. Overlay
+6. Layer
+7. Trust Trail
+8. Smart Tag
+9. Witness
+10. Context Graph
+
+These terms are hypothesized to possess strong adoption potential because they are:
+
+* short
+* memorable
+* action-oriented
+* interface-native
+* metaphorically rich
+
+
+# 5. Metaweb Lexicon Index (MLI)
+
+The Metaweb Lexicon Index (MLI) measures emergence and adoption of Metaweb terminology.
+
+Potential data sources:
+
+* Reddit
+* Bluesky
+* X
+* Discord
+* GitHub
+* Mastodon
+* Hacker News
+* academic publications
+* conference proceedings
+* browser extension ecosystems
+* governance communities
+
+Measurements:
+
+* absolute frequency
+* frequency growth
+* unique user adoption
+* cross-community penetration
+* semantic drift
+* geographic spread
+
+
+# 6. Lexical Emergence Stages
+
+## Stage 0: Concept Formation
+
+Small group usage.
+
+Examples:
+
+* researchers
+* protocol designers
+* builders
+
+## Stage 1: Community Adoption
+
+Terms become common within Metaweb ecosystems.
+
+## Stage 2: Ecosystem Expansion
+
+Terms appear in adjacent communities.
+
+Examples:
+
+* civic tech
+* AI governance
+* browser tooling
+* digital identity
+
+## Stage 3: Public Recognition
+
+Terms appear in journalism and mainstream discourse.
+
+## Stage 4: Cultural Integration
+
+Terms become ordinary language.
+
+Examples:
+
+* "Google it"
+* "DM me"
+* "bookmark it"
+
+Metaweb examples may include:
+
+* "bridge it"
+* "patch it"
+* "tag it"
+
+
+# 7. Verb Migration Hypothesis
+
+One of the strongest indicators of Metaweb adoption may be verb migration.
+
+Current verbs:
+
+* post
+* share
+* tweet
+* follow
+* subscribe
+
+Emergent verbs:
+
+* bridge
+* patch
+* layer
+* witness
+* verify
+* signal
+
+Tracking the relative frequency of these verbs may provide an early-warning system for major shifts in Internet culture.
+
+
+# 8. Research Questions
+
+RQ1:
+Can lexical emergence predict infrastructure adoption?
+
+RQ2:
+Which Metaweb terms demonstrate the strongest retention and spread?
+
+RQ3:
+Do governance-oriented terms emerge before interface-oriented terms?
+
+RQ4:
+Can linguistic adoption serve as a proxy measure for Meta-Layer maturity?
+
+RQ5:
+What linguistic patterns correlate with increased collective intelligence and contextual awareness?
+
+
+# 9. Future Work
+
+Potential extensions:
+
+* Metaweb Dictionary
+* Metaweb Style Guide
+* Metaweb Corpus Project
+* Lexical Observatory Dashboard
+* Cross-Language Metaweb Terminology Project
+* Annual Metaweb Language Report
+
+# Open Questions
+
+* Should "patch" be defined narrowly (correction) or broadly (context augmentation)?
+* Is "witness" too culturally loaded?
+* Does "presence" require formal technical definition?
+* What terms are likely to emerge organically that are not currently anticipated?
+* How should multilingual adoption be measured?
+
+# Draft Motto
+
+"We shape language, then language shapes the layer."

@@ -50,6 +50,7 @@ DEFAULT_SITE_NAV_PILL_CONFIG: Dict[str, Any] = {
 LAYER_TAB_TIPS: Dict[str, str] = {
     'overview': 'Your layer home — overview stats, carousel highlights, and quick entry points.',
     'workgroups': 'Teams that organize ongoing work inside this layer.',
+    'docs': 'Every draft and document submitted to this layer — approved, pending, or in revision.',
     'clusters': 'Role clusters group related positions and responsibilities.',
     'roles': 'Operational roles people can discover, claim, or be assigned.',
     'claims': 'Track who holds which roles and pending role claims.',

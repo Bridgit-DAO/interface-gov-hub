@@ -88,4 +88,4 @@ flask-dance[sqla]>=7.0.0  # OAuth for social account linking (gov-hub)
 PyJWT[crypto]>=2.8.0  # Web3Auth identity token verification (gov-hub)
 embit>=0.8.0  # Gov Hub custodial BIP86 Taproot badge wallets
 cryptography>=42.0.0  # Encrypt custodial wallet secrets at rest
-markdown2>=2.5.0  # Submission / ordinal Content Preview (markdown → HTML; optional if using stdlib markdown only)
+pyotp>=2.9.0  # TOTP two-factor authentication (gov-hub)

@@ -21,6 +21,17 @@ def _metaweb_internal_allowed() -> bool:
     return bool(supplied) and secrets.compare_digest(supplied, secret)
 
 
+def _govhub_api_key_allowed() -> bool:
+    secret = (os.environ.get('GOV_HUB_API_KEY') or '').strip()
+    if not secret:
+        return False
+    supplied = (
+        request.headers.get('Authorization', '').replace('Bearer ', '', 1).strip()
+        or ''
+    ).strip()
+    return bool(supplied) and secrets.compare_digest(supplied, secret)
+
+
 @bp.route('/api/metaweb/ensure-badge-wallet', methods=['POST'])
 def ensure_badge_wallet():
     """
@@ -58,3 +69,32 @@ def ensure_badge_wallet():
 
         current_app.logger.exception('ensure-badge-wallet failed')
         return jsonify({'error': 'Internal error', 'detail': str(exc)}), 500
+
+
+@bp.route('/api/internal/custodial-btc/sign-provenance', methods=['POST'])
+def sign_custodial_btc_provenance():
+    """
+    Sign a canonical Canopi provenance digest with Gov Hub custodial BTC key material.
+
+    Auth: GOV_HUB_API_KEY via Authorization: Bearer.
+    Body: userId/govhubUserId, web3authVerifierId, or email; optional expected address;
+    digest and/or canonical message; provenance metadata.
+    """
+    if not _govhub_api_key_allowed():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json(silent=True) or {}
+    from services.custodial_btc_provenance_signer import (
+        SignatureRequestError,
+        sign_provenance_request,
+    )
+
+    try:
+        return jsonify(sign_provenance_request(data))
+    except SignatureRequestError as exc:
+        return jsonify({'ok': False, 'error': str(exc), 'reason': exc.reason}), exc.status_code
+    except Exception:
+        from flask import current_app
+
+        current_app.logger.exception('custodial BTC provenance signing failed')
+        return jsonify({'ok': False, 'error': 'Internal error', 'reason': 'signing_internal_error'}), 500

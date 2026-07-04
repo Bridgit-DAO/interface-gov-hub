@@ -7,6 +7,7 @@ from models.referral_landing import ReferralLanding
 from models.layer_program import LayerProgram, LayerProgramSubmission
 from models.scoped_email import ScopedEmailCampaign, ScopedEmailDelivery
 from models.identity import User, UserLinkedAccount
+from models.mfa import UserMfaChallenge, UserMfaDevice, UserMfaRecoveryCode
 from models.custodial_wallet import CustodialWallet
 from models.layer_prefix import LayerPrefix
 from models.coordination import (
@@ -39,6 +40,7 @@ from models.bridge import Bridge, BridgeSession
 
 __all__ = [
     'User', 'UserLinkedAccount', 'CustodialWallet',
+    'UserMfaDevice', 'UserMfaRecoveryCode', 'UserMfaChallenge',
     'UserEventSubscription', 'UserNotification',
     'EventLog', 'StatusChange',
     'Layer', 'LayerMember', 'LayerAdmin',

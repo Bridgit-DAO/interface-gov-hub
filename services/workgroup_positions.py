@@ -6,6 +6,11 @@ WORKGROUP_POSITIONS = {
         'description': 'Leads the workgroup, sets agenda, and coordinates contributors.',
         'icon': 'fa-star',
     },
+    'co_lead': {
+        'label': 'Co-lead',
+        'description': 'Shares recruitment, member approvals, and contributor coordination with the lead.',
+        'icon': 'fa-user-friends',
+    },
     'editor': {
         'label': 'Editor',
         'description': 'Edits drafts, coordinates document revisions, and maintains quality.',

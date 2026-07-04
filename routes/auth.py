@@ -214,6 +214,16 @@ def web3auth_login():
                 ensure_notification_unsubscribe_token(user)
                 db.session.commit()
 
+        from services.mfa import create_challenge, user_mfa_enabled
+
+        if user_mfa_enabled(user.id):
+            challenge = create_challenge(user.id, client_id='govhub')
+            return jsonify({
+                'success': False,
+                'mfaRequired': True,
+                'challengeToken': challenge.id,
+            })
+
         session['user'] = user.username
         session['theme'] = user.theme
         session.permanent = True

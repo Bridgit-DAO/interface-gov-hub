@@ -110,9 +110,13 @@ def _render(layer_slug: str, standalone: bool = False):
     guild_opts = ''.join(
         f'<option value="{html_mod.escape(g.id)}">{html_mod.escape(g.name)}</option>' for g in guilds
     )
-    layers = Layer.query.filter(Layer.id != layer.id, Layer.approval_status == 'approved').order_by(
-        Layer.name.asc()
-    ).limit(200).all()
+    layers = (
+        Layer.query.filter(Layer.id != layer.id, Layer.approval_status == 'approved')
+        .group_by(Layer.name)
+        .order_by(Layer.name.asc())
+        .limit(200)
+        .all()
+    )
     layer_opts = ''.join(
         f'<option value="{html_mod.escape(l.id)}">{html_mod.escape(l.name)}</option>' for l in layers
     )

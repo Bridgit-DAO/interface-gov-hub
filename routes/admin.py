@@ -1,5 +1,8 @@
 """Admin routes: dashboard, users, analytics, chairs, layers, workgroups, roles, badges, member requests."""
+import html as html_mod
+import json
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 from flask import Blueprint, request, redirect, flash, session, jsonify, current_app
 
@@ -7,6 +10,7 @@ from extensions import db
 from models import (
     User, Submission, Layer, Workgroup, Guild, Role, Claim, Badge,
     WorkingGroupChair, CoordinatorRequest, WorkgroupMemberRequest, WorkingGroupMember,
+    PlatformInvitation, PlatformInvitationAcceptance, Comment,
 )
 from services.identity import get_current_user, require_auth, require_role
 from services.avatar import avatar_url
@@ -21,6 +25,9 @@ from services.workgroup_positions import (
     status_label,
 )
 from services.workgroup_nomination_mail import send_admin_decision
+from services.events import emit_event
+from services.dp_badges import dp_contributor_badge_status
+from services.workgroup_links import is_dp_workgroup
 
 bp = Blueprint('admin', __name__, url_prefix='')
 
@@ -161,6 +168,7 @@ def admin_dashboard():
         {gh_page_header('Admin Dashboard', 'Site administration and moderation', 'fa-shield-alt', actions_html=(
             '<a href="/admin/users/" class="btn btn-outline-primary btn-sm me-1"><i class="fas fa-users me-1"></i>Users</a>'
             '<a href="/admin/submissions/" class="btn btn-outline-success btn-sm me-1"><i class="fas fa-file-alt me-1"></i>Submissions</a>'
+            '<a href="/admin/posts/" class="btn btn-outline-danger btn-sm me-1"><i class="fas fa-comments me-1"></i>Posts</a>'
             '<a href="/admin/layers/" class="btn btn-outline-info btn-sm me-1"><i class="fas fa-project-diagram me-1"></i>Layers</a>'
             '<a href="/admin/product-rollout/" class="btn btn-dark btn-sm me-1"><i class="fas fa-toggle-on me-1"></i>Rollout</a>'
             '<a href="/admin/nav-pills/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-circle-notch me-1"></i>Nav pills</a>'
@@ -271,6 +279,9 @@ def admin_dashboard():
                                     </a>
                                     <a href="/admin/users/" class="btn btn-primary">
                                         <i class="fas fa-users me-2"></i>Manage Users ({total_users} total)
+                                    </a>
+                                    <a href="/admin/posts/" class="btn btn-danger">
+                                        <i class="fas fa-comments me-2"></i>Moderate Posts
                                     </a>
                                     <a href="/group/" class="btn btn-info">
                                         <i class="fas fa-users-cog me-2"></i>Manage Workgroups ({pending_chairs} pending coordinators)
@@ -544,6 +555,370 @@ def admin_users():
         theme=current_theme,
         user_menu=user_menu,
         content=content, build_number=BUILD_NUMBER)
+
+
+def _comment_page_label(comment):
+    """Human label for the document/page a comment belongs to."""
+    submission = None
+    if comment.submission_id:
+        submission = Submission.query.get(comment.submission_id)
+    if not submission and comment.draft_name:
+        submission = Submission.query.filter(
+            db.or_(
+                Submission.draft_name == comment.draft_name,
+                Submission.ml_number == comment.draft_name,
+                Submission.id == comment.draft_name,
+            )
+        ).first()
+    if submission:
+        ref = submission.ml_number or submission.draft_name or submission.public_id or submission.id
+        return submission.title or 'Untitled document', ref
+    ref = comment.draft_name or comment.submission_id or 'Unknown page'
+    return ref, ref
+
+
+def _comment_author_label(comment):
+    if comment.author_user_id:
+        user = User.query.get(comment.author_user_id)
+        if user:
+            return user.displayName or user.name or user.oauthName or user.username or user.email or 'User'
+    return comment.author or 'Unknown user'
+
+
+def _emit_comment_moderation_event(action, comment, admin_user, *, old_text=None, new_text=None):
+    title, ref = _comment_page_label(comment)
+    emit_event(
+        f'comment_moderation_{action}',
+        actor_type='user',
+        actor_id=admin_user.get('id'),
+        subject_type='comment',
+        subject_id=comment.id,
+        payload={
+            'action': action,
+            'draft_name': comment.draft_name,
+            'submission_id': comment.submission_id,
+            'page_title': title,
+            'page_ref': ref,
+            'author': _comment_author_label(comment),
+            'author_user_id': comment.author_user_id,
+            'old_text': old_text,
+            'new_text': new_text,
+        },
+    )
+
+
+def _is_strict_admin(current_user):
+    return bool(current_user and current_user.get('role') == 'admin')
+
+
+@bp.route('/admin/posts/')
+@require_role('admin')
+def admin_posts():
+    _format_base_template, generate_user_menu, get_current_user, BUILD_NUMBER, _, _ = _get_imports()
+    current_user = get_current_user()
+    if not _is_strict_admin(current_user):
+        return "Access denied: Admin role required", 403
+    user_menu = generate_user_menu()
+    current_theme = current_user.get('theme', 'dark')
+
+    page_num = request.args.get('page', 1, type=int)
+    per_page = 25
+    user_filter = request.args.get('user', '').strip()
+    page_filter = request.args.get('page_ref', '').strip()
+    text_filter = request.args.get('text', '').strip()
+    include_deleted = request.args.get('include_deleted') == '1'
+
+    query = Comment.query
+    if not include_deleted:
+        query = query.filter(Comment.is_deleted == False)  # noqa: E712
+
+    if user_filter:
+        like = f'%{user_filter}%'
+        matching_user_ids = [
+            row.id for row in User.query.filter(
+                db.or_(
+                    User.username.ilike(like),
+                    User.name.ilike(like),
+                    User.displayName.ilike(like),
+                    User.oauthName.ilike(like),
+                    User.email.ilike(like),
+                )
+            ).limit(500).all()
+        ]
+        user_clauses = [Comment.author.ilike(like)]
+        if matching_user_ids:
+            user_clauses.append(Comment.author_user_id.in_(matching_user_ids))
+        query = query.filter(db.or_(*user_clauses))
+
+    if page_filter:
+        like = f'%{page_filter}%'
+        matching_submission_ids = [
+            row.id for row in Submission.query.filter(
+                db.or_(
+                    Submission.title.ilike(like),
+                    Submission.draft_name.ilike(like),
+                    Submission.ml_number.ilike(like),
+                    Submission.public_id.ilike(like),
+                )
+            ).limit(500).all()
+        ]
+        page_clauses = [Comment.draft_name.ilike(like)]
+        if matching_submission_ids:
+            page_clauses.append(Comment.submission_id.in_(matching_submission_ids))
+        query = query.filter(db.or_(*page_clauses))
+
+    if text_filter:
+        like = f'%{text_filter}%'
+        query = query.filter(
+            db.or_(
+                Comment.text.ilike(like),
+                Comment.original_text.ilike(like),
+                Comment.passage_excerpt.ilike(like),
+            )
+        )
+
+    comments = query.order_by(Comment.timestamp.desc()).paginate(
+        page=page_num, per_page=per_page, error_out=False
+    )
+    total_posts = query.count()
+
+    rows = []
+    for comment in comments.items:
+        title, ref = _comment_page_label(comment)
+        author = _comment_author_label(comment)
+        posted_at = comment.timestamp.strftime('%Y-%m-%d %H:%M') if comment.timestamp else ''
+        edited_at = comment.edited_at.strftime('%Y-%m-%d %H:%M') if comment.edited_at else ''
+        deleted = bool(comment.is_deleted)
+        badge = '<span class="badge bg-danger">Deleted</span>' if deleted else '<span class="badge bg-success">Live</span>'
+        passage = html_mod.escape(comment.passage_excerpt or '')
+        comment_id = html_mod.escape(comment.id)
+        disabled = 'disabled' if deleted else ''
+        rows.append(f"""
+        <tr id="post-row-{comment_id}">
+            <td>
+                <div class="fw-semibold">{html_mod.escape(author)}</div>
+                <small class="text-muted">{html_mod.escape(comment.author_user_id or comment.author or '')}</small>
+            </td>
+            <td>
+                <div class="fw-semibold">{html_mod.escape(title)}</div>
+                <small class="text-muted">{html_mod.escape(ref or '')}</small>
+            </td>
+            <td>
+                {badge}
+                <div class="small text-muted mt-1">{posted_at}</div>
+                {f'<div class="small text-muted">Edited {edited_at}</div>' if edited_at else ''}
+            </td>
+            <td style="min-width: 320px;">
+                {f'<div class="small text-muted mb-2"><strong>Passage:</strong> {passage}</div>' if passage else ''}
+                <textarea class="form-control form-control-sm" id="post-text-{comment_id}" rows="4" {disabled}>{html_mod.escape(comment.text or '')}</textarea>
+            </td>
+            <td class="text-nowrap">
+                <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="savePost('{comment_id}')" {disabled}>
+                    <i class="fas fa-save me-1"></i>Save
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="deletePost('{comment_id}')" {disabled}>
+                    <i class="fas fa-trash me-1"></i>Delete
+                </button>
+            </td>
+        </tr>
+        """)
+
+    base_args = {
+        'user': user_filter,
+        'page_ref': page_filter,
+        'text': text_filter,
+        'include_deleted': '1' if include_deleted else '0',
+    }
+    pagination = ''
+    if comments.pages > 1:
+        page_links = []
+        for i in comments.iter_pages():
+            if not i:
+                continue
+            page_args = dict(base_args, page=i)
+            active = 'active' if i == comments.page else ''
+            page_links.append(
+                f'<li class="page-item {active}"><a class="page-link" href="?{urlencode(page_args)}">{i}</a></li>'
+            )
+        prev_link = ''
+        if comments.has_prev:
+            prev_link = f'<li class="page-item"><a class="page-link" href="?{urlencode(dict(base_args, page=comments.prev_num))}">Previous</a></li>'
+        next_link = ''
+        if comments.has_next:
+            next_link = f'<li class="page-item"><a class="page-link" href="?{urlencode(dict(base_args, page=comments.next_num))}">Next</a></li>'
+        pagination = f"""
+        <nav aria-label="Post pagination" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {prev_link}
+                {''.join(page_links)}
+                {next_link}
+            </ul>
+        </nav>
+        """
+
+    content = f"""
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('Post Moderation', f'{total_posts} matching posts', 'fa-comments', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Post Moderation', None)]))}
+
+        <div class="alert alert-info">
+            Edits and deletions are recorded in the append-only event log as moderation events.
+        </div>
+
+        <div class="living-module mb-4">
+            <div class="living-module-body">
+                <form method="GET" class="row g-3">
+                    <div class="col-md-3">
+                        <label for="user" class="form-label">User</label>
+                        <input type="text" class="form-control" id="user" name="user" value="{html_mod.escape(user_filter, quote=True)}" placeholder="Name, username, email">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="page_ref" class="form-label">Page</label>
+                        <input type="text" class="form-control" id="page_ref" name="page_ref" value="{html_mod.escape(page_filter, quote=True)}" placeholder="Title, ML number, draft">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="text" class="form-label">Text in post</label>
+                        <input type="text" class="form-control" id="text" name="text" value="{html_mod.escape(text_filter, quote=True)}" placeholder="Search comment text">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="include_deleted" name="include_deleted" value="1" {'checked' if include_deleted else ''}>
+                            <label class="form-check-label" for="include_deleted">Include deleted</label>
+                        </div>
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100"><i class="fas fa-search"></i></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="living-module">
+            <div class="living-module-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Page</th>
+                                <th>Status</th>
+                                <th>Post</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {''.join(rows) if rows else '<tr><td colspan="5" class="text-center text-muted py-4">No posts found.</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {pagination}
+    </div>
+    <script>
+        async function savePost(commentId) {{
+            const textarea = document.getElementById('post-text-' + commentId);
+            const text = textarea ? textarea.value.trim() : '';
+            if (!text) {{
+                await GhDialog.alert({{ title: 'Post text required', message: 'Enter post text before saving.', variant: 'warning' }});
+                return;
+            }}
+            const response = await fetch('/admin/posts/' + commentId + '/edit', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ text }})
+            }});
+            const data = await response.json();
+            if (!response.ok || !data.success) {{
+                await GhDialog.alert({{ title: 'Save failed', message: data.message || 'Could not save post.', variant: 'danger' }});
+                return;
+            }}
+            await GhDialog.alert({{ title: 'Post updated', message: 'The edit was recorded in the moderation event log.', variant: 'success' }});
+            location.reload();
+        }}
+
+        async function deletePost(commentId) {{
+            const ok = await GhDialog.confirm({{
+                title: 'Delete post',
+                message: 'Delete this post? The original text will be retained in the moderation event log.',
+                variant: 'danger',
+                confirmLabel: 'Delete post'
+            }});
+            if (!ok) return;
+            const response = await fetch('/admin/posts/' + commentId + '/delete', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }}
+            }});
+            const data = await response.json();
+            if (!response.ok || !data.success) {{
+                await GhDialog.alert({{ title: 'Delete failed', message: data.message || 'Could not delete post.', variant: 'danger' }});
+                return;
+            }}
+            await GhDialog.alert({{ title: 'Post deleted', message: 'The deletion was recorded in the moderation event log.', variant: 'success' }});
+            location.reload();
+        }}
+    </script>
+    """
+
+    return _format_base_template(
+        title="Post Moderation - GovHub",
+        theme=current_theme,
+        user_menu=user_menu,
+        content=content,
+        build_number=BUILD_NUMBER,
+    )
+
+
+@bp.route('/admin/posts/<comment_id>/edit', methods=['POST'])
+@require_role('admin')
+def admin_edit_post(comment_id):
+    _, _, get_current_user, _, _, _ = _get_imports()
+    admin_user = get_current_user()
+    if not _is_strict_admin(admin_user):
+        return jsonify({'success': False, 'message': 'Admin role required'}), 403
+    data = request.get_json(silent=True) or {}
+    new_text = (data.get('text') or '').strip()
+    if not new_text:
+        return jsonify({'success': False, 'message': 'Post text is required'}), 400
+    if len(new_text) > 8000:
+        return jsonify({'success': False, 'message': 'Post text is too long'}), 400
+    comment = Comment.query.get(comment_id)
+    if not comment:
+        return jsonify({'success': False, 'message': 'Post not found'}), 404
+    if comment.is_deleted:
+        return jsonify({'success': False, 'message': 'Deleted posts cannot be edited'}), 400
+    old_text = comment.text or ''
+    if old_text == new_text:
+        return jsonify({'success': True, 'message': 'No changes'})
+    if not comment.original_text:
+        comment.original_text = old_text
+    comment.text = new_text
+    comment.edited_at = datetime.utcnow()
+    _emit_comment_moderation_event('edit', comment, admin_user, old_text=old_text, new_text=new_text)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Post updated'})
+
+
+@bp.route('/admin/posts/<comment_id>/delete', methods=['POST'])
+@require_role('admin')
+def admin_delete_post(comment_id):
+    _, _, get_current_user, _, _, _ = _get_imports()
+    admin_user = get_current_user()
+    if not _is_strict_admin(admin_user):
+        return jsonify({'success': False, 'message': 'Admin role required'}), 403
+    comment = Comment.query.get(comment_id)
+    if not comment:
+        return jsonify({'success': False, 'message': 'Post not found'}), 404
+    if comment.is_deleted:
+        return jsonify({'success': True, 'message': 'Post already deleted'})
+    old_text = comment.text or ''
+    if not comment.original_text:
+        comment.original_text = old_text
+    comment.is_deleted = True
+    comment.text = '[Deleted]'
+    comment.edited_at = datetime.utcnow()
+    _emit_comment_moderation_event('delete', comment, admin_user, old_text=old_text, new_text='[Deleted]')
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Post deleted'})
 
 
 @bp.route('/admin/users/<username>/role', methods=['POST'])
@@ -1125,9 +1500,24 @@ def admin_projects():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     # Use same DB counts as admin dashboard so badge matches "Review now" alert
-    pending_projects = Layer.query.filter_by(approval_status='pending').order_by(Layer.last_activity.desc()).all()
-    approved_projects = Layer.query.filter_by(approval_status='approved').order_by(Layer.last_activity.desc()).all()
-    rejected_projects = Layer.query.filter_by(approval_status='rejected').order_by(Layer.last_activity.desc()).all()
+    pending_projects = (
+        Layer.query.filter_by(approval_status='pending')
+        .group_by(Layer.name)
+        .order_by(Layer.last_activity.desc())
+        .all()
+    )
+    approved_projects = (
+        Layer.query.filter_by(approval_status='approved')
+        .group_by(Layer.name)
+        .order_by(Layer.last_activity.desc())
+        .all()
+    )
+    rejected_projects = (
+        Layer.query.filter_by(approval_status='rejected')
+        .group_by(Layer.name)
+        .order_by(Layer.last_activity.desc())
+        .all()
+    )
     pending_count = len(pending_projects)
     approved_count = len(approved_projects)
     rejected_count = len(rejected_projects)
@@ -2296,6 +2686,127 @@ def admin_badges():
     return render_page("Admin: Manage Badges - GovHub", content, theme=current_theme, user_menu=user_menu)
 
 
+def _load_platform_invite_target(invitation):
+    try:
+        target = json.loads(invitation.target_json or '{}')
+        return target if isinstance(target, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _workgroup_invitation_counts(workgroup):
+    invitations = PlatformInvitation.query.filter_by(invite_type='join_workgroup').all()
+    matching = []
+    for inv in invitations:
+        target = _load_platform_invite_target(inv)
+        if (
+            target.get('workgroup_id') == workgroup.id
+            or target.get('workgroup_acronym') == workgroup.acronym
+        ):
+            matching.append(inv)
+    sent = len([inv for inv in matching if inv.status != 'revoked'])
+    private_accepted = len([inv for inv in matching if inv.status == 'accepted'])
+    shareable_ids = [inv.id for inv in matching if getattr(inv, 'binding_mode', None) == 'shareable']
+    shareable_accepted = 0
+    if shareable_ids:
+        shareable_accepted = PlatformInvitationAcceptance.query.filter(
+            PlatformInvitationAcceptance.invitation_id.in_(shareable_ids)
+        ).count()
+    return sent, private_accepted + shareable_accepted
+
+
+def _approved_position_names(workgroup, position_key):
+    rows = WorkingGroupChair.query.filter(
+        WorkingGroupChair.group_acronym == workgroup.acronym,
+        WorkingGroupChair.position_key == position_key,
+        db.or_(
+            WorkingGroupChair.status == NOMINATION_STATUS_APPROVED,
+            WorkingGroupChair.approved.is_(True),
+        ),
+    ).order_by(WorkingGroupChair.set_at.asc()).all()
+    return [row.chair_name for row in rows if row.chair_name]
+
+
+@bp.route('/admin/dp-readiness/')
+@require_role('admin')
+def admin_dp_readiness():
+    """Recruitment readiness snapshot for DP Challenge workgroups."""
+    _format_base_template, generate_user_menu, _, BUILD_NUMBER, _, _ = _get_imports()
+    current_theme = session.get('theme', 'dark')
+    user_menu = generate_user_menu()
+
+    rows_html = []
+    workgroups = [wg for wg in Workgroup.query.order_by(Workgroup.name.asc()).all() if is_dp_workgroup(wg)]
+    for wg in workgroups:
+        lead_names = []
+        if wg.coordinator:
+            lead_names.append(wg.coordinator.displayName or wg.coordinator.username)
+        lead_names.extend(_approved_position_names(wg, 'chair'))
+        co_leads = _approved_position_names(wg, 'co_lead')
+        member_count = WorkingGroupMember.query.filter_by(group_acronym=wg.acronym).count()
+        pending_members = WorkgroupMemberRequest.query.filter_by(
+            group_acronym=wg.acronym,
+            status='pending',
+        ).count()
+        invites_sent, invites_accepted = _workgroup_invitation_counts(wg)
+        badge = dp_contributor_badge_status(wg)
+        badge_class = 'success' if badge['ready'] else 'warning'
+        rows_html.append(f"""
+        <tr>
+            <td>
+                <a href="/workgroups/{html_mod.escape(wg.slug or wg.acronym)}/">{html_mod.escape(wg.name)}</a>
+                <div class="small text-muted"><code>{html_mod.escape(wg.acronym or '')}</code></div>
+            </td>
+            <td>{html_mod.escape(', '.join(dict.fromkeys(lead_names)) or 'Unassigned')}</td>
+            <td>{html_mod.escape(', '.join(dict.fromkeys(co_leads)) or 'None')}</td>
+            <td class="text-end">{member_count}</td>
+            <td class="text-end">{invites_sent}</td>
+            <td class="text-end">{invites_accepted}</td>
+            <td class="text-end">{pending_members}</td>
+            <td>
+                <span class="badge bg-{badge_class}">{'Ready' if badge['ready'] else 'Needs setup'}</span>
+                <div class="small text-muted">{html_mod.escape(badge['note'])}</div>
+            </td>
+        </tr>
+        """)
+
+    if not rows_html:
+        rows_html.append(
+            '<tr><td colspan="8" class="text-center text-muted py-4">No DP workgroups found yet.</td></tr>'
+        )
+
+    content = f"""
+    <div class="gh-page container mt-4 gh-admin-page">
+        {gh_page_header('DP Challenge readiness', 'Recruitment operations for July 1-15 workgroup launch', 'fa-clipboard-check', actions_html='<a href="/admin/member_requests/" class="btn btn-outline-secondary btn-sm">Member Requests</a>', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('DP Challenge readiness', None)]))}
+        <div class="alert alert-info">
+            <strong>Permissions:</strong> leads and co-leads can edit workgroups and invite members; members can participate after joining. Contributor badges are off-chain for now and may be preserved on Inscription Day in a future operations step.
+        </div>
+        <div class="living-module">
+            <div class="living-module-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Workgroup</th>
+                                <th>Lead</th>
+                                <th>Co-leads</th>
+                                <th class="text-end">Members</th>
+                                <th class="text-end">Invites sent</th>
+                                <th class="text-end">Accepted</th>
+                                <th class="text-end">Pending approvals</th>
+                                <th>Badge readiness</th>
+                            </tr>
+                        </thead>
+                        <tbody>{''.join(rows_html)}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    return _format_base_template(title="DP Challenge readiness - GovHub", theme=current_theme, user_menu=user_menu, content=content, build_number=BUILD_NUMBER)
+
+
 @bp.route('/admin/member_requests/')
 @require_role('admin')
 def admin_member_requests():
@@ -2315,7 +2826,7 @@ def admin_member_requests():
             <td>{req_at}</td>
             <td>
                 <a href="/admin/member_requests/{req.id}/approve" class="btn btn-sm btn-success">Approve</a>
-                <a href="/admin/member_requests/{req.id}/reject" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject this request?')">Reject</a>
+                <a href="/admin/member_requests/{req.id}/reject" class="btn btn-sm btn-outline-danger">Reject</a>
             </td>
         </tr>
         """

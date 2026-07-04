@@ -426,6 +426,7 @@ def workgroup_detail(workgroup_slug):
             <p><strong>Approval:</strong> ${{workgroup.approval_status}}</p>
             <p><strong>Created:</strong> ${{new Date(workgroup.created_at).toLocaleDateString()}}</p>
             ${{workgroup.coordinator_name ? `<p><strong>Coordinator:</strong> ${{workgroup.coordinator_name}}</p>` : ''}}
+            <p class="small text-muted mb-2"><strong>Permissions:</strong> Leads and co-leads can edit and invite; members participate after joining.</p>
             ${{urlRow}}
             ${{docRow}}
         `;
@@ -488,13 +489,13 @@ def workgroup_detail(workgroup_slug):
                 }});
                 html += '</div>';
             }} else {{
-                html = '<p class="text-muted">No chairs assigned yet</p>';
+                html = '<p class="text-muted">No approved positions or active nominations yet</p>';
             }}
 
             document.getElementById('workgroup-chairs').innerHTML = html;
         }} catch (error) {{
             console.error('Error loading chairs:', error);
-            document.getElementById('workgroup-chairs').innerHTML = '<p class="text-muted">No chairs assigned yet</p>';
+            document.getElementById('workgroup-chairs').innerHTML = '<p class="text-muted">No approved positions or active nominations yet</p>';
         }}
     }}
 
@@ -622,7 +623,12 @@ def workgroup_detail(workgroup_slug):
             const data = await response.json();
 
             if (response.ok) {{
-                await GhDialog.alert({{ title: 'Welcome', message: 'You joined this workgroup.', variant: 'success' }});
+                const pending = data.pending_approval === true;
+                await GhDialog.alert({{
+                    title: pending ? 'Request submitted' : 'Welcome',
+                    message: pending ? 'Your membership request is pending approval.' : 'You joined this workgroup.',
+                    variant: pending ? 'info' : 'success',
+                }});
                 loadMembers();
             }} else {{
                 await GhDialog.alert({{ title: 'Could not join', message: data.error || 'Failed to join workgroup', variant: 'danger' }});

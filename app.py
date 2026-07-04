@@ -188,6 +188,8 @@ def create_app():
     from routes.pages import bp as pages_bp
     from routes.users import bp as users_bp
     from routes.profile_pages import bp as profile_pages_bp
+    from routes.security_pages import bp as security_pages_bp
+    from routes.mfa import bp as mfa_bp
     from routes.group import bp as group_bp
     from routes.directory import bp as directory_bp
     from routes.bridges import bp as bridges_bp
@@ -257,6 +259,8 @@ def create_app():
     app.register_blueprint(pages_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(profile_pages_bp)
+    app.register_blueprint(security_pages_bp)
+    app.register_blueprint(mfa_bp)
     app.register_blueprint(group_bp)
     app.register_blueprint(directory_bp)
     app.register_blueprint(bridges_bp)

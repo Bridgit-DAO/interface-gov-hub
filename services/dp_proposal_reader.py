@@ -215,9 +215,16 @@ def render_dp_proposal_reader_assets(
               <textarea id="dpProposalOriginal" class="form-control font-monospace dp-proposal-pre mb-3" rows="5" readonly></textarea>
               <label class="form-label" for="dpProposalProposed">{html_mod.escape(labels.get("proposed_label", "Patched text"))}</label>
               <textarea id="dpProposalProposed" class="form-control font-monospace dp-proposal-pre mb-3" rows="5"></textarea>
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <button type="button" class="btn btn-sm btn-outline-primary gh-ai-assist-trigger"
+                  data-assist-target="patch_replacement">AI Assist</button>
+                <span id="dpProposalAiAssistedChip" class="badge bg-info text-dark d-none">AI-assisted draft</span>
+              </div>
               <label class="form-label" for="dpProposalRationale">Rationale <span class="text-muted fw-normal">(optional, public)</span></label>
               <textarea id="dpProposalRationale" class="form-control mb-3" rows="2" maxlength="4000"
                 placeholder="Why this change improves the standard…"></textarea>
+              <button type="button" class="btn btn-sm btn-outline-primary gh-ai-assist-trigger mb-3"
+                data-assist-target="patch_rationale">AI Assist for rationale</button>
               <label class="form-label" for="dpProposalReferenceUrl">Reference URL <span class="text-muted fw-normal">(optional)</span></label>
               <input type="url" id="dpProposalReferenceUrl" class="form-control" placeholder="https://…" inputmode="url" autocomplete="url">
             </div>
@@ -234,7 +241,34 @@ def render_dp_proposal_reader_assets(
               <label class="form-label" for="dpCommentText">Your comment</label>
               <textarea id="dpCommentText" class="form-control mb-2" rows="5" maxlength="8000"
                 placeholder="Share your feedback…"></textarea>
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <button type="button" class="btn btn-sm btn-outline-primary gh-ai-assist-trigger"
+                  data-assist-target="comment">AI Assist</button>
+                <span id="dpCommentAiAssistedChip" class="badge bg-info text-dark d-none">AI-assisted draft</span>
+              </div>
               <p class="form-text mb-0">Passage comments are linked to highlighted text. Whole-document comments are general feedback without a highlight.</p>
+            </div>
+            <div id="dpAiAssistPanel" class="card border-primary-subtle bg-light-subtle mt-3 d-none">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                  <div>
+                    <strong class="small">AI Assist</strong>
+                    <div class="small text-muted" id="dpAiAssistContextSummary">Preparing context…</div>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="dpAiAssistClose">Close</button>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mb-3" id="dpAiAssistActions"></div>
+                <div id="dpAiAssistPreviewWrap" class="d-none">
+                  <label class="form-label small mb-1" for="dpAiAssistPreview">Generated draft</label>
+                  <textarea id="dpAiAssistPreview" class="form-control mb-2" rows="5"></textarea>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-primary" id="dpAiAssistInsert">Insert</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="dpAiAssistReplace">Replace</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="dpAiAssistRegenerate">Regenerate</button>
+                  </div>
+                </div>
+                <div class="small text-muted mt-2" id="dpAiAssistStatus" aria-live="polite"></div>
+              </div>
             </div>
             <div id="dpProposalComposeError" class="alert alert-danger mt-3 d-none" role="alert"></div>
           </div>

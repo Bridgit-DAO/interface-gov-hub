@@ -3,10 +3,11 @@ from flask import Blueprint, jsonify, request, session
 
 from extensions import db
 from models import (
-    WorkingGroupChair, WorkingGroupMember, WorkgroupMemberRequest, CoordinatorRequest,
+    User, WorkingGroupChair, WorkingGroupMember, WorkgroupMemberRequest, CoordinatorRequest,
 )
 from services.identity import get_current_user, require_auth, require_role
 from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
+from services.workgroup_membership import join_or_request_workgroup_membership
 
 bp = Blueprint('group', __name__, url_prefix='')
 
@@ -193,45 +194,51 @@ def group_detail(acronym):
         </div>
     </div>
     <script>
-    function joinGroup(acronym) {{
+    async function showGroupError(message) {{
+        if (window.GhDialog) {{
+            await GhDialog.alert({{ title: 'Workgroup action failed', message: message || 'Request failed', variant: 'danger' }});
+        }}
+    }}
+    async function joinGroup(acronym) {{
         fetch(`/group/${{acronym}}/join`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }} }})
-        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else alert('Error: ' + d.message); }})
-        .catch(() => alert('Error joining group'));
+        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else showGroupError(d.message); }})
+        .catch(() => showGroupError('Error joining group'));
     }}
-    function leaveGroup(acronym) {{
+    async function leaveGroup(acronym) {{
         fetch(`/group/${{acronym}}/leave`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }} }})
-        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else alert('Error: ' + d.message); }})
-        .catch(() => alert('Error leaving group'));
+        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else showGroupError(d.message); }})
+        .catch(() => showGroupError('Error leaving group'));
     }}
-    function requestCoordinator(acronym) {{
+    async function requestCoordinator(acronym) {{
         fetch(`/group/${{acronym}}/request_coordinator`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }} }})
-        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else alert(d.message || 'Request failed'); }})
-        .catch(() => alert('Request failed'));
+        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else showGroupError(d.message || 'Request failed'); }})
+        .catch(() => showGroupError('Request failed'));
     }}
-    function addChair(acronym) {{
+    async function addChair(acronym) {{
         const input = document.getElementById(`new-chair-input-${{acronym}}`);
         const chairName = input?.value?.trim();
-        if (!chairName) {{ alert('Please enter a chair name'); return; }}
+        if (!chairName) {{ await GhDialog.alert({{ title: 'Missing name', message: 'Please enter a chair name.', variant: 'warning' }}); return; }}
         fetch(`/group/${{acronym}}/add_chair`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify({{ chair_name: chairName }}) }})
-        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else alert('Error: ' + d.message); }})
-        .catch(() => alert('Error adding chair'));
+        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else showGroupError(d.message); }})
+        .catch(() => showGroupError('Error adding chair'));
     }}
-    function updateChairs(acronym) {{
+    async function updateChairs(acronym) {{
         const select = document.getElementById(`chair-select-${{acronym}}`);
         const chairIds = Array.from(select?.selectedOptions || []).map(o => parseInt(o.value));
         fetch(`/group/${{acronym}}/update_chairs`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify({{ chair_ids: chairIds }}) }})
-        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else alert('Error: ' + d.message); }})
-        .catch(() => alert('Error updating chairs'));
+        .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else showGroupError(d.message); }})
+        .catch(() => showGroupError('Error updating chairs'));
     }}
-    function removeChair(acronym) {{
+    async function removeChair(acronym) {{
         const select = document.getElementById(`chair-select-${{acronym}}`);
         const selected = Array.from(select?.selectedOptions || []);
-        if (!selected.length) {{ alert('Please select chairs to remove'); return; }}
-        if (confirm('Remove ' + selected.length + ' chair(s)?')) {{
+        if (!selected.length) {{ await GhDialog.alert({{ title: 'Select chairs', message: 'Please select chairs to remove.', variant: 'warning' }}); return; }}
+        const ok = await GhDialog.confirm({{ title: 'Remove chairs', message: 'Remove ' + selected.length + ' chair(s)?', variant: 'warning', confirmLabel: 'Remove' }});
+        if (ok) {{
             const chairIds = selected.map(o => parseInt(o.value));
             fetch(`/group/${{acronym}}/remove_chairs`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify({{ chair_ids: chairIds }}) }})
-            .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else alert('Error: ' + d.message); }})
-            .catch(() => alert('Error removing chairs'));
+            .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else showGroupError(d.message); }})
+            .catch(() => showGroupError('Error removing chairs'));
         }}
     }}
     </script>
@@ -257,6 +264,9 @@ def join_group(acronym):
     user_id = current_user.get('id')
     if not user_id:
         return jsonify({'success': False, 'message': 'You must be logged in to join'}), 400
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
 
     existing = WorkingGroupMember.query.filter_by(
         group_acronym=full_acronym,
@@ -266,31 +276,16 @@ def join_group(acronym):
         return jsonify({'success': False, 'message': 'Already a member'}), 400
 
     require_approval = group.get('members_require_approval', False) if group else False
-    if require_approval:
-        pending = WorkgroupMemberRequest.query.filter_by(
-            group_acronym=full_acronym,
-            user_id=user_id,
-            status='pending'
-        ).first()
-        if pending:
-            return jsonify({'success': False, 'message': 'Membership request already pending'}), 400
-        req = WorkgroupMemberRequest(
-            group_acronym=full_acronym,
-            user_id=user_id,
-            user_name=current_user.get('name'),
-            status='pending'
-        )
-        db.session.add(req)
-        db.session.commit()
-        return jsonify({'success': True, 'message': 'Membership requested; pending approval'})
-
-    membership = WorkingGroupMember(
-        group_acronym=full_acronym,
-        user_id=user_id,
-        user_name=current_user.get('name') or current_user.get('username', '')
+    result = join_or_request_workgroup_membership(
+        acronym=full_acronym,
+        user=user,
+        require_approval=require_approval,
     )
-    db.session.add(membership)
+    if result.get('status') == 'already_pending':
+        return jsonify({'success': False, 'message': 'Membership request already pending'}), 400
     db.session.commit()
+    if result.get('pending_approval'):
+        return jsonify({'success': True, 'message': 'Membership requested; pending approval'})
     return jsonify({'success': True, 'message': 'Joined successfully'})
 
 

@@ -6,7 +6,6 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from uuid import uuid4
 
 from extensions import db
 from models import (
@@ -17,8 +16,6 @@ from models import (
     Submission,
     User,
     Workgroup,
-    WorkingGroupMember,
-    WorkgroupMemberRequest,
 )
 from services.invitation_binding import (
     BINDING_PRIVATE,
@@ -26,7 +23,6 @@ from services.invitation_binding import (
     platform_invitation_is_shareable,
     resolve_platform_binding_mode,
 )
-from services.coordination import is_layer_admin
 from services.dp_proposals import (
     resolve_submission_for_proposals,
     submission_draft_ref,
@@ -34,6 +30,10 @@ from services.dp_proposals import (
 from services.platform_invitation_mail import send_platform_invitation_email
 from services.proposal_modes import is_mode_enabled, proposal_mode_for_submission
 from services.utils import generate_invitation_token
+from services.workgroup_authority import can_invite_workgroup_member, is_workgroup_member
+from services.workgroup_membership import (
+    join_or_request_workgroup_membership,
+)
 
 _INVITE_TTL_DAYS = 7
 _STANDARD_DAILY_LIMIT = 10
@@ -195,31 +195,14 @@ def can_invite(inviter_id: str, invite_type: str, target: dict) -> Tuple[bool, s
         wg = Workgroup.query.get(wg_id)
         if not wg:
             return False, 'Workgroup not found'
-        if _is_workgroup_member(wg.acronym, inviter_id):
+        if can_invite_workgroup_member(wg, {
+            'id': inviter.id,
+            'role': inviter.role,
+        }):
             return True, ''
-        layer = wg.layer
-        if layer and is_layer_admin(layer, {'id': inviter.id, 'role': inviter.role}):
-            return True, ''
-        return False, 'Only workgroup members or layer admins can invite'
+        return False, 'Only workgroup leads, co-leads, or layer admins can invite'
 
     return False, 'Unsupported invitation type'
-
-
-def _is_workgroup_member(group_acronym: str, user_id: str) -> bool:
-    if not group_acronym or not user_id:
-        return False
-    return WorkingGroupMember.query.filter_by(
-        group_acronym=group_acronym,
-        user_id=user_id,
-    ).first() is not None
-
-
-def _workgroup_requires_approval(acronym: str) -> bool:
-    from services.groups import load_group_data
-    for g in load_group_data():
-        if g.get('acronym') == acronym:
-            return bool(g.get('members_require_approval'))
-    return False
 
 
 def strip_invite_query_params(path: str) -> str:
@@ -482,7 +465,7 @@ def create_invitation(
             'layer_id': wg.layer_id,
         }
         invitee = User.query.filter(db.func.lower(User.email) == email).first()
-        if invitee and _is_workgroup_member(wg.acronym, invitee.id):
+        if invitee and is_workgroup_member(wg.acronym, invitee.id):
             now = datetime.utcnow()
             inv = PlatformInvitation(
                 invite_type=invite_type,
@@ -937,7 +920,7 @@ def _accept_join_workgroup(inv: PlatformInvitation, user: User, *, finalize_invi
     if not acronym:
         return {'error': 'Invalid invitation target'}, 400
 
-    if _is_workgroup_member(acronym, user.id):
+    if is_workgroup_member(acronym, user.id):
         if finalize_invite:
             inv.status = 'duplicate'
             inv.outcome_note = 'Already a member'
@@ -950,29 +933,14 @@ def _accept_join_workgroup(inv: PlatformInvitation, user: User, *, finalize_invi
             'redirect_path': f'/workgroups/{slug}/' if slug else '/workgroups/',
         }, 200
 
-    if _workgroup_requires_approval(acronym):
-        pending = WorkgroupMemberRequest.query.filter_by(
-            group_acronym=acronym,
-            user_id=user.id,
-            status='pending',
-        ).first()
-        if not pending:
-            req = WorkgroupMemberRequest(
-                group_acronym=acronym,
-                user_id=user.id,
-                user_name=user.displayName or user.username,
-                status='pending',
-                invited_by_user_id=inv.inviter_id,
-                platform_invitation_id=inv.id,
-            )
-            db.session.add(req)
-    else:
-        db.session.add(WorkingGroupMember(
-            id=str(uuid4()),
-            group_acronym=acronym,
-            user_id=user.id,
-            user_name=user.displayName or user.username,
-        ))
+    result = join_or_request_workgroup_membership(
+        acronym=acronym,
+        user=user,
+        invited_by_user_id=inv.inviter_id,
+        invitation=inv,
+    )
+    if not result.get('ok'):
+        return {'error': result.get('error') or 'Could not join workgroup'}, 400
 
     if finalize_invite:
         inv.status = 'accepted'
@@ -984,7 +952,7 @@ def _accept_join_workgroup(inv: PlatformInvitation, user: User, *, finalize_invi
     return {
         'success': True,
         'redirect_path': f'/workgroups/{slug}/' if slug else '/workgroups/',
-        'pending_approval': _workgroup_requires_approval(acronym),
+        'pending_approval': bool(result.get('pending_approval')),
     }, 200
 
 
