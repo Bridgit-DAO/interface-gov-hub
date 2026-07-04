@@ -477,12 +477,20 @@ def _build_prefix_selector_inner_html(layer_id, layer_prefixes):
         )
 
     if not layer_prefixes:
+        # Zero-prefixes fallback: render the system default ``ML`` inline and
+        # tell the user it's the auto-fallback (not an admin-misconfiguration
+        # error). The hidden ``#upload-prefix-code`` / ``#ordinal-prefix-code``
+        # fields are populated server-side via the parent wrapper so the form
+        # still submits a valid prefix without an extra round-trip.
         return (
             '<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>'
-            '<div class="alert alert-warning small mb-0">'
-            "No prefix configured for this layer — ask your layer admin to add one "
-            "in the layer's Admin tab."
+            '<div class="d-flex align-items-center gap-2">'
+            '<span class="font-monospace fs-5 fw-bold">ML</span>'
+            '<span class="text-muted small">No prefixes configured for this layer — '
+            "drafts will use the system default <code>ML</code>.</span>"
             '</div>'
+            '<div class="form-text">Layer admins can add additional prefixes from '
+            "the layer's Admin → Prefixes card.</div>"
         )
 
     if len(layer_prefixes) == 1:
@@ -556,11 +564,14 @@ def _gh_prefix_selector_refresh_script():
         '    .then(function(data){\n'
         '      var items = (data && data.prefixes) || [];\n'
         '      if (!items.length) {\n'
-        '        wrap.setAttribute("data-prefix-state", "empty");\n'
+        '        wrap.setAttribute("data-prefix-state", "default");\n'
         '        wrap.innerHTML = \'<label class="form-label">Prefix</label>\'\n'
-        '          + \'<div class="alert alert-warning small mb-0">No prefix configured for this layer — ask your layer admin to add one.</div>\';\n'
+        '          + \'<div class="d-flex align-items-center gap-2">\'\n'
+        '          + \'<span class="font-monospace fs-5 fw-bold">ML</span>\'\n'
+        '          + \'<span class="text-muted small">No prefixes configured for this layer &mdash; drafts will use the system default <code>ML</code>.</span>\'\n'
+        '          + \'</div>\';\n'
         '        wrap.style.display = "";\n'
-        '        _clearPrefixFields();\n'
+        '        _syncPrefixFields("ML");\n'
         '        return;\n'
         '      }\n'
         '      if (items.length === 1) {\n'
@@ -606,7 +617,11 @@ def _gh_prefix_selector_refresh_script():
         '    sel.addEventListener("change", function(){ _syncPrefixFields(sel.value); });\n'
         '    return;\n'
         '  }\n'
-        '  if (state === "single") {\n'
+        '  if (state === "single" || state === "default") {\n'
+        '    // "single" → layer has exactly one configured prefix.\n'
+        '    // "default" → layer has zero configured prefixes; server stamped\n'
+        '    // the system code ``ML`` into data-prefix-default as the\n'
+        '    // fallback. Either way, mirror it into the hidden form fields.\n'
         '    var def = wrap.getAttribute("data-prefix-default") || "";\n'
         '    _syncPrefixFields(def);\n'
         '  }\n'
@@ -635,7 +650,11 @@ def _build_prefix_selector_html(layer_id, layer_prefixes):
         state = 'no-layer'
         display_style = ' style="display:none;"'
     elif not layer_prefixes:
-        state = 'empty'
+        # Zero-configured-prefixes fallback: render the system default ``ML``
+        # inline. The hidden ``#upload-prefix-code`` / ``#ordinal-prefix-code``
+        # fields default to ``ML`` via ``data-prefix-default`` so the static
+        # init script below syncs them without an extra round-trip.
+        state = 'default'
         display_style = ''
     elif len(layer_prefixes) == 1:
         state = 'single'
@@ -646,6 +665,12 @@ def _build_prefix_selector_html(layer_id, layer_prefixes):
 
     if state == 'single':
         default_attr = f' data-prefix-default="{html_mod.escape(layer_prefixes[0].prefix or "")}"'
+    elif state == 'default':
+        # Server-side fallback for layers with zero configured prefixes:
+        # the hidden #upload-prefix-code / #ordinal-prefix-code fields
+        # default to the system code ``ML`` (the static init script picks
+        # this up via getAttribute("data-prefix-default")).
+        default_attr = ' data-prefix-default="ML"'
     else:
         default_attr = ''
 
@@ -981,11 +1006,12 @@ def submit_draft():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
 
-    layers = (
-        Layer.query.filter(Layer.approval_status == 'approved')
-        .group_by(Layer.name)
-        .order_by(Layer.name)
-        .all()
+    # Public submit-form layer dropdown. Layer admins still see their own
+    # pending layers so they can iterate during setup; everyone else sees
+    # only layers the admin has flipped to ``display_status='active'``.
+    from services.layer_prefixes import visible_layers_for_user
+    layers = visible_layers_for_user(
+        (get_current_user() or {}).get('id'),
     )
     layer_from_param = None
     if request.args.get('layer'):
@@ -1188,11 +1214,28 @@ def submit_draft():
             get_current_user()['id'] if get_current_user() else None,
         )
         # Validate the per-draft prefix override against the chosen layer's
-        # current prefix set. An empty/missing value is fine — the layer
-        # default is used. A non-empty value must match one of the layer's
-        # active prefixes and be a valid 2-uppercase-letter code.
-        from services.layer_prefixes import is_valid_prefix_format, list_prefixes
+        # current prefix set. An empty/missing value falls back to the layer
+        # default, or to the system default ``ML`` if the layer has no
+        # configured prefixes yet. A non-empty value must match one of the
+        # layer's active prefixes and be a valid 2-uppercase-letter code.
+        from services.layer_prefixes import (
+            is_valid_prefix_format,
+            list_prefixes,
+            get_default_prefix,
+        )
         raw_prefix = (request.form.get('prefix_code') or '').strip().upper()
+        if not raw_prefix:
+            # Server-side fallback: if the layer has no prefixes configured,
+            # default the draft to the system code ``ML`` so the row is
+            # never written with an empty ``prefix_code`` (the client also
+            # pre-fills ``ML`` for this branch, but a paranoid server-side
+            # default keeps the column non-null even on stale form posts).
+            available = list_prefixes(layer_id) if layer_id else []
+            if not available:
+                raw_prefix = 'ML'
+            else:
+                default_p = get_default_prefix(layer_id) if layer_id else None
+                raw_prefix = (default_p.prefix if default_p else available[0].prefix) or 'ML'
         if raw_prefix:
             if not is_valid_prefix_format(raw_prefix):
                 flash('Invalid prefix code. Expected exactly two uppercase letters.', 'error')
@@ -1200,8 +1243,11 @@ def submit_draft():
             available = list_prefixes(layer_id) if layer_id else []
             allowed = {p.prefix for p in available}
             if allowed and raw_prefix not in allowed:
-                flash('The selected prefix is not available for this layer.', 'error')
-                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+                # If the layer has no prefixes at all the client/server
+                # fallback (``ML``) must be accepted without complaint.
+                if not (raw_prefix == 'ML' and len(available) == 0):
+                    flash('The selected prefix is not available for this layer.', 'error')
+                    return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
             submission.prefix_code = raw_prefix
         db.session.commit()
 
