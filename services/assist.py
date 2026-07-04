@@ -328,7 +328,10 @@ def build_system_prompt(action: str, context: dict) -> str:
             'You are Gov Hub AI Assist, helping a participant draft a document patch. '
             'Write concise, reviewer-friendly text grounded in the selected passage and document context. '
             'Output only the requested patch text, with no meta commentary. '
-            'Do not write a comment — output only the patch text the user requested.'
+            'Do not write a comment — output only the patch text the user requested. '
+            'Never output  tags, redacted_thinking tags, reasoning tags, analysis tags, '
+            'reflection tags, or chain-of-thought blocks of any kind — only the final patch text. '
+            'Never use em dashes (—); use the en dash character (–), commas, or hyphens.'
         )
     else:
         base = (
@@ -338,7 +341,10 @@ def build_system_prompt(action: str, context: dict) -> str:
             'no analysis, no "Let me" or "I will" or "The user wants" reasoning, no headings, '
             'no "Before/After" comparison. The first character of your reply must be the first '
             'character of the actual comment. Do not write a patch or proposed replacement '
-            '— output only the comment text.'
+            '— output only the comment text. '
+            'Never output  tags, redacted_thinking tags, reasoning tags, analysis tags, '
+            'reflection tags, or chain-of-thought blocks of any kind — only the final comment text. '
+            'Never use em dashes (—); use the en dash character (–), commas, or hyphens.'
         )
 
     instructions = {
@@ -459,113 +465,26 @@ def call_llm(messages: List[dict], cfg: LlmConfig) -> str:
 
 
 def clean_draft(text: str) -> str:
-    cleaned = re.sub(r'</?(?:think|redacted_thinking)[^>]*>', '', text or '', flags=re.I)
-    cleaned = cleaned.replace('—', '–')
-    # Strip common LLM meta-commentary preambles that escape the system prompt
-    # despite the "no preamble" instructions. These are line-prefix patterns;
-    # we only strip full-line prefixes so we don't damage real content.
-    preamble_patterns = [
-        r'(?im)^\s*let me analyze[^\n]*\n+',
-        r'(?im)^\s*let me (?:think|consider|review|examine|look at)[^\n]*\n+',
-        r'(?im)^\s*here(?:’s| is) (?:my |an? )?(?:analysis|breakdown|review|thoughts?)[^\n]*\n+',
-        r'(?im)^\s*i will (?:analyze|review|examine|consider|look at)[^\n]*\n+',
-        r'(?im)^\s*(?:analysis|breakdown|review):\s*\n+',
-        r'(?im)^\s*the user wants me to[^\n]*\n+',
-        r'(?im)^\s*the user is (?:asking|commenting|writing|drafting)[^\n]*\n+',
-        r'(?im)^\s*looking at the (?:user|user\'s) (?:draft|comment|text)[^\n]*\n+',
-        r'(?im)^\s*based on (?:the |this )?(?:user |user\'s )?(?:draft|comment|text|context)[^\n]*\n+',
-        r'(?im)^\s*to improve (?:this|the)[^\n]*\n+',
-        r'(?im)^\s*i need to[^\n]*\n+',
-        r'(?im)^\s*since the[^\n]*\n+',
-        r'(?im)^\s*since this[^\n]*\n+',
-        r'(?im)^\s*given (?:the |this |that )[^\n]*\n+',
+    # Mirrors canopi/services/assistService.js: cleanAssistDraft. The chatty
+    # MiniMax M3 model wraps its chain-of-thought in  / <reasoning>
+    # / <analysis> / <reflection> tags; we remove those tags AND the content
+    # between them so the user only sees the final answer. Without this, the
+    # tags come back as plain text in the draft and the user sees model
+    # reasoning interleaved with the real output.
+    cleaned = text or ''
+    tag_patterns = [
+        r'<(?:think|redacted_thinking)>[\s\S]*?</(?:think|redacted_thinking)>',
+        r'<reasoning>[\s\S]*?</reasoning>',
+        r'<analysis>[\s\S]*?</analysis>',
+        r'<reflection>[\s\S]*?</reflection>',
     ]
-    for pat in preamble_patterns:
-        cleaned = re.sub(pat, '', cleaned)
-
-    # Many chatty LLM responses produce interleaved meta-reasoning and
-    # substantive content. Walk the paragraphs sentence-by-sentence and
-    # classify each one; keep only the substantive sentences.
-    #
-    # A sentence is "meta" if it starts with reasoning / model-self-talk
-    # indicators. Anything else (including actual content) is kept.
-    if not cleaned.strip():
-        return ''
-
-    # Split into paragraphs first, so we can preserve a paragraph break when
-    # the entire paragraph is substantive.
-    raw_paragraphs = [p.strip() for p in re.split(r'\n\s*\n', cleaned) if p.strip()]
-
-    meta_indicators = re.compile(
-        r'(?i)^\s*(?:'
-        r'let me|i will|i need|i should|i can|i think|i notice|i can see|'
-        r'i want|i would|i\'ll|i just|i am going|i\'m|i am|'
-        r'here|the user|since|given|to improve|looking|based on|'
-        r'wait|actually|hmm|perhaps|maybe|'
-        r'original:|options:|final answer:|given my|ok,?\s*i|'
-        r'let me (?:reconsider|try|finalize|just|commit|aim|write|refine|also|'
-        r'expand|produce|provide|offer|shorten|strip|clean|do this|do that|'
-        r'reduce|approach|go with|pick|settle|use|choose|get back|focus|take|'
-        r'trim|cut|keep|note|reword|rework|rewrite|rephrase|reframe|'
-        r'strengthen|clarify|revisit|re-read|re-examine|reconsider|stick|stop)|'
-        r'however,?\s+i|but the|but the user|the "proposed|'
-        r'perhaps the user|perhaps the|'
-        r'this is|this appears|this seems|this looks|this sentence|this passage|'
-        r'this is very|this isn\'t|it is|it\'s|it seems|it looks|it appears|'
-        r'the proposed|the "proposed|the context|the instruction|'
-        r'without (?:knowing|having)|'
-        r'i\'m overthinking|i\'m being|i\'m going|'
-        r'the challenge|'
-        r'overall,?\s+(?:the|i)|'
-        r'that\'s (?:a |an )?(?:good|solid|great|nice|rough|decent|strong|clean|short|long|clear|constructive|better|narrower|tighter)|'
-        r'that is (?:a |an )?(?:good|solid|great|nice|rough|decent|strong|clean|short|long|clear|constructive|better|narrower|tighter)|'
-        r'that\'s (?:much |quite )?(?:better|shorter|longer|more|tighter|clearer|less)|'
-        r'that is (?:much |quite )?(?:better|shorter|longer|more|tighter|clearer|less)|'
-        r'ok,?\s+so|'
-        r'there\'s no|there is no|'
-        r'so i|so the|so this|so my|'
-        r'good,?\s+(?:so|let|now|the|a|here|point|start)|'
-        r'now (?:i|the|we|let)|'
-        r'and? so,?|'
-        r'they (?:want|said|are|asked|mean|expect)|'
-        r'i (?:should|will) (?:also )?(?:need|aim|try|provide|note|mention|add)|'
-        r'it (?:is|\'s) (?:important|clear|worth|good|helpful|best|easy)|'
-        r'first,?\s+(?:let me|i|the|we|here)|'
-        r'second,?\s+(?:let me|i|the|we|here)|'
-        r'basically,?|essentially,?|in summary,?|in short,?|'
-        r'notes?:\s*$|explanation:\s*$|reasoning:\s*$'
-        r')',
-    )
-
-    kept_paragraphs = []
-    for para in raw_paragraphs:
-        # Split paragraph into sentences. The chatty model often uses
-        # em-dashes and newlines in addition to standard terminators.
-        # First, normalize internal newlines into sentence terminators.
-        normalized = re.sub(r'\s*\n\s*', ' ', para)
-        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z"“\'\-\d]|\Z)', normalized)
-        kept_sentences = []
-        for s in sentences:
-            stripped = s.strip()
-            if not stripped:
-                continue
-            if meta_indicators.match(stripped):
-                continue
-            # Also drop sentences that look like bullet points with meta content
-            # (e.g. numbered lists of meta-action items like "1. Add examples, …").
-            if re.match(r'^\s*\d+\.\s+(?i:let me|i will|i need|add |note |keep |make |aim |expand |shorten |focus |trim |cut |provide |offer |draft |write )', stripped):
-                continue
-            kept_sentences.append(stripped)
-        if kept_sentences:
-            kept_paragraphs.append(' '.join(kept_sentences))
-
-    if not kept_paragraphs:
-        # Entire response was meta — fall back to the longest paragraph in the
-        # original (best-effort guess of the "real" answer).
-        candidates = sorted(raw_paragraphs, key=len, reverse=True)
-        return candidates[0] if candidates else ''
-
-    return '\n\n'.join(kept_paragraphs).strip()
+    for pat in tag_patterns:
+        cleaned = re.sub(pat, '', cleaned, flags=re.I)
+    # Drop any orphaned opening/closing tags that escaped the block match.
+    cleaned = re.sub(r'</?(?:think|redacted_thinking)>', '', cleaned, flags=re.I)
+    cleaned = re.sub(r'</?(?:reasoning|analysis|reflection)>', '', cleaned, flags=re.I)
+    cleaned = cleaned.replace('—', '–')
+    return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 
 
 def generate_draft(action: str, context: dict, *, user_prompt: Optional[str], user_id: Optional[str]) -> dict:
