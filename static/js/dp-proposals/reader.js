@@ -2204,6 +2204,79 @@
   }
 
   document.addEventListener('mouseup', onMouseUp);
+
+  // --- Mobile selection → compose modal -----------------------------------
+  // The desktop flow above is left untouched. The block below is gated on
+  // (pointer: coarse) so it only attaches on touch-primary devices (phones,
+  // tablets). On those devices, long-press text selection does not reliably
+  // fire `mouseup`, so the compose modal would never open. We wire touchend
+  // (most reliable) and selectionchange (debounced fallback) to the same
+  // beginProposalFromSelection → openComposeModal path the desktop code uses,
+  // so the existing #dpProposalComposeModal opens with its existing
+  // Comment/Propose + Whole document/Passage tabs. No new modal, no new UI.
+  // (pointer: coarse) AND (hover: none) is the textbook "touch-only
+  // device" check. (pointer: coarse) alone is true on some 2-in-1
+  // laptops where the user primarily uses mouse — adding (hover: none)
+  // excludes those without affecting phones or tablets.
+  if (window.matchMedia &&
+      window.matchMedia('(pointer: coarse)').matches &&
+      window.matchMedia('(hover: none)').matches) {
+    function captureSelectionFromMobileEvent() {
+      var sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+      var range = sel.getRangeAt(0);
+      if (!bodyEl.contains(range.commonAncestorContainer)) return null;
+      if (!tools.userSelectionMeetsMinSentenceWordFraction(range)) return null;
+      var block = tools.findBlockElement(range.commonAncestorContainer) || bodyEl;
+      var off = tools.getSelectionCharOffsetsInBlock(block, range);
+      if (!off) return null;
+      var expanded = tools.expandSelectionToSentences
+        ? tools.expandSelectionToSentences(off.blockText, off.start, off.end)
+        : tools.expandToSentences(off.blockText.slice(off.start, off.end), off.blockText);
+      return { original: expanded, blockText: off.blockText, block: off.block };
+    }
+
+    function mobileSelectionTargetIsIgnored(t) {
+      if (!t || !t.closest) return false;
+      return !!(
+        t.closest('.modal') ||
+        t.closest('.dp-proposal-highlight-rect') ||
+        t.closest('.dp-proposal-mark') ||
+        t.closest('.dp-proposal-pin') ||
+        t.closest('.dp-proposal-hover-panel') ||
+        t.closest('.dp-proposal-badge') ||
+        (composeModalEl && composeModalEl.contains(t)) ||
+        (listModalEl && listModalEl.contains(t))
+      );
+    }
+
+    function openComposeModalFromMobileSelection() {
+      // Don't re-trigger if the compose modal is already visible.
+      if (!composeModalEl) return;
+      if (composeModalEl.classList.contains('show')) return;
+      if (window.bootstrap && window.bootstrap.Modal.getInstance) {
+        var inst = window.bootstrap.Modal.getInstance(composeModalEl);
+        if (inst && inst._isShown) return;
+      }
+      var selection = captureSelectionFromMobileEvent();
+      if (!selection) return;
+      beginProposalFromSelection(selection);
+    }
+
+    document.addEventListener('touchend', function (ev) {
+      if (mobileSelectionTargetIsIgnored(ev.target)) return;
+      // Defer one tick so the browser finalizes the selection before we read it.
+      setTimeout(function () { openComposeModalFromMobileSelection(); }, 0);
+    }, { passive: true });
+
+    var mobileSelectionDebounceTimer = null;
+    document.addEventListener('selectionchange', function () {
+      if (mobileSelectionDebounceTimer) clearTimeout(mobileSelectionDebounceTimer);
+      mobileSelectionDebounceTimer = setTimeout(function () {
+        openComposeModalFromMobileSelection();
+      }, 220);
+    });
+  }
   document.addEventListener('mousemove', function (e) {
     lastPointer.x = e.clientX;
     lastPointer.y = e.clientY;
