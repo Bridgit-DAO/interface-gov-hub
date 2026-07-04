@@ -1815,13 +1815,16 @@ SUBMIT_TEMPLATE = """
                     </ul>
 
                     {{LAYER_SELECTOR_SHARED}}
-                    
+
+                    {{PREFIX_SELECTOR}}
+
                     <div class="tab-content" id="submissionTabContent">
                         <!-- Upload File Tab -->
                         <div class="tab-pane fade show active" id="upload" role="tabpanel">
                             <form method="POST" enctype="multipart/form-data" id="uploadForm">
                                 <input type="hidden" name="sourceType" value="file">
                                 {{LAYER_HIDDEN_FIELD}}
+                                <input type="hidden" name="prefix_code" id="upload-prefix-code" value="">
                                 
                                 <div class="mb-3">
                                     <label for="title" class="form-label">Document Title *</label>
@@ -1877,6 +1880,7 @@ SUBMIT_TEMPLATE = """
                             <form method="POST" id="ordinalForm">
                                 <input type="hidden" name="sourceType" value="ordinal">
                                 {{LAYER_HIDDEN_FIELD}}
+                                <input type="hidden" name="prefix_code" id="ordinal-prefix-code" value="">
                                 <input type="hidden" name="ordinalContentUrl" id="ordinalContentUrl">
                                 <input type="hidden" name="ordinalContentType" id="ordinalContentType">
                                 <input type="hidden" name="inscriptionNumber" id="inscriptionNumber">

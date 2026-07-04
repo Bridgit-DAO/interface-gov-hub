@@ -2831,3 +2831,33 @@ def migrate_layer_prefix_v1(app):
         conn.close()
     except Exception as e:
         print(f'⚠️  Error in migrate_layer_prefix_v1: {e}')
+
+
+def migrate_submission_prefix_code_v1(app):
+    """Add per-draft prefix_code column to submission table.
+
+    Lets a draft use a non-default prefix for its identifier (e.g. a layer
+    that has both "ML" and "CL" as prefixes). NULL means "use the layer
+    default" (legacy behaviour). Idempotent — safe to re-run.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(submission)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'prefix_code' not in cols:
+            cursor.execute("ALTER TABLE submission ADD COLUMN prefix_code VARCHAR(2)")
+            conn.commit()
+            print('✅ Added prefix_code column to submission table')
+        else:
+            print('✅ prefix_code column already present on submission')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_submission_prefix_code ON submission(prefix_code)")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_submission_prefix_code_v1: {e}')
+
+
+def _stub_unused_marker():  # pragma: no cover - keep at end
+    pass

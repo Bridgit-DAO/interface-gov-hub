@@ -520,6 +520,14 @@ def create_project_page():
                         </div>
                     </div>
 
+                    <div class="mb-3">
+                        <label for="create-project-prefix" class="form-label">Prefix (optional)</label>
+                        <input type="text" class="form-control text-uppercase font-monospace" id="create-project-prefix"
+                               maxlength="2" placeholder="ML" autocomplete="off" style="max-width: 6rem; letter-spacing: 0.1em;">
+                        <div class="form-text">Two-letter prefix for draft IDs in this layer (e.g. <code>ML</code>). Must be <strong>globally unique</strong> across all layers. Letters are uppercased. Leave blank to use an auto-assigned placeholder (admins can rename in Edit).</div>
+                        <div id="create-project-prefix-feedback" class="form-text small"></div>
+                    </div>
+
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
                         <strong>Note:</strong> New layers start with "proposed" status and require admin approval before becoming active.
@@ -547,6 +555,26 @@ def create_project_page():
                 nftBlock.classList.toggle('d-none', !nftCb.checked);
             });
         }
+
+        const prefixInput = document.getElementById('create-project-prefix');
+        const prefixFeedback = document.getElementById('create-project-prefix-feedback');
+        if (prefixInput) {
+            prefixInput.addEventListener('input', function () {
+                const cleaned = (prefixInput.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+                if (cleaned !== prefixInput.value) prefixInput.value = cleaned;
+                if (!prefixFeedback) return;
+                if (!prefixInput.value) {
+                    prefixFeedback.textContent = '';
+                    prefixFeedback.className = 'form-text small';
+                } else if (!/^[A-Z]{2}$/.test(prefixInput.value)) {
+                    prefixFeedback.textContent = 'Prefix must be exactly 2 uppercase letters.';
+                    prefixFeedback.className = 'form-text small text-danger';
+                } else {
+                    prefixFeedback.textContent = 'Looks good — uniqueness is checked on save.';
+                    prefixFeedback.className = 'form-text small text-muted';
+                }
+            });
+        }
     })();
     document.getElementById('createProjectForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -556,6 +584,17 @@ def create_project_page():
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
 
         const visEl = document.querySelector('input[name="listing_visibility"]:checked');
+        const prefixRaw = (document.getElementById('create-project-prefix').value || '').trim().toUpperCase();
+        if (prefixRaw && !/^[A-Z]{2}$/.test(prefixRaw)) {
+            document.getElementById('alert-container').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    Prefix must be exactly two uppercase ASCII letters (e.g. "ML").
+                </div>`;
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Layer';
+            return;
+        }
         const formData = {
             name: document.getElementById('name').value,
             mission: document.getElementById('mission').value,
@@ -579,21 +618,99 @@ def create_project_page():
 
             const data = await response.json();
 
-            if (response.ok) {
-                document.getElementById('alert-container').innerHTML = `
-                    <div class="alert alert-success">
-                        <i class="fas fa-check-circle me-2"></i>
-                        Layer created successfully! Redirecting...
-                    </div>
-                `;
-                const slug = data.layer?.slug || data.project?.slug;
-                if (slug) {
-                    setTimeout(() => { window.location.href = `/layers/${slug}/`; }, 1500);
-                } else {
-                    setTimeout(() => { window.location.href = '/layers/'; }, 1500);
-                }
-            } else {
+            if (!response.ok) {
                 throw new Error(data.error || 'Failed to create project');
+            }
+
+            const newLayer = data.layer || data.project;
+            const newLayerId = newLayer && newLayer.id;
+            const slug = newLayer && newLayer.slug;
+
+            // After creation, optionally attach a custom prefix (layer id is now
+            // available, satisfying the FK on layer_prefix).
+            if (newLayerId && prefixRaw) {
+                try {
+                    const prefixRes = await fetch('/api/layers/' + encodeURIComponent(newLayerId) + '/prefixes/', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ prefix: prefixRaw }),
+                    });
+                    const prefixCt = (prefixRes.headers.get('content-type') || '').toLowerCase();
+                    const prefixJson = prefixCt.includes('application/json')
+                        ? await prefixRes.json().catch(function () { return {}; })
+                        : null;
+                    const prefixOk = prefixRes.ok && prefixJson !== null;
+                    if (!prefixOk) {
+                        const errMsg = (prefixJson && prefixJson.error)
+                            || (prefixRes.redirected ? 'Not signed in (redirected to ' + prefixRes.url + ').' : null)
+                            || ('HTTP ' + prefixRes.status);
+                        if (typeof GhDialog !== 'undefined' && GhDialog.alert) {
+                            await GhDialog.alert({
+                                title: 'Layer created, but prefix could not be added',
+                                message: 'The layer was created successfully, but the prefix "' + prefixRaw + '" could not be assigned. Reason: ' + errMsg + ' You can add a prefix later in the layer\'s Edit view.',
+                                variant: 'warning',
+                            });
+                        }
+                    } else {
+                        // The default migration already added a default prefix for
+                        // this layer (e.g. "L1"). If the user wanted a different
+                        // one, delete the auto-assigned one and mark the new one
+                        // as default.
+                        try {
+                            const listRes = await fetch('/api/layers/' + encodeURIComponent(newLayerId) + '/prefixes/', { credentials: 'same-origin' });
+                            const listData = await listRes.json();
+                            if (listRes.ok) {
+                                const prefs = listData.prefixes || [];
+                                for (const p of prefs) {
+                                    if (p.prefix !== prefixRaw) {
+                                        // Remove the placeholder so only the
+                                        // admin-chosen code remains.
+                                        await fetch('/api/layers/' + encodeURIComponent(newLayerId) + '/prefixes/' + p.id + '/', {
+                                            method: 'DELETE', credentials: 'same-origin',
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: JSON.stringify({}),
+                                        });
+                                    }
+                                }
+                                // Mark the user's chosen one as default.
+                                const refreshed = await fetch('/api/layers/' + encodeURIComponent(newLayerId) + '/prefixes/', { credentials: 'same-origin' });
+                                const refreshedData = await refreshed.json();
+                                const chosen = (refreshedData.prefixes || []).find(function (x) { return x.prefix === prefixRaw; });
+                                if (chosen) {
+                                    await fetch('/api/layers/' + encodeURIComponent(newLayerId) + '/prefixes/' + chosen.id + '/default/', {
+                                        method: 'POST', credentials: 'same-origin',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({}),
+                                    });
+                                }
+                            }
+                        } catch (cleanupErr) {
+                            // Non-fatal — admin can fix this in Edit.
+                            console.warn('Prefix cleanup failed:', cleanupErr);
+                        }
+                    }
+                } catch (prefixErr) {
+                    if (typeof GhDialog !== 'undefined' && GhDialog.alert) {
+                        await GhDialog.alert({
+                            title: 'Layer created, but prefix save failed',
+                            message: prefixErr.message || 'Unknown error adding prefix.',
+                            variant: 'warning',
+                        });
+                    }
+                }
+            }
+
+            document.getElementById('alert-container').innerHTML = `
+                <div class="alert alert-success">
+                    <i class="fas fa-check-circle me-2"></i>
+                    Layer created successfully! Redirecting...
+                </div>
+            `;
+            if (slug) {
+                setTimeout(() => { window.location.href = `/layers/${slug}/`; }, 1500);
+            } else {
+                setTimeout(() => { window.location.href = '/layers/'; }, 1500);
             }
         } catch (error) {
             document.getElementById('alert-container').innerHTML = `
