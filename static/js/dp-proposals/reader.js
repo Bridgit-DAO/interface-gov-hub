@@ -34,6 +34,12 @@
   var tools = window.DpSentenceTools;
   var proposals = [];
   var readerComments = [];
+  var assistState = {
+    target: null,
+    context: null,
+    lastAction: null,
+    loading: false,
+  };
   var anchorRegistry = [];
   var displayMode = localStorage.getItem('dpProposalDisplay:' + draftRef) || 'showAll';
   var showDiff = localStorage.getItem('dpProposalShowDiff:' + draftRef) === 'true';
@@ -573,45 +579,80 @@
     if (editBtn) {
       editBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        var next = window.prompt('Edit your comment:', c.text || '');
-        if (next == null) return;
-        next = next.trim();
-        if (!next) return;
-        fetch(apiUrl('/reader-comments/' + encodeURIComponent(c.id) + '/'), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ text: next }),
-        })
-          .then(parseJsonResponse)
-          .then(function (res) {
-            if (!res.ok) {
-              window.alert(res.data.error || 'Could not update comment');
-              return;
-            }
-            loadReaderComments().then(rebuildPassageAnchors);
-            hideHoverPanel(true);
-          });
+        var proceed = GhDialog.prompt({
+          title: 'Edit comment',
+          message: 'Edit your comment:',
+          defaultValue: c.text || '',
+          inputType: 'textarea',
+          confirmLabel: 'Save',
+          cancelLabel: 'Cancel',
+          required: true,
+        });
+        proceed.then(function (next) {
+          if (next == null) return;
+          next = String(next).trim();
+          if (!next) return;
+          fetch(apiUrl('/reader-comments/' + encodeURIComponent(c.id) + '/'), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ text: next }),
+          })
+            .then(parseJsonResponse)
+            .then(function (res) {
+              if (!res.ok) {
+                if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+                  GhDialog.alert({
+                    title: 'Could not update comment',
+                    message: res.data.error || 'Could not update comment',
+                    variant: 'danger',
+                  });
+                } else {
+                  window.alert(res.data.error || 'Could not update comment');
+                }
+                return;
+              }
+              loadReaderComments().then(rebuildPassageAnchors);
+              hideHoverPanel(true);
+            });
+        });
       });
     }
     var delBtn = panel.querySelector('.dp-comment-delete-btn');
     if (delBtn) {
       delBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        if (!window.confirm('Delete this comment?')) return;
-        fetch(apiUrl('/reader-comments/' + encodeURIComponent(c.id) + '/'), {
-          method: 'DELETE',
-          credentials: 'same-origin',
-        })
-          .then(parseJsonResponse)
-          .then(function (res) {
-            if (!res.ok) {
-              window.alert(res.data.error || 'Could not delete comment');
-              return;
-            }
-            loadReaderComments().then(rebuildPassageAnchors);
-            hideHoverPanel(true);
-          });
+        var proceed = GhDialog.confirm({
+          title: 'Delete comment',
+          message: 'Delete this comment?',
+          confirmLabel: 'Delete',
+          cancelLabel: 'Cancel',
+          variant: 'danger',
+        });
+        proceed.then(function (ok) {
+          if (!ok) return;
+          fetch(apiUrl('/reader-comments/' + encodeURIComponent(c.id) + '/'), {
+            method: 'DELETE',
+            credentials: 'same-origin',
+          })
+            .then(parseJsonResponse)
+            .then(function (res) {
+              if (!res.ok) {
+                if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+                  GhDialog.alert({
+                    title: 'Could not delete comment',
+                    message: res.data.error || 'Could not delete comment',
+                    variant: 'danger',
+                  });
+                } else {
+                  window.alert(res.data.error || 'Could not delete comment');
+                }
+                return;
+              }
+              loadReaderComments().then(rebuildPassageAnchors);
+              hideHoverPanel(true);
+            });
+        });
       });
     }
   }
@@ -1416,6 +1457,331 @@
     submitComm.disabled = !ok;
   }
 
+  function assistTargetElement() {
+    if (assistState.target === 'comment') return document.getElementById('dpCommentText');
+    if (assistState.target === 'patch_rationale') return document.getElementById('dpProposalRationale');
+    return document.getElementById('dpProposalProposed');
+  }
+
+  function assistModeForTarget(target) {
+    return target === 'comment' ? 'comment' : 'patch';
+  }
+
+  function assistDefaultAction(target) {
+    var el = assistTargetElement();
+    var hasDraft = !!(el && el.value.trim());
+    if (target === 'comment') return hasDraft ? 'improve_comment' : 'draft_comment';
+    if (target === 'patch_rationale') return hasDraft ? 'shorten_patch_rationale' : 'draft_patch_rationale';
+    return 'improve_patch';
+  }
+
+  function assistActionLabel(action) {
+    var labels = {
+      draft_comment: 'Draft comment',
+      improve_comment: 'Improve',
+      shorten_comment: 'Shorten',
+      find_counterpoint: 'Counterpoint',
+      improve_patch: 'Improve patch',
+      shorten_patch_replacement: 'Shorten',
+      neutralize_patch_replacement: 'Neutralize',
+      add_patch_evidence: 'Add evidence',
+      draft_patch_rationale: 'Draft rationale',
+      shorten_patch_rationale: 'Shorten',
+      explain_patch_risk: 'Explain risk',
+    };
+    return labels[action] || action;
+  }
+
+  function assistActionsForTarget(target, serverActions) {
+    var allowed = target === 'comment'
+      ? ['draft_comment', 'improve_comment', 'shorten_comment', 'find_counterpoint']
+      : target === 'patch_rationale'
+        ? ['draft_patch_rationale', 'shorten_patch_rationale', 'explain_patch_risk', 'add_patch_evidence']
+        : ['improve_patch', 'shorten_patch_replacement', 'neutralize_patch_replacement', 'add_patch_evidence'];
+    var available = {};
+    (serverActions || []).forEach(function (entry) {
+      var id = typeof entry === 'string' ? entry : entry.id;
+      if (id) available[id] = true;
+    });
+    return allowed.filter(function (id) {
+      return !serverActions || !serverActions.length || available[id];
+    });
+  }
+
+  function setAssistStatus(message) {
+    var el = document.getElementById('dpAiAssistStatus');
+    if (el) el.textContent = message || '';
+  }
+
+  function setAssistPreview(text) {
+    var wrap = document.getElementById('dpAiAssistPreviewWrap');
+    var preview = document.getElementById('dpAiAssistPreview');
+    if (preview) preview.value = text || '';
+    if (wrap) wrap.classList.toggle('d-none', !text);
+  }
+
+  function closeAssistPanel() {
+    var panel = document.getElementById('dpAiAssistPanel');
+    if (panel) panel.classList.add('d-none');
+    assistState.target = null;
+    assistState.context = null;
+    assistState.lastAction = null;
+    assistState.loading = false;
+    setAssistPreview('');
+    setAssistStatus('');
+  }
+
+  function markAiAssisted(target) {
+    var chip = target === 'comment'
+      ? document.getElementById('dpCommentAiAssistedChip')
+      : document.getElementById('dpProposalAiAssistedChip');
+    if (chip) chip.classList.remove('d-none');
+  }
+
+  function resetAiAssistedChips() {
+    var patchChip = document.getElementById('dpProposalAiAssistedChip');
+    var commentChip = document.getElementById('dpCommentAiAssistedChip');
+    if (patchChip) patchChip.classList.add('d-none');
+    if (commentChip) commentChip.classList.add('d-none');
+  }
+
+  function triggerInput(el) {
+    if (!el) return;
+    try {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    } catch (_e) {
+      if (typeof el.oninput === 'function') el.oninput();
+    }
+  }
+
+  function buildAssistRequest(target) {
+    var prop = document.getElementById('dpProposalProposed');
+    var rationale = document.getElementById('dpProposalRationale');
+    var comment = document.getElementById('dpCommentText');
+    var selected = pendingSelection && pendingSelection.original ? pendingSelection.original : '';
+    var payload = {
+      mode: assistModeForTarget(target),
+      selected_passage: selected,
+      original_text: selected,
+      proposed_text: prop ? prop.value : '',
+      rationale: rationale ? rationale.value : '',
+      user_draft: target === 'comment' && comment ? comment.value : '',
+      comment_scope: commentScopeMode,
+    };
+    if (selected) {
+      payload.context_anchor = {
+        textQuote: tools.buildTextQuoteSelector(
+          bodyEl.textContent || (pendingSelection && pendingSelection.blockText) || '',
+          selected
+        ),
+      };
+    }
+    return payload;
+  }
+
+  function renderAssistActions(actions) {
+    var container = document.getElementById('dpAiAssistActions');
+    if (!container) return;
+    container.innerHTML = '';
+    actions.forEach(function (action) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm btn-outline-primary';
+      btn.textContent = assistActionLabel(action);
+      btn.addEventListener('click', function () {
+        runAssistAction(action);
+      });
+      container.appendChild(btn);
+    });
+  }
+
+  function refreshAssistContextSummary(sources) {
+    var el = document.getElementById('dpAiAssistContextSummary');
+    if (!el) return;
+    var used = [];
+    if (sources && sources.document) used.push('document');
+    if (sources && sources.selected_passage) used.push('selected passage');
+    if (sources && sources.user_draft) used.push('current draft');
+    if (sources && sources.related_comments) used.push('related comments');
+    if (sources && sources.related_patches) used.push('related patches');
+    el.textContent = used.length ? 'Using ' + used.join(', ') + '.' : 'Using available document context.';
+  }
+
+  function openAssistPanel(target) {
+    if (!meta.authenticated) {
+      showComposeMessage('Sign in to use AI Assist.', 'error');
+      promptSignInForAssist();
+      return;
+    }
+    var panel = document.getElementById('dpAiAssistPanel');
+    if (!panel) return;
+    assistState.target = target;
+    assistState.context = null;
+    assistState.lastAction = null;
+    panel.classList.remove('d-none');
+    setAssistPreview('');
+    setAssistStatus('Preparing context…');
+    renderAssistActions([]);
+    fetch(apiUrl('/assist/context/'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(buildAssistRequest(target)),
+    })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        if (!res.ok) {
+          if (isUnexpectedServerResponse(res)) {
+            promptSignInForAssist('Your session may have expired. Please sign in again.');
+            return;
+          }
+          setAssistStatus(res.data.error || 'Could not prepare AI Assist context.');
+          return;
+        }
+        assistState.context = res.data.context;
+        refreshAssistContextSummary(res.data.sources || {});
+        var actions = assistActionsForTarget(target, res.data.actions || []);
+        renderAssistActions(actions);
+        if (res.data.llm_configured === false) {
+          setAssistStatus('AI Assist is not configured on this server.');
+          return;
+        }
+        runAssistAction(assistDefaultAction(target));
+      })
+      .catch(function () {
+        setAssistStatus('Network error preparing AI Assist context.');
+      });
+  }
+
+  function promptSignInForAssist(message) {
+    var returnTo = window.location.pathname + window.location.search + window.location.hash;
+    var dialogMessage = message || 'Sign in with Web3Auth to use AI Assist.';
+    if (typeof GhDialog === 'undefined' || !GhDialog || !GhDialog.confirm) {
+      window.location.href = '/login/?next=' + encodeURIComponent(returnTo);
+      return;
+    }
+    GhDialog.confirm({
+      title: 'Sign in required',
+      message: dialogMessage,
+      confirmLabel: 'Sign in',
+      cancelLabel: 'Cancel',
+      variant: 'info',
+    }).then(function (ok) {
+      if (!ok) return;
+      window.location.href = '/login/?next=' + encodeURIComponent(returnTo);
+    });
+  }
+
+  function isUnexpectedServerResponse(res) {
+    if (!res || !res.data) return false;
+    var err = res.data.error;
+    return typeof err === 'string' && err.indexOf('Unexpected server response') === 0;
+  }
+
+  function showAiAssistError(data, fallbackMessage) {
+    var transient = !!(data && data.transient);
+    var message = (data && (data.error || data.details)) || fallbackMessage;
+    if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+      GhDialog.alert({
+        title: transient ? 'AI Assist is busy' : 'AI Assist failed',
+        message: transient
+          ? 'The AI service is temporarily overloaded. Please try again in a minute.'
+          : message || fallbackMessage || 'Unknown error',
+        variant: transient ? 'warning' : 'danger',
+      });
+      return;
+    }
+    window.alert(message || fallbackMessage || 'AI Assist error.');
+  }
+
+  function runAssistAction(action) {
+    if (!assistState.context || assistState.loading) return;
+    assistState.loading = true;
+    assistState.lastAction = action;
+    setAssistPreview('');
+    setAssistStatus('Generating draft…');
+    fetch(apiUrl('/assist/generate/'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        action: action,
+        context: assistState.context,
+      }),
+    })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        assistState.loading = false;
+        if (!res.ok) {
+          setAssistStatus(res.data.error || 'AI Assist generation failed.');
+          showAiAssistError(res.data, 'AI Assist generation failed.');
+          return;
+        }
+        setAssistPreview(res.data.draft || '');
+        setAssistStatus('Review the draft, then insert or replace text.');
+      })
+      .catch(function () {
+        assistState.loading = false;
+        setAssistStatus('Network error generating draft. Please try again in a minute.');
+        if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+          GhDialog.alert({
+            title: 'AI Assist is busy',
+            message: 'The AI service is temporarily unreachable. Please try again in a minute.',
+            variant: 'warning',
+          });
+        } else {
+          window.alert('Network error generating draft. Please try again in a minute.');
+        }
+      });
+  }
+
+  function applyAssistDraft(mode) {
+    var preview = document.getElementById('dpAiAssistPreview');
+    var targetEl = assistTargetElement();
+    if (!preview || !targetEl || !preview.value.trim()) return;
+    var text = preview.value.trim();
+    if (mode === 'insert' && targetEl.value.trim()) {
+      targetEl.value = targetEl.value.replace(/\s+$/g, '') + '\n\n' + text;
+    } else {
+      targetEl.value = text;
+    }
+    triggerInput(targetEl);
+    markAiAssisted(assistState.target);
+    setAssistStatus('AI draft applied. Review before submitting.');
+  }
+
+  function bindAssistControls() {
+    document.querySelectorAll('.gh-ai-assist-trigger').forEach(function (btn) {
+      if (btn.dataset.ghAssistBound) return;
+      btn.dataset.ghAssistBound = '1';
+      btn.addEventListener('click', function () {
+        openAssistPanel(btn.getAttribute('data-assist-target') || 'comment');
+      });
+    });
+    var closeBtn = document.getElementById('dpAiAssistClose');
+    if (closeBtn && !closeBtn.dataset.ghAssistBound) {
+      closeBtn.dataset.ghAssistBound = '1';
+      closeBtn.addEventListener('click', closeAssistPanel);
+    }
+    var insertBtn = document.getElementById('dpAiAssistInsert');
+    if (insertBtn && !insertBtn.dataset.ghAssistBound) {
+      insertBtn.dataset.ghAssistBound = '1';
+      insertBtn.addEventListener('click', function () { applyAssistDraft('insert'); });
+    }
+    var replaceBtn = document.getElementById('dpAiAssistReplace');
+    if (replaceBtn && !replaceBtn.dataset.ghAssistBound) {
+      replaceBtn.dataset.ghAssistBound = '1';
+      replaceBtn.addEventListener('click', function () { applyAssistDraft('replace'); });
+    }
+    var regenBtn = document.getElementById('dpAiAssistRegenerate');
+    if (regenBtn && !regenBtn.dataset.ghAssistBound) {
+      regenBtn.dataset.ghAssistBound = '1';
+      regenBtn.addEventListener('click', function () {
+        if (assistState.lastAction) runAssistAction(assistState.lastAction);
+      });
+    }
+  }
+
   function bindCommentScopeToggle() {
     var btnDoc = document.getElementById('dpCommentScopeDocument');
     var btnPassage = document.getElementById('dpCommentScopePassage');
@@ -1521,6 +1887,9 @@
     }
     if (!populateComposeModal()) return;
     setComposeMode(opts.composeMode || readComposeModeFromStorage());
+    bindAssistControls();
+    resetAiAssistedChips();
+    closeAssistPanel();
     var modal = getComposeModal();
     if (modal) modal.show();
   }
@@ -1895,6 +2264,7 @@
       }
       byAnchor[c.anchor_hash].comments.push(c);
     });
+    var orphanIndex = 0;
     Object.keys(byAnchor).forEach(function (hash) {
       var bundle = byAnchor[hash];
       var located = null;
@@ -1909,6 +2279,17 @@
         overlay = tools.createHighlightOverlays(bodyEl, located, hash);
       }
       mountPassageAnchor(hash, bundle, overlay);
+      if (!overlay || !overlay.boxes.length) {
+        var badge = document.querySelector(
+          '.dp-proposal-badge-floating[data-dp-anchor-hash="' + hash + '"]'
+        );
+        if (badge) {
+          badge.style.right = (16 + orphanIndex * 36) + 'px';
+          badge.style.top = (88 + orphanIndex * 36) + 'px';
+          badge.style.left = 'auto';
+          orphanIndex += 1;
+        }
+      }
     });
     positionAllPins();
     positionFloatingBadges();
