@@ -3109,6 +3109,15 @@ def _stub_unused_marker():  # pragma: no cover - keep at end
     pass
 
 
+# Sentinel key in ``site_config`` that records the first run of
+# ``migrate_layer_display_status_v1``. Once the row is present the seed
+# rule below is skipped, so a layer admin's manual ``display_status`` flip
+# (via ``POST /api/layers/<id>/display-status/``) survives a service
+# restart. The schema/column add and the index creation stay unconditional
+# (they're already no-ops when the column / index exist).
+DISPLAY_STATUS_SEEDED_KEY = 'display_status_seeded_v1'
+
+
 def migrate_layer_display_status_v1(app):
     """Add ``display_status`` column to ``layer`` and seed it.
 
@@ -3131,11 +3140,13 @@ def migrate_layer_display_status_v1(app):
 
       Everything else starts as ``'active'``. The seeded value is the
       initial state only — layer admins can flip their own layer at any
-      time. This step is safe to re-run; it reapplies the rule to any
-      layer currently flagged ``'pending'``.
+      time, and that flip is the source of truth once the seed has run.
 
     Idempotent: the column / index steps skip when present. The seed step
-    only re-flip rows that currently match the rule.
+    runs exactly once per database: on the first call it applies the rule
+    and writes the sentinel row in ``site_config``; on every subsequent
+    call it sees the sentinel and skips both ``UPDATE`` statements so
+    admin-driven ``display_status`` flips are preserved across restarts.
     """
     try:
         db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
@@ -3163,46 +3174,73 @@ def migrate_layer_display_status_v1(app):
                 'column (default pending)'
             )
 
-        # ----- Step 3: seed display_status ---------------------------------
-        # Apply the deterministic seed rule. Auth-community / API-guard
-        # layers start 'pending'; everything else starts 'active'.
-        #
-        # v1 semantics: the rule reapplies on every startup. This handles
-        # any rows in the wrong state from prior migrations (the v0
-        # migration left every row as 'pending', for example). It also
-        # corrects ad-hoc test fixtures that bypassed the rule.
-        #
-        # Known limitation for v1: if a layer admin manually flips a
-        # curated layer from 'active' to 'pending' via the Edit Layer
-        # modal, the next service restart will re-flip it to 'active'
-        # because the rule re-applies. This is acceptable for v1; admins
-        # can re-flip. A future migration can add a sentinel column or
-        # use a schema_meta row to make admin overrides persistent
-        # across restarts.
+        # ----- Step 3: seed display_status (first run only) ---------------
+        # The seed rule below must only run once. After the first run, the
+        # admin endpoint ``POST /api/layers/<id>/display-status/`` is the
+        # sole source of truth. We persist a sentinel row in ``site_config``
+        # to remember we've seeded. If the sentinel is missing we apply the
+        # rule and write the row; if it's present we leave existing
+        # ``display_status`` values alone (admin flips are sticky).
         cursor.execute(
-            "UPDATE layer "
-            "SET display_status = 'active' "
-            "WHERE display_status = 'pending' "
-            "  AND NOT (name LIKE '%API guard%' OR slug LIKE 'api-guard-layer-%')"
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='site_config'"
         )
-        flipped_active = cursor.rowcount
-        cursor.execute(
-            "UPDATE layer "
-            "SET display_status = 'pending' "
-            "WHERE display_status = 'active' "
-            "  AND (name LIKE '%API guard%' OR slug LIKE 'api-guard-layer-%')"
-        )
-        flipped_pending = cursor.rowcount
-        seed_count = flipped_active + flipped_pending
-        if seed_count or column_added:
+        site_config_exists = cursor.fetchone() is not None
+        seeded = False
+        if site_config_exists:
+            cursor.execute(
+                "SELECT value FROM site_config WHERE key = ?",
+                (DISPLAY_STATUS_SEEDED_KEY,),
+            )
+            seeded = cursor.fetchone() is not None
+
+        if seeded:
+            # First-run rule already applied. Admin flips (via the API
+            # endpoint) are the source of truth from here on.
             print(
-                f'✅ migrate_layer_display_status_v1: applied seed rule '
-                f'({flipped_active} → active, {flipped_pending} → pending)'
+                '✅ migrate_layer_display_status_v1: seed already applied '
+                '(admin flips are sticky)'
             )
         else:
-            print(
-                '✅ migrate_layer_display_status_v1: seed rule already applied'
+            # First run (or fresh DB without the sentinel): apply the rule.
+            # Auth-community / API-guard layers → 'pending'; everything else
+            # → 'active'. The default 'pending' set by the column's NOT NULL
+            # DEFAULT would be wrong for curated layers, so this step is
+            # required to bring them to 'active'.
+            cursor.execute(
+                "UPDATE layer "
+                "SET display_status = 'active' "
+                "WHERE display_status = 'pending' "
+                "  AND NOT (name LIKE '%API guard%' OR slug LIKE 'api-guard-layer-%')"
             )
+            flipped_active = cursor.rowcount
+            cursor.execute(
+                "UPDATE layer "
+                "SET display_status = 'pending' "
+                "WHERE display_status = 'active' "
+                "  AND (name LIKE '%API guard%' OR slug LIKE 'api-guard-layer-%')"
+            )
+            flipped_pending = cursor.rowcount
+            if flipped_active or flipped_pending or column_added:
+                print(
+                    f'✅ migrate_layer_display_status_v1: applied seed rule '
+                    f'({flipped_active} → active, {flipped_pending} → pending)'
+                )
+            else:
+                print(
+                    '✅ migrate_layer_display_status_v1: no rows needed '
+                    'seeding (sentinel absent but rule already satisfied)'
+                )
+
+            # Persist the sentinel so we never re-apply the rule. Use
+            # ``INSERT OR IGNORE`` defensively in case of a race; the
+            # ``SELECT`` above already gated the rest of this block.
+            if site_config_exists:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO site_config (key, value) "
+                    "VALUES (?, ?)",
+                    (DISPLAY_STATUS_SEEDED_KEY, 'sealed'),
+                )
 
         # ----- Step 4: ensure index exists --------------------------------
         cursor.execute(
