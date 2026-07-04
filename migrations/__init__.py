@@ -2722,10 +2722,21 @@ def migrate_user_mfa_v1(app):
 def migrate_layer_prefix_v1(app):
     """Layer-scoped two-letter draft prefix table (e.g. "ML", "CL").
 
-    Globally unique per prefix. Seeds "ML" as the default prefix for the
-    first existing layer (preserving legacy ML-Draft-NNN references); other
-    layers get a deterministic placeholder ("L1", "L2", ...) that admins can
-    rename to their real two-letter code via the new Prefixes tab.
+    Globally unique per prefix. Seeds ``"ML"`` as the default prefix for the
+    first existing layer that has no default (preserving legacy
+    ``ML-Draft-NNN`` references). Every other layer is left with **no**
+    default row — the submission form / directory / etc. render
+    ``"ML"`` as the runtime fallback for layers without an
+    admin-created prefix. No ``L1``/``L2``/... placeholders are created
+    automatically; admins opt in to a real two-letter code via the
+    Prefixes tab.
+
+    On re-run, this migration also removes any pre-existing
+    ``L1``–``L9`` placeholder rows (regardless of which layer they were
+    attached to) so admin-renamed placeholders are cleaned up too. Only
+    the literal ``L1``–``L9`` patterns are considered "placeholders to
+    clean up" — be defensive about scope so we never touch an admin-set
+    prefix.
     """
     try:
         db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
@@ -2761,10 +2772,42 @@ def migrate_layer_prefix_v1(app):
             )
             print('✅ Created layer_prefix table')
 
-        # Backfill default prefix for every layer that has none (idempotent).
-        # Only the first layer gets "ML"; subsequent layers get a stable
-        # placeholder so admins can rename in the new Prefixes tab without
-        # colliding on the global UNIQUE(prefix) constraint.
+        # ----- Step 1: clean up legacy L1-L9 placeholders -------------------
+        # These were the deterministic placeholders the previous version of
+        # this migration assigned. They are NEVER valid production prefixes
+        # (they are single-letter "L" + digit codes that no real curated
+        # layer would want), so on every re-run we delete any rows whose
+        # prefix matches the literal ``L1``–``L9`` pattern. This handles
+        # admin-renamed placeholders too: if an admin flipped ``L3`` to
+        # ``CL`` already, the new ``CL`` row stays; the old ``L3`` row
+        # (if any) gets cleaned up. Only the literal placeholders are
+        # considered — be defensive about scope.
+        cursor.execute(
+            "SELECT id, layer_id FROM layer_prefix WHERE prefix GLOB 'L[0-9]'"
+        )
+        legacy_placeholder_rows = cursor.fetchall()
+        legacy_placeholder_ids = [row[0] for row in legacy_placeholder_rows]
+        if legacy_placeholder_ids:
+            placeholders = ', '.join('?' * len(legacy_placeholder_ids))
+            cursor.execute(
+                f'DELETE FROM layer_prefix WHERE id IN ({placeholders})',
+                legacy_placeholder_ids,
+            )
+            print(
+                f'✅ Cleaned up {cursor.rowcount} legacy L1-L9 placeholder '
+                'prefix row(s) — layers now fall back to the system "ML" '
+                'at render time'
+            )
+
+        # ----- Step 2: assign "ML" to the first layer that has no default --
+        # Idempotent: if any layer already has a default ``ML`` (from a
+        # prior run, or because the original curated layer has it), we
+        # skip the backfill entirely. We DO NOT auto-create placeholders
+        # for other layers — unprefixed layers rely on the runtime "ML"
+        # fallback in the submission form / directory.
+        cursor.execute("SELECT 1 FROM layer_prefix WHERE prefix = 'ML'")
+        ml_taken = cursor.fetchone() is not None
+
         cursor.execute(
             """
             SELECT l.id
@@ -2777,69 +2820,39 @@ def migrate_layer_prefix_v1(app):
         )
         layers_without_default = [row[0] for row in cursor.fetchall()]
 
-        cursor.execute("SELECT 1 FROM layer_prefix WHERE prefix = 'ML'")
-        ml_taken = cursor.fetchone() is not None
-
+        backfilled = 0
         for layer_id in layers_without_default:
-            if not ml_taken:
-                chosen_prefix = 'ML'
-                ml_taken = True  # ML is now taken for any subsequent layers
-            else:
-                # Generate the next available "Ln" placeholder deterministically.
-                cursor.execute(
-                    "SELECT prefix FROM layer_prefix WHERE prefix GLOB 'L?' ORDER BY prefix"
-                )
-                used = {row[0] for row in cursor.fetchall()}
-                chosen_prefix = next(
-                    (f'L{n}' for n in range(1, 10)
-                     if f'L{n}' not in used),
-                    None,
-                )
-                if chosen_prefix is None:
-                    # L1-L9 exhausted (e.g. on rerun with many layers).
-                    # Fall back to a stable 2-letter hash of layer_id so the
-                    # migration stays idempotent. Deterministic so the same
-                    # layer gets the same placeholder across re-runs.
-                    digits = ''.join(c for c in layer_id if c.isalnum())
-                    if not digits:
-                        digits = layer_id or uuid4().hex
-                    h1 = sum(ord(c) for c in digits)
-                    h2 = sum(ord(c) for c in reversed(digits))
-                    cand = '{}{}'.format(
-                        chr(ord('A') + (h1 % 26)),
-                        chr(ord('A') + (h2 % 26)),
-                    )
-                    if cand in used:
-                        # Try shifting the hash by an increasing offset
-                        # before giving up. With 26² codes and 4-letter
-                        # aliases this almost never happens in practice.
-                        offset = 0
-                        while offset < 26 and cand in used:
-                            cand = '{}{}'.format(
-                                chr(ord('A') + (h1 % 26)),
-                                chr(ord('A') + ((h2 + offset) % 26)),
-                            )
-                            offset += 1
-                    if cand in used:
-                        print(
-                            '⚠️  Could not derive a free hash-based prefix '
-                            f'for layer {layer_id} — skipping prefix backfill'
-                        )
-                        continue
-                    chosen_prefix = cand
-
+            if ml_taken:
+                # No more automatic backfill. Layers without a default
+                # prefix rely on the system "ML" fallback at render time.
+                break
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO layer_prefix
                     (id, layer_id, prefix, is_default, created_by, created_at)
-                VALUES (?, ?, ?, '1', NULL, CURRENT_TIMESTAMP)
+                VALUES (?, ?, 'ML', '1', NULL, CURRENT_TIMESTAMP)
                 """,
-                (str(uuid4()), layer_id, chosen_prefix),
+                (str(uuid4()), layer_id),
             )
-        if layers_without_default:
+            if cursor.rowcount:
+                ml_taken = True
+                backfilled += 1
+
+        if backfilled:
             print(
-                f'✅ Backfilled default prefix for {len(layers_without_default)}'
-                ' layer(s) — rename placeholders in Admin → Prefixes'
+                f'✅ Assigned "ML" default to the first layer (legacy '
+                f'ML-Draft-NNN compatibility). Remaining '
+                f'{len(layers_without_default) - backfilled} unprefixed '
+                'layer(s) use the runtime "ML" fallback.'
+            )
+        elif layers_without_default and not ml_taken:
+            # Defensive: this branch should be unreachable because the
+            # ``if ml_taken: break`` above would have left us with an
+            # unprefixed layer only when no layer has been seeded yet.
+            # Logged so a future reader can spot the edge case.
+            print(
+                '⚠️  No "ML" prefix seeded and no layer eligible for '
+                'backfill — unprefixed layers rely on the runtime fallback.'
             )
 
         conn.commit()
