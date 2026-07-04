@@ -1,4 +1,5 @@
 """Submissions API and actions: list, approve, reject, view, download, admin/submissions."""
+import html as html_mod
 import os
 import random
 import re
@@ -52,12 +53,16 @@ def _strip_immortalize_from_submit_template(template: str) -> str:
 def _layer_prefix_for_submission(submission) -> str:
     """Return the 2-letter draft prefix for a submission's primary layer.
 
-    Falls back to 'ML' when the submission has no layer, the layer has no
-    default ``LayerPrefix`` row, or the ``LayerPrefix`` model is unavailable
-    (the model is currently untracked WIP).
+    Honours an explicit per-draft override on ``submission.prefix_code`` —
+    the submit form sets this when a layer has more than one prefix and the
+    author chose a non-default code. Falls back to the layer's default
+    ``LayerPrefix`` row, then to 'ML' as a last resort.
     """
     if submission is None:
         return 'ML'
+    override = (getattr(submission, 'prefix_code', None) or '').strip().upper()
+    if override and _is_valid_prefix_code(override):
+        return override
     layer_id = (
         getattr(submission, 'primary_layer_id', None)
         or getattr(submission, 'layer_id', None)
@@ -73,6 +78,12 @@ def _layer_prefix_for_submission(submission) -> str:
         return prefix or 'ML'
     except Exception:
         return 'ML'
+
+
+def _is_valid_prefix_code(value: object) -> bool:
+    """Two uppercase ASCII letters, mirroring services.layer_prefixes format."""
+    import re as _re
+    return bool(_re.match(r'^[A-Z]{2}$', (str(value) if value is not None else '').strip().upper()))
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +460,156 @@ def _apply_submission_document_meta(submission, form, user_id: Optional[str]) ->
         sync_submission_tags_to_artifact(submission)
 
 
+def _build_prefix_selector_html(layer_id, layer_prefixes):
+    """Per-draft prefix selector for the submit form.
+
+    0 prefixes: warning (admin hasn't set one yet).
+    1 prefix:   read-only badge (drafts always use this code).
+    >1 prefix:  dropdown — author picks the code for this draft.
+    The selection is mirrored into the hidden #upload-prefix-code and
+    #ordinal-prefix-code fields on change so the server can read it.
+    """
+    if not layer_id:
+        # No layer chosen yet (user must pick one above); don't show selector
+        # until they do. The JS will re-render when they change the select.
+        return (
+            '<div class="mb-3" id="submit-prefix-selector-wrap" '
+            'data-prefix-state="no-layer" style="display:none;">'
+            '<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>'
+            '<div id="submit-prefix-selector-body" class="small text-muted">'
+            'Select a layer to see available prefixes.'
+            '</div></div>'
+        )
+
+    if not layer_prefixes:
+        return (
+            '<div class="mb-3" id="submit-prefix-selector-wrap" '
+            'data-prefix-state="empty">'
+            '<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>'
+            '<div class="alert alert-warning small mb-0">'
+            'No prefix configured for this layer — ask your layer admin to add one '
+            'in the layer\'s Admin tab.'
+            '</div></div>'
+        )
+
+    if len(layer_prefixes) == 1:
+        p = layer_prefixes[0]
+        return (
+            '<div class="mb-3" id="submit-prefix-selector-wrap" '
+            'data-prefix-state="single" '
+            f'data-prefix-default="{html_mod.escape(p.prefix or "")}">'
+            '<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>'
+            '<div class="d-flex align-items-center gap-2">'
+            f'<span class="font-monospace fs-5 fw-bold">{html_mod.escape(p.prefix or "")}</span>'
+            '<span class="badge bg-success">Default</span>'
+            '</div>'
+            '<div class="form-text">This is the only prefix for this layer; the new '
+            'draft will use it automatically.</div>'
+            # Pre-populate the hidden field with the only option so the
+            # server can read the value even without further interaction.
+            f'<script>(function(){{'
+            f'  function _setSingle() {{ '
+            f'    var u=document.getElementById("upload-prefix-code"); '
+            f'    if (u) u.value="{html_mod.escape(p.prefix or "")}"; '
+            f'    var o=document.getElementById("ordinal-prefix-code"); '
+            f'    if (o) o.value="{html_mod.escape(p.prefix or "")}"; '
+            f'  }} '
+            f'  if (document.readyState==="loading") {{ document.addEventListener("DOMContentLoaded", _setSingle); }} else {{ _setSingle(); }} '
+            f'}})();</script>'
+            '</div>'
+        )
+
+    # >1 prefix → dropdown
+    options = []
+    for p in layer_prefixes:
+        label = p.prefix
+        if p.is_default:
+            label += ' (default)'
+        sel = ' selected' if p.is_default else ''
+        options.append(
+            f'<option value="{html_mod.escape(p.prefix or "")}"{sel}>'
+            f'{html_mod.escape(label)}</option>'
+        )
+    default_p = next((p for p in layer_prefixes if p.is_default), layer_prefixes[0])
+    return (
+        '<div class="mb-3" id="submit-prefix-selector-wrap" '
+        'data-prefix-state="multi">'
+        '<label for="submit-prefix-select" class="form-label" '
+        'data-gh-i18n="prefix.label">Prefix</label>'
+        '<select class="form-select" id="submit-prefix-select" '
+        f'style="max-width: 14rem;">{"".join(options)}</select>'
+        '<div class="form-text">This layer has more than one prefix — pick which '
+        'code to use for this draft\'s identifier.</div>'
+        # JS wires the select to the hidden fields on both forms.
+        '<script>(function(){\n'
+        'function _syncPrefixFields(val) {\n'
+        '  var u=document.getElementById("upload-prefix-code");\n'
+        '  if (u) u.value = val || "";\n'
+        '  var o=document.getElementById("ordinal-prefix-code");\n'
+        '  if (o) o.value = val || "";\n'
+        '}\n'
+        'function _initPrefixSelect() {\n'
+        '  var sel = document.getElementById("submit-prefix-select");\n'
+        '  if (!sel) return;\n'
+        '  _syncPrefixFields(sel.value);\n'
+        '  sel.addEventListener("change", function(){ _syncPrefixFields(sel.value); });\n'
+        '}\n'
+        'if (document.readyState==="loading") {'
+        ' document.addEventListener("DOMContentLoaded", _initPrefixSelect);'
+        '} else { _initPrefixSelect(); }\n'
+        f'window._GhRefreshSubmitPrefixSelector = function(layerId) {{ '
+        f'  var wrap = document.getElementById("submit-prefix-selector-wrap"); '
+        f'  if (!wrap) return; '
+        f'  if (!layerId) {{ wrap.style.display = "none"; wrap.setAttribute("data-prefix-state", "no-layer"); '
+        f'    var body = document.getElementById("submit-prefix-selector-body"); '
+        f'    if (body) body.textContent = "Select a layer to see available prefixes."; '
+        f'    return; '
+        f'  }} '
+        f'  fetch("/api/layers/" + encodeURIComponent(layerId) + "/prefixes/", {{credentials:"same-origin"}}) '
+        f'    .then(function(r){{return r.json();}}) '
+        f'    .then(function(data){{ '
+        f'      var items = (data && data.prefixes) || []; '
+        f'      if (!items.length) {{ '
+        f'        wrap.setAttribute("data-prefix-state", "empty"); '
+        f'        wrap.innerHTML = "<label class=\\"form-label\\">Prefix</label>" '
+        f'          + "<div class=\\"alert alert-warning small mb-0\\">" '
+        f'          + "No prefix configured for this layer — ask your layer admin to add one." '
+        f'          + "</div>"; '
+        f'        _syncPrefixFields(""); '
+        f'        return; '
+        f'      }} '
+        f'      if (items.length === 1) {{ '
+        f'        wrap.setAttribute("data-prefix-state", "single"); '
+        f'        wrap.innerHTML = "<label class=\\"form-label\\">Prefix</label>" '
+        f'          + "<div class=\\"d-flex align-items-center gap-2\\">" '
+        f'          + "<span class=\\"font-monospace fs-5 fw-bold\\">" + (items[0].prefix || "") + "</span>" '
+        f'          + "<span class=\\"badge bg-success\\">Default</span></div>" '
+        f'          + "<div class=\\"form-text\\">This is the only prefix for this layer; the new draft will use it automatically.</div>"; '
+        f'        _syncPrefixFields(items[0].prefix || ""); '
+        f'        return; '
+        f'      }} '
+        f'      var html = "<label class=\\"form-label\\">Prefix</label>" '
+        f'        + "<select class=\\"form-select\\" id=\\"submit-prefix-select\\" style=\\"max-width: 14rem;\\">"; '
+        f'      var def = items.find(function(x){{return x.is_default;}}) || items[0]; '
+        f'      items.forEach(function(p){{ '
+        f'        var lbl = p.prefix + (p.is_default ? " (default)" : ""); '
+        f'        var sel = p.is_default ? " selected" : ""; '
+        f'        html += "<option value=\\"" + p.prefix + "\\"" + sel + ">" + lbl + "</option>"; '
+        f'      }}); '
+        f'      html += "</select><div class=\\"form-text\\">This layer has more than one prefix \\u2014 pick which code to use for this draft\\u2019s identifier.</div>"; '
+        f'      wrap.setAttribute("data-prefix-state", "multi"); '
+        f'      wrap.innerHTML = html; '
+        f'      var newSel = document.getElementById("submit-prefix-select"); '
+        f'      _syncPrefixFields(def.prefix || ""); '
+        f'      if (newSel) newSel.addEventListener("change", function(){{ _syncPrefixFields(newSel.value); }}); '
+        f'    }}) '
+        f'    .catch(function(e){{ console.warn("prefix fetch failed", e); }}); '
+        f'}};\n'
+        '})();</script>'
+        '</div>'
+    )
+
+
 def _build_submit_form_template(
     *,
     effective_layer,
@@ -464,13 +625,20 @@ def _build_submit_form_template(
     )
     from services.product_rollout import is_feature_enabled
     from services.page_heroes import render_page_hero_html
+    from services.layer_prefixes import list_prefixes
 
     layer_id = effective_layer.id if effective_layer else None
     group_options = workgroup_select_options_html(layer_id, selected_group)
     workgroup_script = submit_workgroup_layer_script(fixed_layer_id=layer_id)
 
+    # Build the per-draft prefix selector. 0 prefixes → warning; 1 → read-only;
+    # >1 → dropdown. The server re-validates on submit, so this is just UX.
+    layer_prefixes = list_prefixes(layer_id) if layer_id else []
+    prefix_selector_html = _build_prefix_selector_html(layer_id, layer_prefixes)
+
     submit_template = SUBMIT_TEMPLATE.replace('{{WORKGROUP_OPTIONS}}', group_options)
     submit_template = submit_template.replace('{{WORKGROUP_LAYER_SCRIPT}}', workgroup_script)
+    submit_template = submit_template.replace('{{PREFIX_SELECTOR}}', prefix_selector_html)
 
     if effective_layer:
         layer_selector_shared = f'''
@@ -904,6 +1072,7 @@ def submit_draft():
                 pages=page_count,
                 words=word_count,
                 content_hash=content_hash,
+                prefix_code=(request.form.get('prefix_code') or '').strip().upper() or None,
             )
 
         else:
@@ -952,6 +1121,7 @@ def submit_draft():
                 pages=pages,
                 words=words,
                 content_hash=content_hash,
+                prefix_code=(request.form.get('prefix_code') or '').strip().upper() or None,
             )
 
         # Save to database
@@ -962,6 +1132,22 @@ def submit_draft():
             request.form,
             get_current_user()['id'] if get_current_user() else None,
         )
+        # Validate the per-draft prefix override against the chosen layer's
+        # current prefix set. An empty/missing value is fine — the layer
+        # default is used. A non-empty value must match one of the layer's
+        # active prefixes and be a valid 2-uppercase-letter code.
+        from services.layer_prefixes import is_valid_prefix_format, list_prefixes
+        raw_prefix = (request.form.get('prefix_code') or '').strip().upper()
+        if raw_prefix:
+            if not is_valid_prefix_format(raw_prefix):
+                flash('Invalid prefix code. Expected exactly two uppercase letters.', 'error')
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+            available = list_prefixes(layer_id) if layer_id else []
+            allowed = {p.prefix for p in available}
+            if allowed and raw_prefix not in allowed:
+                flash('The selected prefix is not available for this layer.', 'error')
+                return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
+            submission.prefix_code = raw_prefix
         db.session.commit()
 
         # Log the action
@@ -1710,6 +1896,36 @@ def list_layer_submissions(layer_id):
     })
 
 
+@bp.route('/api/layers/<layer_id>/docs/', methods=['GET'])
+def list_layer_docs(layer_id):
+    """List all docs (submissions of doc_type='draft') for a layer — any status.
+
+    Used by the layer detail page 'Docs' tab so contributors can find a draft
+    they added to a workgroup-less layer. Returns the most recent first; pending
+    (status=submitted) drafts are included so the author can locate their own work
+    in progress. Drafts marked deleted are filtered out.
+    """
+    Layer.query.get_or_404(layer_id)
+    submissions = Submission.query.filter(
+        Submission.layer_id == layer_id,
+        Submission.doc_type == 'draft',
+    ).order_by(Submission.submitted_at.desc()).limit(200).all()
+    return jsonify({
+        'docs': [{
+            'id': s.id,
+            'public_id': s.public_id,
+            'title': s.title or s.draft_name or 'Untitled',
+            'draft_name': s.draft_name,
+            'ml_number': s.ml_number,
+            'group': s.group,
+            'status': s.status,
+            'document_category': s.document_category,
+            'submitted_at': s.submitted_at.isoformat() if s.submitted_at else None,
+            'submitted_by': s.submitted_by,
+        } for s in submissions]
+    })
+
+
 @bp.route('/submit/approve/<submission_id>', methods=['POST'])
 @require_role('admin')
 def approve_submission(submission_id):
@@ -2250,6 +2466,7 @@ def update_submission_status(submission_id):
             if len(parts) >= 3 and parts[1].upper() == 'DRAFT' and parts[2].isdigit():
                 prefix_token = parts[0]
                 submission.ml_number = f"{prefix_token}-RFC-{parts[2]}"
+        submission.doc_type = 'rfc'
 
     db.session.commit()
 

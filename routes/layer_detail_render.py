@@ -698,6 +698,25 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                             <div class="form-text">Ordinal inscription whose content is the meta-domain (e.g. example.com.meta). Fetched once and cached.</div>
                             <div id="edit-project-meta-domain-display" class="mt-1 text-muted small"></div>
                         </div>
+
+                        <hr class="my-4">
+
+                        <div class="card bg-secondary bg-opacity-10 mb-2" id="edit-modal-prefixes-card">
+                            <div class="card-body py-3">
+                                <h6 class="card-title mb-2"><i class="fas fa-tag me-2"></i>Draft prefixes</h6>
+                                <p class="text-muted small mb-2">Two-letter prefix prepended to draft identifiers in this layer (e.g. <code>ML-001</code>). Prefixes are <strong>globally unique across the entire Gov Hub</strong>.</p>
+                                <div id="edit-modal-prefixes-list" class="mb-2"></div>
+                                <div class="input-group input-group-sm" style="max-width: 18rem;">
+                                    <input type="text" class="form-control text-uppercase font-monospace" id="edit-modal-add-prefix-input"
+                                           maxlength="2" placeholder="ML" autocomplete="off" style="letter-spacing: 0.1em;">
+                                    <button class="btn btn-primary" type="button" id="edit-modal-add-prefix-btn" onclick="editModalAddPrefix()">
+                                        <i class="fas fa-plus me-1"></i>Add
+                                    </button>
+                                </div>
+                                <div id="edit-modal-add-prefix-feedback" class="form-text small mt-1"></div>
+                                <p class="small text-muted mt-2 mb-0">The active (default) prefix is the one shown in the header chip. A layer must always have at least one prefix.</p>
+                            </div>
+                        </div>
                     </form>
                 </div>
                 <div class="modal-footer">
@@ -4172,6 +4191,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         alertEl.classList.add('d-none');
         alertEl.textContent = '';
         loadEditModalAdmins();
+        loadEditModalPrefixes();
         const modal = new bootstrap.Modal(document.getElementById('editProjectModal'));
         modal.show();
     }}
@@ -4206,7 +4226,272 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             container.innerHTML = '<div class="list-group-item text-danger small">Failed to load admins. Check console for details.</div>';
         }}
     }}
-    
+
+    // ------------------------------------------------------------------------
+    // Edit Layer modal — draft prefixes
+    // ------------------------------------------------------------------------
+    async function loadEditModalPrefixes() {{
+        const container = document.getElementById('edit-modal-prefixes-list');
+        if (!container || !project) return;
+        container.innerHTML = '<div class="text-muted small py-2"><span class="spinner-border spinner-border-sm text-secondary"></span> Loading...</div>';
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/', {{ credentials: 'same-origin' }});
+            const data = await res.json().catch(function () {{ return {{}}; }});
+            if (!res.ok) {{
+                container.innerHTML = '<div class="alert alert-danger small mb-0">' + escapeHtml(data.error || ('HTTP ' + res.status)) + '</div>';
+                return;
+            }}
+            const items = data.prefixes || [];
+            if (!items.length) {{
+                container.innerHTML = '<p class="text-muted small mb-0">No prefixes yet — add one below.</p>';
+                return;
+            }}
+            let html = '<div class="list-group">';
+            items.forEach(function (p) {{
+                const isDefault = !!p.is_default;
+                const idAttr = escapeForJsAttr(String(p.id || ''));
+                const prefixAttr = escapeForJsAttr(String(p.prefix || ''));
+                const badge = isDefault
+                    ? '<span class="badge bg-success ms-2">Default</span>'
+                    : '';
+                const defaultBtn = isDefault
+                    ? '<button type="button" class="btn btn-outline-success btn-sm me-1" disabled title="Already default"><i class="fas fa-check"></i></button>'
+                    : '<button type="button" class="btn btn-outline-success btn-sm me-1" onclick="editModalSetDefaultPrefix(\\'' + idAttr + '\\')" title="Make this the default"><i class="fas fa-check"></i></button>';
+                const renameBtn = '<button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="editModalRenamePrefix(\\'' + idAttr + '\\', \\'' + prefixAttr + '\\')" title="Rename"><i class="fas fa-pen"></i></button>';
+                const deleteBtn = '<button type="button" class="btn btn-outline-danger btn-sm" onclick="editModalDeletePrefix(\\'' + idAttr + '\\', ' + isDefault + ')" title="Delete"><i class="fas fa-trash"></i></button>';
+                html += '<div class="list-group-item d-flex justify-content-between align-items-center py-2">' +
+                    '<div><span class="font-monospace fs-6 fw-bold">' + escapeHtmlBasic(p.prefix || '') + '</span>' + badge + '</div>' +
+                    '<div class="btn-group btn-group-sm">' + defaultBtn + renameBtn + deleteBtn + '</div>' +
+                    '</div>';
+            }});
+            html += '</div>';
+            container.innerHTML = html;
+        }} catch (e) {{
+            container.innerHTML = '<div class="alert alert-danger small mb-0">Could not load prefixes: ' + escapeHtml(e.message || '') + '</div>';
+        }}
+    }}
+
+    function editModalShowPrefixFeedback(message, variant) {{
+        const el = document.getElementById('edit-modal-add-prefix-feedback');
+        if (!el) return;
+        el.textContent = message || '';
+        el.className = 'form-text small mt-1 ' + (variant === 'error' ? 'text-danger' : variant === 'success' ? 'text-success' : 'text-muted');
+    }}
+
+    function editModalWirePrefixInput() {{
+        const input = document.getElementById('edit-modal-add-prefix-input');
+        if (!input || input._ghWired) return;
+        input._ghWired = true;
+        input.addEventListener('input', function () {{
+            const cleaned = (input.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+            if (cleaned !== input.value) input.value = cleaned;
+            const fb = document.getElementById('edit-modal-add-prefix-feedback');
+            if (fb) {{
+                if (!input.value) {{
+                    fb.textContent = '';
+                    fb.className = 'form-text small mt-1 text-muted';
+                }} else if (!/^[A-Z]{{2}}$/.test(input.value)) {{
+                    fb.textContent = 'Two uppercase letters required.';
+                    fb.className = 'form-text small mt-1 text-danger';
+                }} else {{
+                    fb.textContent = 'Ready to add.';
+                    fb.className = 'form-text small mt-1 text-muted';
+                }}
+            }}
+        }});
+        input.addEventListener('keydown', function (ev) {{
+            if (ev.key === 'Enter') {{
+                ev.preventDefault();
+                editModalAddPrefix();
+            }}
+        }});
+        const btn = document.getElementById('edit-modal-add-prefix-btn');
+        if (btn && !btn._ghWired) {{
+            btn._ghWired = true;
+            btn.addEventListener('click', function (ev) {{
+                ev.preventDefault();
+                editModalAddPrefix();
+            }});
+        }}
+    }}
+
+    // Shared JSON-aware response parser. When the server returns HTML (e.g.
+    // a redirect to the login page that fetch followed silently), res.ok can
+    // be true but the body is not JSON — surface that as an error instead of
+    // treating it as success.
+    async function _ghParseApiResponse(res, fallbackError) {{
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) {{
+            if (res.redirected) {{
+                return {{ ok: false, status: res.status, data: {{ error: 'Not signed in (redirected to ' + res.url + ').' }} }};
+            }}
+            if (!res.ok) {{
+                return {{ ok: false, status: res.status, data: {{ error: fallbackError || ('HTTP ' + res.status) }} }};
+            }}
+            return {{ ok: false, status: res.status, data: {{ error: 'Unexpected response from server (not JSON).' }} }};
+        }}
+        const data = await res.json().catch(function () {{ return {{}}; }});
+        return {{ ok: res.ok, status: res.status, data: data }};
+    }}
+
+    function _ghShowDanger(title, message) {{
+        if (typeof GhDialog !== 'undefined' && GhDialog.alert) {{
+            return GhDialog.alert({{ title: title, message: message || 'Unknown error', variant: 'danger' }});
+        }}
+        // Fallback: write into the inline feedback area so we never use native alert().
+        editModalShowPrefixFeedback((title ? title + ': ' : '') + (message || 'Unknown error'), 'error');
+    }}
+
+    async function editModalAddPrefix() {{
+        editModalWirePrefixInput();
+        const input = document.getElementById('edit-modal-add-prefix-input');
+        const btn = document.getElementById('edit-modal-add-prefix-btn');
+        if (!input || !project) return;
+        const value = (input.value || '').trim();
+        if (!/^[A-Z]{{2}}$/.test(value)) {{
+            editModalShowPrefixFeedback('Enter exactly two uppercase letters.', 'error');
+            return;
+        }}
+        if (btn) btn.disabled = true;
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/', {{
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+                body: JSON.stringify({{ prefix: value }}),
+            }});
+            const parsed = await _ghParseApiResponse(res, 'Could not add prefix.');
+            if (!parsed.ok) {{
+                editModalShowPrefixFeedback(parsed.data.error || ('HTTP ' + parsed.status), 'error');
+                return;
+            }}
+            input.value = '';
+            editModalShowPrefixFeedback('Prefix "' + value + '" added.', 'success');
+            loadEditModalPrefixes();
+            if (typeof loadPrefixes === 'function') loadPrefixes();
+            if (typeof window.GhPrefixUpdateChip === 'function' && parsed.data.prefix) {{
+                window.GhPrefixUpdateChip(parsed.data.prefix.prefix, project.name || '');
+            }}
+        }} catch (e) {{
+            editModalShowPrefixFeedback(e.message || 'Could not add prefix.', 'error');
+        }} finally {{
+            if (btn) btn.disabled = false;
+        }}
+    }}
+
+    async function editModalSetDefaultPrefix(prefixId) {{
+        if (!prefixId || !project) return;
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/' + prefixId + '/default/', {{
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+                body: JSON.stringify({{}}),
+            }});
+            const parsed = await _ghParseApiResponse(res, 'Could not set default.');
+            if (!parsed.ok) {{
+                await _ghShowDanger('Could not set default', parsed.data.error);
+                return;
+            }}
+            loadEditModalPrefixes();
+            if (typeof loadPrefixes === 'function') loadPrefixes();
+            if (parsed.data.prefix && typeof window.GhPrefixUpdateChip === 'function') {{
+                window.GhPrefixUpdateChip(parsed.data.prefix.prefix, project.name || '');
+            }}
+        }} catch (e) {{
+            await _ghShowDanger('Could not set default', e.message);
+        }}
+    }}
+
+    async function editModalDeletePrefix(prefixId, isDefault) {{
+        if (!prefixId || !project) return;
+        const message = isDefault
+            ? 'This is the current default prefix. Mark another prefix as default first, then delete this one.'
+            : 'Delete this prefix? Drafts already created will keep their existing identifier.';
+        let ok = true;
+        if (typeof GhDialog !== 'undefined' && GhDialog.confirm) {{
+            ok = await GhDialog.confirm({{
+                title: 'Delete prefix',
+                message: message,
+                variant: isDefault ? 'warning' : 'danger',
+                confirmLabel: 'Delete',
+            }});
+        }} else {{
+            // No GhDialog available — render an inline confirmation instead of native confirm().
+            const fb = document.getElementById('edit-modal-add-prefix-feedback');
+            if (fb) {{
+                fb.innerHTML = '<span class="text-danger">' + message + '</span> '
+                    + '<button type="button" class="btn btn-sm btn-danger ms-2" id="edit-modal-fallback-confirm-delete">Confirm delete</button>';
+                const c = document.getElementById('edit-modal-fallback-confirm-delete');
+                if (c) {{
+                    c.onclick = async function () {{
+                        fb.innerHTML = '';
+                        await _editModalDeletePrefixInternal(prefixId);
+                    }};
+                }}
+            }}
+            return;
+        }}
+        if (!ok) return;
+        await _editModalDeletePrefixInternal(prefixId);
+    }}
+
+    async function _editModalDeletePrefixInternal(prefixId) {{
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/' + prefixId + '/', {{
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+                body: JSON.stringify({{}}),
+            }});
+            const parsed = await _ghParseApiResponse(res, 'Could not delete prefix.');
+            if (!parsed.ok) {{
+                await _ghShowDanger('Could not delete prefix', parsed.data.error);
+                return;
+            }}
+            loadEditModalPrefixes();
+            if (typeof loadPrefixes === 'function') loadPrefixes();
+        }} catch (e) {{
+            await _ghShowDanger('Could not delete prefix', e.message);
+        }}
+    }}
+
+    async function editModalRenamePrefix(prefixId, currentPrefix) {{
+        if (!prefixId || !project) return;
+        const next = window.prompt('New prefix (2 uppercase letters):', currentPrefix || '');
+        if (next == null) return;
+        const value = (next || '').trim().toUpperCase();
+        if (!/^[A-Z]{{2}}$/.test(value)) {{
+            await _ghShowDanger('Invalid prefix', 'Prefix must be exactly two uppercase ASCII letters.');
+            return;
+        }}
+        try {{
+            const res = await fetch('/api/layers/' + project.id + '/prefixes/' + prefixId + '/', {{
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+                body: JSON.stringify({{ prefix: value }}),
+            }});
+            const parsed = await _ghParseApiResponse(res, 'Could not rename prefix.');
+            if (!parsed.ok) {{
+                await _ghShowDanger('Could not rename prefix', parsed.data.error);
+                return;
+            }}
+            loadEditModalPrefixes();
+            if (typeof loadPrefixes === 'function') loadPrefixes();
+            if (parsed.data.prefix && typeof window.GhPrefixUpdateChip === 'function') {{
+                window.GhPrefixUpdateChip(parsed.data.prefix.prefix, project.name || '');
+            }}
+        }} catch (e) {{
+            await _ghShowDanger('Could not rename prefix', e.message);
+        }}
+    }}
+
+    // Wire the edit-modal prefix input on DOMContentLoaded (idempotent).
+    document.addEventListener('DOMContentLoaded', function () {{
+        editModalWirePrefixInput();
+    }});
+
     function searchUsersForEditModalAdmin() {{
         const q = document.getElementById('edit-modal-add-admin-q').value.trim();
         const resultsEl = document.getElementById('edit-modal-add-admin-results');

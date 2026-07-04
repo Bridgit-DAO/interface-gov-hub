@@ -955,6 +955,19 @@ BASE_TEMPLATE = """
         </div>
     </div>
 
+    <div id="gh-mfa-login-overlay" style="display:none;position:fixed;inset:0;z-index:10060;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;padding:16px;">
+        <div style="background:var(--bg-primary,#1a1a1a);color:var(--text-primary,#eee);max-width:400px;width:100%;border-radius:12px;padding:20px;border:1px solid var(--border-color,#333);display:flex;flex-direction:column;gap:12px;">
+            <h2 style="font-size:16px;margin:0;line-height:1.35;"><i class="fas fa-shield-halved me-2"></i>Two-factor authentication</h2>
+            <p style="font-size:13px;color:var(--text-muted,#888);margin:0;">Enter the 6-digit code from your authenticator app, or a backup code.</p>
+            <input type="text" id="gh-mfa-login-code" class="form-control" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000 or backup code">
+            <p id="gh-mfa-login-error" style="color:#dc3545;font-size:12px;min-height:16px;margin:0;"></p>
+            <div style="display:flex;gap:8px;">
+                <button type="button" class="btn btn-secondary flex-fill" id="gh-mfa-login-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary flex-fill" id="gh-mfa-login-submit">Verify</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/gh-return-nav.js"></script>
     <script src="/static/js/gh-dialog.js"></script>
@@ -1383,6 +1396,107 @@ BASE_TEMPLATE = """
             }}
         }}
 
+        async function ghFinishLoginAfterSession(userInfo, idToken, evmAddress) {{
+            const verifierId = userInfo.verifierId || userInfo.email || evmAddress || '';
+            const declarationOk = await ghEnsureAccountDeclaration({{
+                verifierId: verifierId,
+                idToken: idToken,
+            }});
+            if (!declarationOk) {{
+                await fetch('/api/auth/logout', {{ method: 'POST', credentials: 'include' }});
+                alert('Sign in cancelled — account declaration is required to participate.');
+                return false;
+            }}
+            let dest = consumePostLoginReturnPath();
+            if (window.GhInvite && window.GhInvite.finishLoginWithInviteAccept) {{
+                dest = await window.GhInvite.finishLoginWithInviteAccept(dest);
+            }}
+            window.location.replace(dest);
+            return true;
+        }}
+
+        function ghShowMfaLoginOverlay() {{
+            var overlay = document.getElementById('gh-mfa-login-overlay');
+            if (overlay) {{
+                overlay.style.display = 'flex';
+            }}
+            var input = document.getElementById('gh-mfa-login-code');
+            if (input) {{
+                input.value = '';
+                input.focus();
+            }}
+            var err = document.getElementById('gh-mfa-login-error');
+            if (err) err.textContent = '';
+        }}
+
+        function ghHideMfaLoginOverlay() {{
+            var overlay = document.getElementById('gh-mfa-login-overlay');
+            if (overlay) overlay.style.display = 'none';
+        }}
+
+        async function ghCompleteMfaLogin(challengeToken, userInfo, idToken, evmAddress) {{
+            return new Promise(function (resolve) {{
+                ghShowMfaLoginOverlay();
+                var input = document.getElementById('gh-mfa-login-code');
+                var errEl = document.getElementById('gh-mfa-login-error');
+                var submitBtn = document.getElementById('gh-mfa-login-submit');
+                var cancelBtn = document.getElementById('gh-mfa-login-cancel');
+                if (!input || !submitBtn || !cancelBtn) {{
+                    resolve(false);
+                    return;
+                }}
+
+                async function onSubmit() {{
+                    var code = (input.value || '').trim();
+                    if (!code) {{
+                        if (errEl) errEl.textContent = 'Enter a verification code.';
+                        return;
+                    }}
+                    submitBtn.disabled = true;
+                    if (errEl) errEl.textContent = '';
+                    try {{
+                        var res = await fetch('/api/mfa/verify-login', {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            credentials: 'include',
+                            body: JSON.stringify({{ challengeToken: challengeToken, code: code }}),
+                        }});
+                        var data = await res.json();
+                        if (!res.ok) {{
+                            if (errEl) errEl.textContent = data.error || 'Verification failed';
+                            submitBtn.disabled = false;
+                            return;
+                        }}
+                        ghHideMfaLoginOverlay();
+                        if (data.user && data.user.theme && window.GovHubTheme) {{
+                            window.GovHubTheme.setPreference(data.user.theme, {{ persist: false }});
+                        }}
+                        await ghFinishLoginAfterSession(userInfo, idToken, evmAddress);
+                        resolve(true);
+                    }} catch (e) {{
+                        if (errEl) errEl.textContent = 'Network error. Try again.';
+                        submitBtn.disabled = false;
+                    }}
+                }}
+
+                function onCancel() {{
+                    ghHideMfaLoginOverlay();
+                    submitBtn.removeEventListener('click', onSubmit);
+                    cancelBtn.removeEventListener('click', onCancel);
+                    if (web3auth) {{
+                        web3auth.logout().catch(function () {{}});
+                    }}
+                    resolve(false);
+                }}
+
+                submitBtn.addEventListener('click', onSubmit);
+                cancelBtn.addEventListener('click', onCancel);
+                input.addEventListener('keydown', function (ev) {{
+                    if (ev.key === 'Enter') onSubmit();
+                }});
+            }});
+        }}
+
         async function performWeb3AuthLogin(providerMode, loginHint) {{
             if (web3authLoginInProgress) {{
                 return;
@@ -1464,7 +1578,16 @@ BASE_TEMPLATE = """
                 }});
 
                 const result = await response.json();
-                if (response.ok) {{
+                if (response.ok && result.mfaRequired && result.challengeToken) {{
+                    await ghCompleteMfaLogin(
+                        result.challengeToken,
+                        userInfo,
+                        idToken,
+                        evmAddress
+                    );
+                    return;
+                }}
+                if (response.ok && result.success !== false) {{
                     if (result.user && result.user.theme && window.GovHubTheme) {{
                         window.GovHubTheme.setPreference(result.user.theme, {{ persist: false }});
                     }}
@@ -1474,21 +1597,7 @@ BASE_TEMPLATE = """
                         alert('Sign-in succeeded but the session was not saved. Try again or use a private window.');
                         return;
                     }}
-                    const verifierId = userInfo.verifierId || userInfo.email || evmAddress || '';
-                    const declarationOk = await ghEnsureAccountDeclaration({{
-                        verifierId: verifierId,
-                        idToken: idToken,
-                    }});
-                    if (!declarationOk) {{
-                        await fetch('/api/auth/logout', {{ method: 'POST', credentials: 'include' }});
-                        alert('Sign in cancelled — account declaration is required to participate.');
-                        return;
-                    }}
-                    let dest = consumePostLoginReturnPath();
-                    if (window.GhInvite && window.GhInvite.finishLoginWithInviteAccept) {{
-                        dest = await window.GhInvite.finishLoginWithInviteAccept(dest);
-                    }}
-                    window.location.replace(dest);
+                    await ghFinishLoginAfterSession(userInfo, idToken, evmAddress);
                 }} else {{
                     console.error('Backend error:', result);
                     try {{ await web3auth.logout(); }} catch (_e) {{}}
@@ -1706,13 +1815,16 @@ SUBMIT_TEMPLATE = """
                     </ul>
 
                     {{LAYER_SELECTOR_SHARED}}
-                    
+
+                    {{PREFIX_SELECTOR}}
+
                     <div class="tab-content" id="submissionTabContent">
                         <!-- Upload File Tab -->
                         <div class="tab-pane fade show active" id="upload" role="tabpanel">
                             <form method="POST" enctype="multipart/form-data" id="uploadForm">
                                 <input type="hidden" name="sourceType" value="file">
                                 {{LAYER_HIDDEN_FIELD}}
+                                <input type="hidden" name="prefix_code" id="upload-prefix-code" value="">
                                 
                                 <div class="mb-3">
                                     <label for="title" class="form-label">Document Title *</label>
@@ -1768,6 +1880,7 @@ SUBMIT_TEMPLATE = """
                             <form method="POST" id="ordinalForm">
                                 <input type="hidden" name="sourceType" value="ordinal">
                                 {{LAYER_HIDDEN_FIELD}}
+                                <input type="hidden" name="prefix_code" id="ordinal-prefix-code" value="">
                                 <input type="hidden" name="ordinalContentUrl" id="ordinalContentUrl">
                                 <input type="hidden" name="ordinalContentType" id="ordinalContentType">
                                 <input type="hidden" name="inscriptionNumber" id="inscriptionNumber">

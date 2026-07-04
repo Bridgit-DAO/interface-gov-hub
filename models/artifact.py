@@ -211,6 +211,13 @@ class Submission(db.Model):
     # Model C category: document | template | tool | guide | glossary | policy
     document_category = db.Column(db.String(32), nullable=True, index=True)
 
+    # Per-draft override of the layer's active two-letter prefix (e.g. "ML").
+    # When set, the next ML/Draft number is generated under this prefix instead
+    # of the layer's default. The header chip still shows the layer default;
+    # this field just lets a single draft use a different code. NULL means
+    # "use the layer default" (legacy behaviour).
+    prefix_code = db.Column(db.String(2), nullable=True, index=True)
+
     # File-backed submission may show a linked ordinal body in the reader while keeping file + revision history.
     displayBodySource = db.Column(db.String(20), default='file')  # 'file' | 'ordinal'
     displayOrdinalId = db.Column(db.String(255), nullable=True)

@@ -2622,6 +2622,88 @@ def migrate_scoped_email_v1(app):
         print('✅ scoped email campaign tables ready')
     except Exception as e:
         print(f'⚠️  Error in migrate_scoped_email_v1: {e}')
+
+
+def migrate_user_mfa_v1(app):
+    """MFA tables: TOTP devices, recovery codes, login challenges."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_mfa_device'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE user_mfa_device (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    label VARCHAR(100) NOT NULL DEFAULT 'Authenticator',
+                    secret_ciphertext TEXT NOT NULL,
+                    confirmed_at DATETIME,
+                    last_used_at DATETIME,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    revoked_at DATETIME,
+                    FOREIGN KEY (user_id) REFERENCES user(id)
+                )
+                """
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_user_mfa_device_user '
+                'ON user_mfa_device(user_id)'
+            )
+            print('✅ Created user_mfa_device table')
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_mfa_recovery_code'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE user_mfa_recovery_code (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    code_hash VARCHAR(255) NOT NULL,
+                    used_at DATETIME,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES user(id)
+                )
+                """
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_user_mfa_recovery_user '
+                'ON user_mfa_recovery_code(user_id)'
+            )
+            print('✅ Created user_mfa_recovery_code table')
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_mfa_challenge'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE TABLE user_mfa_challenge (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    client_id VARCHAR(50) NOT NULL DEFAULT 'govhub',
+                    expires_at DATETIME NOT NULL,
+                    consumed_at DATETIME,
+                    failed_attempts INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES user(id)
+                )
+                """
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_user_mfa_challenge_user '
+                'ON user_mfa_challenge(user_id)'
+            )
+            print('✅ Created user_mfa_challenge table')
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_user_mfa_v1: {e}')
+
+
 def migrate_layer_prefix_v1(app):
     """Layer-scoped two-letter draft prefix table (e.g. "ML", "CL").
 
@@ -2749,3 +2831,33 @@ def migrate_layer_prefix_v1(app):
         conn.close()
     except Exception as e:
         print(f'⚠️  Error in migrate_layer_prefix_v1: {e}')
+
+
+def migrate_submission_prefix_code_v1(app):
+    """Add per-draft prefix_code column to submission table.
+
+    Lets a draft use a non-default prefix for its identifier (e.g. a layer
+    that has both "ML" and "CL" as prefixes). NULL means "use the layer
+    default" (legacy behaviour). Idempotent — safe to re-run.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(submission)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'prefix_code' not in cols:
+            cursor.execute("ALTER TABLE submission ADD COLUMN prefix_code VARCHAR(2)")
+            conn.commit()
+            print('✅ Added prefix_code column to submission table')
+        else:
+            print('✅ prefix_code column already present on submission')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_submission_prefix_code ON submission(prefix_code)")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_submission_prefix_code_v1: {e}')
+
+
+def _stub_unused_marker():  # pragma: no cover - keep at end
+    pass

@@ -204,6 +204,9 @@ def submit_workgroup_layer_script(*, fixed_layer_id: Optional[str] = None) -> st
                 if (!sel) return;
                 sel.innerHTML = placeholder + '<option value="" disabled>Select a layer first</option>';
             });
+            if (typeof window._GhRefreshSubmitPrefixSelector === 'function') {
+                window._GhRefreshSubmitPrefixSelector(null);
+            }
             return;
         }
         try {
@@ -248,9 +251,15 @@ def submit_workgroup_layer_script(*, fixed_layer_id: Optional[str] = None) -> st
         if (layerSelect && layerSelect.tagName === 'SELECT') {
             layerSelect.addEventListener('change', function() {
                 loadSubmitWorkgroups(layerSelect.value);
+                if (typeof window._GhRefreshSubmitPrefixSelector === 'function') {
+                    window._GhRefreshSubmitPrefixSelector(layerSelect.value);
+                }
             });
             if (layerSelect.value) {
                 loadSubmitWorkgroups(layerSelect.value);
+                if (typeof window._GhRefreshSubmitPrefixSelector === 'function') {
+                    window._GhRefreshSubmitPrefixSelector(layerSelect.value);
+                }
             }
             return;
         }
