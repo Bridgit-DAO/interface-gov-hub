@@ -2542,10 +2542,12 @@
 
     function openComposeModalFromMobileSelection() {
       // Don't re-trigger if the compose modal is already visible.
-      var visibleModal = composeModalEl && (composeModalEl.classList.contains('show') ||
-        (window.bootstrap && window.bootstrap.Modal.getInstance &&
-         window.bootstrap.Modal.getInstance(composeModalEl)));
-      if (visibleModal) return;
+      if (!composeModalEl) return;
+      if (composeModalEl.classList.contains('show')) return;
+      if (window.bootstrap && window.bootstrap.Modal.getInstance) {
+        var inst = window.bootstrap.Modal.getInstance(composeModalEl);
+        if (inst && inst._isShown) return;
+      }
       var selection = captureSelectionFromMobileEvent();
       if (!selection) return;
       beginProposalFromSelection(selection);
