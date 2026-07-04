@@ -319,48 +319,67 @@ def _prompt_injection_warning() -> str:
 
 def build_system_prompt(action: str, context: dict) -> str:
     mode = context.get('mode') or 'comment'
-    is_patch = mode == 'patch' or action in PATCH_ACTIONS
+    # Mode is determined by the action, not just the caller's hint: comment actions
+    # (improve_comment, shorten_comment, expand_comment, etc.) are ALWAYS comment
+    # mode even if the caller's context accidentally set mode='patch'.
+    is_patch = action in PATCH_ACTIONS
     if is_patch:
         base = (
             'You are Gov Hub AI Assist, helping a participant draft a document patch. '
             'Write concise, reviewer-friendly text grounded in the selected passage and document context. '
-            'Output only the requested patch text, with no meta commentary.'
+            'Output only the requested patch text, with no meta commentary. '
+            'Do not write a comment — output only the patch text the user requested.'
         )
     else:
         base = (
             'You are Gov Hub AI Assist, helping a participant draft a public document comment. '
-            'Write clear, constructive feedback suitable for Gov Hub. Output only the comment draft.'
+            'Write clear, constructive feedback suitable for Gov Hub. '
+            'CRITICAL: your entire reply must be the comment text itself, with no preamble, '
+            'no analysis, no "Let me" or "I will" or "The user wants" reasoning, no headings, '
+            'no "Before/After" comparison. The first character of your reply must be the first '
+            'character of the actual comment. Do not write a patch or proposed replacement '
+            '— output only the comment text.'
         )
 
     instructions = {
-        'draft_comment': 'Draft a constructive comment. If a passage is selected, focus on that passage; otherwise address the document as a whole.',
-        'improve_comment': 'Improve clarity, flow, grammar, and tone of the user draft. Preserve the user intent.',
-        'shorten_comment': 'Shorten the user draft while preserving substantive meaning.',
-        'expand_comment': 'Expand the user draft with additional substantive substance, examples, or reasoning that directly support the user’s point. Do not change the user’s position or tone. Aim for roughly 50–100% longer text. Output only the expanded comment.',
-        'find_counterpoint': 'Write a strongest good-faith counterpoint for discussion. Label uncertainty without inventing facts.',
-        'improve_patch': 'Return exactly two sections: "Proposed replacement:" and "Rationale:". Improve the replacement and rationale while preserving the intended correction.',
-        'shorten_patch_replacement': 'Shorten only the proposed replacement. Output only the replacement text.',
-        'expand_patch_replacement': 'Expand only the proposed replacement with additional substantive substance, examples, or scope while preserving the user’s correction intent. Aim for roughly 50–100% longer text. Output only the expanded replacement.',
-        'neutralize_patch_replacement': 'Rewrite only the proposed replacement in a neutral, standards-appropriate tone. Output only the replacement text.',
-        'add_patch_evidence': 'Add concise evidence using only the document, selected passage, existing draft, related comments, or explicit URLs already present. Do not invent citations.',
-        'draft_patch_rationale': 'Draft only a concise rationale explaining why reviewers should consider the patch.',
-        'explain_patch_risk': 'Draft only a concise rationale explaining the risk of leaving the current passage unchanged or accepting the proposed change.',
+        'draft_comment': 'Draft a constructive comment. If a passage is selected, focus on that passage; otherwise address the document as a whole. Output only the comment text — no preamble, no analysis, no headings.',
+        'improve_comment': 'Improve clarity, flow, grammar, and tone of the user comment draft. Preserve the user intent. Output only the improved comment text — no preamble, no analysis, no headings, no "before/after" notes.',
+        'shorten_comment': 'Shorten the user comment draft while preserving substantive meaning. Output only the shortened comment — no preamble.',
+        'expand_comment': 'Expand the user comment draft with additional substantive substance, examples, or reasoning that directly support the user’s point. Do not change the user’s position or tone. Aim for roughly 50–100% longer text. Output only the expanded comment — no preamble.',
+        'find_counterpoint': 'Write a strongest good-faith counterpoint for discussion. Label uncertainty without inventing facts. Output only the counterpoint text — no preamble.',
+        'improve_patch': 'Return exactly two sections: "Proposed replacement:" and "Rationale:". Improve the replacement and rationale while preserving the intended correction. Output only those two sections.',
+        'shorten_patch_replacement': 'Shorten only the proposed replacement. Output only the replacement text — no preamble.',
+        'expand_patch_replacement': 'Expand only the proposed replacement with additional substantive substance, examples, or scope while preserving the user’s correction intent. Aim for roughly 50–100% longer text. Output only the expanded replacement — no preamble.',
+        'neutralize_patch_replacement': 'Rewrite only the proposed replacement in a neutral, standards-appropriate tone. Output only the replacement text — no preamble.',
+        'add_patch_evidence': 'Add concise evidence using only the document, selected passage, existing draft, related comments, or explicit URLs already present. Do not invent citations. Output only the evidence text — no preamble.',
+        'draft_patch_rationale': 'Draft only a concise rationale explaining why reviewers should consider the patch. Output only the rationale — no preamble.',
+        'explain_patch_risk': 'Draft only a concise rationale explaining the risk of leaving the current passage unchanged or accepting the proposed change. Output only the rationale — no preamble.',
     }
 
     submission = context.get('submission') or {}
-    context_block = '\n\n'.join(filter(None, [
+    context_lines = [
         f"DOCUMENT TITLE: {submission.get('title')}" if submission.get('title') else '',
         f"DRAFT REF: {submission.get('draft_ref') or submission.get('ml_number') or submission.get('draft_name')}",
         f"DOCUMENT STATUS: {submission.get('status')}" if submission.get('status') else '',
         f"GROUP: {submission.get('group')}" if submission.get('group') else '',
-        f"SELECTED PASSAGE:\n{context.get('selected_passage')}" if context.get('selected_passage') else '',
-        f"PROPOSED REPLACEMENT DRAFT:\n{context.get('proposed_text')}" if context.get('proposed_text') else '',
-        f"RATIONALE DRAFT:\n{context.get('rationale')}" if context.get('rationale') else '',
-        f"USER COMMENT DRAFT:\n{context.get('user_draft')}" if context.get('user_draft') else '',
-        _format_related('RELATED COMMENT', context.get('related_comments') or []),
-        _format_related('RELATED PATCH', context.get('related_patches') or []),
-        f"DOCUMENT EXCERPT:\n{(context.get('document') or {}).get('body')}" if (context.get('document') or {}).get('body') else '',
-    ]))
+    ]
+    if is_patch:
+        context_lines += [
+            f"SELECTED PASSAGE:\n{context.get('selected_passage')}" if context.get('selected_passage') else '',
+            f"PROPOSED REPLACEMENT DRAFT:\n{context.get('proposed_text')}" if context.get('proposed_text') else '',
+            f"RATIONALE DRAFT:\n{context.get('rationale')}" if context.get('rationale') else '',
+            _format_related('RELATED PATCH', context.get('related_patches') or []),
+        ]
+    else:
+        context_lines += [
+            f"SELECTED PASSAGE (the user is commenting on this):\n{context.get('selected_passage')}" if context.get('selected_passage') else '',
+            f"USER COMMENT DRAFT (the text to improve — treat this as the only thing being edited):\n{context.get('user_draft')}" if context.get('user_draft') else '',
+            _format_related('RELATED COMMENT', context.get('related_comments') or []),
+        ]
+    context_lines.append(
+        f"DOCUMENT EXCERPT:\n{(context.get('document') or {}).get('body')}" if (context.get('document') or {}).get('body') else ''
+    )
+    context_block = '\n\n'.join(line for line in context_lines if line)
 
     return (
         f'{base}\n\n'
@@ -442,7 +461,111 @@ def call_llm(messages: List[dict], cfg: LlmConfig) -> str:
 def clean_draft(text: str) -> str:
     cleaned = re.sub(r'</?(?:think|redacted_thinking)[^>]*>', '', text or '', flags=re.I)
     cleaned = cleaned.replace('—', '–')
-    return cleaned.strip()
+    # Strip common LLM meta-commentary preambles that escape the system prompt
+    # despite the "no preamble" instructions. These are line-prefix patterns;
+    # we only strip full-line prefixes so we don't damage real content.
+    preamble_patterns = [
+        r'(?im)^\s*let me analyze[^\n]*\n+',
+        r'(?im)^\s*let me (?:think|consider|review|examine|look at)[^\n]*\n+',
+        r'(?im)^\s*here(?:’s| is) (?:my |an? )?(?:analysis|breakdown|review|thoughts?)[^\n]*\n+',
+        r'(?im)^\s*i will (?:analyze|review|examine|consider|look at)[^\n]*\n+',
+        r'(?im)^\s*(?:analysis|breakdown|review):\s*\n+',
+        r'(?im)^\s*the user wants me to[^\n]*\n+',
+        r'(?im)^\s*the user is (?:asking|commenting|writing|drafting)[^\n]*\n+',
+        r'(?im)^\s*looking at the (?:user|user\'s) (?:draft|comment|text)[^\n]*\n+',
+        r'(?im)^\s*based on (?:the |this )?(?:user |user\'s )?(?:draft|comment|text|context)[^\n]*\n+',
+        r'(?im)^\s*to improve (?:this|the)[^\n]*\n+',
+        r'(?im)^\s*i need to[^\n]*\n+',
+        r'(?im)^\s*since the[^\n]*\n+',
+        r'(?im)^\s*since this[^\n]*\n+',
+        r'(?im)^\s*given (?:the |this |that )[^\n]*\n+',
+    ]
+    for pat in preamble_patterns:
+        cleaned = re.sub(pat, '', cleaned)
+
+    # Many chatty LLM responses produce interleaved meta-reasoning and
+    # substantive content. Walk the paragraphs sentence-by-sentence and
+    # classify each one; keep only the substantive sentences.
+    #
+    # A sentence is "meta" if it starts with reasoning / model-self-talk
+    # indicators. Anything else (including actual content) is kept.
+    if not cleaned.strip():
+        return ''
+
+    # Split into paragraphs first, so we can preserve a paragraph break when
+    # the entire paragraph is substantive.
+    raw_paragraphs = [p.strip() for p in re.split(r'\n\s*\n', cleaned) if p.strip()]
+
+    meta_indicators = re.compile(
+        r'(?i)^\s*(?:'
+        r'let me|i will|i need|i should|i can|i think|i notice|i can see|'
+        r'i want|i would|i\'ll|i just|i am going|i\'m|i am|'
+        r'here|the user|since|given|to improve|looking|based on|'
+        r'wait|actually|hmm|perhaps|maybe|'
+        r'original:|options:|final answer:|given my|ok,?\s*i|'
+        r'let me (?:reconsider|try|finalize|just|commit|aim|write|refine|also|'
+        r'expand|produce|provide|offer|shorten|strip|clean|do this|do that|'
+        r'reduce|approach|go with|pick|settle|use|choose|get back|focus|take|'
+        r'trim|cut|keep|note|reword|rework|rewrite|rephrase|reframe|'
+        r'strengthen|clarify|revisit|re-read|re-examine|reconsider|stick|stop)|'
+        r'however,?\s+i|but the|but the user|the "proposed|'
+        r'perhaps the user|perhaps the|'
+        r'this is|this appears|this seems|this looks|this sentence|this passage|'
+        r'this is very|this isn\'t|it is|it\'s|it seems|it looks|it appears|'
+        r'the proposed|the "proposed|the context|the instruction|'
+        r'without (?:knowing|having)|'
+        r'i\'m overthinking|i\'m being|i\'m going|'
+        r'the challenge|'
+        r'overall,?\s+(?:the|i)|'
+        r'that\'s (?:a |an )?(?:good|solid|great|nice|rough|decent|strong|clean|short|long|clear|constructive|better|narrower|tighter)|'
+        r'that is (?:a |an )?(?:good|solid|great|nice|rough|decent|strong|clean|short|long|clear|constructive|better|narrower|tighter)|'
+        r'that\'s (?:much |quite )?(?:better|shorter|longer|more|tighter|clearer|less)|'
+        r'that is (?:much |quite )?(?:better|shorter|longer|more|tighter|clearer|less)|'
+        r'ok,?\s+so|'
+        r'there\'s no|there is no|'
+        r'so i|so the|so this|so my|'
+        r'good,?\s+(?:so|let|now|the|a|here|point|start)|'
+        r'now (?:i|the|we|let)|'
+        r'and? so,?|'
+        r'they (?:want|said|are|asked|mean|expect)|'
+        r'i (?:should|will) (?:also )?(?:need|aim|try|provide|note|mention|add)|'
+        r'it (?:is|\'s) (?:important|clear|worth|good|helpful|best|easy)|'
+        r'first,?\s+(?:let me|i|the|we|here)|'
+        r'second,?\s+(?:let me|i|the|we|here)|'
+        r'basically,?|essentially,?|in summary,?|in short,?|'
+        r'notes?:\s*$|explanation:\s*$|reasoning:\s*$'
+        r')',
+    )
+
+    kept_paragraphs = []
+    for para in raw_paragraphs:
+        # Split paragraph into sentences. The chatty model often uses
+        # em-dashes and newlines in addition to standard terminators.
+        # First, normalize internal newlines into sentence terminators.
+        normalized = re.sub(r'\s*\n\s*', ' ', para)
+        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z"“\'\-\d]|\Z)', normalized)
+        kept_sentences = []
+        for s in sentences:
+            stripped = s.strip()
+            if not stripped:
+                continue
+            if meta_indicators.match(stripped):
+                continue
+            # Also drop sentences that look like bullet points with meta content
+            # (e.g. numbered lists of meta-action items like "1. Add examples, …").
+            if re.match(r'^\s*\d+\.\s+(?i:let me|i will|i need|add |note |keep |make |aim |expand |shorten |focus |trim |cut |provide |offer |draft |write )', stripped):
+                continue
+            kept_sentences.append(stripped)
+        if kept_sentences:
+            kept_paragraphs.append(' '.join(kept_sentences))
+
+    if not kept_paragraphs:
+        # Entire response was meta — fall back to the longest paragraph in the
+        # original (best-effort guess of the "real" answer).
+        candidates = sorted(raw_paragraphs, key=len, reverse=True)
+        return candidates[0] if candidates else ''
+
+    return '\n\n'.join(kept_paragraphs).strip()
 
 
 def generate_draft(action: str, context: dict, *, user_prompt: Optional[str], user_id: Optional[str]) -> dict:
