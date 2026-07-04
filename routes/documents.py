@@ -210,6 +210,9 @@ def _build_all_documents_catalog():
             'is_revision': bool(draft.get('is_revision')),
             'revision_number': draft.get('revision_number') or '',
             'submitted_at': draft.get('date') or '',
+            'layer_id': draft.get('layer_id') or None,
+            'layer_name': draft.get('layer_name') or None,
+            'prefix': (draft.get('prefix_code') or draft.get('prefix') or '').upper() or None,
         })
 
     approved_submissions = Submission.query.filter(
@@ -274,6 +277,11 @@ def _build_all_documents_catalog():
             'is_revision': is_revision,
             'revision_number': revision_number,
             'submitted_at': submitted_at,
+            'layer_id': display_submission.layer_id or None,
+            'layer_name': (
+                display_submission.layer.name if getattr(display_submission, 'layer', None) else None
+            ),
+            'prefix': (display_submission.prefix_code or '').upper() or None,
         })
 
     return sort_documents_by_ml_number_desc(all_docs)
@@ -293,6 +301,59 @@ def all_documents():
     total_docs = len(catalog)
     submit_url = url_for('submissions.submit_draft')
 
+    # Compute unique layers and prefixes for the multi-select filters.
+    # Layers use the public `visible_layers_for_user` source so the same
+    # approval+display-status rules apply. Prefixes are the unique set
+    # across every approved layer so admins can filter by any prefix.
+    from services.layer_prefixes import (
+        visible_layers_for_user,
+        _layer_admin_layer_ids,
+    )
+    from services.identity import get_current_user
+    from models import LayerPrefix
+
+    current_user = get_current_user()
+    user_id = (current_user or {}).get('id')
+
+    layers_for_filter = visible_layers_for_user(user_id)
+    layer_options_html = ''.join(
+        f'<option value="{html_mod.escape(layer.id)}">'
+        f'{html_mod.escape(layer.name)}</option>'
+        for layer in layers_for_filter
+    )
+
+    # Prefixes visible to the user: every distinct two-letter prefix used
+    # by any layer the user can access (admin or active member) plus the
+    # default ``ML`` system prefix so seeded drafts stay discoverable.
+    visible_layer_ids = {layer.id for layer in layers_for_filter}
+    admin_layer_ids = set(_layer_admin_layer_ids(user_id))
+    prefix_query_layer_ids = visible_layer_ids | admin_layer_ids
+    if prefix_query_layer_ids:
+        prefixes_rows = (
+            LayerPrefix.query
+            .filter(LayerPrefix.layer_id.in_(prefix_query_layer_ids))
+            .order_by(LayerPrefix.prefix.asc())
+            .all()
+        )
+    else:
+        prefixes_rows = []
+    seen_prefixes = set()
+    unique_prefixes = []
+    for p in prefixes_rows:
+        code = (p.prefix or '').upper()
+        if not code or code in seen_prefixes:
+            continue
+        seen_prefixes.add(code)
+        unique_prefixes.append(code)
+    # Always include the system default 'ML' as a search option.
+    if 'ML' not in seen_prefixes:
+        unique_prefixes.append('ML')
+    unique_prefixes.sort()
+    prefix_options_html = ''.join(
+        f'<option value="{html_mod.escape(code)}">{html_mod.escape(code)}</option>'
+        for code in unique_prefixes
+    )
+
     doc_view_actions = (
         '<div class="btn-group" role="group" aria-label="View mode">'
         '<button type="button" class="btn btn-outline-secondary btn-sm active" id="doc-view-cards" onclick="setDocView(\'cards\')">Cards</button>'
@@ -302,6 +363,26 @@ def all_documents():
     submit_draft_col = (
         '<div class="col-md-auto ms-md-auto d-flex align-items-end">'
         f'<a href="{submit_url}" class="btn btn-primary">Submit Draft</a>'
+        '</div>'
+    )
+    layer_filter_col = (
+        '<div class="col-md-3">'
+        '<label class="form-label gh-filter-label" for="doc-filter-layer">Layer</label>'
+        '<select id="doc-filter-layer" class="form-select" multiple size="1" '
+        'data-placeholder="Filter by layer…">'
+        f'{layer_options_html}'
+        '</select>'
+        '<div class="form-text small">Hold Ctrl/Cmd to pick multiple.</div>'
+        '</div>'
+    )
+    prefix_filter_col = (
+        '<div class="col-md-3">'
+        '<label class="form-label gh-filter-label" for="doc-filter-prefix">Prefix</label>'
+        '<select id="doc-filter-prefix" class="form-select" multiple size="1" '
+        'data-placeholder="Filter by prefix…">'
+        f'{prefix_options_html}'
+        '</select>'
+        '<div class="form-text small">Hold Ctrl/Cmd to pick multiple.</div>'
         '</div>'
     )
 
@@ -317,11 +398,11 @@ def all_documents():
         {gh_filter_row(
             gh_directory_toolbar(
                 search_placeholder='Search documents…',
-                search_col='col-md-5',
-                sort_col='col-md-3',
-                extra_cols=submit_draft_col,
+                search_col='col-md-4',
+                sort_col='col-md-2',
+                extra_cols=layer_filter_col + prefix_filter_col + submit_draft_col,
                 sort_options=(
-                    ('recent', 'ML number (newest first)'),
+                    ('recent', 'Newest first'),
                     ('name-asc', 'A–Z'),
                     ('name-desc', 'Z–A'),
                 ),
@@ -345,6 +426,12 @@ def all_documents():
         return encodeURIComponent(String(name || ''));
     }}
 
+    function getSelectedValues(id) {{
+        var el = document.getElementById(id);
+        if (!el) return [];
+        return Array.from(el.selectedOptions || []).map(function(o) {{ return o.value; }}).filter(Boolean);
+    }}
+
     function renderDocCards(docs) {{
         return docs.map(function(d) {{
             const displayId = GhDirectory.esc(d.ml_number || d.name || '');
@@ -353,8 +440,14 @@ def all_documents():
                 ? '<span class="badge bg-success ms-2">Revision ' + GhDirectory.esc(d.revision_number) + '</span>' : '';
             const authors = Array.isArray(d.authors) ? d.authors.join(', ') : (d.authors || 'N/A');
             const words = d.words || 0;
+            const layerBadge = d.layer_name
+                ? '<span class="badge bg-info ms-1">' + GhDirectory.esc(d.layer_name) + '</span>'
+                : '';
+            const prefixBadge = d.prefix
+                ? '<span class="badge bg-secondary ms-1">' + GhDirectory.esc(d.prefix) + '</span>'
+                : '';
             return '<div class="col-md-6 document-card"><div class="card"><div class="card-body">'
-                + '<h5 class="card-title document-title"><a href="/doc/draft/' + href + '/">' + displayId + '</a>' + revBadge + '</h5>'
+                + '<h5 class="card-title document-title"><a href="/doc/draft/' + href + '/">' + displayId + '</a>' + revBadge + layerBadge + prefixBadge + '</h5>'
                 + '<p class="card-text">' + GhDirectory.esc(d.title || '') + '</p>'
                 + '<div class="document-meta"><span class="badge bg-secondary status-badge">' + GhDirectory.esc(d.status || '') + '</span>'
                 + '<span>' + (d.pages || 1) + ' pages</span>'
@@ -389,20 +482,38 @@ def all_documents():
             + '</tbody></table></div>';
     }}
 
+    function filterByLayerAndPrefix(items, layerIds, prefixCodes) {{
+        if (!layerIds.length && !prefixCodes.length) return items;
+        return items.filter(function(d) {{
+            if (layerIds.length) {{
+                if (!d.layer_id || layerIds.indexOf(String(d.layer_id)) === -1) return false;
+            }}
+            if (prefixCodes.length) {{
+                if (!d.prefix || prefixCodes.indexOf(String(d.prefix)) === -1) return false;
+            }}
+            return true;
+        }});
+    }}
+
     function renderDocDirectory() {{
-        const items = GhDirectory.filterAndSort(allDocItems, {{
+        const layerIds = getSelectedValues('doc-filter-layer');
+        const prefixCodes = getSelectedValues('doc-filter-prefix');
+        const layerPrefixFiltered = filterByLayerAndPrefix(allDocItems, layerIds, prefixCodes);
+        const items = GhDirectory.filterAndSort(layerPrefixFiltered, {{
             searchTerm: GhDirectory.getSearchValue('search-input'),
             sort: GhDirectory.getSortValue('sort-filter'),
-            searchFields: ['title', 'ml_number', 'name', 'abstract', 'group', 'workgroup_name', 'authors'],
+            searchFields: ['title', 'name', 'abstract', 'group', 'workgroup_name', 'authors', 'layer_name'],
             nameKey: 'title',
             dateKeys: ['submitted_at', 'date'],
-            recentSort: 'ml_number',
+            recentSort: 'submitted_at',
         }});
         const countEl = document.getElementById('doc-all-count');
         if (countEl) {{
-            countEl.textContent = items.length === allDocItems.length
-                ? ('Showing ' + items.length + ' documents')
-                : ('Showing ' + items.length + ' of ' + allDocItems.length + ' documents');
+            const total = allDocItems.length;
+            const label = (layerIds.length || prefixCodes.length)
+                ? ('Showing ' + items.length + ' of ' + total + ' documents')
+                : ('Showing ' + items.length + ' documents');
+            countEl.textContent = label;
         }}
         const container = document.getElementById('doc-all-container');
         if (!container) return;
@@ -418,6 +529,13 @@ def all_documents():
     }}
 
     GhDirectory.bindControls('search-input', 'sort-filter', renderDocDirectory);
+    ['doc-filter-layer', 'doc-filter-prefix'].forEach(function(id) {{
+        var el = document.getElementById(id);
+        if (el && !el.dataset.ghDirectoryBound) {{
+            el.dataset.ghDirectoryBound = '1';
+            el.addEventListener('change', renderDocDirectory);
+        }}
+    }});
     renderDocDirectory();
     </script>
     """
@@ -2067,8 +2185,8 @@ def draft_comments(draft_name):
             commentText.parentNode.insertBefore(editForm, commentText.nextSibling);
         }}
 
-        function deleteComment(commentId) {{
-            if (!confirm('Are you sure you want to delete this comment? This action cannot be undone.')) {{
+        async function deleteComment(commentId) {{
+            if (!(await GhDialog.confirm({{ title: 'Delete comment', message: 'Are you sure you want to delete this comment? This action cannot be undone.', variant: 'warning' }}))) {{
                 return;
             }}
             const form = document.createElement('form');
