@@ -38,6 +38,7 @@
     target: null,
     context: null,
     lastAction: null,
+    lastActions: null,
     loading: false,
   };
   var anchorRegistry = [];
@@ -1480,9 +1481,11 @@
       draft_comment: 'Draft comment',
       improve_comment: 'Improve',
       shorten_comment: 'Shorten',
+      expand_comment: 'Expand',
       find_counterpoint: 'Counterpoint',
       improve_patch: 'Improve patch',
       shorten_patch_replacement: 'Shorten',
+      expand_patch_replacement: 'Expand',
       neutralize_patch_replacement: 'Neutralize',
       add_patch_evidence: 'Add evidence',
       draft_patch_rationale: 'Draft rationale',
@@ -1492,12 +1495,14 @@
     return labels[action] || action;
   }
 
+  var EXPAND_ACTIONS = { expand_comment: 1, expand_patch_replacement: 1 };
+
   function assistActionsForTarget(target, serverActions) {
     var allowed = target === 'comment'
-      ? ['draft_comment', 'improve_comment', 'shorten_comment', 'find_counterpoint']
+      ? ['draft_comment', 'improve_comment', 'shorten_comment', 'expand_comment', 'find_counterpoint']
       : target === 'patch_rationale'
         ? ['draft_patch_rationale', 'shorten_patch_rationale', 'explain_patch_risk', 'add_patch_evidence']
-        : ['improve_patch', 'shorten_patch_replacement', 'neutralize_patch_replacement', 'add_patch_evidence'];
+        : ['improve_patch', 'shorten_patch_replacement', 'expand_patch_replacement', 'neutralize_patch_replacement', 'add_patch_evidence'];
     var available = {};
     (serverActions || []).forEach(function (entry) {
       var id = typeof entry === 'string' ? entry : entry.id;
@@ -1526,6 +1531,7 @@
     assistState.target = null;
     assistState.context = null;
     assistState.lastAction = null;
+    assistState.lastActions = null;
     assistState.loading = false;
     setAssistPreview('');
     setAssistStatus('');
@@ -1583,12 +1589,19 @@
     var container = document.getElementById('dpAiAssistActions');
     if (!container) return;
     container.innerHTML = '';
+    var targetEl = assistTargetElement();
+    var targetText = (targetEl && targetEl.value || '').trim();
     actions.forEach(function (action) {
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-sm btn-outline-primary';
       btn.textContent = assistActionLabel(action);
+      if (EXPAND_ACTIONS[action] && !targetText) {
+        btn.disabled = true;
+        btn.title = 'Type something first to expand it.';
+      }
       btn.addEventListener('click', function () {
+        if (btn.disabled) return;
         runAssistAction(action);
       });
       container.appendChild(btn);
@@ -1641,6 +1654,7 @@
         assistState.context = res.data.context;
         refreshAssistContextSummary(res.data.sources || {});
         var actions = assistActionsForTarget(target, res.data.actions || []);
+        assistState.lastActions = actions;
         renderAssistActions(actions);
         if (res.data.llm_configured === false) {
           setAssistStatus('AI Assist is not configured on this server.');
@@ -1757,6 +1771,17 @@
       btn.addEventListener('click', function () {
         openAssistPanel(btn.getAttribute('data-assist-target') || 'comment');
       });
+    });
+    ['dpProposalProposed', 'dpCommentText'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && !el.dataset.ghAssistExpandBound) {
+        el.dataset.ghAssistExpandBound = '1';
+        el.addEventListener('input', function () {
+          if (assistState && Array.isArray(assistState.lastActions) && assistState.lastActions.length) {
+            renderAssistActions(assistState.lastActions);
+          }
+        });
+      }
     });
     var closeBtn = document.getElementById('dpAiAssistClose');
     if (closeBtn && !closeBtn.dataset.ghAssistBound) {
