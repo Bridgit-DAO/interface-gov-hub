@@ -910,7 +910,7 @@ def _render_submit_revision_form(
     async function previewOrdinal() {{
         const inscriptionId = document.getElementById('ordinalId').value.trim();
         if (!inscriptionId) {{
-            alert('Please enter an inscription ID');
+            await GhDialog.alert({{ title: 'Notice', message: 'Please enter an inscription ID', variant: 'info' }});
             return;
         }}
 
@@ -2396,49 +2396,84 @@ def admin_submissions():
             window.location.href = '?status=' + status;
         }}
 
-        function approveSubmission(submissionId) {{
-            if (confirm('Approve this draft submission? It will be marked as approved and ready for publication.')) {{
+        async function approveSubmission(submissionId) {{
+            const ok = await GhDialog.confirm({{
+                title: 'Approve submission',
+                message: 'Approve this draft submission? It will be marked as approved and ready for publication.',
+                variant: 'warning',
+                confirmLabel: 'Approve',
+            }});
+            if (ok) {{
                 updateSubmissionStatus(submissionId, 'approved');
             }}
         }}
 
-        function rejectSubmission(submissionId) {{
-            const reason = prompt('Reason for rejection (optional):');
-            updateSubmissionStatus(submissionId, 'rejected', reason);
+        async function rejectSubmission(submissionId) {{
+            const reason = await GhDialog.prompt({{
+                title: 'Reject submission',
+                message: 'Reason for rejection (optional):',
+                inputType: 'text',
+                placeholder: 'Optional rejection reason',
+                confirmLabel: 'Reject',
+                required: false,
+            }});
+            updateSubmissionStatus(submissionId, 'rejected', reason || null);
         }}
 
-        function unapproveSubmission(submissionId) {{
-            if (confirm('Remove approval for this submission?')) {{
+        async function unapproveSubmission(submissionId) {{
+            const ok = await GhDialog.confirm({{
+                title: 'Remove approval',
+                message: 'Remove approval for this submission? It will return to the submitted state.',
+                variant: 'warning',
+                confirmLabel: 'Remove approval',
+            }});
+            if (ok) {{
                 updateSubmissionStatus(submissionId, 'submitted');
             }}
         }}
 
-        function publishAsRFC(submissionId) {{
-            const rfcNumber = prompt('Enter RFC number:');
-            if (rfcNumber && confirm('Publish as RFC ' + rfcNumber + '?')) {{
+        async function publishAsRFC(submissionId) {{
+            const rfcNumber = await GhDialog.prompt({{
+                title: 'Publish as RFC',
+                message: 'Enter the RFC number for this submission:',
+                inputType: 'text',
+                placeholder: 'e.g. 9999',
+                confirmLabel: 'Continue',
+                required: true,
+            }});
+            if (!rfcNumber) return;
+            const confirmed = await GhDialog.confirm({{
+                title: 'Confirm publication',
+                message: 'Publish as RFC ' + rfcNumber + '?',
+                variant: 'warning',
+                confirmLabel: 'Publish',
+            }});
+            if (confirmed) {{
                 updateSubmissionStatus(submissionId, 'published', null, rfcNumber);
             }}
         }}
 
-        function updateSubmissionStatus(submissionId, status, reason = null, rfcNumber = null) {{
+        async function updateSubmissionStatus(submissionId, status, reason = null, rfcNumber = null) {{
             const data = {{ status: status }};
             if (reason) data.reason = reason;
             if (rfcNumber) data.rfc_number = rfcNumber;
 
-            fetch('/admin/submissions/' + submissionId + '/status', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify(data)
-            }})
-            .then(response => response.json())
-            .then(data => {{
-                if (data.success) {{ location.reload(); }}
-                else {{ alert('Error: ' + data.message); }}
-            }})
-            .catch(error => {{
+            try {{
+                const response = await fetch('/admin/submissions/' + submissionId + '/status', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(data),
+                }});
+                const result = await response.json();
+                if (result.success) {{
+                    location.reload();
+                }} else {{
+                    await GhDialog.alert({{ title: 'Update failed', message: ('Error: ' + (result.message || 'Unknown error')), variant: 'danger' }});
+                }}
+            }} catch (error) {{
                 console.error('Error:', error);
-                alert('Error updating submission status');
-            }});
+                await GhDialog.alert({{ title: 'Update failed', message: 'Error updating submission status', variant: 'danger' }});
+            }}
         }}
     </script>
     """

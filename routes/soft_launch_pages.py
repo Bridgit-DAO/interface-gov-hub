@@ -902,17 +902,17 @@ def _build_artifact_demo_html(
                 body: JSON.stringify({{ text: text }})
               }}).then(slParseFetchResult).then(x => {{
                 if (x.status === 401) {{
-                  alert(t('softLaunch.js.signInComments'));
+                  await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.signInComments')), variant: 'info' }});
                   return Promise.reject('auth');
                 }}
                 if (!x.ok) {{
-                  alert(slApiUserMessage(x.status, x.j));
+                  await GhDialog.alert({{ title: 'Notice', message: (slApiUserMessage(x.status, x.j)), variant: 'info' }});
                   return Promise.reject('fail');
                 }}
                 textField.value = '';
                 loadComments();
               }}).catch(err => {{
-                if (err !== 'auth' && err !== 'fail') alert(t('softLaunch.js.networkError'));
+                if (err !== 'auth' && err !== 'fail') await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.networkError')), variant: 'info' }});
               }});
             }});
           }}
@@ -1010,11 +1010,11 @@ def _build_artifact_demo_html(
                 }})
               }}).then(slParseFetchResult).then(x => {{
                 if (x.status === 401) {{
-                  alert(t('softLaunch.js.signInEvidence'));
+                  await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.signInEvidence')), variant: 'info' }});
                   return Promise.reject('auth');
                 }}
                 if (!x.ok) {{
-                  alert(slApiUserMessage(x.status, x.j));
+                  await GhDialog.alert({{ title: 'Notice', message: (slApiUserMessage(x.status, x.j)), variant: 'info' }});
                   return Promise.reject('fail');
                 }}
                 evidenceForm.reset();
@@ -1025,7 +1025,7 @@ def _build_artifact_demo_html(
                 if (G && typeof G.applyDom === 'function') G.applyDom(document.getElementById('sl-evidence-modal'));
                 loadEvidence();
               }}).catch(err => {{
-                if (err !== 'auth' && err !== 'fail') alert(t('softLaunch.js.networkError'));
+                if (err !== 'auth' && err !== 'fail') await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.networkError')), variant: 'info' }});
               }});
             }});
           }}
@@ -1089,21 +1089,21 @@ def _build_artifact_demo_html(
                 body: JSON.stringify({{ choice: choice }})
               }}).then(slParseFetchResult).then(x => {{
                 if (x.status === 401) {{
-                  alert(t('softLaunch.js.signInVote'));
+                  await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.signInVote')), variant: 'info' }});
                   btn.disabled = false;
                   return;
                 }}
                 if (!x.ok) {{
                   btn.disabled = false;
-                  alert(slApiUserMessage(x.status, x.j));
+                  await GhDialog.alert({{ title: 'Notice', message: (slApiUserMessage(x.status, x.j)), variant: 'info' }});
                   return;
                 }}
-                alert(t('softLaunch.js.voteRecorded'));
+                await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.voteRecorded')), variant: 'info' }});
                 loadVoteDetails();
                 voteButtons.forEach(b => b.disabled = true);
               }}).catch(() => {{
                 btn.disabled = false;
-                alert(t('softLaunch.js.networkError'));
+                await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.networkError')), variant: 'info' }});
               }});
             }});
           }});
@@ -1138,7 +1138,7 @@ def _build_artifact_demo_html(
             var quorum = parseInt(document.getElementById('vote-quorum').value);
 
             if (!title || !startAt || !endAt || !quorum) {{
-              alert(t('softLaunch.js.scheduleFillFields'));
+              await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.scheduleFillFields')), variant: 'info' }});
               return;
             }}
 
@@ -1151,13 +1151,13 @@ def _build_artifact_demo_html(
               .then(artifact => {{
                 var layerId = artifact.layer_id;
                 if (!layerId) {{
-                  alert(t('softLaunch.js.scheduleNoLayer'));
+                  await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.scheduleNoLayer')), variant: 'info' }});
                   return Promise.reject('no_layer');
                 }}
 
                 var subId = artifact.submission_id;
                 if (!subId) {{
-                  alert(t('softLaunch.js.scheduleNoSubmission'));
+                  await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.scheduleNoSubmission')), variant: 'info' }});
                   return Promise.reject('no_submission');
                 }}
                 return fetch('/api/layers/' + encodeURIComponent(layerId) + '/votes/', {{
@@ -1177,23 +1177,23 @@ def _build_artifact_demo_html(
               .then(slParseFetchResult)
               .then(x => {{
                 if (x.status === 401) {{
-                  alert(t('softLaunch.js.scheduleSignIn'));
+                  await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.scheduleSignIn')), variant: 'info' }});
                   return Promise.reject('auth');
                 }}
                 if (!x.ok) {{
-                  alert(slApiUserMessage(x.status, x.j));
+                  await GhDialog.alert({{ title: 'Notice', message: (slApiUserMessage(x.status, x.j)), variant: 'info' }});
                   return Promise.reject('fail');
                 }}
                 return x.j;
               }})
               .then(() => {{
-                alert(t('softLaunch.js.scheduleSuccess'));
+                await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.scheduleSuccess')), variant: 'info' }});
                 var modalEl = bootstrap.Modal.getInstance(document.getElementById('sl-schedule-vote-modal'));
                 if (modalEl) modalEl.hide();
               }})
               .catch(err => {{
                 if (err !== 'auth' && err !== 'no_layer' && err !== 'no_submission' && err !== 'fail') {{
-                  alert(t('softLaunch.js.networkError'));
+                  await GhDialog.alert({{ title: 'Notice', message: (t('softLaunch.js.networkError')), variant: 'info' }});
                 }}
               }});
           }});

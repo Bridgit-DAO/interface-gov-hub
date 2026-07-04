@@ -1406,7 +1406,7 @@ BASE_TEMPLATE = """
             }});
             if (!declarationOk) {{
                 await fetch('/api/auth/logout', {{ method: 'POST', credentials: 'include' }});
-                alert('Sign in cancelled — account declaration is required to participate.');
+                await GhDialog.alert({{ title: 'Notice', message: ('Sign in cancelled — account declaration is required to participate.'), variant: 'info' }});
                 return false;
             }}
             let dest = consumePostLoginReturnPath();
@@ -1507,12 +1507,12 @@ BASE_TEMPLATE = """
             try {{
                 await startWeb3AuthInit();
             }} catch (error) {{
-                alert('Web3Auth failed to load. Please refresh the page and try again.');
+                await GhDialog.alert({{ title: 'Notice', message: ('Web3Auth failed to load. Please refresh the page and try again.'), variant: 'info' }});
                 return;
             }}
 
             if (!web3auth) {{
-                alert("Web3Auth not initialized. Please refresh the page.");
+                await GhDialog.alert({{ title: 'Notice', message: ("Web3Auth not initialized. Please refresh the page."), variant: 'info' }});
                 return;
             }}
 
@@ -1560,7 +1560,7 @@ BASE_TEMPLATE = """
                     }}
                 }}
                 if (!idToken) {{
-                    alert('Sign-in verification failed: no identity token. Please try again.');
+                    await GhDialog.alert({{ title: 'Notice', message: ('Sign-in verification failed: no identity token. Please try again.'), variant: 'info' }});
                     return;
                 }}
 
@@ -1596,14 +1596,14 @@ BASE_TEMPLATE = """
                     const me = await fetch('/api/user/me', {{ credentials: 'include' }});
                     if (!me.ok) {{
                         console.error('Session not established after login', me.status);
-                        alert('Sign-in succeeded but the session was not saved. Try again or use a private window.');
+                        await GhDialog.alert({{ title: 'Notice', message: ('Sign-in succeeded but the session was not saved. Try again or use a private window.'), variant: 'info' }});
                         return;
                     }}
                     await ghFinishLoginAfterSession(userInfo, idToken, evmAddress);
                 }} else {{
                     console.error('Backend error:', result);
                     try {{ await web3auth.logout(); }} catch (_e) {{}}
-                    alert('Login failed: ' + (result.error || 'Unknown error'));
+                    await GhDialog.alert({{ title: 'Notice', message: ('Login failed: ' + (result.error || 'Unknown error')), variant: 'info' }});
                 }}
             }} catch (error) {{
                 console.error('Login failed:', error);
@@ -1613,7 +1613,7 @@ BASE_TEMPLATE = """
                     if (/could not verify identity/i.test(msg)) {{
                         msg += '\\n\\nUse Google or email sign-in (same address as your invitation). Wallet login often fails for invited editors.';
                     }}
-                    alert('Login failed: ' + msg);
+                    await GhDialog.alert({{ title: 'Notice', message: ('Login failed: ' + msg), variant: 'info' }});
                 }}
             }} finally {{
                 web3authLoginInProgress = false;
@@ -1634,7 +1634,14 @@ BASE_TEMPLATE = """
         async function loginWithWeb3AuthEmail() {{
             let hint = await ghResolveInviteLoginHint();
             if (!hint) {{
-                hint = (window.prompt('Enter the email address from your invitation:') || '').trim().toLowerCase();
+                hint = (await GhDialog.prompt({{
+                    title: 'Email from invitation',
+                    message: 'Enter the email address from your invitation:',
+                    inputType: 'email',
+                    placeholder: 'name@example.com',
+                    confirmLabel: 'Continue',
+                    required: true,
+                }}) || '').trim().toLowerCase();
             }}
             if (!hint || hint.indexOf('@') < 1) {{
                 return;
@@ -2345,7 +2352,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const inscriptionId = ordinalIdInput.value.trim();
         
         if (!inscriptionId) {
-            alert('Please enter an inscription ID');
+            await GhDialog.alert({{ title: 'Notice', message: ('Please enter an inscription ID'), variant: 'info' }});
             return;
         }
         
@@ -2677,26 +2684,26 @@ document.addEventListener('DOMContentLoaded', function() {
             pageCount = Math.max(1, Math.ceil(content.length / 2000));
             imageCount = 0;
         }
-        if (!content) { alert('Please add content'); return; }
+        if (!content) { await GhDialog.alert({{ title: 'Notice', message: ('Please add content'), variant: 'info' }}); return; }
         wizardData = { content_text: typeof content === 'string' && content.startsWith('data:') ? null : content, content_file_b64: typeof content === 'string' && content.startsWith('data:') ? content : null, content_filename: filename, page_count: pageCount, image_count: imageCount, title: document.getElementById('wizardTitle')?.value || 'Untitled', authors: (document.getElementById('wizardAuthors')?.value || '').split(',').map(a=>a.trim()).filter(Boolean) };
         showWizardStep(2);
     });
     document.getElementById('wizardSendOtpBtn')?.addEventListener('click', async function() {
         const phone = document.getElementById('wizardPhone')?.value?.trim();
-        if (!phone) { alert('Enter phone'); return; }
+        if (!phone) { await GhDialog.alert({{ title: 'Notice', message: ('Enter phone'), variant: 'info' }}); return; }
         const r = await fetch('/api/inscribe/send-otp/', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({phone}) });
         const d = await r.json();
-        if (!d.success) { alert(d.error || 'Failed'); return; }
+        if (!d.success) { await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed'), variant: 'info' }}); return; }
         document.getElementById('wizardOtpSection').style.display = '';
         document.getElementById('wizardSendOtpBtn').style.display = 'none';
     });
     document.getElementById('wizardVerifyBtn')?.addEventListener('click', async function() {
         const phone = document.getElementById('wizardPhone')?.value?.trim();
         const code = document.getElementById('wizardOtp')?.value?.trim();
-        if (!phone || !code) { alert('Phone and code required'); return; }
+        if (!phone || !code) { await GhDialog.alert({{ title: 'Notice', message: ('Phone and code required'), variant: 'info' }}); return; }
         const r = await fetch('/api/inscribe/verify-otp/', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ phone, code, page_count: wizardData.page_count || 1, image_count: wizardData.image_count || 0 }) });
         const d = await r.json();
-        if (!d.success) { alert(d.error || 'Failed'); return; }
+        if (!d.success) { await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed'), variant: 'info' }}); return; }
         wizardData.phone = phone; wizardData.tier = d.tier; wizardData.final_price_usd = d.final_price_usd; wizardData.base_price_usd = d.base_price_usd; wizardData.discount_pct = d.discount_pct;
         document.getElementById('wizardPricePreview').innerHTML = '<div class="alert alert-success">Tier ' + d.tier + ' · $' + d.final_price_usd + '</div>';
         document.getElementById('wizardPricePreview').style.display = '';
@@ -2716,7 +2723,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const r = await fetch('/api/inscribe/create-payment/', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
         const d = await r.json();
         document.getElementById('wizardStep2_5Next').disabled = false;
-        if (!d.success) { alert(d.error || 'Failed'); return; }
+        if (!d.success) { await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed'), variant: 'info' }}); return; }
         wizardData.order_id = d.order_id;
         wizardData.client_secret = d.client_secret;
         document.getElementById('wizardPayAmount').textContent = wizardData.final_price_usd || '0';
@@ -2743,7 +2750,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 confirmParams: { return_url: window.location.origin + '/immortalize/success/' + wizardData.order_id + '/' }
             });
             payBtn.disabled = false;
-            if (error) alert(error.message || 'Payment failed');
+            if (error) await GhDialog.alert({{ title: 'Notice', message: (error.message || 'Payment failed'), variant: 'info' }});
         });
         window._wizardStripeInit = true;
     }
@@ -3019,7 +3026,7 @@ document.addEventListener('DOMContentLoaded', function() {
             createBtn.innerHTML = '<i class="bi bi-pencil-square"></i> Create Inscription';
             
             if (!data.success) {
-                alert(data.error || 'Failed to create inscription order');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to create inscription order'), variant: 'info' }});
                 return;
             }
             step1.style.display = 'none';
@@ -3048,7 +3055,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (e) {
             createBtn.disabled = false;
             createBtn.innerHTML = '<i class="bi bi-pencil-square"></i> Create Inscription';
-            alert('Error: ' + e.message);
+            await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + e.message), variant: 'info' }});
         }
     });
     

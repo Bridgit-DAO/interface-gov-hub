@@ -437,7 +437,7 @@ def role_images_directory():
         const file = input.files && input.files[0];
         if (!file) return;
         if (typeof window.GhImageCrop !== 'object') {{
-            alert('Image cropper is still loading. Please try again in a moment.');
+            await GhDialog.alert({{ title: 'Notice', message: ('Image cropper is still loading. Please try again in a moment.'), variant: 'info' }});
             input.value = '';
             return;
         }}
@@ -463,17 +463,17 @@ def role_images_directory():
     async function submitAddImage() {{
         const slug = document.getElementById('add-image-role').value;
         const type = document.getElementById('add-image-type').value;
-        if (!slug) {{ alert('Please select a ' + (type === 'workgroup' ? 'workgroup' : 'role')); return; }}
+        if (!slug) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please select a ' + (type === 'workgroup' ? 'workgroup' : 'role')), variant: 'info' }}); return; }}
         const sourceType = document.getElementById('addSourceType').value;
         const formData = new FormData();
         formData.append('source_type', sourceType);
         if (sourceType === 'upload') {{
             const file = document.getElementById('addImageFile').files[0];
-            if (!file) {{ alert('Please select an image file'); return; }}
+            if (!file) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please select an image file'), variant: 'info' }}); return; }}
             formData.append('file', file);
         }} else {{
             const url = document.getElementById('addImageUrl').value.trim();
-            if (!url) {{ alert('Please enter an image URL'); return; }}
+            if (!url) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please enter an image URL'), variant: 'info' }}); return; }}
             formData.append('image_url', url);
         }}
         try {{
@@ -485,9 +485,9 @@ def role_images_directory():
                 bootstrap.Modal.getInstance(document.getElementById('addDesignModal')).hide();
                 window.location.href = '/roles/' + slug + '/images/';
             }} else {{
-                alert(data.error || 'Upload failed');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Upload failed'), variant: 'info' }});
             }}
-        }} catch (e) {{ alert('Upload failed'); }}
+        }} catch (e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Upload failed'), variant: 'info' }}); }}
     }}
 
     document.getElementById('project-filter').addEventListener('change', loadAllBadges);
@@ -650,7 +650,7 @@ def one_time_badges_page():
         const r = await fetch('/api/one-time-badges/' + badgeId + '/', {{ method: 'PATCH', headers: {{'Content-Type': 'application/json'}}, credentials: 'include', body: JSON.stringify(payload) }}); const d = await r.json();
         if (r.ok) {{ bootstrap.Modal.getInstance(document.getElementById('editOTBModal')).hide(); loadOTBs(); }} else {{ document.getElementById('otb-edit-alert').innerHTML = `<div class="alert alert-danger py-1">${{d.error || 'Failed'}}</div>`; }}
     }}
-    async function deleteOTB(badgeId, title) {{ if (!confirm('Delete "' + title + '"? This cannot be undone.')) return; const r = await fetch('/api/one-time-badges/' + badgeId + '/', {{ method: 'DELETE', credentials: 'include' }}); if (r.ok) loadOTBs(); else alert('Delete failed'); }}
+    async function deleteOTB(badgeId, title) {{ if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Delete "' + title + '"? This cannot be undone.'), variant: 'warning', confirmLabel: 'Confirm' }})) return; const r = await fetch('/api/one-time-badges/' + badgeId + '/', {{ method: 'DELETE', credentials: 'include' }}); if (r.ok) loadOTBs(); else await GhDialog.alert({{ title: 'Notice', message: ('Delete failed'), variant: 'info' }}); }}
     loadProjects().then(() => loadOTBs());
     </script>
     """
@@ -756,7 +756,7 @@ def _render_role_detail(role_slug, layer_slug=None, layer_id=None, use_layer_sta
             const claimsDataDisplay = activeClaims; let html = '<div class="list-group">'; claimsDataDisplay.forEach((claim, idx) => {{ const claimantName = claim.claimant_name || ('User #' + claim.claimant_id); const claimantUsername = claim.claimant_username || ''; const profileLink = claimantUsername ? '/profile/' + claimantUsername + '/' : '#'; const nameDisplay = profileLink !== '#' ? '<a href="' + profileLink + '" class="text-decoration-none">' + claimantName + '</a>' : claimantName; html += `<div class="list-group-item claim-list-item" data-claim-index="${{idx}}"><div class="d-flex justify-content-between align-items-center"><h6 class="mb-0">${{nameDisplay}}</h6><span class="badge bg-success">Active</span></div><small class="text-muted">Claimed: ${{new Date(claim.created_at).toLocaleDateString()}}</small></div>`; }}); html += '</div>'; container.innerHTML = html; container.querySelectorAll('.claim-list-item').forEach(el => {{ const idx = parseInt(el.getAttribute('data-claim-index'), 10); const claim = claimsDataDisplay[idx]; new bootstrap.Popover(el, {{ content: getClaimPopoverContent(claim), html: true, trigger: 'hover focus', placement: 'auto', container: 'body' }}); }});
         }} catch (error) {{ console.error('Error loading claims:', error); container.innerHTML = '<div class="alert alert-danger">Error loading claims</div>'; }} }}
     function getStatusBadge(status) {{ const badges = {{ 'draft': '<span class="badge bg-secondary">Draft</span>', 'approved': '<span class="badge bg-success">Approved</span>', 'deprecated': '<span class="badge bg-warning">Deprecated</span>', 'archived': '<span class="badge bg-dark">Archived</span>' }}; return badges[status] || ''; }}
-    function claimRole() {{ if (role.status !== 'approved') {{ alert('This role must be approved before it can be claimed'); return; }} window.location.href = `/roles/${{roleSlug}}/claim/`; }}
+    function claimRole() {{ if (role.status !== 'approved') {{ await GhDialog.alert({{ title: 'Notice', message: ('This role must be approved before it can be claimed'), variant: 'info' }}); return; }} window.location.href = `/roles/${{roleSlug}}/claim/`; }}
     function editRole() {{ const modalHtml = `<div class="modal fade" id="editRoleModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Edit Role</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div id="edit-role-alert-container"></div><form id="editRoleForm"><div class="mb-3"><label for="edit-role-title-guild" class="form-label">Guild Title *</label><input type="text" class="form-control" id="edit-role-title-guild" required></div><div class="mb-3"><label for="edit-role-title-operational" class="form-label">Operational Title</label><input type="text" class="form-control" id="edit-role-title-operational"></div><div class="mb-3"><label for="edit-role-description" class="form-label">About / Description *</label><textarea class="form-control" id="edit-role-description" rows="5" required></textarea></div><div class="mb-3"><label for="edit-role-cluster" class="form-label">Cluster</label><select class="form-select" id="edit-role-cluster"><option value="">No cluster</option></select></div><hr><h6 class="mb-3"><i class="fas fa-medal me-2"></i>Badge Settings</h6><div class="row g-2 mb-2"><div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-badge-enabled"><label class="form-check-label" for="edit-role-badge-enabled">Badge enabled</label></div></div><div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-badge-approval"><label class="form-check-label" for="edit-role-badge-approval">Require approval</label></div></div></div><div id="role-badge-fields" class="border rounded p-2 bg-light bg-opacity-10"><div class="row g-2 mb-2"><div class="col-4"><label class="form-label small mb-0">Submission days</label><input type="number" class="form-control form-control-sm" id="edit-role-badge-submission-days" min="1"></div><div class="col-4"><label class="form-label small mb-0">Delay days</label><input type="number" class="form-control form-control-sm" id="edit-role-badge-delay-days" min="0"></div><div class="col-4"><label class="form-label small mb-0">Voting days</label><input type="number" class="form-control form-control-sm" id="edit-role-badge-voting-days" min="1"></div></div><div class="row g-2 mb-2"><div class="col-6"><label class="form-label small mb-0">Earliest start date</label><input type="date" class="form-control form-control-sm" id="edit-role-badge-earliest-start"></div><div class="col-6"><label class="form-label small mb-0">Min. days between cycles</label><input type="number" class="form-control form-control-sm" id="edit-role-badge-cycle-spacing" min="1"></div></div><div class="row g-2 mb-2"><div class="col-6"><label class="form-label small mb-0">End date (optional)</label><input type="date" class="form-control form-control-sm" id="edit-role-badge-end-date"></div><div class="col-6 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-badge-end-next"><label class="form-check-label small" for="edit-role-badge-end-next">End at next closing</label></div></div></div><label class="form-label small mb-1">Voting types</label><div class="d-flex gap-3 flex-wrap"><div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-vote-regular" checked disabled><label class="form-check-label small" for="edit-role-vote-regular">Regular</label></div><div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-vote-tw"><label class="form-check-label small" for="edit-role-vote-tw">Time-weighted</label></div><div class="form-check"><input class="form-check-input" type="checkbox" id="edit-role-vote-quad"><label class="form-check-label small" for="edit-role-vote-quad">Quadratic</label></div></div></div></form></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="editRoleSubmitBtn"><i class="fas fa-save me-2"></i>Save Changes</button></div></div></div></div>`;
         if (!document.getElementById('editRoleModal')) {{ document.body.insertAdjacentHTML('beforeend', modalHtml); }}
         document.getElementById('edit-role-title-guild').value = role.title_guild || ''; document.getElementById('edit-role-title-operational').value = role.title_operational || ''; document.getElementById('edit-role-description').value = role.description || ''; document.getElementById('edit-role-alert-container').innerHTML = '';
@@ -1090,16 +1090,16 @@ def role_images_gallery(role_slug):
     }}
 
     async function startCycle() {{
-        if (!confirm('Start a new badge cycle now?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Start a new badge cycle now?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         try {{
             const r = await fetch(`/api/roles/${{roleSlug}}/badge-cycle/start/`, {{method:'POST'}});
             const d = await r.json();
             if (r.ok) {{
                 await loadCycleCard();
             }} else {{
-                alert(d.error || 'Could not start cycle');
+                await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Could not start cycle'), variant: 'info' }});
             }}
-        }} catch(e) {{ alert('Error starting cycle'); }}
+        }} catch(e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Error starting cycle'), variant: 'info' }}); }}
     }}
 
     // ── Skin picker ──────────────────────────────────────────────────
@@ -1166,7 +1166,7 @@ def role_images_gallery(role_slug):
     }}
 
     async function saveSkin(skinId) {{
-        if (!roleId) {{ alert('Role ID not available'); return; }}
+        if (!roleId) {{ await GhDialog.alert({{ title: 'Notice', message: ('Role ID not available'), variant: 'info' }}); return; }}
         try {{
             const r = await fetch(`/api/roles/${{roleId}}/`, {{
                 method: 'PATCH',
@@ -1178,9 +1178,9 @@ def role_images_gallery(role_slug):
                 activeSkinId = d.role ? d.role.badge_skin_id : skinId;
                 renderSkinList();
             }} else {{
-                alert(d.error || 'Failed to save skin');
+                await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed to save skin'), variant: 'info' }});
             }}
-        }} catch(e) {{ alert('Error saving skin'); }}
+        }} catch(e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Error saving skin'), variant: 'info' }}); }}
     }}
 
     function renderSkinPreview() {{
@@ -1284,8 +1284,8 @@ def role_images_gallery(role_slug):
                 body: JSON.stringify({{value}})
             }});
             if (response.ok) {{ loadImages(); }}
-            else {{ const d = await response.json(); alert(d.error || 'Failed to vote'); }}
-        }} catch (error) {{ alert('Error voting'); }}
+            else {{ const d = await response.json(); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed to vote'), variant: 'info' }}); }}
+        }} catch (error) {{ await GhDialog.alert({{ title: 'Notice', message: ('Error voting'), variant: 'info' }}); }}
     }}
 
     async function submitImage() {{
@@ -1294,15 +1294,15 @@ def role_images_gallery(role_slug):
         formData.append('source_type', sourceType);
         if (sourceType === 'upload') {{
             const file = document.getElementById('imageFile').files[0];
-            if (!file) {{ alert('Please select a file'); return; }}
+            if (!file) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please select a file'), variant: 'info' }}); return; }}
             formData.append('file', file);
         }} else if (sourceType === 'url') {{
             const url = document.getElementById('imageUrl').value;
-            if (!url) {{ alert('Please enter an image URL'); return; }}
+            if (!url) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please enter an image URL'), variant: 'info' }}); return; }}
             formData.append('image_url', url);
         }} else if (sourceType === 'ordinal') {{
             const inscriptionId = document.getElementById('inscriptionId').value;
-            if (!inscriptionId) {{ alert('Please enter an inscription ID'); return; }}
+            if (!inscriptionId) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please enter an inscription ID'), variant: 'info' }}); return; }}
             formData.append('inscription_id', inscriptionId);
             formData.append('content_type', document.getElementById('contentType').value);
             formData.append('chain', 'bitcoin');
@@ -1315,9 +1315,9 @@ def role_images_gallery(role_slug):
                 loadImages();
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to submit design');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to submit design'), variant: 'info' }});
             }}
-        }} catch (error) {{ alert('Error submitting design'); }}
+        }} catch (error) {{ await GhDialog.alert({{ title: 'Notice', message: ('Error submitting design'), variant: 'info' }}); }}
     }}
 
     loadCycleCard();
@@ -1469,11 +1469,11 @@ def role_image_detail(role_slug, image_id):
                 location.reload();
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to vote');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to vote'), variant: 'info' }});
             }}
         }} catch (error) {{
             console.error('Error voting:', error);
-            alert('Error voting on image');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error voting on image'), variant: 'info' }});
         }}
     }}
 
@@ -1487,16 +1487,16 @@ def role_image_detail(role_slug, image_id):
                 location.reload();
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to remove vote');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to remove vote'), variant: 'info' }});
             }}
         }} catch (error) {{
             console.error('Error removing vote:', error);
-            alert('Error removing vote');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error removing vote'), variant: 'info' }});
         }}
     }}
 
     async function promoteImage() {{
-        if (!confirm('Promote this image to primary role image?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Promote this image to primary role image?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
 
         try {{
             const response = await fetch(`/api/role-images/${{imageId}}/promote/`, {{
@@ -1507,16 +1507,16 @@ def role_image_detail(role_slug, image_id):
                 location.reload();
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to promote image');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to promote image'), variant: 'info' }});
             }}
         }} catch (error) {{
             console.error('Error promoting image:', error);
-            alert('Error promoting image');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error promoting image'), variant: 'info' }});
         }}
     }}
 
     async function demoteImage() {{
-        if (!confirm('Demote this image from primary?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Demote this image from primary?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
 
         try {{
             const response = await fetch(`/api/role-images/${{imageId}}/promote/`, {{
@@ -1529,16 +1529,16 @@ def role_image_detail(role_slug, image_id):
                 location.reload();
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to demote image');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to demote image'), variant: 'info' }});
             }}
         }} catch (error) {{
             console.error('Error demoting image:', error);
-            alert('Error demoting image');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error demoting image'), variant: 'info' }});
         }}
     }}
 
     async function hideImage() {{
-        if (!confirm('Hide this image from public view?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Hide this image from public view?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
 
         try {{
             const response = await fetch(`/api/role-images/${{imageId}}/hide/`, {{
@@ -1549,16 +1549,16 @@ def role_image_detail(role_slug, image_id):
                 location.reload();
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to hide image');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to hide image'), variant: 'info' }});
             }}
         }} catch (error) {{
             console.error('Error hiding image:', error);
-            alert('Error hiding image');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error hiding image'), variant: 'info' }});
         }}
     }}
 
     async function unhideImage() {{
-        if (!confirm('Unhide this image?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Unhide this image?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
 
         try {{
             const response = await fetch(`/api/role-images/${{imageId}}/unhide/`, {{
@@ -1569,16 +1569,16 @@ def role_image_detail(role_slug, image_id):
                 location.reload();
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to unhide image');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to unhide image'), variant: 'info' }});
             }}
         }} catch (error) {{
             console.error('Error unhiding image:', error);
-            alert('Error unhiding image');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error unhiding image'), variant: 'info' }});
         }}
     }}
 
     async function deleteImage() {{
-        if (!confirm('Permanently delete this image? This cannot be undone.')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Permanently delete this image? This cannot be undone.'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
 
         try {{
             const response = await fetch(`/api/role-images/${{imageId}}/`, {{
@@ -1589,11 +1589,11 @@ def role_image_detail(role_slug, image_id):
                 window.location.href = `/roles/${{roleSlug}}/images/`;
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to delete image');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to delete image'), variant: 'info' }});
             }}
         }} catch (error) {{
             console.error('Error deleting image:', error);
-            alert('Error deleting image');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error deleting image'), variant: 'info' }});
         }}
     }}
 
@@ -1608,14 +1608,14 @@ def role_image_detail(role_slug, image_id):
             }});
 
             if (response.ok) {{
-                alert('Note saved successfully');
+                await GhDialog.alert({{ title: 'Notice', message: ('Note saved successfully'), variant: 'info' }});
             }} else {{
                 const data = await response.json();
-                alert(data.error || 'Failed to save note');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to save note'), variant: 'info' }});
             }}
         }} catch (error) {{
             console.error('Error saving note:', error);
-            alert('Error saving note');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error saving note'), variant: 'info' }});
         }}
     }}
     </script>

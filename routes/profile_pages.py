@@ -687,7 +687,7 @@ def profile_edit():
                         <br><small class="text-muted">{acc.display_name or acc.provider_user_id}</small>
                     </div>
                 </div>
-                <form method="POST" action="/profile/connect/{provider}/disconnect/" class="d-inline" onsubmit="return confirm('Disconnect {label}?');">
+                <form method="POST" action="/profile/connect/{provider}/disconnect/" class="d-inline" onsubmit="event.preventDefault(); (async()=>{{ if (!(await GhDialog.confirm({{ title: 'Confirm', message: 'Disconnect {label}?', variant: 'warning' }}))) return; this.submit(); }})(); return false;">
                     <button type="submit" class="btn btn-outline-danger btn-sm">Disconnect</button>
                 </form>
             </div>'''
@@ -856,10 +856,10 @@ def profile_edit():
     <script>
     async function ghNotify(opts) {{
         if (window.GhDialog && typeof window.GhDialog.alert === 'function') {{
-            await window.GhDialog.alert(opts);
+            await window.GhDialog.await GhDialog.alert({{ title: 'Notice', message: (opts), variant: 'info' }});
             return;
         }}
-        window.alert((opts.title ? opts.title + '\\n\\n' : '') + (opts.message || ''));
+        window.await GhDialog.alert({{ title: 'Notice', message: ((opts.title ? opts.title + '\\n\\n' : '') + (opts.message || '')), variant: 'info' }});
     }}
 
     function openProfileImageCrop(input) {{

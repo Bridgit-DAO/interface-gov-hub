@@ -37,9 +37,7 @@
         message: 'Please wait a moment and try again, or refresh the page.',
         variant: 'warning',
       });
-      return;
     }
-    window.alert('Invite is not ready yet. Please refresh and try again.');
   }
 
   function bindDpChallengeInvite() {

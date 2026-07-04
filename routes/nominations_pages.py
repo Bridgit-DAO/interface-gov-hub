@@ -132,21 +132,21 @@ def nomination_respond_page(token):
             const data = await resp.json();
             if (resp.ok) {{
                 if (typeof GhDialog !== 'undefined') {{
-                    await GhDialog.alert({{ title: data.title || 'Done', message: data.message, variant: data.variant || 'success' }});
+                    await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: data.title || 'Done', message: data.message, variant: data.variant || 'success' }}), variant: 'info' }});
                 }} else {{
-                    alert(data.message);
+                    await GhDialog.alert({{ title: 'Notice', message: (data.message), variant: 'info' }});
                 }}
                 location.reload();
             }} else {{
                 if (typeof GhDialog !== 'undefined') {{
-                    await GhDialog.alert({{ title: 'Error', message: data.error || 'Could not save response', variant: 'danger' }});
+                    await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: data.error || 'Could not save response', variant: 'danger' }}), variant: 'info' }});
                 }} else {{
-                    alert(data.error || 'Could not save response');
+                    await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Could not save response'), variant: 'info' }});
                 }}
             }}
         }} catch (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.alert({{ title: 'Error', message: 'Network error.', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: 'Network error.', variant: 'danger' }}), variant: 'info' }});
             }}
         }}
     }}
