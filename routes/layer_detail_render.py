@@ -1026,13 +1026,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
 
     function showMetawebPioneersJoinModal() {{
-        if (!isAuthenticated) {{ alert('Please sign in to join this project'); return; }}
+        if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to join this project'), variant: 'info' }}); return; }}
         const modal = new bootstrap.Modal(document.getElementById('metawebPioneersJoinModal'));
         modal.show();
     }}
 
     function showJoinProjectModal() {{
-        if (!isAuthenticated) {{ alert('Please sign in to join this project'); return; }}
+        if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to join this project'), variant: 'info' }}); return; }}
         if (isOrdinalMembershipLayer()) {{
             showMetawebPioneersJoinModal();
             return;
@@ -1068,20 +1068,20 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 const pioneersEl = document.getElementById('metawebPioneersJoinModal');
                 const pioneersInst = pioneersEl ? bootstrap.Modal.getInstance(pioneersEl) : null;
                 if (pioneersInst) pioneersInst.hide();
-            }} else {{ alert(data.error || 'Failed to join'); }}
-        }} catch (e) {{ console.error(e); alert('Failed to join project'); }}
+            }} else {{ await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to join'), variant: 'info' }}); }}
+        }} catch (e) {{ console.error(e); await GhDialog.alert({{ title: 'Notice', message: ('Failed to join project'), variant: 'info' }}); }}
     }}
     
     async function leaveProject() {{
-        if (!confirm('Leave this project?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Leave this project?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         try {{
             const res = await fetch('/api/layers/' + project.id + '/leave/', {{ method: 'POST' }});
             if (res.ok) {{
                 project.is_member = false;
                 project.member_role = null;
                 displayProjectHeader();
-            }} else {{ const d = await res.json(); alert(d.error || 'Failed to leave'); }}
-        }} catch (e) {{ alert('Failed to leave project'); }}
+            }} else {{ const d = await res.json(); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed to leave'), variant: 'info' }}); }}
+        }} catch (e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to leave project'), variant: 'info' }}); }}
     }}
     
     async function loadLayerShareableInvite() {{
@@ -1120,13 +1120,14 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                         const m = data.invite_path || '';
                         const tok = m.split('/layer/invite/')[1];
                         const token = tok ? tok.replace(/\\/$/, '') : '';
-                        if (!token || !confirm('Revoke this layer invitation link for everyone?')) return;
+                        if (!token) return;
+                        if (!(await GhDialog.confirm({{ title: 'Confirm', message: 'Revoke this layer invitation link for everyone?', variant: 'warning' }}))) return;
                         const rr = await fetch('/api/layer-invitations/by-token/' + encodeURIComponent(token) + '/revoke/', {{
                             method: 'POST', credentials: 'same-origin', headers: {{ 'Content-Type': 'application/json' }}, body: '{{}}'
                         }});
                         const rd = await rr.json();
-                        if (rr.ok) alert(rd.message || 'Link revoked');
-                        else alert(rd.error || 'Revoke failed');
+                        if (rr.ok) await GhDialog.alert({{ title: 'Notice', message: (rd.message || 'Link revoked'), variant: 'info' }});
+                        else await GhDialog.alert({{ title: 'Notice', message: (rd.error || 'Revoke failed'), variant: 'info' }});
                     }};
                 }}
             }}
@@ -1134,7 +1135,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
 
     function showInviteMemberModal() {{
-        if (!isAuthenticated) {{ alert('Please sign in to invite members'); return; }}
+        if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to invite members'), variant: 'info' }}); return; }}
         const alertEl = document.getElementById('invite-member-alert');
         if (alertEl) {{
             alertEl.classList.add('d-none');
@@ -2089,7 +2090,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const res = await fetch('/api/scope-email/campaigns/' + campaignId + '/', {{ method: 'DELETE' }});
         const data = await res.json();
         if (!res.ok) {{
-            await GhDialog.alert({{ title: 'Could not cancel', message: data.error || 'Failed', variant: 'danger' }});
+            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not cancel', message: data.error || 'Failed', variant: 'danger' }}), variant: 'info' }});
             return;
         }}
         await loadScheduledEmailCampaigns();
@@ -2509,7 +2510,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     let pendingWaitlistId = null;
     
     function showJoinWaitlistModal(waitlistId, waitlistName) {{
-        if (!isAuthenticated) {{ alert('Please sign in to join this waitlist'); return; }}
+        if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to join this waitlist'), variant: 'info' }}); return; }}
         pendingWaitlistId = waitlistId;
         const titleEl = document.getElementById('join-waitlist-modal-title');
         if (titleEl) titleEl.innerHTML = '<i class="fas fa-list-alt me-2"></i>Join: ' + escapeHtmlBasic(waitlistName || 'Waitlist');
@@ -2531,17 +2532,17 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (res.ok) {{
                 loadWaitlistPane(pendingWaitlistId);
                 bootstrap.Modal.getInstance(document.getElementById('joinWaitlistModal')).hide();
-            }} else {{ alert(data.error || 'Failed to join'); }}
-        }} catch (e) {{ alert('Failed to join'); }}
+            }} else {{ await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to join'), variant: 'info' }}); }}
+        }} catch (e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to join'), variant: 'info' }}); }}
         pendingWaitlistId = null;
     }}
     
     async function leaveWaitlist(waitlistId) {{
-        if (!confirm('Leave this waitlist?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Leave this waitlist?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         try {{
             const res = await fetch('/api/waitlists/' + waitlistId + '/leave/', {{ method: 'POST' }});
-            if (res.ok) loadWaitlistPane(waitlistId); else {{ const d = await res.json(); alert(d.error || 'Failed to leave'); }}
-        }} catch (e) {{ alert('Failed to leave'); }}
+            if (res.ok) loadWaitlistPane(waitlistId); else {{ const d = await res.json(); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed to leave'), variant: 'info' }}); }}
+        }} catch (e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to leave'), variant: 'info' }}); }}
     }}
     
     async function attachGuildToLayer() {{
@@ -2565,15 +2566,16 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
     
     async function detachGuildFromLayer(guildId) {{
-        if (!project || !guildId || !confirm('Remove this guild link from the layer?')) return;
+        if (!project || !guildId) return;
+        if (!(await GhDialog.confirm({{ title: 'Confirm', message: 'Remove this guild link from the layer?', variant: 'warning' }}))) return;
         try {{
             const r = await fetch('/api/layers/' + project.id + '/guilds/' + encodeURIComponent(guildId) + '/', {{
                 method: 'DELETE',
                 credentials: 'same-origin'
             }});
             if (r.ok) {{ loadAdmins(); loadOverviewGuilds(); }}
-            else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
-        }} catch (e) {{ alert(e.message); }}
+            else {{ const d = await r.json().catch(() => ({{}})); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed'), variant: 'info' }}); }}
+        }} catch (e) {{ await GhDialog.alert({{ title: 'Notice', message: (e.message), variant: 'info' }}); }}
     }}
 
     function formatReferralConversionType(key) {{
@@ -2716,7 +2718,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 variant: 'warning',
                 confirmLabel: 'Launch',
             }})
-            : window.confirm('Launch this program?');
+            : false;
         if (!ok) return;
         try {{
             const res = await fetch('/api/layers/' + project.id + '/programs/' + programId + '/launch/', {{
@@ -2738,7 +2740,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             loadAdmins();
         }} catch (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.alert({{ title: 'Launch failed', message: e.message || 'Could not launch program.', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Launch failed', message: e.message || 'Could not launch program.', variant: 'danger' }}), variant: 'info' }});
             }} else {{
                 console.warn('Launch failed:', e);
             }}
@@ -3029,7 +3031,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     
     async function makeLayerPublic() {{
         if (!project || (project.listing_visibility || 'public') !== 'private') return;
-        if (!confirm('Make this layer public in the directory? This cannot be undone.')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Make this layer public in the directory? This cannot be undone.'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         const msgEl = document.getElementById('layer-visibility-msg');
         if (msgEl) {{
             msgEl.textContent = 'Saving…';
@@ -3231,14 +3233,14 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (res.ok) {{
                 project.about_content = content;
                 if (btn) {{ btn.disabled = false; btn.innerHTML = '<i class="fas fa-save me-1"></i>Save About'; }}
-                alert('About page saved!');
+                await GhDialog.alert({{ title: 'Notice', message: ('About page saved!'), variant: 'info' }});
             }} else {{
                 if (btn) {{ btn.disabled = false; btn.innerHTML = '<i class="fas fa-save me-1"></i>Save About'; }}
-                alert(data.error || 'Failed to save');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to save'), variant: 'info' }});
             }}
         }} catch (e) {{
             if (btn) {{ btn.disabled = false; btn.innerHTML = '<i class="fas fa-save me-1"></i>Save About'; }}
-            alert('Failed to save');
+            await GhDialog.alert({{ title: 'Notice', message: ('Failed to save'), variant: 'info' }});
         }}
     }}
     
@@ -3261,11 +3263,11 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         container.innerHTML = html;
     }}
     function addCarouselCustomItem() {{
-        const title = prompt('Title for this carousel item:');
+        const title = (await GhDialog.prompt({{ title: 'Enter value', message: 'Title for this carousel item:', variant: 'info' }}));
         if (!title) return;
-        const link = prompt('Link URL (optional):', '');
-        const description = prompt('Description (optional):', '');
-        const image = prompt('Image URL (optional):', '');
+        const link = (await GhDialog.prompt({{ title: 'Enter value', message: 'Link URL (optional):', variant: 'info' }}));
+        const description = (await GhDialog.prompt({{ title: 'Enter value', message: 'Description (optional):', variant: 'info' }}));
+        const image = (await GhDialog.prompt({{ title: 'Enter value', message: 'Image URL (optional):', variant: 'info' }}));
         carouselCustomItems.push({{ title: title.trim(), link: (link || '').trim() || null, description: (description || '').trim() || null, image: (image || '').trim() || null }});
         renderCarouselCustomItems(carouselCustomItems);
     }}
@@ -3294,12 +3296,12 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (res.ok) {{
                 project.carousel_config = JSON.stringify(config);
                 loadOverview();
-                alert('Carousel saved!');
+                await GhDialog.alert({{ title: 'Notice', message: ('Carousel saved!'), variant: 'info' }});
             }} else {{
-                alert(data.error || 'Failed to save');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to save'), variant: 'info' }});
             }}
         }} catch (e) {{
-            alert('Failed to save');
+            await GhDialog.alert({{ title: 'Notice', message: ('Failed to save'), variant: 'info' }});
         }}
     }}
     
@@ -3319,13 +3321,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (response.ok) {{
                 loadAdmins();
                 loadWorkgroups();
-                await GhDialog.alert({{ title: 'Approved', message: 'Workgroup approved.', variant: 'success' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Approved', message: 'Workgroup approved.', variant: 'success' }}), variant: 'info' }});
             }} else {{
                 const data = await response.json();
-                await GhDialog.alert({{ title: 'Could not approve', message: data.error || 'Failed to approve workgroup', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not approve', message: data.error || 'Failed to approve workgroup', variant: 'danger' }}), variant: 'info' }});
             }}
         }} catch (e) {{
-            await GhDialog.alert({{ title: 'Error', message: 'Failed to approve workgroup.', variant: 'danger' }});
+            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: 'Failed to approve workgroup.', variant: 'danger' }}), variant: 'info' }});
         }}
     }}
     
@@ -3345,13 +3347,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (response.ok) {{
                 loadAdmins();
                 loadWorkgroups();
-                await GhDialog.alert({{ title: 'Rejected', message: 'Workgroup rejected.', variant: 'success' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Rejected', message: 'Workgroup rejected.', variant: 'success' }}), variant: 'info' }});
             }} else {{
                 const data = await response.json();
-                await GhDialog.alert({{ title: 'Could not reject', message: data.error || 'Failed to reject workgroup', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not reject', message: data.error || 'Failed to reject workgroup', variant: 'danger' }}), variant: 'info' }});
             }}
         }} catch (e) {{
-            await GhDialog.alert({{ title: 'Error', message: 'Failed to reject workgroup.', variant: 'danger' }});
+            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: 'Failed to reject workgroup.', variant: 'danger' }}), variant: 'info' }});
         }}
     }}
     
@@ -3392,26 +3394,26 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 bootstrap.Modal.getInstance(document.getElementById('addAdminModal')).hide();
                 loadAdmins();
             }} else {{
-                alert(data.error || 'Failed to add admin');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to add admin'), variant: 'info' }});
             }}
         }} catch (e) {{
-            alert('Failed to add admin');
+            await GhDialog.alert({{ title: 'Notice', message: ('Failed to add admin'), variant: 'info' }});
         }}
     }}
     
     async function removeAdmin(userId, btn) {{
         const displayName = (btn && btn.closest('.list-group-item')) ? btn.closest('.list-group-item').querySelector('a').textContent : 'this user';
-        if (!confirm('Remove "' + displayName + '" as layer admin?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Remove "' + displayName + '" as layer admin?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         try {{
             const response = await fetch('/api/layers/' + project.id + '/admins/' + userId + '/', {{ method: 'DELETE' }});
             const data = await response.json();
             if (response.ok) {{
                 loadAdmins();
             }} else {{
-                alert(data.error || 'Failed to remove admin');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to remove admin'), variant: 'info' }});
             }}
         }} catch (e) {{
-            alert('Failed to remove admin');
+            await GhDialog.alert({{ title: 'Notice', message: ('Failed to remove admin'), variant: 'info' }});
         }}
     }}
     
@@ -3709,8 +3711,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
     
     async function joinWaitlist(wlId) {{
-        if (!isAuthenticated) {{ alert('Please sign in to join'); return; }}
-        const msg = prompt('Optional message:');
+        if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to join'), variant: 'info' }}); return; }}
+        const msg = (await GhDialog.prompt({{ title: 'Enter value', message: 'Optional message:', variant: 'info' }}));
         if (msg === null) return;
         try {{
             const body = {{ message: msg }};
@@ -3722,18 +3724,18 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }});
             const d = await res.json();
             if (res.ok) {{
-                alert('Joined! Position: #' + d.entry.position);
+                await GhDialog.alert({{ title: 'Notice', message: ('Joined! Position: #' + d.entry.position), variant: 'info' }});
                 loadWaitlists();
-            }} else {{ alert(d.error || 'Failed to join'); }}
-        }} catch (e) {{ alert('Failed to join waitlist'); }}
+            }} else {{ await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed to join'), variant: 'info' }}); }}
+        }} catch (e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to join waitlist'), variant: 'info' }}); }}
     }}
     
     async function leaveWaitlist(wlId) {{
-        if (!confirm('Leave this waitlist?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Leave this waitlist?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         try {{
             const res = await fetch('/api/waitlists/' + wlId + '/leave/', {{ method: 'POST' }});
-            if (res.ok) {{ loadWaitlists(); }} else {{ alert('Failed to leave'); }}
-        }} catch (e) {{ alert('Failed to leave waitlist'); }}
+            if (res.ok) {{ loadWaitlists(); }} else {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to leave'), variant: 'info' }}); }}
+        }} catch (e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to leave waitlist'), variant: 'info' }}); }}
     }}
     
     function copyText(text) {{
@@ -3849,18 +3851,18 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                                 '</div>';
                             await refreshProjectFromApi();
                         }} else {{
-                            alert(ad.error || 'Failed to accept invitation');
+                            await GhDialog.alert({{ title: 'Notice', message: (ad.error || 'Failed to accept invitation'), variant: 'info' }});
                             acceptBtn.disabled = false;
                         }}
                     }} catch (e) {{
-                        alert(e.message || 'Failed to accept invitation');
+                        await GhDialog.alert({{ title: 'Notice', message: (e.message || 'Failed to accept invitation'), variant: 'info' }});
                         acceptBtn.disabled = false;
                     }}
                 }});
             }}
             if (declineBtn) {{
                 declineBtn.addEventListener('click', async function() {{
-                    if (!confirm('Decline this invitation?')) return;
+                    if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Decline this invitation?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
                     declineBtn.disabled = true;
                     try {{
                         const dr = await fetch('/api/layer-invitations/by-token/' + encodeURIComponent(pending.token) + '/decline/', {{
@@ -3875,11 +3877,11 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                             banner.classList.add('d-none');
                             banner.innerHTML = '';
                         }} else {{
-                            alert(dd.error || 'Failed to decline invitation');
+                            await GhDialog.alert({{ title: 'Notice', message: (dd.error || 'Failed to decline invitation'), variant: 'info' }});
                             declineBtn.disabled = false;
                         }}
                     }} catch (e) {{
-                        alert(e.message || 'Failed to decline invitation');
+                        await GhDialog.alert({{ title: 'Notice', message: (e.message || 'Failed to decline invitation'), variant: 'info' }});
                         declineBtn.disabled = false;
                     }}
                 }});
@@ -4188,11 +4190,11 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     
     function editProject() {{
         if (!project) {{
-            alert('Layer details are still loading. Please wait a moment and try again.');
+            await GhDialog.alert({{ title: 'Notice', message: ('Layer details are still loading. Please wait a moment and try again.'), variant: 'info' }});
             return;
         }}
         if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {{
-            alert('Unable to open the edit dialog (page scripts did not load). Try refreshing the page.');
+            await GhDialog.alert({{ title: 'Notice', message: ('Unable to open the edit dialog (page scripts did not load). Try refreshing the page.'), variant: 'info' }});
             return;
         }}
         document.getElementById('edit-project-name').value = project.name || '';
@@ -4367,7 +4369,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
 
     function _ghShowDanger(title, message) {{
         if (typeof GhDialog !== 'undefined' && GhDialog.alert) {{
-            return GhDialog.alert({{ title: title, message: message || 'Unknown error', variant: 'danger' }});
+            return GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: title, message: message || 'Unknown error', variant: 'danger' }}), variant: 'info' }});
         }}
         // Fallback: write into the inline feedback area so we never use native alert().
         editModalShowPrefixFeedback((title ? title + ': ' : '') + (message || 'Unknown error'), 'error');
@@ -4489,7 +4491,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
 
     async function editModalRenamePrefix(prefixId, currentPrefix) {{
         if (!prefixId || !project) return;
-        const next = window.prompt('New prefix (2 uppercase letters):', currentPrefix || '');
+        var next = await GhDialog.prompt({{ title: 'Input required', message: ('New prefix (2 uppercase letters):'), defaultValue: (currentPrefix || ''), confirmLabel: 'OK', inputType: 'text' }});
         if (next == null) return;
         const value = (next || '').trim().toUpperCase();
         if (!/^[A-Z]{{2}}$/.test(value)) {{
@@ -4559,15 +4561,15 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 loadEditModalAdmins();
                 if (typeof loadAdmins === 'function') loadAdmins();
             }} else {{
-                alert(data.error || 'Failed to add admin');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to add admin'), variant: 'info' }});
             }}
         }} catch (e) {{
-            alert('Failed to add admin');
+            await GhDialog.alert({{ title: 'Notice', message: ('Failed to add admin'), variant: 'info' }});
         }}
     }}
     
     async function removeAdminFromEditModal(userId) {{
-        if (!confirm('Remove this user as layer admin?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Remove this user as layer admin?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         try {{
             const response = await fetch('/api/layers/' + project.id + '/admins/' + userId + '/', {{
                 method: 'DELETE',
@@ -4578,10 +4580,10 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 loadEditModalAdmins();
                 if (typeof loadAdmins === 'function') loadAdmins();
             }} else {{
-                alert(data.error || 'Failed to remove admin');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to remove admin'), variant: 'info' }});
             }}
         }} catch (e) {{
-            alert('Failed to remove admin');
+            await GhDialog.alert({{ title: 'Notice', message: ('Failed to remove admin'), variant: 'info' }});
         }}
     }}
     
@@ -4929,7 +4931,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 if (response.ok) {{
                     modal.hide();
                     loadRoles(); // Reload roles list
-                    alert('Role created successfully!');
+                    await GhDialog.alert({{ title: 'Notice', message: ('Role created successfully!'), variant: 'info' }});
                 }} else {{
                     throw new Error(data.error || 'Failed to create role');
                 }}
@@ -5037,7 +5039,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                     submitBtn.innerHTML = '<i class="fas fa-plus me-2"></i>Create Cluster';
                     modal.hide();
                     loadClusters();
-                    alert('Cluster created successfully!');
+                    await GhDialog.alert({{ title: 'Notice', message: ('Cluster created successfully!'), variant: 'info' }});
                 }} else {{
                     throw new Error(data.error || 'Failed to create cluster');
                 }}
@@ -5104,7 +5106,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                     if (response.ok) {{
                         modal.hide();
                         loadClusters();
-                        alert('Cluster updated successfully!');
+                        await GhDialog.alert({{ title: 'Notice', message: ('Cluster updated successfully!'), variant: 'info' }});
                     }} else {{
                         throw new Error(data.error || 'Failed to update cluster');
                     }}
@@ -5115,12 +5117,12 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 }}
             }};
         }} catch (error) {{
-            alert('Error loading cluster: ' + error.message);
+            await GhDialog.alert({{ title: 'Notice', message: ('Error loading cluster: ' + error.message), variant: 'info' }});
         }}
     }}
     
     async function deleteCluster(clusterId, clusterName) {{
-        if (!confirm('Are you sure you want to delete the cluster "' + clusterName + '"? This will unassign all roles from this cluster.')) {{
+        if (!(await GhDialog.confirm({{ title: 'Delete cluster', message: 'Are you sure you want to delete the cluster "' + clusterName + '"? This will unassign all roles from this cluster.', variant: 'warning' }}))) {{
             return;
         }}
         
@@ -5133,12 +5135,12 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             
             if (response.ok) {{
                 loadClusters();
-                alert('Cluster deleted successfully!');
+                await GhDialog.alert({{ title: 'Notice', message: ('Cluster deleted successfully!'), variant: 'info' }});
             }} else {{
                 throw new Error(data.error || 'Failed to delete cluster');
             }}
         }} catch (error) {{
-            alert('Error deleting cluster: ' + error.message);
+            await GhDialog.alert({{ title: 'Notice', message: ('Error deleting cluster: ' + error.message), variant: 'info' }});
         }}
     }}
     
@@ -5302,7 +5304,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             loadPrefixes();
         }} catch (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.alert({{ title: 'Could not set default', message: e.message || 'Unknown error', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not set default', message: e.message || 'Unknown error', variant: 'danger' }}), variant: 'info' }});
             }}
         }}
     }}
@@ -5333,21 +5335,21 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             loadPrefixes();
         }} catch (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.alert({{ title: 'Could not delete prefix', message: e.message || 'Unknown error', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not delete prefix', message: e.message || 'Unknown error', variant: 'danger' }}), variant: 'info' }});
             }}
         }}
     }}
 
     function showRenamePrefixPrompt(prefixId, currentPrefix) {{
         if (!prefixId) return;
-        const next = window.prompt('New prefix (2 uppercase letters):', currentPrefix || '');
+        var next = await GhDialog.prompt({{ title: 'Input required', message: ('New prefix (2 uppercase letters):'), defaultValue: (currentPrefix || ''), confirmLabel: 'OK', inputType: 'text' }});
         if (next == null) return;
         const value = next.trim().toUpperCase();
         if (!/^[A-Z]{{2}}$/.test(value)) {{
             if (typeof GhDialog !== 'undefined') {{
-                GhDialog.alert({{ title: 'Invalid prefix', message: 'Prefix must be exactly two uppercase ASCII letters.', variant: 'danger' }});
+                GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Invalid prefix', message: 'Prefix must be exactly two uppercase ASCII letters.', variant: 'danger' }}), variant: 'info' }});
             }} else {{
-                alert('Invalid prefix format');
+                await GhDialog.alert({{ title: 'Notice', message: ('Invalid prefix format'), variant: 'info' }});
             }}
             return;
         }}
@@ -5362,9 +5364,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             loadPrefixes();
         }}).catch(async function (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.alert({{ title: 'Could not rename prefix', message: e.message || 'Unknown error', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not rename prefix', message: e.message || 'Unknown error', variant: 'danger' }}), variant: 'info' }});
             }} else {{
-                alert('Rename failed: ' + e.message);
+                await GhDialog.alert({{ title: 'Notice', message: ('Rename failed: ' + e.message), variant: 'info' }});
             }}
         }});
     }}

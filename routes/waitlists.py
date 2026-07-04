@@ -78,7 +78,7 @@ await web3auth.init();
 }
 await doConnect(onSuccess,fail);
 done();
-}catch(e){console.error('Web3Auth failed',e);if(!e.message||e.message.indexOf('user closed')===-1)alert('Sign-in failed: '+(e.message||'Please try again.'));fail();}
+}catch(e){console.error('Web3Auth failed',e);if(!e.message||e.message.indexOf('user closed')===-1)await GhDialog.alert({{ title: 'Notice', message: ('Sign-in failed: '+(e.message||'Please try again.')), variant: 'info' }});fail();}
 };
 var postSent=false;
 async function doConnect(onSuccess,onFailure){
@@ -88,10 +88,10 @@ if(postSent)return;
 postSent=true;
 var evm='';try{if(p){var w3=new Web3(p);var a=await w3.eth.getAccounts();if(a&&a.length)evm=a[0];}}catch(x){}
 var idToken='';try{var ident=await web3auth.getIdentityToken();idToken=(ident&&ident.idToken)||'';}catch(x){}
-if(!idToken){postSent=false;alert('Sign-in verification failed: no identity token.');if(typeof onFailure==='function')onFailure();return;}
+if(!idToken){postSent=false;await GhDialog.alert({{ title: 'Notice', message: ('Sign-in verification failed: no identity token.'), variant: 'info' }});if(typeof onFailure==='function')onFailure();return;}
 var pay={idToken:idToken,evmAddress:evm};
 var res=await fetch(location.origin+'/api/auth/web3auth',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(pay)});
-if(res.ok){if(typeof onSuccess==='function')onSuccess();}else{postSent=false;var j=await res.json().catch(function(){});alert('Login failed: '+(j.error||'Unknown error'));if(typeof onFailure==='function')onFailure();}
+if(res.ok){if(typeof onSuccess==='function')onSuccess();}else{postSent=false;var j=await res.json().catch(function(){});await GhDialog.alert({{ title: 'Notice', message: ('Login failed: '+(j.error||'Unknown error')), variant: 'info' }});if(typeof onFailure==='function')onFailure();}
 }
 })();"""
 
@@ -1347,18 +1347,18 @@ def waitlist_detail(waitlist_id):
                 bootstrap.Modal.getInstance(document.getElementById('joinWaitlistModal')).hide();
                 loadWaitlist();
             }} else {{
-                alert(data.error || 'Failed to join');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to join'), variant: 'info' }});
             }}
-        }} catch(e) {{ alert('Failed to join'); }}
+        }} catch(e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to join'), variant: 'info' }}); }}
     }}
 
     async function leaveWaitlist() {{
-        if (!confirm('Leave this waitlist?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Leave this waitlist?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         try {{
             const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/leave/`, {{method: 'POST'}});
             if (res.ok) loadWaitlist();
-            else {{ const d = await res.json(); alert(d.error || 'Failed to leave'); }}
-        }} catch(e) {{ alert('Failed to leave'); }}
+            else {{ const d = await res.json(); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed to leave'), variant: 'info' }}); }}
+        }} catch(e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to leave'), variant: 'info' }}); }}
     }}
 
     function copyRefLink() {{
@@ -1453,12 +1453,12 @@ def waitlist_detail(waitlist_id):
     }}
 
     async function deleteMilestone(milestoneId) {{
-        if (!confirm('Delete this milestone?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Delete this milestone?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
         try {{
             const res = await fetch(`/api/waitlists/${{WAITLIST_ID}}/milestones/${{milestoneId}}/`, {{method: 'DELETE'}});
             if (res.ok) loadWaitlist();
-            else {{ const d = await res.json(); alert(d.error || 'Failed to delete'); }}
-        }} catch(e) {{ alert('Failed to delete'); }}
+            else {{ const d = await res.json(); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed to delete'), variant: 'info' }}); }}
+        }} catch(e) {{ await GhDialog.alert({{ title: 'Notice', message: ('Failed to delete'), variant: 'info' }}); }}
     }}
 
     // Init

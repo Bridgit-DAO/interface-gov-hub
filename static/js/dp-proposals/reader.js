@@ -608,8 +608,6 @@
                     message: res.data.error || 'Could not update comment',
                     variant: 'danger',
                   });
-                } else {
-                  window.alert(res.data.error || 'Could not update comment');
                 }
                 return;
               }
@@ -645,8 +643,6 @@
                     message: res.data.error || 'Could not delete comment',
                     variant: 'danger',
                   });
-                } else {
-                  window.alert(res.data.error || 'Could not delete comment');
                 }
                 return;
               }
@@ -785,9 +781,7 @@
         message: 'Please refresh the page and try again.',
         variant: 'warning',
       });
-      return;
     }
-    window.alert('Invite is not ready. Please refresh the page.');
   }
 
   function openGhInvite(opts) {
@@ -1358,7 +1352,13 @@
   function showComposeMessage(message, type) {
     var err = document.getElementById('dpProposalComposeError');
     if (!err) {
-      window.alert(message);
+      if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+        GhDialog.alert({
+          title: type === 'success' ? 'Success' : 'Notice',
+          message: message,
+          variant: type === 'success' ? 'success' : 'warning',
+        });
+      }
       return;
     }
     err.className = 'alert mt-3 ' + (type === 'success' ? 'alert-success' : 'alert-danger');
@@ -1703,9 +1703,7 @@
           : message || fallbackMessage || 'Unknown error',
         variant: transient ? 'warning' : 'danger',
       });
-      return;
     }
-    window.alert(message || fallbackMessage || 'AI Assist error.');
   }
 
   function runAssistAction(action) {
@@ -1743,8 +1741,6 @@
             message: 'The AI service is temporarily unreachable. Please try again in a minute.',
             variant: 'warning',
           });
-        } else {
-          window.alert('Network error generating draft. Please try again in a minute.');
         }
       });
   }
@@ -2547,7 +2543,13 @@
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
       .then(function (res) {
         if (!res.ok) {
-          alert(res.data.error || 'Action failed');
+          if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+            GhDialog.alert({
+              title: 'Action failed',
+              message: (res.data && res.data.error) || 'Action failed',
+              variant: 'danger',
+            });
+          }
           return;
         }
         var listModal = getListModal();

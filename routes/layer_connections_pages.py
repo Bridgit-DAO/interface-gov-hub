@@ -224,10 +224,10 @@ def _render(layer_slug: str, standalone: bool = False):
               }});
               const data = await res.json();
               if (!res.ok) throw new Error(data.error || 'Submit failed');
-              await GhDialog.alert({{ title: 'Submitted', message: data.connection.status === 'active' ? 'Your connection is now active.' : 'Your application is pending review.', variant: 'success' }});
+              await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Submitted', message: data.connection.status === 'active' ? 'Your connection is now active.' : 'Your application is pending review.', variant: 'success' }}), variant: 'info' }});
               location.reload();
             }} catch (err) {{
-              await GhDialog.alert({{ title: 'Could not submit', message: err.message || 'Submit failed', variant: 'danger' }});
+              await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not submit', message: err.message || 'Submit failed', variant: 'danger' }}), variant: 'info' }});
             }}
           }});
         }})();
@@ -286,7 +286,7 @@ def _render(layer_slug: str, standalone: bool = False):
             const id = btn.getAttribute('data-approve');
             const res = await fetch(`/api/layers/{html_mod.escape(slug)}/connections/${{id}}/approve/`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: '{{}}' }});
             const data = await res.json();
-            if (!res.ok) return GhDialog.alert({{ title: 'Error', message: data.error || 'Failed', variant: 'danger' }});
+            if (!res.ok) return GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: data.error || 'Failed', variant: 'danger' }}), variant: 'info' }});
             location.reload();
           }}));
           document.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', async () => {{
@@ -295,7 +295,7 @@ def _render(layer_slug: str, standalone: bool = False):
             const id = btn.getAttribute('data-reject');
             const res = await fetch(`/api/layers/{html_mod.escape(slug)}/connections/${{id}}/reject/`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify({{ rejected_reason: 'Rejected by layer admin' }}) }});
             const data = await res.json();
-            if (!res.ok) return GhDialog.alert({{ title: 'Error', message: data.error || 'Failed', variant: 'danger' }});
+            if (!res.ok) return GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: data.error || 'Failed', variant: 'danger' }}), variant: 'info' }});
             location.reload();
           }}));
           document.getElementById('newConnectionTypeForm').addEventListener('submit', async (e) => {{
@@ -310,7 +310,7 @@ def _render(layer_slug: str, standalone: bool = False):
             }};
             const res = await fetch('/api/layers/{html_mod.escape(slug)}/connection-types/', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(body) }});
             const data = await res.json();
-            if (!res.ok) return GhDialog.alert({{ title: 'Error', message: data.error || 'Failed', variant: 'danger' }});
+            if (!res.ok) return GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: data.error || 'Failed', variant: 'danger' }}), variant: 'info' }});
             location.reload();
           }});
         }})();

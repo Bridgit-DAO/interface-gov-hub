@@ -196,7 +196,7 @@ def group_detail(acronym):
     <script>
     async function showGroupError(message) {{
         if (window.GhDialog) {{
-            await GhDialog.alert({{ title: 'Workgroup action failed', message: message || 'Request failed', variant: 'danger' }});
+            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Workgroup action failed', message: message || 'Request failed', variant: 'danger' }}), variant: 'info' }});
         }}
     }}
     async function joinGroup(acronym) {{
@@ -217,7 +217,7 @@ def group_detail(acronym):
     async function addChair(acronym) {{
         const input = document.getElementById(`new-chair-input-${{acronym}}`);
         const chairName = input?.value?.trim();
-        if (!chairName) {{ await GhDialog.alert({{ title: 'Missing name', message: 'Please enter a chair name.', variant: 'warning' }}); return; }}
+        if (!chairName) {{ await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Missing name', message: 'Please enter a chair name.', variant: 'warning' }}), variant: 'info' }}); return; }}
         fetch(`/group/${{acronym}}/add_chair`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify({{ chair_name: chairName }}) }})
         .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else showGroupError(d.message); }})
         .catch(() => showGroupError('Error adding chair'));
@@ -232,7 +232,7 @@ def group_detail(acronym):
     async function removeChair(acronym) {{
         const select = document.getElementById(`chair-select-${{acronym}}`);
         const selected = Array.from(select?.selectedOptions || []);
-        if (!selected.length) {{ await GhDialog.alert({{ title: 'Select chairs', message: 'Please select chairs to remove.', variant: 'warning' }}); return; }}
+        if (!selected.length) {{ await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Select chairs', message: 'Please select chairs to remove.', variant: 'warning' }}), variant: 'info' }}); return; }}
         const ok = await GhDialog.confirm({{ title: 'Remove chairs', message: 'Remove ' + selected.length + ' chair(s)?', variant: 'warning', confirmLabel: 'Remove' }});
         if (ok) {{
             const chairIds = selected.map(o => parseInt(o.value));

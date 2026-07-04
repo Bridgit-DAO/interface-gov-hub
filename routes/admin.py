@@ -526,31 +526,29 @@ def admin_users():
                 if (data.success) {{
                     location.reload();
                 }} else {{
-                    alert('Error: ' + (data.message || 'Unknown error'));
+                    await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + (data.message || 'Unknown error')), variant: 'info' }});
                 }}
             }})
             .catch(error => {{
-                alert('Error updating role: ' + error.message);
+                await GhDialog.alert({{ title: 'Notice', message: ('Error updating role: ' + error.message), variant: 'info' }});
             }});
         }}
 
-        function deleteUser(username) {{
-            if (confirm("Are you sure you want to delete user " + username + "? This action cannot be undone.")) {{
-                fetch('/admin/users/' + username + '/delete', {{
+        async function deleteUser(username) {{
+            if (!(await GhDialog.confirm({{ title: 'Delete user', message: "Are you sure you want to delete user " + username + "? This action cannot be undone.", variant: 'warning' }}))) return;
+            try {{
+                const r = await fetch('/admin/users/' + username + '/delete', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }}
-                }})
-                .then(response => response.json())
-                .then(data => {{
-                    if (data.success) {{
-                        location.reload();
-                    }} else {{
-                        alert('Error: ' + (data.message || 'Unknown error'));
-                    }}
-                }})
-                .catch(error => {{
-                    alert('Error deleting user: ' + error.message);
                 }});
+                const data = await r.json();
+                if (data.success) {{
+                    location.reload();
+                }} else {{
+                    await GhDialog.alert({{ title: 'Delete failed', message: ('Error: ' + (data.message || 'Unknown error')), variant: 'danger' }});
+                }}
+            }} catch (error) {{
+                await GhDialog.alert({{ title: 'Delete failed', message: ('Error deleting user: ' + error.message), variant: 'danger' }});
             }}
         }}
     </script>
@@ -825,7 +823,7 @@ def admin_posts():
             const textarea = document.getElementById('post-text-' + commentId);
             const text = textarea ? textarea.value.trim() : '';
             if (!text) {{
-                await GhDialog.alert({{ title: 'Post text required', message: 'Enter post text before saving.', variant: 'warning' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Post text required', message: 'Enter post text before saving.', variant: 'warning' }}), variant: 'info' }});
                 return;
             }}
             const response = await fetch('/admin/posts/' + commentId + '/edit', {{
@@ -835,10 +833,10 @@ def admin_posts():
             }});
             const data = await response.json();
             if (!response.ok || !data.success) {{
-                await GhDialog.alert({{ title: 'Save failed', message: data.message || 'Could not save post.', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Save failed', message: data.message || 'Could not save post.', variant: 'danger' }}), variant: 'info' }});
                 return;
             }}
-            await GhDialog.alert({{ title: 'Post updated', message: 'The edit was recorded in the moderation event log.', variant: 'success' }});
+            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Post updated', message: 'The edit was recorded in the moderation event log.', variant: 'success' }}), variant: 'info' }});
             location.reload();
         }}
 
@@ -856,10 +854,10 @@ def admin_posts():
             }});
             const data = await response.json();
             if (!response.ok || !data.success) {{
-                await GhDialog.alert({{ title: 'Delete failed', message: data.message || 'Could not delete post.', variant: 'danger' }});
+                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Delete failed', message: data.message || 'Could not delete post.', variant: 'danger' }}), variant: 'info' }});
                 return;
             }}
-            await GhDialog.alert({{ title: 'Post deleted', message: 'The deletion was recorded in the moderation event log.', variant: 'success' }});
+            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Post deleted', message: 'The deletion was recorded in the moderation event log.', variant: 'success' }}), variant: 'info' }});
             location.reload();
         }}
     </script>
@@ -1219,16 +1217,16 @@ def admin_chairs():
             actions = (
                 f'<form method="POST" action="/admin/chairs/{chair.id}/delete" class="d-inline">'
                 f'<button type="submit" class="btn btn-sm btn-outline-danger" '
-                f"onclick=\"return confirm('Remove this coordinator?')\">Delete</button></form>"
+                f"onclick=\"(async()=>{{if(!(await GhDialog.confirm({{title:'Remove coordinator',message:'Remove this coordinator?',variant:'warning',confirmLabel:'Remove'}})))return false;return true;}})()\">Delete</button></form>"
             )
         else:
             actions = (
                 f'<form method="POST" action="/admin/chairs/{chair.id}/approve" class="d-inline me-1">'
                 f'<button type="submit" class="btn btn-sm btn-outline-success" '
-                f"onclick=\"return confirm('Approve this coordinator?')\">Approve</button></form>"
+                f"onclick=\"(async()=>{{if(!(await GhDialog.confirm({{title:'Approve coordinator',message:'Approve this coordinator?',variant:'warning',confirmLabel:'Approve'}})))return false;return true;}})()\">Approve</button></form>"
                 f'<form method="POST" action="/admin/chairs/{chair.id}/delete" class="d-inline">'
                 f'<button type="submit" class="btn btn-sm btn-outline-danger" '
-                f"onclick=\"return confirm('Delete this coordinator?')\">Delete</button></form>"
+                f"onclick=\"(async()=>{{if(!(await GhDialog.confirm({{title:'Delete coordinator',message:'Delete this coordinator?',variant:'warning',confirmLabel:'Delete'}})))return false;return true;}})()\">Delete</button></form>"
             )
         chair_list += f"""
         <tr>
@@ -1256,7 +1254,7 @@ def admin_chairs():
                     <button type="submit" class="btn btn-sm btn-success">Approve</button>
                 </form>
                 <form method="POST" action="/admin/coordinator_requests/{req.id}/reject" class="d-inline">
-                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject this request?')">Reject</button>
+                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="(async()=>{{if(!(await GhDialog.confirm({{title:'Reject request',message:'Reject this request?',variant:'warning',confirmLabel:'Reject'}})))return false;return true;}})()">Reject</button>
                 </form>
             </td>
         </tr>
@@ -1716,7 +1714,7 @@ def admin_projects():
     }
 
     async function approveProject(projectId) {
-        if (!confirm('Approve this project?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Approve this project?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
 
         try {
             const response = await fetch(`/api/layers/${projectId}/approve/`, {
@@ -1727,20 +1725,20 @@ def admin_projects():
             });
 
             if (response.ok) {
-                alert('Layer approved successfully');
+                await GhDialog.alert({{ title: 'Notice', message: ('Layer approved successfully'), variant: 'info' }});
                 window.location.reload();
             } else {
                 const data = await response.json();
-                alert('Error: ' + (data.error || 'Failed to approve'));
+                await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + (data.error || 'Failed to approve')), variant: 'info' }});
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Error approving project');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error approving project'), variant: 'info' }});
         }
     }
 
     async function rejectProject(projectId) {
-        const note = prompt('Reason for rejection (optional):');
+        const note = (await GhDialog.prompt({{ title: 'Enter value', message: 'Reason for rejection (optional):', variant: 'info' }}));
         if (note === null) return;
 
         try {
@@ -1752,15 +1750,15 @@ def admin_projects():
             });
 
             if (response.ok) {
-                alert('Layer rejected');
+                await GhDialog.alert({{ title: 'Notice', message: ('Layer rejected'), variant: 'info' }});
                 window.location.reload();
             } else {
                 const data = await response.json();
-                alert('Error: ' + (data.error || 'Failed to reject'));
+                await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + (data.error || 'Failed to reject')), variant: 'info' }});
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Error rejecting project');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error rejecting project'), variant: 'info' }});
         }
     }
 
@@ -1945,7 +1943,7 @@ def admin_workgroups():
     }
 
     async function rejectWorkgroup(workgroupId) {
-        const note = prompt('Reason for rejection (optional):');
+        const note = (await GhDialog.prompt({{ title: 'Enter value', message: 'Reason for rejection (optional):', variant: 'info' }}));
         if (note === null) return;
 
         try {
@@ -2273,7 +2271,7 @@ def admin_chair_nominations():
     }
 
     async function approveNomination(nominationId) {
-        if (!confirm('Approve this chair nomination?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Approve this chair nomination?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
 
         try {
             const response = await fetch(`/api/admin/chair-nominations/${nominationId}/approve/`, {
@@ -2283,19 +2281,19 @@ def admin_chair_nominations():
 
             const data = await response.json();
             if (response.ok) {
-                alert('Nomination approved!');
+                await GhDialog.alert({{ title: 'Notice', message: ('Nomination approved!'), variant: 'info' }});
                 loadNominations();
             } else {
-                alert(data.error || 'Failed to approve nomination');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to approve nomination'), variant: 'info' }});
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Failed to approve nomination');
+            await GhDialog.alert({{ title: 'Notice', message: ('Failed to approve nomination'), variant: 'info' }});
         }
     }
 
     async function rejectNomination(nominationId) {
-        const reason = prompt('Reason for rejection (optional):');
+        const reason = (await GhDialog.prompt({{ title: 'Enter value', message: 'Reason for rejection (optional):', variant: 'info' }}));
         if (reason === null) return; // User cancelled
 
         try {
@@ -2307,14 +2305,14 @@ def admin_chair_nominations():
 
             const data = await response.json();
             if (response.ok) {
-                alert('Nomination rejected');
+                await GhDialog.alert({{ title: 'Notice', message: ('Nomination rejected'), variant: 'info' }});
                 loadNominations();
             } else {
-                alert(data.error || 'Failed to reject nomination');
+                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to reject nomination'), variant: 'info' }});
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Failed to reject nomination');
+            await GhDialog.alert({{ title: 'Notice', message: ('Failed to reject nomination'), variant: 'info' }});
         }
     }
 
@@ -2442,7 +2440,7 @@ def admin_roles():
     }
 
     async function approveRole(roleId) {
-        if (!confirm('Approve this role?')) return;
+        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Approve this role?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
 
         try {
             const response = await fetch(`/api/roles/${roleId}/approve/`, {
@@ -2452,15 +2450,15 @@ def admin_roles():
             });
 
             if (response.ok) {
-                alert('Role approved successfully');
+                await GhDialog.alert({{ title: 'Notice', message: ('Role approved successfully'), variant: 'info' }});
                 loadRoles();
             } else {
                 const data = await response.json();
-                alert('Error: ' + (data.error || 'Failed to approve'));
+                await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + (data.error || 'Failed to approve')), variant: 'info' }});
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Error approving role');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error approving role'), variant: 'info' }});
         }
     }
 
@@ -2612,7 +2610,7 @@ def admin_badges():
     }
 
     async function approveBadge(badgeId) {
-        const note = prompt('Approval note (optional):');
+        const note = (await GhDialog.prompt({{ title: 'Enter value', message: 'Approval note (optional):', variant: 'info' }}));
         if (note === null) return;
 
         try {
@@ -2623,20 +2621,20 @@ def admin_badges():
             });
 
             if (response.ok) {
-                alert('Badge approved successfully');
+                await GhDialog.alert({{ title: 'Notice', message: ('Badge approved successfully'), variant: 'info' }});
                 loadBadges();
             } else {
                 const data = await response.json();
-                alert('Error: ' + (data.error || 'Failed to approve'));
+                await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + (data.error || 'Failed to approve')), variant: 'info' }});
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Error approving badge');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error approving badge'), variant: 'info' }});
         }
     }
 
     async function denyBadge(badgeId) {
-        const note = prompt('Reason for denial:');
+        const note = (await GhDialog.prompt({{ title: 'Enter value', message: 'Reason for denial:', variant: 'info' }}));
         if (!note) return;
 
         try {
@@ -2647,23 +2645,23 @@ def admin_badges():
             });
 
             if (response.ok) {
-                alert('Badge denied');
+                await GhDialog.alert({{ title: 'Notice', message: ('Badge denied'), variant: 'info' }});
                 loadBadges();
             } else {
                 const data = await response.json();
-                alert('Error: ' + (data.error || 'Failed to deny'));
+                await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + (data.error || 'Failed to deny')), variant: 'info' }});
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Error denying badge');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error denying badge'), variant: 'info' }});
         }
     }
 
     async function issueBadge(badgeId) {
-        const inscriptionId = prompt('Enter inscription ID:');
+        const inscriptionId = (await GhDialog.prompt({{ title: 'Enter value', message: 'Enter inscription ID:', variant: 'info' }}));
         if (!inscriptionId) return;
 
-        const txRef = prompt('Enter transaction reference (optional):');
+        const txRef = (await GhDialog.prompt({{ title: 'Enter value', message: 'Enter transaction reference (optional):', variant: 'info' }}));
 
         try {
             const response = await fetch(`/api/badges/${badgeId}/issue/`, {
@@ -2677,15 +2675,15 @@ def admin_badges():
             });
 
             if (response.ok) {
-                alert('Badge issued successfully');
+                await GhDialog.alert({{ title: 'Notice', message: ('Badge issued successfully'), variant: 'info' }});
                 loadBadges();
             } else {
                 const data = await response.json();
-                alert('Error: ' + (data.error || 'Failed to issue'));
+                await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + (data.error || 'Failed to issue')), variant: 'info' }});
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Error issuing badge');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error issuing badge'), variant: 'info' }});
         }
     }
 

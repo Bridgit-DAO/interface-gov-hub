@@ -18,9 +18,7 @@
         message: message,
         variant: 'danger',
       });
-      return;
     }
-    window.alert(message);
   }
 
   async function reviewPatch(patchId, action) {
@@ -40,7 +38,7 @@
         confirmLabel: confirmLabel,
       });
       if (!ok) return;
-    } else if (!window.confirm(message)) {
+    } else {
       return;
     }
 

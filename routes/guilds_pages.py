@@ -376,9 +376,10 @@ def guild_detail(guild_slug):
     }}
 
     async function guildDetachLayer(layerId) {{
-        if (!guild || !layerId || !confirm('Remove layer link?')) return;
+        if (!guild || !layerId) return;
+        if (!(await GhDialog.confirm({{ title: 'Confirm', message: 'Remove layer link?', variant: 'warning' }}))) return;
         const r = await fetch('/api/guilds/' + guild.id + '/layers/' + encodeURIComponent(layerId) + '/', {{ method: 'DELETE', credentials: 'same-origin' }});
-        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
+        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed'), variant: 'info' }}); }}
     }}
 
     async function guildAttachQuest() {{
@@ -400,9 +401,10 @@ def guild_detail(guild_slug):
     }}
 
     async function guildDetachQuest(questId, linkType) {{
-        if (!guild || !questId || !confirm('Remove quest link?')) return;
+        if (!guild || !questId) return;
+        if (!(await GhDialog.confirm({{ title: 'Confirm', message: 'Remove quest link?', variant: 'warning' }}))) return;
         const r = await fetch('/api/guilds/' + guild.id + '/quest-links/' + encodeURIComponent(questId) + '/?link_type=' + encodeURIComponent(linkType), {{ method: 'DELETE', credentials: 'same-origin' }});
-        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
+        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed'), variant: 'info' }}); }}
     }}
 
     async function guildAttachArtifact() {{
@@ -424,13 +426,15 @@ def guild_detail(guild_slug):
     }}
 
     async function guildDetachArtifact(artifactId, linkType) {{
-        if (!guild || !artifactId || !confirm('Remove artifact link?')) return;
+        if (!guild || !artifactId) return;
+        if (!(await GhDialog.confirm({{ title: 'Confirm', message: 'Remove artifact link?', variant: 'warning' }}))) return;
         const r = await fetch('/api/guilds/' + guild.id + '/artifact-links/' + encodeURIComponent(artifactId) + '/?link_type=' + encodeURIComponent(linkType), {{ method: 'DELETE', credentials: 'same-origin' }});
-        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); alert(d.error || 'Failed'); }}
+        if (r.ok) loadGuildAffiliations(); else {{ const d = await r.json().catch(() => ({{}})); await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed'), variant: 'info' }}); }}
     }}
 
     async function guildSetMyMembershipInactive() {{
-        if (!guild || !currentUserId || !confirm('Step back from this guild? You can ask an admin to reactivate you.')) return;
+        if (!guild || !currentUserId) return;
+        if (!(await GhDialog.confirm({{ title: 'Confirm', message: 'Step back from this guild? You can ask an admin to reactivate you.', variant: 'warning' }}))) return;
         const r = await fetch('/api/guilds/' + guild.id + '/members/' + encodeURIComponent(currentUserId) + '/', {{
             method: 'PATCH',
             headers: {{ 'Content-Type': 'application/json' }},
@@ -439,11 +443,11 @@ def guild_detail(guild_slug):
         }});
         const d = await r.json().catch(() => ({{}}));
         if (r.ok) location.reload();
-        else alert(d.error || 'Failed');
+        else await GhDialog.alert({{ title: 'Notice', message: (d.error || 'Failed'), variant: 'info' }});
     }}
 
     function inviteMember() {{
-        const email = prompt('Enter email address to invite:');
+        const email = (await GhDialog.prompt({{ title: 'Enter value', message: 'Enter email address to invite:', variant: 'info' }}));
         if (!email) return;
 
         fetch(`/api/guilds/${{guild.id}}/invite/`, {{
@@ -455,19 +459,19 @@ def guild_detail(guild_slug):
         .then(response => response.json())
         .then(data => {{
             if (data.success) {{
-                alert(`Invitation sent! Link: ${{data.invitation_link}}`);
+                await GhDialog.alert({{ title: 'Notice', message: (`Invitation sent! Link: ${{data.invitation_link}}`), variant: 'info' }});
             }} else {{
-                alert('Error: ' + (data.error || 'Failed to send invitation'));
+                await GhDialog.alert({{ title: 'Notice', message: ('Error: ' + (data.error || 'Failed to send invitation')), variant: 'info' }});
             }}
         }})
         .catch(error => {{
             console.error('Error:', error);
-            alert('Error sending invitation');
+            await GhDialog.alert({{ title: 'Notice', message: ('Error sending invitation'), variant: 'info' }});
         }});
     }}
 
     function manageGuild() {{
-        alert('Guild management functionality coming soon');
+        await GhDialog.alert({{ title: 'Notice', message: ('Guild management functionality coming soon'), variant: 'info' }});
     }}
 
     // Load guild on page load
@@ -605,7 +609,7 @@ def guild_detail(guild_slug):
                 if (response.ok) {{
                     modal.hide();
                     loadGuild(); // Reload guild
-                    alert('Guild updated successfully!');
+                    await GhDialog.alert({{ title: 'Notice', message: ('Guild updated successfully!'), variant: 'info' }});
                 }} else {{
                     throw new Error(data.error || 'Failed to update guild');
                 }}
@@ -624,7 +628,7 @@ def guild_detail(guild_slug):
 
     async function showGuildEmailModal() {{
         if (!guild || !guildIsOfficerFn()) {{
-            await GhDialog.alert({{ title: 'Not allowed', message: 'Guild admin access required.', variant: 'warning' }});
+            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Not allowed', message: 'Guild admin access required.', variant: 'warning' }}), variant: 'info' }});
             return;
         }}
         if (document.getElementById('guildEmailModal')) {{
