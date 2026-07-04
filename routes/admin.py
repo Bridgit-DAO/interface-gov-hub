@@ -58,6 +58,8 @@ def admin_dashboard():
 
     total_projects = Layer.query.count()
     pending_projects = Layer.query.filter_by(approval_status='pending').count()
+    active_display_layers = Layer.query.filter_by(display_status='active').count()
+    pending_display_layers = Layer.query.filter_by(display_status='pending').count()
     total_workgroups = Workgroup.query.count()
     pending_workgroups = Workgroup.query.filter_by(approval_status='pending').count()
     total_guilds = Guild.query.count()
@@ -190,7 +192,11 @@ def admin_dashboard():
                             <div class="card-body text-center">
                                 <h4 class="text-info mb-1">{total_projects}</h4>
                                 <p class="mb-0 small">Layers</p>
-                                {f'<small class="text-warning">({pending_projects} pending)</small>' if pending_projects > 0 else ''}
+                                {f'<small class="text-warning">({pending_projects} pending approval)</small>' if pending_projects > 0 else ''}
+                                <div class="small text-muted mt-1">
+                                    <span class="badge bg-success">{active_display_layers} active</span>
+                                    <span class="badge bg-warning text-dark">{pending_display_layers} pending display</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1544,11 +1550,16 @@ def admin_projects():
                     </button>
                 </div>
             '''
+        display_status = getattr(p, 'display_status', 'pending') or 'pending'
+        display_badge_class = 'bg-success' if display_status == 'active' else 'bg-warning text-dark'
+        display_label = 'Active' if display_status == 'active' else 'Pending'
         return '''
             <div class="list-group-item">
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1">
-                        <h5><a href="/layers/''' + (p.slug or '') + '''/" target="_blank">''' + _escape(p.name) + '''</a></h5>
+                        <h5><a href="/layers/''' + (p.slug or '') + '''/" target="_blank">''' + _escape(p.name) + '''</a>
+                            <span class="badge ''' + display_badge_class + ''' ms-2" title="Public visibility (controlled by layer admins)">Display: ''' + display_label + '''</span>
+                        </h5>
                         ''' + mission + '''
                         <p class="mb-2">''' + _escape(p.description or 'No description') + '''</p>
                         <small class="text-muted">

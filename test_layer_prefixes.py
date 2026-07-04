@@ -95,6 +95,7 @@ def _bootstrap_layer_with_admin(app, suffix):
             name=f'Prefix Test Layer {suffix}',
             initiator_id=owner_id,
             approval_status='approved',
+            display_status='active',
         )
         db.session.add(layer)
         db.session.flush()
@@ -313,6 +314,7 @@ def test_api_add_requires_admin(app):
             name=f'API guard layer notadmin {suffix}',
             initiator_id=owner_id,
             approval_status='approved',
+            display_status='active',
         )
         owner = User(
             id=owner_id,

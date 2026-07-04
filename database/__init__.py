@@ -70,6 +70,7 @@ def init_db(app):
             migrate_hardcoded_users,
             migrate_submission_prefix_code_v1,
             migrate_layer_unique_v1,
+            migrate_layer_display_status_v1,
         )
 
         migrate_submission_layer_id(app)
@@ -135,5 +136,6 @@ def init_db(app):
         migrate_layer_prefix_v1(app)
         migrate_submission_prefix_code_v1(app)
         migrate_layer_unique_v1(app)
+        migrate_layer_display_status_v1(app)
 
         print(f"Database initialized: {User.query.count()} users")

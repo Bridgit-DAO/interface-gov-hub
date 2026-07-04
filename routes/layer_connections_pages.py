@@ -110,13 +110,11 @@ def _render(layer_slug: str, standalone: bool = False):
     guild_opts = ''.join(
         f'<option value="{html_mod.escape(g.id)}">{html_mod.escape(g.name)}</option>' for g in guilds
     )
-    layers = (
-        Layer.query.filter(Layer.id != layer.id, Layer.approval_status == 'approved')
-        .group_by(Layer.name)
-        .order_by(Layer.name.asc())
-        .limit(200)
-        .all()
-    )
+    from services.layer_prefixes import visible_layers_for_user
+    layers = [
+        l for l in visible_layers_for_user((user or {}).get('id'))
+        if l.id != layer.id
+    ][:200]
     layer_opts = ''.join(
         f'<option value="{html_mod.escape(l.id)}">{html_mod.escape(l.name)}</option>' for l in layers
     )

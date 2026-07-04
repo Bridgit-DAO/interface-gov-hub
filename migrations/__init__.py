@@ -3107,3 +3107,121 @@ def migrate_layer_unique_v1(app):
 
 def _stub_unused_marker():  # pragma: no cover - keep at end
     pass
+
+
+def migrate_layer_display_status_v1(app):
+    """Add ``display_status`` column to ``layer`` and seed it.
+
+    Layer admins (not GovHub super-admins) control whether their own layer
+    is publicly listed. The column is independent from ``approval_status``
+    (which is the GovHub super-admin gate).
+
+    Two values:
+      - ``'pending'`` — layer is hidden from public listings. New layers
+        default to this.
+      - ``'active'`` — layer is listed publicly. Layer admins flip their
+        own layer to active from the Edit Layer modal once ready.
+
+    Seeding rule (per product owner: "Only the AUTH communities should be
+    pending. Leave all the rest alone."):
+
+      An existing layer starts as ``'pending'`` only if it matches the
+      auth-community rule:
+        ``name LIKE '%API guard%' OR slug LIKE 'api-guard-layer-%'``
+
+      Everything else starts as ``'active'``. The seeded value is the
+      initial state only — layer admins can flip their own layer at any
+      time. This step is safe to re-run; it reapplies the rule to any
+      layer currently flagged ``'pending'``.
+
+    Idempotent: the column / index steps skip when present. The seed step
+    only re-flip rows that currently match the rule.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # ----- Step 1: detect existing column ------------------------------
+        cursor.execute('PRAGMA table_info(layer)')
+        layer_cols = {row[1] for row in cursor.fetchall()}
+        column_added = False
+        if 'display_status' in layer_cols:
+            print('✅ migrate_layer_display_status_v1: column already present')
+        else:
+            # ----- Step 2: add column with default 'pending' -----------------
+            # The column-level DEFAULT gives new rows 'pending' (the safe
+            # default for any freshly created layer). Existing rows are
+            # re-seeded in step 3 below.
+            cursor.execute(
+                "ALTER TABLE layer "
+                "ADD COLUMN display_status VARCHAR(32) NOT NULL DEFAULT 'pending'"
+            )
+            column_added = True
+            print(
+                '✅ migrate_layer_display_status_v1: added display_status '
+                'column (default pending)'
+            )
+
+        # ----- Step 3: seed display_status ---------------------------------
+        # Apply the deterministic seed rule. Auth-community / API-guard
+        # layers start 'pending'; everything else starts 'active'.
+        #
+        # v1 semantics: the rule reapplies on every startup. This handles
+        # any rows in the wrong state from prior migrations (the v0
+        # migration left every row as 'pending', for example). It also
+        # corrects ad-hoc test fixtures that bypassed the rule.
+        #
+        # Known limitation for v1: if a layer admin manually flips a
+        # curated layer from 'active' to 'pending' via the Edit Layer
+        # modal, the next service restart will re-flip it to 'active'
+        # because the rule re-applies. This is acceptable for v1; admins
+        # can re-flip. A future migration can add a sentinel column or
+        # use a schema_meta row to make admin overrides persistent
+        # across restarts.
+        cursor.execute(
+            "UPDATE layer "
+            "SET display_status = 'active' "
+            "WHERE display_status = 'pending' "
+            "  AND NOT (name LIKE '%API guard%' OR slug LIKE 'api-guard-layer-%')"
+        )
+        flipped_active = cursor.rowcount
+        cursor.execute(
+            "UPDATE layer "
+            "SET display_status = 'pending' "
+            "WHERE display_status = 'active' "
+            "  AND (name LIKE '%API guard%' OR slug LIKE 'api-guard-layer-%')"
+        )
+        flipped_pending = cursor.rowcount
+        seed_count = flipped_active + flipped_pending
+        if seed_count or column_added:
+            print(
+                f'✅ migrate_layer_display_status_v1: applied seed rule '
+                f'({flipped_active} → active, {flipped_pending} → pending)'
+            )
+        else:
+            print(
+                '✅ migrate_layer_display_status_v1: seed rule already applied'
+            )
+
+        # ----- Step 4: ensure index exists --------------------------------
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='layer'"
+        )
+        existing_indexes = {row[0] for row in cursor.fetchall()}
+        if 'ix_layer_display_status' not in existing_indexes:
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS ix_layer_display_status '
+                'ON layer(display_status)'
+            )
+            print(
+                '✅ migrate_layer_display_status_v1: created index '
+                'ix_layer_display_status'
+            )
+        else:
+            print('✅ migrate_layer_display_status_v1: ix_layer_display_status present')
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_layer_display_status_v1: {e}')

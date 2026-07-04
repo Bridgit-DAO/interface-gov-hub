@@ -169,7 +169,7 @@ def prefixes_for_user(user_id: str) -> list[dict]:
     member_layer_ids = [
         lm.layer_id for lm in
         LayerMember.query.filter_by(user_id=user_id, status='active').all()
-    ] 
+    ]
     owner_layer_ids = [
         l.id for l in
         Layer.query.filter_by(initiator_id=user_id).all()
@@ -199,3 +199,79 @@ def prefixes_for_user(user_id: str) -> list[dict]:
             'layer_slug': layer.slug,
         })
     return out
+
+
+# ---------------------------------------------------------------------------
+# Public layer listing helper
+# ---------------------------------------------------------------------------
+# Centralises the ``approval_status='approved' AND display_status='active'``
+# filter used by the home directory, the submit-form layer dropdown, and the
+# layer connections page. Layer admins still see their own pending layers so
+# they can flip them to active from the Edit Layer modal.
+
+DISPLAY_STATUS_VALUES = ('pending', 'active')
+PUBLIC_LAYER_ADMIN_ALLOWED_STATUSES = ('pending', 'active')
+
+
+def normalize_display_status(raw, default: str = 'pending') -> str:
+    """Whitelist-validate a `display_status` value from the API.
+
+    Anything not in ``DISPLAY_STATUS_VALUES`` falls back to ``default``.
+    Unknown future values are deliberately rejected so the column stays
+    predictable in the UI.
+    """
+    v = (str(raw) if raw is not None else '').strip().lower()
+    return v if v in DISPLAY_STATUS_VALUES else default
+
+
+def _layer_admin_layer_ids(user_id: Optional[str]) -> list[str]:
+    """Layer IDs where ``user_id`` is a ``LayerAdmin`` (initiator counts too)."""
+    if not user_id:
+        return []
+    from models import Layer, LayerAdmin
+
+    admin_ids = [
+        la.layer_id for la in
+        LayerAdmin.query.filter_by(user_id=user_id).all()
+    ]
+    owner_ids = [
+        l.id for l in
+        Layer.query.filter_by(initiator_id=user_id).all()
+    ]
+    return list(set(admin_ids) | set(owner_ids))
+
+
+def visible_layers_for_user(user_id: Optional[str] = None):
+    """Approved layers visible to ``user_id`` (or anonymous when ``None``).
+
+    Always limited to ``approval_status='approved'``. Plus:
+      * ``display_status='active'`` layers are visible to everyone.
+      * A layer's admin / owner also sees their own layers regardless of
+        ``display_status`` (so they can finish setup before flipping active).
+
+    Returns the Layer rows ordered alphabetically by name and deduped by
+    name (mirrors the ``group_by(Layer.name)`` pattern used elsewhere).
+    """
+    from models import Layer, LayerAdmin
+
+    base = Layer.query.filter(Layer.approval_status == 'approved')
+
+    admin_ids = _layer_admin_layer_ids(user_id)
+    if admin_ids:
+        from sqlalchemy import or_
+
+        q = base.filter(or_(
+            Layer.display_status == 'active',
+            Layer.id.in_(admin_ids),
+        ))
+    else:
+        q = base.filter(Layer.display_status == 'active')
+
+    rows = q.group_by(Layer.name).order_by(Layer.name).all()
+
+    # Touch LayerAdmin so static analysers don't flag the import as unused
+    # when the helper is called via anonymous traffic; the import is needed
+    # for ``_layer_admin_layer_ids`` and the IN clause above.
+    _ = LayerAdmin
+
+    return rows

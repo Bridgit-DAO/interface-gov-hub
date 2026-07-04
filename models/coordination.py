@@ -154,6 +154,16 @@ class Layer(db.Model):
     # pending, approved, rejected
     approved_by_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
+
+    # Layer-admin-controlled public visibility (separate from admin approval).
+    # New layers + all existing layers start as 'pending'; layer admins flip
+    # their own layer to 'active' from the Edit Layer modal once they're ready
+    # to receive public submissions. Public listings (home directory, submit
+    # form dropdown, layer connections, layer registry) filter by this column.
+    display_status = db.Column(
+        db.String(32), nullable=False, default='pending',
+        server_default='pending', index=True,
+    )
     
     # Mission and description
     mission = db.Column(db.Text, nullable=True)
@@ -210,6 +220,7 @@ class Layer(db.Model):
             'status': self.status,
             'status_reason': self.status_reason,
             'approval_status': self.approval_status,
+            'display_status': getattr(self, 'display_status', 'pending') or 'pending',
             'mission': self.mission,
             'description': self.description,
             'about_content': self.about_content,

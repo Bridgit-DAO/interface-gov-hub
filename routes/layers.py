@@ -41,6 +41,8 @@ from services.layer_prefixes import (
     set_default_prefix as _svc_set_default_prefix,
     prefixes_for_user as _svc_prefixes_for_user,
     is_valid_prefix_format as _svc_is_valid_prefix_format,
+    normalize_display_status as _svc_normalize_display_status,
+    PUBLIC_LAYER_ADMIN_ALLOWED_STATUSES as _PUBLIC_DS_STATUSES,
 )
 
 bp = Blueprint('layers', __name__, url_prefix='/api/layers')
@@ -73,12 +75,15 @@ def list_layers():
     """List all projects with filtering."""
     status = request.args.get('status')
     approval_status = request.args.get('approval_status')
+    display_status = request.args.get('display_status')
 
     query = Layer.query
     if status:
         query = query.filter_by(status=status)
     if approval_status:
         query = query.filter_by(approval_status=approval_status)
+    if display_status:
+        query = query.filter_by(display_status=display_status)
 
     # Hide imported auth shells from default directory (Revised Option C).
     # Use OR-of-negations so NULL layer_kind/stewardship (standard layers) stay visible in SQLite.
@@ -95,7 +100,26 @@ def list_layers():
     query = query.order_by(Layer.last_activity.desc())
     layers = query.all()
     viewer = get_current_user()
-    layers = [p for p in layers if layer_listing_visible(p, viewer)]
+
+    # Layer admins still see their own pending layers (so they can iterate
+    # during setup before flipping visibility to ``active``).
+    from services.layer_prefixes import _layer_admin_layer_ids
+    admin_layer_ids = set(_layer_admin_layer_ids((viewer or {}).get('id')))
+
+    filtered = []
+    for p in layers:
+        if not layer_listing_visible(p, viewer):
+            continue
+        ds = getattr(p, 'display_status', 'pending') or 'pending'
+        if ds == 'active':
+            filtered.append(p)
+        elif p.id in admin_layer_ids and ds in _PUBLIC_DS_STATUSES:
+            filtered.append(p)
+        elif display_status == ds:
+            # Caller explicitly asked for a specific display_status (e.g. the
+            # admin pages pass display_status='pending' to review the queue).
+            filtered.append(p)
+    layers = filtered
 
     layer_ids = [p.id for p in layers]
     count_map = {}
@@ -457,6 +481,8 @@ def update_layer(layer_id):
             }), 400
         if current_vis == 'private' and new_vis == 'public':
             project.listing_visibility = 'public'
+    if 'display_status' in data:
+        project.display_status = _svc_normalize_display_status(data.get('display_status'))
     if 'join_policy' in data:
         project.join_policy = normalize_join_policy_layer_guild(data.get('join_policy'))
     if 'nft_gate_rules' in data or 'nft_gate' in data:
@@ -1439,3 +1465,59 @@ def get_active_prefix():
     if available:
         return jsonify({'prefix': available[0]}), 200
     return jsonify({'prefix': None}), 200
+
+
+@bp.route('/<layer_id>/display-status/', methods=['POST'])
+@require_auth
+def set_layer_display_status(layer_id):
+    """Flip a layer's ``display_status`` (``pending`` ↔ ``active``).
+
+    Layer-admin only (this is the "Public visibility" toggle on the layer's
+    Edit page). Independent from the GovHub super-admin
+    ``approval_status`` workflow: a layer that has been approved by
+    GovHub can still be hidden until the layer admin flips it to active.
+
+    Body: ``{"display_status": "active"|"pending"}``.
+    """
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    project = _ensure_layer_for_prefixes(layer_id)
+    if not project:
+        return jsonify({'error': 'Layer not found', 'code': 'not_found'}), 404
+
+    if not is_layer_admin(project, current_user):
+        return jsonify({
+            'error': 'Only layer admins can change display status',
+            'code': 'forbidden',
+        }), 403
+
+    data = request.get_json() or {}
+    raw_value = data.get('display_status')
+    if raw_value is None:
+        return jsonify({
+            'error': 'display_status is required',
+            'code': 'invalid_value',
+        }), 400
+    # Reject unknown values explicitly (normalize_display_status falls back to
+    # 'pending', but for an explicit API toggle we want 400 so the caller
+    # knows the value was invalid rather than silently flipped).
+    raw_norm = str(raw_value).strip().lower()
+    if raw_norm not in ('pending', 'active'):
+        return jsonify({
+            'error': 'display_status must be either "pending" or "active"',
+            'code': 'invalid_value',
+        }), 400
+    new_status = raw_norm
+
+    old_status = getattr(project, 'display_status', 'pending') or 'pending'
+    project.display_status = new_status
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'layer_id': project.id,
+        'display_status': new_status,
+        'previous_display_status': old_status,
+    }), 200
