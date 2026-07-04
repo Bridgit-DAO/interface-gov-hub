@@ -493,18 +493,33 @@ def migrate_ordinals_support(app):
                     cursor.execute(f"ALTER TABLE submission ADD COLUMN {col_name} {col_type}")
                 added_columns.append(col_name)
 
-        cursor.execute("SELECT id, ml_number FROM submission WHERE ml_number IS NOT NULL")
+        cursor.execute(
+            "SELECT s.id, s.ml_number, s.prefix_code, lp.prefix "
+            "FROM submission s "
+            "LEFT JOIN layer_prefix lp ON lp.layer_id = s.layer_id AND lp.is_default = 1 "
+            "WHERE s.ml_number IS NOT NULL"
+        )
         submissions = cursor.fetchall()
         migrated_count = 0
-        for sub_id, ml_num in submissions:
-            if ml_num and not ml_num.startswith('ML-Draft-') and not ml_num.startswith('ML-RFC-'):
-                try:
-                    num_part = ml_num.split('-')[-1]
-                    new_ml_num = f"ML-Draft-{num_part}"
-                    cursor.execute("UPDATE submission SET ml_number = ? WHERE id = ?", (new_ml_num, sub_id))
-                    migrated_count += 1
-                except (ValueError, IndexError):
-                    pass
+        for sub_id, ml_num, prefix_code, layer_default_prefix in submissions:
+            if not ml_num:
+                continue
+            if ml_num.startswith('ML-Draft-') or ml_num.startswith('ML-RFC-'):
+                continue
+            # Respect per-draft and per-layer prefixes: if a non-ML prefix is
+            # in play (either prefix_code on the row or the layer's default),
+            # leave the row's ml_number alone. The legacy migration below only
+            # applied to rows that didn't yet know about non-ML prefixes.
+            effective_prefix = (prefix_code or layer_default_prefix or '').strip().upper()
+            if effective_prefix and effective_prefix != 'ML':
+                continue
+            try:
+                num_part = ml_num.split('-')[-1]
+                new_ml_num = f"ML-Draft-{num_part}"
+                cursor.execute("UPDATE submission SET ml_number = ? WHERE id = ?", (new_ml_num, sub_id))
+                migrated_count += 1
+            except (ValueError, IndexError):
+                pass
 
         conn.commit()
         conn.close()

@@ -1613,6 +1613,22 @@
       });
   }
 
+  function showAiAssistError(data, fallbackMessage) {
+    var transient = !!(data && data.transient);
+    var message = (data && (data.error || data.details)) || fallbackMessage;
+    if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+      GhDialog.alert({
+        title: transient ? 'AI Assist is busy' : 'AI Assist failed',
+        message: transient
+          ? 'The AI service is temporarily overloaded. Please try again in a minute.'
+          : message || fallbackMessage || 'Unknown error',
+        variant: transient ? 'warning' : 'danger',
+      });
+      return;
+    }
+    window.alert(message || fallbackMessage || 'AI Assist error.');
+  }
+
   function runAssistAction(action) {
     if (!assistState.context || assistState.loading) return;
     assistState.loading = true;
@@ -1632,7 +1648,8 @@
       .then(function (res) {
         assistState.loading = false;
         if (!res.ok) {
-          setAssistStatus(res.data.details || res.data.error || 'AI Assist generation failed.');
+          setAssistStatus(res.data.error || 'AI Assist generation failed.');
+          showAiAssistError(res.data, 'AI Assist generation failed.');
           return;
         }
         setAssistPreview(res.data.draft || '');
@@ -1640,7 +1657,16 @@
       })
       .catch(function () {
         assistState.loading = false;
-        setAssistStatus('Network error generating draft.');
+        setAssistStatus('Network error generating draft. Please try again in a minute.');
+        if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+          GhDialog.alert({
+            title: 'AI Assist is busy',
+            message: 'The AI service is temporarily unreachable. Please try again in a minute.',
+            variant: 'warning',
+          });
+        } else {
+          window.alert('Network error generating draft. Please try again in a minute.');
+        }
       });
   }
 

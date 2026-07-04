@@ -249,7 +249,11 @@ def assist_context_route(draft_ref):
 @bp.route('/<path:draft_ref>/assist/generate/', methods=['POST'])
 @require_auth
 def assist_generate_route(draft_ref):
-    from services.assist import generate_draft
+    from services.assist import (
+        LlmCallFailed,
+        LlmTemporarilyBusy,
+        generate_draft,
+    )
 
     current_user = get_current_user()
     if not current_user:
@@ -267,12 +271,38 @@ def assist_generate_route(draft_ref):
             user_id=current_user.get('id'),
         )
     except ValueError as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'ok': False, 'error': str(e), 'transient': False}), 400
+    except LlmTemporarilyBusy as e:
+        # Upstream overloaded / gateway hiccup / network. The frontend uses
+        # `transient: true` to show a "try again in a minute" warning dialog
+        # instead of the raw provider error.
+        current_app.logger.warning('Assist transient failure: %s', e)
+        return jsonify({
+            'ok': False,
+            'error': str(e),
+            'transient': True,
+        }), 503
+    except LlmCallFailed as e:
+        current_app.logger.exception('Assist non-transient failure')
+        return jsonify({
+            'ok': False,
+            'error': str(e),
+            'transient': False,
+        }), 502
     except RuntimeError as e:
-        return jsonify({'error': 'AI Assist unavailable', 'details': str(e)}), 503
+        return jsonify({
+            'ok': False,
+            'error': 'AI Assist unavailable',
+            'details': str(e),
+            'transient': False,
+        }), 503
     except Exception as e:
         current_app.logger.exception('Assist generation failed')
-        return jsonify({'error': 'Generation failed', 'details': str(e)}), 500
+        return jsonify({
+            'ok': False,
+            'error': 'AI Assist failed unexpectedly.',
+            'transient': False,
+        }), 500
     return jsonify({'ok': True, **result})
 
 

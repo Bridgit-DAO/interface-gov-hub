@@ -9,6 +9,12 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    HTTPError as RequestsHTTPError,
+    RequestException,
+    Timeout as RequestsTimeout,
+)
 
 from models import Submission
 from services.document_reader_comments import list_reader_comments_for_draft_ref
@@ -43,6 +49,19 @@ PATCH_ACTIONS = {
 }
 
 ALL_ACTIONS = COMMENT_ACTIONS | PATCH_ACTIONS
+
+# HTTP status codes and network errors that indicate a transient upstream failure
+# (overloaded, busy, gateway hiccup, or just no network). Callers should treat
+# these as retryable and show a friendly "try again in a moment" message.
+TRANSIENT_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504, 522, 524, 529}
+
+
+class LlmTemporarilyBusy(Exception):
+    """Upstream LLM is overloaded or unavailable; safe to retry shortly."""
+
+
+class LlmCallFailed(Exception):
+    """Non-transient LLM error (bad key, bad request, etc.). Surface to user."""
 
 ACTION_LABELS = {
     'draft_comment': 'Draft comment',
@@ -89,19 +108,48 @@ def _placeholder(value: str) -> bool:
 def resolve_llm_config() -> Optional[LlmConfig]:
     openai_key = os.environ.get('OPENAI_API_KEY', '').strip()
     if not _placeholder(openai_key):
+        # OPENAI_CHAT_COMPLETIONS_URL is an explicit full-URL override. Otherwise
+        # build the chat URL from OPENAI_BASE_URL (matching Canopi's pattern at
+        # canopi/server/lib/agentLlm.js) so a MiniMax-style proxy base works.
+        override = (os.environ.get('OPENAI_CHAT_COMPLETIONS_URL') or '').strip()
+        if override:
+            chat_url = override
+        else:
+            openai_base = (
+                (os.environ.get('OPENAI_BASE_URL') or '').strip()
+                or 'https://api.openai.com/v1'
+            )
+            chat_url = openai_base.rstrip('/') + '/chat/completions'
+        # MODEL_NAME takes precedence so MiniMax / other gateways can pin a
+        # model (e.g. MODEL_NAME=MiniMax-M3) without changing OPENAI_MODEL.
+        model = (
+            os.environ.get('GOV_HUB_ASSIST_MODEL')
+            or os.environ.get('MODEL_NAME')
+            or os.environ.get('OPENAI_MODEL')
+            or 'gpt-4o-mini'
+        )
         return LlmConfig(
             provider='openai',
             api_key=openai_key,
-            model=os.environ.get('GOV_HUB_ASSIST_MODEL') or os.environ.get('OPENAI_MODEL') or 'gpt-4o-mini',
-            url=os.environ.get('OPENAI_CHAT_COMPLETIONS_URL') or 'https://api.openai.com/v1/chat/completions',
+            model=model,
+            url=chat_url,
         )
     deepseek_key = os.environ.get('DEEPSEEK_API_KEY', '').strip()
     if not _placeholder(deepseek_key):
+        override = (os.environ.get('DEEPSEEK_CHAT_COMPLETIONS_URL') or '').strip()
+        if override:
+            chat_url = override
+        else:
+            deepseek_base = (
+                (os.environ.get('DEEPSEEK_BASE_URL') or '').strip()
+                or 'https://api.deepseek.com/v1'
+            )
+            chat_url = deepseek_base.rstrip('/') + '/chat/completions'
         return LlmConfig(
             provider='deepseek',
             api_key=deepseek_key,
             model=os.environ.get('GOV_HUB_ASSIST_MODEL') or os.environ.get('DEEPSEEK_MODEL') or 'deepseek-chat',
-            url=os.environ.get('DEEPSEEK_CHAT_COMPLETIONS_URL') or 'https://api.deepseek.com/chat/completions',
+            url=chat_url,
         )
     return None
 
@@ -320,24 +368,67 @@ def build_user_prompt(action: str, user_prompt: Optional[str] = None) -> str:
     return prompt or ACTION_LABELS.get(action, 'Assist with this draft')
 
 
+def _sanitize_error_detail(exc: Exception) -> str:
+    """Return a short, user-safe detail string for an LLM exception.
+
+    Strips the raw provider payload (which often contains request IDs, key
+    fragments, or noisy JSON) so we don't leak it into the UI.
+    """
+    raw = str(exc) or type(exc).__name__
+    raw = raw.strip()
+    if not raw:
+        return type(exc).__name__
+    return raw[:200]
+
+
 def call_llm(messages: List[dict], cfg: LlmConfig) -> str:
-    response = requests.post(
-        cfg.url,
-        headers={
-            'Authorization': f'Bearer {cfg.api_key}',
-            'Content-Type': 'application/json',
-        },
-        json={
-            'model': cfg.model,
-            'messages': messages,
-            'temperature': 0.3,
-            'max_tokens': MAX_OUTPUT_TOKENS,
-        },
-        timeout=60,
-    )
-    response.raise_for_status()
-    data = response.json()
-    return (data.get('choices') or [{}])[0].get('message', {}).get('content', '').strip()
+    try:
+        response = requests.post(
+            cfg.url,
+            headers={
+                'Authorization': f'Bearer {cfg.api_key}',
+                'Content-Type': 'application/json',
+            },
+            json={
+                'model': cfg.model,
+                'messages': messages,
+                'temperature': 0.3,
+                'max_tokens': MAX_OUTPUT_TOKENS,
+            },
+            timeout=60,
+        )
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        # Most common case: MiniMax / proxy is unreachable. Treat as transient
+        # so the user gets the friendly "try again in a minute" message.
+        raise LlmTemporarilyBusy(
+            'AI Assist is temporarily unreachable. Please try again in a minute.'
+        ) from e
+    except RequestException as e:
+        raise LlmTemporarilyBusy(
+            'AI Assist is temporarily unreachable. Please try again in a minute.'
+        ) from e
+
+    if response.status_code in TRANSIENT_HTTP_STATUSES:
+        # Overloaded, gateway hiccup, or rate limited. Friendly retry message.
+        raise LlmTemporarilyBusy(
+            'AI Assist is busy right now. Please try again in a minute.'
+        )
+
+    if response.status_code >= 400:
+        # Non-transient (401 bad key, 403 forbidden, 404 model not found,
+        # 400 bad request, etc.). Surface a sanitized detail.
+        detail = _sanitize_error_detail(response.text or f'HTTP {response.status_code}')
+        raise LlmCallFailed(f'AI Assist failed ({response.status_code}): {detail}')
+
+    try:
+        data = response.json()
+    except ValueError as e:
+        raise LlmCallFailed('AI Assist returned an unexpected response.') from e
+
+    content = (data.get('choices') or [{}])[0].get('message', {}).get('content', '').strip()
+    if not content:
+        raise LlmCallFailed('AI Assist returned an empty response.')
+    return content
 
 
 def clean_draft(text: str) -> str:
