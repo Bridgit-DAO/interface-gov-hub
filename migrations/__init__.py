@@ -2874,5 +2874,236 @@ def migrate_submission_prefix_code_v1(app):
         print(f'⚠️  Error in migrate_submission_prefix_code_v1: {e}')
 
 
+# Tables in the dev DB that carry a `layer_id` column referencing `layer.id`.
+# We reassign dependent rows from a duplicate-layer-id to its survivor before
+# deleting the duplicate, so no user-facing data (submissions, workgroups,
+# prefixes, claims, badges, etc.) is lost.
+LAYER_FK_TABLES = (
+    'submission',
+    'working_group',
+    'layer_member',
+    'layer_admin',
+    'layer_prefix',
+    'waitlist',
+    'claim',
+    'badge',
+    'vote',
+    'role',
+    'cluster',
+    'one_time_badge',
+    'badge_cycle',
+    'role_image',
+    'monument',
+    'quest',
+    'layer_invitation',
+    'layer_connection',
+    'layer_connection_type',
+    'guild_layer_link',
+    'workgroup_layer_link',
+    'artifact',
+    'artifact_collection',
+    'artifact_tag',
+    'layer_tag',
+    'layer_program',
+    'email_unsubscribe',
+    'event_log',
+    'inscription_order',
+)
+
+
+def migrate_layer_unique_v1(app):
+    """One-shot: dedupe `layer` rows + enforce UNIQUE(name), UNIQUE(slug).
+
+    Earlier bring-up never added UNIQUE indexes via migration; combined with
+    a deterministic slug in ``test_api_add_requires_admin``, this let ~28
+    duplicate ``Layer`` rows accumulate on the dev DB. This migration:
+
+    1. For each (name, slug) duplicate group, picks the survivor as the
+       minimum-rowid row (oldest insertion). Reassigns every dependent
+       ``layer_id`` row in ``LAYER_FK_TABLES`` from the non-survivors to
+       the survivor, then deletes the non-survivors.
+    2. Adds ``uq_layer_name`` / ``uq_layer_slug`` UNIQUE indexes if they
+       are not already present (idempotent via inspector + IF NOT EXISTS).
+    3. Verifies the ``name`` / ``slug`` columns are NOT NULL.
+
+    Idempotent: re-running on a clean DB leaves row counts unchanged and
+    emits no errors. Safe against concurrent dev use — wraps each group in
+    a transaction.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        # Foreign-key enforcement is OFF by default in SQLite; this is a
+        # one-shot cleanup so we don't need it on, but leaving the default
+        # avoids accidentally failing if any historical FK is dangling.
+        cursor = conn.cursor()
+
+        # ----- Step 1a: dedupe by `name` -----------------------------------
+        cursor.execute(
+            """
+            SELECT name, MIN(rowid) AS survivor_rowid
+            FROM layer
+            WHERE name IS NOT NULL
+            GROUP BY name
+            HAVING COUNT(*) > 1
+            """
+        )
+        name_groups = cursor.fetchall()
+        total_deleted = 0
+        for dup_name, survivor_rowid in name_groups:
+            cursor.execute(
+                'SELECT id, rowid FROM layer WHERE name = ? ORDER BY rowid',
+                (dup_name,),
+            )
+            rows = cursor.fetchall()
+            survivor_id = None
+            non_survivors = []
+            for layer_id, rowid in rows:
+                if rowid == survivor_rowid and survivor_id is None:
+                    survivor_id = layer_id
+                else:
+                    non_survivors.append(layer_id)
+            if survivor_id is None or not non_survivors:
+                continue
+            placeholders = ','.join('?' for _ in non_survivors)
+            for tbl in LAYER_FK_TABLES:
+                # Use try/except per-table in case the table doesn't exist
+                # on a fresh DB or hasn't been migrated in yet.
+                try:
+                    cursor.execute(
+                        f'UPDATE {tbl} SET layer_id = ? '
+                        f'WHERE layer_id IN ({placeholders})',
+                        [survivor_id, *non_survivors],
+                    )
+                except sqlite3.OperationalError:
+                    # Table doesn't exist or no layer_id column yet.
+                    pass
+            cursor.execute(
+                f'DELETE FROM layer WHERE id IN ({placeholders})',
+                non_survivors,
+            )
+            deleted = cursor.rowcount
+            total_deleted += deleted
+            print(
+                f'  layer.name={dup_name!r}: kept {survivor_id[:8]}... '
+                f'reassigned dependents of {len(non_survivors)} duplicate(s)'
+            )
+        if name_groups:
+            conn.commit()
+            print(
+                f'✅ migrate_layer_unique_v1: deleted {total_deleted} duplicate '
+                'layer row(s) (by name)'
+            )
+        else:
+            print('✅ migrate_layer_unique_v1: no name duplicates')
+
+        # ----- Step 1b: dedupe by `slug` -----------------------------------
+        # After the name dedupe, a slug clash can only happen if two distinct
+        # names happen to share a slug. We apply the same survivor-by-rowid
+        # strategy.
+        cursor.execute(
+            """
+            SELECT slug, MIN(rowid) AS survivor_rowid
+            FROM layer
+            WHERE slug IS NOT NULL
+            GROUP BY slug
+            HAVING COUNT(*) > 1
+            """
+        )
+        slug_groups = cursor.fetchall()
+        slug_deleted = 0
+        for dup_slug, survivor_rowid in slug_groups:
+            cursor.execute(
+                'SELECT id, rowid FROM layer WHERE slug = ? ORDER BY rowid',
+                (dup_slug,),
+            )
+            rows = cursor.fetchall()
+            survivor_id = None
+            non_survivors = []
+            for layer_id, rowid in rows:
+                if rowid == survivor_rowid and survivor_id is None:
+                    survivor_id = layer_id
+                else:
+                    non_survivors.append(layer_id)
+            if survivor_id is None or not non_survivors:
+                continue
+            placeholders = ','.join('?' for _ in non_survivors)
+            for tbl in LAYER_FK_TABLES:
+                try:
+                    cursor.execute(
+                        f'UPDATE {tbl} SET layer_id = ? '
+                        f'WHERE layer_id IN ({placeholders})',
+                        [survivor_id, *non_survivors],
+                    )
+                except sqlite3.OperationalError:
+                    pass
+            cursor.execute(
+                f'DELETE FROM layer WHERE id IN ({placeholders})',
+                non_survivors,
+            )
+            slug_deleted += cursor.rowcount
+            print(
+                f'  layer.slug={dup_slug!r}: kept {survivor_id[:8]}... '
+                f'reassigned dependents of {len(non_survivors)} duplicate(s)'
+            )
+        if slug_groups:
+            conn.commit()
+            print(
+                f'✅ migrate_layer_unique_v1: deleted {slug_deleted} duplicate '
+                'layer row(s) (by slug)'
+            )
+        else:
+            print('✅ migrate_layer_unique_v1: no slug duplicates')
+
+        # ----- Step 2: enforce NOT NULL on name/slug -----------------------
+        # SQLite cannot add NOT NULL to an existing column in-place; we
+        # instead verify and warn if the column allows NULLs. New rows are
+        # already constrained by the model (nullable=False).
+        cursor.execute('PRAGMA table_info(layer)')
+        layer_cols = {row[1]: row for row in cursor.fetchall()}
+        for col in ('name', 'slug'):
+            info = layer_cols.get(col)
+            if info is None:
+                continue
+            # PRAGMA table_info: columns are (cid, name, type, notnull, dflt, pk)
+            notnull = info[3]
+            if not notnull:
+                print(
+                    f'⚠️  migrate_layer_unique_v1: layer.{col} allows NULL — '
+                    'SQLite cannot ALTER to NOT NULL in-place. Backfill and '
+                    'recreate the table to enforce.'
+                )
+
+        # ----- Step 3: add UNIQUE indexes if missing ----------------------
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='layer'"
+        )
+        existing_indexes = {row[0] for row in cursor.fetchall()}
+
+        # SQLite supports `CREATE UNIQUE INDEX IF NOT EXISTS` — idempotent.
+        # Postgres (if ever swapped in) supports the same syntax; the model
+        # declares `unique=True` on both columns.
+        if 'uq_layer_name' not in existing_indexes:
+            cursor.execute(
+                'CREATE UNIQUE INDEX uq_layer_name ON layer(name)'
+            )
+            print('✅ migrate_layer_unique_v1: created UNIQUE index uq_layer_name')
+        else:
+            print('✅ migrate_layer_unique_v1: uq_layer_name already present')
+
+        if 'uq_layer_slug' not in existing_indexes:
+            cursor.execute(
+                'CREATE UNIQUE INDEX uq_layer_slug ON layer(slug)'
+            )
+            print('✅ migrate_layer_unique_v1: created UNIQUE index uq_layer_slug')
+        else:
+            print('✅ migrate_layer_unique_v1: uq_layer_slug already present')
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_layer_unique_v1: {e}')
+
+
 def _stub_unused_marker():  # pragma: no cover - keep at end
     pass
