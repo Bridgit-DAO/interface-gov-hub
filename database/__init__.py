@@ -71,6 +71,7 @@ def init_db(app):
             migrate_submission_prefix_code_v1,
             migrate_layer_unique_v1,
             migrate_layer_display_status_v1,
+            migrate_delete_test_layers_v1,
         )
 
         migrate_submission_layer_id(app)
@@ -137,5 +138,6 @@ def init_db(app):
         migrate_submission_prefix_code_v1(app)
         migrate_layer_unique_v1(app)
         migrate_layer_display_status_v1(app)
+        migrate_delete_test_layers_v1(app)
 
         print(f"Database initialized: {User.query.count()} users")

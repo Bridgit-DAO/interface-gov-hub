@@ -3276,3 +3276,239 @@ def migrate_layer_display_status_v1(app):
         conn.close()
     except Exception as e:
         print(f'⚠️  Error in migrate_layer_display_status_v1: {e}')
+
+
+# Tables that carry a ``layer_id`` (or ``source_layer_id``) referencing
+# ``layer.id`` and which must have their dependent rows wiped before the
+# layer row itself can be deleted. Mirrors the list in
+# ``migrate_layer_unique_v1`` plus a couple of extra columns
+# (``source_layer_id`` on ``layer_connection``).
+TEST_LAYER_DEPENDENT_TABLES = (
+    'submission',
+    'working_group',
+    'layer_member',
+    'layer_admin',
+    'layer_prefix',
+    'waitlist',
+    'claim',
+    'badge',
+    'vote',
+    'role',
+    'cluster',
+    'one_time_badge',
+    'badge_cycle',
+    'role_image',
+    'monument',
+    'quest',
+    'layer_invitation',
+    'layer_connection',
+    'layer_connection_type',
+    'guild_layer_link',
+    'workgroup_layer_link',
+    'artifact',
+    'artifact_collection',
+    'artifact_tag',
+    'layer_tag',
+    'layer_program',
+    'email_unsubscribe',
+    'event_log',
+    'inscription_order',
+)
+
+
+# Heuristic patterns that mark a row as a leftover test layer. These are
+# the exact strings ``test_layer_prefixes.py`` writes into ``name`` /
+# ``slug``; the rule is conservative (only matches *obvious* test rows)
+# so real admin-curated layers are never touched.
+TEST_LAYER_NAME_PATTERNS = (
+    'API guard layer notadmin',  # test_api_add_requires_admin
+    'Prefix Test Layer',          # _bootstrap_layer_with_admin
+    'ZeroPrefix Test',            # manual prefix-zero test row
+    'Test Layer Features',        # generic feature-test layer
+)
+TEST_LAYER_SLUG_PATTERNS = (
+    'api-guard-layer-notadmin',
+    'prefix-test-layer-',
+    'zero-prefix-test',
+    'test-layer-features',
+)
+
+
+def _is_test_layer_row(name, slug):
+    """Conservative: match only obvious test rows.
+
+    A real admin-curated layer would never have a name starting with
+    ``"API guard"`` or ``"Prefix Test Layer"`` — these are the exact
+    strings the pytest suite writes. We intentionally err on the side of
+    false negatives: if a real layer has been hidden behind a ``pending``
+    ``display_status`` by its admin, we leave it alone. The user can
+    still delete those by hand from the admin UI.
+    """
+    name = (name or '').strip()
+    slug = (slug or '').strip()
+    return any(name.startswith(pat) for pat in TEST_LAYER_NAME_PATTERNS) \
+        or any(slug.startswith(pat) for pat in TEST_LAYER_SLUG_PATTERNS)
+
+
+# Sentinel key in ``site_config`` that records the first (and only) run
+# of ``migrate_delete_test_layers_v1``. The migration is destructive —
+# once sealed, re-runs are no-ops, so admin-deleted tests don't get
+# silently restored from a backup.
+TEST_LAYERS_DELETED_KEY = 'test_layers_deleted_v1'
+
+
+def migrate_delete_test_layers_v1(app):
+    """One-shot: delete leftover ``test_layer_prefixes.py`` rows.
+
+    The pytest suite writes layers with deterministic name/slug prefixes
+    (see ``TEST_LAYER_NAME_PATTERNS`` / ``TEST_LAYER_SLUG_PATTERNS``).
+    Even after the recent ``display_status='pending'`` migration, some
+    of those rows still leak into admin dropdowns, and the AUTH
+    community rule (which only catches ``*API guard*``) leaves a
+    handful of ``Prefix Test Layer ...`` rows as ``active``.
+
+    This migration:
+
+    1. Queries every layer in the DB and applies the conservative
+       ``_is_test_layer_row`` rule to flag leftovers.
+    2. For each flagged layer id, ``DELETE`` from every
+       ``TEST_LAYER_DEPENDENT_TABLES`` row that references the layer
+       (foreign-key enforcement is left at the connection default —
+       we're inside a single transaction and the test rows have no
+       real user data attached).
+    3. ``DELETE FROM layer WHERE id IN (...)`` for the survivors.
+    4. Writes the ``test_layers_deleted_v1 = 'sealed'`` sentinel into
+       ``site_config`` so re-runs are a no-op.
+
+    Idempotent: the sentinel guards the destructive step, so a
+    second run on an already-clean DB prints "no test layers found"
+    and writes nothing.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # ----- Step 1: check the sentinel ----------------------------------
+        cursor.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='site_config'"
+        )
+        site_config_exists = cursor.fetchone() is not None
+        already_sealed = False
+        if site_config_exists:
+            cursor.execute(
+                "SELECT value FROM site_config WHERE key = ?",
+                (TEST_LAYERS_DELETED_KEY,),
+            )
+            already_sealed = cursor.fetchone() is not None
+
+        # ----- Step 2: inventory every layer -------------------------------
+        cursor.execute(
+            "SELECT id, name, slug, display_status, approval_status "
+            "FROM layer"
+        )
+        all_layers = cursor.fetchall()
+        test_layer_ids: list[str] = []
+        for layer_id, name, slug, display_status, approval_status in all_layers:
+            if _is_test_layer_row(name, slug):
+                test_layer_ids.append(layer_id)
+
+        if already_sealed:
+            if test_layer_ids:
+                # New test rows since the sentinel was written (e.g. a
+                # pytest run after the migration). Delete the leftovers
+                # but DO NOT re-seal — the sentinel already says
+                # "everything before this point was cleaned up".
+                _delete_test_layer_rows(
+                    conn, cursor, test_layer_ids, TEST_LAYER_DEPENDENT_TABLES,
+                )
+                print(
+                    f'⚠️  test_layers_deleted_v1 sealed, but found '
+                    f'{len(test_layer_ids)} new test layer row(s) — '
+                    'deleted them but did not re-seal the sentinel.'
+                )
+            else:
+                print(
+                    '✅ migrate_delete_test_layers_v1: sentinel present, '
+                    'no test layers in DB — no-op'
+                )
+            conn.close()
+            return
+
+        if not test_layer_ids:
+            # Nothing to delete. Still write the sentinel so a future
+            # backfill that adds an ``API guard`` row gets cleaned up
+            # next time the migration runs (the unsealed branch).
+            print(
+                '✅ migrate_delete_test_layers_v1: no test layers found '
+                'in DB — sealing sentinel so future leftovers are '
+                'caught on next re-run'
+            )
+            if site_config_exists:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO site_config (key, value) "
+                    "VALUES (?, ?)",
+                    (TEST_LAYERS_DELETED_KEY, 'sealed'),
+                )
+                conn.commit()
+            conn.close()
+            return
+
+        # ----- Step 3: delete the flagged test rows ------------------------
+        deleted_count = _delete_test_layer_rows(
+            conn, cursor, test_layer_ids, TEST_LAYER_DEPENDENT_TABLES,
+        )
+
+        # ----- Step 4: write the sentinel ----------------------------------
+        if site_config_exists:
+            cursor.execute(
+                "INSERT OR IGNORE INTO site_config (key, value) "
+                "VALUES (?, ?)",
+                (TEST_LAYERS_DELETED_KEY, 'sealed'),
+            )
+
+        conn.commit()
+        conn.close()
+        print(
+            f'✅ migrate_delete_test_layers_v1: removed '
+            f'{deleted_count} test layer(s) from layer table; sealed '
+            'sentinel so re-runs are a no-op'
+        )
+    except Exception as e:
+        print(f'⚠️  Error in migrate_delete_test_layers_v1: {e}')
+
+
+def _delete_test_layer_rows(
+    conn, cursor, test_layer_ids: list[str], dependent_tables: tuple[str, ...],
+) -> int:
+    """Delete test-layer rows + every FK reference. Returns layer count deleted."""
+    if not test_layer_ids:
+        return 0
+    placeholders = ', '.join('?' * len(test_layer_ids))
+    # 1. Dependent rows referencing layer_id / source_layer_id.
+    for table in dependent_tables:
+        # Discover which columns reference layer (some tables — like
+        # layer_connection — use ``source_layer_id`` instead of
+        # ``layer_id``). We delete rows where ANY of those columns
+        # match a test-layer id.
+        cursor.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in cursor.fetchall()}
+        candidate_cols = [
+            c for c in cols
+            if c in ('layer_id', 'source_layer_id')
+        ]
+        if not candidate_cols:
+            continue
+        # Compose: DELETE FROM t WHERE layer_id IN (...) OR source_layer_id IN (...)
+        where = ' OR '.join(f'{c} IN ({placeholders})' for c in candidate_cols)
+        params = []
+        for _ in candidate_cols:
+            params.extend(test_layer_ids)
+        cursor.execute(f'DELETE FROM {table} WHERE {where}', params)
+    # 2. Layer rows themselves.
+    cursor.execute(
+        f'DELETE FROM layer WHERE id IN ({placeholders})',
+        test_layer_ids,
+    )
+    return cursor.rowcount
