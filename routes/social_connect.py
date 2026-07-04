@@ -46,9 +46,10 @@ def _provider_user_info(blueprint, token):
         if not resp.ok:
             return None
         data = resp.json()
+        # Google+ shut down in 2019 — don't fabricate a plus.google.com URL; store empty string when no link is returned.
         return (
             str(data.get('id', '')),
-            data.get('link', f"https://plus.google.com/{data.get('id', '')}"),
+            data.get('link') or '',
             data.get('picture', ''),
             data.get('name', ''),
         )

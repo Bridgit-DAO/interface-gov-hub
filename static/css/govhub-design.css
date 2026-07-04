@@ -2028,16 +2028,22 @@ a.gh-passage-comment-link:focus {
   color: rgba(200, 210, 235, 0.9);
 }
 
-/* GhImageCrop modal viewport */
+/* GhImageCrop modal viewport: square container that sizes to the image, capped so it never overflows the viewport */
 .gh-crop-viewport {
   width: 100%;
-  max-height: 400px;
-  min-height: 300px;
+  aspect-ratio: 1 / 1;
+  max-width: 560px;
+  max-height: 70vh;
   overflow: hidden;
   background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .gh-crop-viewport img {
   max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 #ghImageCropModal .cropper-view-box {
   border-radius: 0;
