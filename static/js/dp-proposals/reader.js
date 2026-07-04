@@ -579,45 +579,80 @@
     if (editBtn) {
       editBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        var next = window.prompt('Edit your comment:', c.text || '');
-        if (next == null) return;
-        next = next.trim();
-        if (!next) return;
-        fetch(apiUrl('/reader-comments/' + encodeURIComponent(c.id) + '/'), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ text: next }),
-        })
-          .then(parseJsonResponse)
-          .then(function (res) {
-            if (!res.ok) {
-              window.alert(res.data.error || 'Could not update comment');
-              return;
-            }
-            loadReaderComments().then(rebuildPassageAnchors);
-            hideHoverPanel(true);
-          });
+        var proceed = GhDialog.prompt({
+          title: 'Edit comment',
+          message: 'Edit your comment:',
+          defaultValue: c.text || '',
+          inputType: 'textarea',
+          confirmLabel: 'Save',
+          cancelLabel: 'Cancel',
+          required: true,
+        });
+        proceed.then(function (next) {
+          if (next == null) return;
+          next = String(next).trim();
+          if (!next) return;
+          fetch(apiUrl('/reader-comments/' + encodeURIComponent(c.id) + '/'), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ text: next }),
+          })
+            .then(parseJsonResponse)
+            .then(function (res) {
+              if (!res.ok) {
+                if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+                  GhDialog.alert({
+                    title: 'Could not update comment',
+                    message: res.data.error || 'Could not update comment',
+                    variant: 'danger',
+                  });
+                } else {
+                  window.alert(res.data.error || 'Could not update comment');
+                }
+                return;
+              }
+              loadReaderComments().then(rebuildPassageAnchors);
+              hideHoverPanel(true);
+            });
+        });
       });
     }
     var delBtn = panel.querySelector('.dp-comment-delete-btn');
     if (delBtn) {
       delBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        if (!window.confirm('Delete this comment?')) return;
-        fetch(apiUrl('/reader-comments/' + encodeURIComponent(c.id) + '/'), {
-          method: 'DELETE',
-          credentials: 'same-origin',
-        })
-          .then(parseJsonResponse)
-          .then(function (res) {
-            if (!res.ok) {
-              window.alert(res.data.error || 'Could not delete comment');
-              return;
-            }
-            loadReaderComments().then(rebuildPassageAnchors);
-            hideHoverPanel(true);
-          });
+        var proceed = GhDialog.confirm({
+          title: 'Delete comment',
+          message: 'Delete this comment?',
+          confirmLabel: 'Delete',
+          cancelLabel: 'Cancel',
+          variant: 'danger',
+        });
+        proceed.then(function (ok) {
+          if (!ok) return;
+          fetch(apiUrl('/reader-comments/' + encodeURIComponent(c.id) + '/'), {
+            method: 'DELETE',
+            credentials: 'same-origin',
+          })
+            .then(parseJsonResponse)
+            .then(function (res) {
+              if (!res.ok) {
+                if (typeof GhDialog !== 'undefined' && GhDialog && GhDialog.alert) {
+                  GhDialog.alert({
+                    title: 'Could not delete comment',
+                    message: res.data.error || 'Could not delete comment',
+                    variant: 'danger',
+                  });
+                } else {
+                  window.alert(res.data.error || 'Could not delete comment');
+                }
+                return;
+              }
+              loadReaderComments().then(rebuildPassageAnchors);
+              hideHoverPanel(true);
+            });
+        });
       });
     }
   }
@@ -1575,6 +1610,7 @@
   function openAssistPanel(target) {
     if (!meta.authenticated) {
       showComposeMessage('Sign in to use AI Assist.', 'error');
+      promptSignInForAssist();
       return;
     }
     var panel = document.getElementById('dpAiAssistPanel');
@@ -1595,6 +1631,10 @@
       .then(parseJsonResponse)
       .then(function (res) {
         if (!res.ok) {
+          if (isUnexpectedServerResponse(res)) {
+            promptSignInForAssist('Your session may have expired. Please sign in again.');
+            return;
+          }
           setAssistStatus(res.data.error || 'Could not prepare AI Assist context.');
           return;
         }
@@ -1611,6 +1651,31 @@
       .catch(function () {
         setAssistStatus('Network error preparing AI Assist context.');
       });
+  }
+
+  function promptSignInForAssist(message) {
+    var returnTo = window.location.pathname + window.location.search + window.location.hash;
+    var dialogMessage = message || 'Sign in with Web3Auth to use AI Assist.';
+    if (typeof GhDialog === 'undefined' || !GhDialog || !GhDialog.confirm) {
+      window.location.href = '/login/?next=' + encodeURIComponent(returnTo);
+      return;
+    }
+    GhDialog.confirm({
+      title: 'Sign in required',
+      message: dialogMessage,
+      confirmLabel: 'Sign in',
+      cancelLabel: 'Cancel',
+      variant: 'info',
+    }).then(function (ok) {
+      if (!ok) return;
+      window.location.href = '/login/?next=' + encodeURIComponent(returnTo);
+    });
+  }
+
+  function isUnexpectedServerResponse(res) {
+    if (!res || !res.data) return false;
+    var err = res.data.error;
+    return typeof err === 'string' && err.indexOf('Unexpected server response') === 0;
   }
 
   function showAiAssistError(data, fallbackMessage) {
