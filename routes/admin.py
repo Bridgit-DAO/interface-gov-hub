@@ -1500,9 +1500,24 @@ def admin_projects():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     # Use same DB counts as admin dashboard so badge matches "Review now" alert
-    pending_projects = Layer.query.filter_by(approval_status='pending').order_by(Layer.last_activity.desc()).all()
-    approved_projects = Layer.query.filter_by(approval_status='approved').order_by(Layer.last_activity.desc()).all()
-    rejected_projects = Layer.query.filter_by(approval_status='rejected').order_by(Layer.last_activity.desc()).all()
+    pending_projects = (
+        Layer.query.filter_by(approval_status='pending')
+        .group_by(Layer.name)
+        .order_by(Layer.last_activity.desc())
+        .all()
+    )
+    approved_projects = (
+        Layer.query.filter_by(approval_status='approved')
+        .group_by(Layer.name)
+        .order_by(Layer.last_activity.desc())
+        .all()
+    )
+    rejected_projects = (
+        Layer.query.filter_by(approval_status='rejected')
+        .group_by(Layer.name)
+        .order_by(Layer.last_activity.desc())
+        .all()
+    )
     pending_count = len(pending_projects)
     approved_count = len(approved_projects)
     rejected_count = len(rejected_projects)

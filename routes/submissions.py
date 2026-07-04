@@ -931,7 +931,12 @@ def submit_draft():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
 
-    layers = Layer.query.filter(Layer.approval_status == 'approved').order_by(Layer.name).all()
+    layers = (
+        Layer.query.filter(Layer.approval_status == 'approved')
+        .group_by(Layer.name)
+        .order_by(Layer.name)
+        .all()
+    )
     layer_from_param = None
     if request.args.get('layer'):
         layer_from_param = Layer.query.filter_by(slug=request.args.get('layer').strip()).first()

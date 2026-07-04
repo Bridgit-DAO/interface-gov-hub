@@ -301,14 +301,16 @@ def test_api_add_requires_admin(app):
     from extensions import db
 
     with app.test_client() as c, app.app_context():
-        # Create a layer owned by someone else
-        suffix = 'notadmin'
+        # Use uuid-suffixed identifiers so each run inserts fresh rows that
+        # never collide with prior runs (was accumulating duplicates because
+        # name/slug were deterministic).
+        suffix = uuid4().hex[:8]
         owner_id = str(uuid4())
         layer = Layer(
             id=str(uuid4()),
             public_id=str(uuid4()),
-            slug=f'api-guard-layer-{suffix}',
-            name=f'API guard layer {suffix}',
+            slug=f'api-guard-layer-notadmin-{suffix}',
+            name=f'API guard layer notadmin {suffix}',
             initiator_id=owner_id,
             approval_status='approved',
         )
