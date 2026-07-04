@@ -43,6 +43,7 @@ from services.layer_prefixes import (
     is_valid_prefix_format as _svc_is_valid_prefix_format,
     normalize_display_status as _svc_normalize_display_status,
     PUBLIC_LAYER_ADMIN_ALLOWED_STATUSES as _PUBLIC_DS_STATUSES,
+    _layer_admin_layer_ids,
 )
 
 bp = Blueprint('layers', __name__, url_prefix='/api/layers')
@@ -1243,12 +1244,32 @@ def _ensure_layer_for_prefixes(layer_id):
 def list_layer_prefixes(layer_id):
     """List all two-letter draft prefixes for a layer.
 
-    Anonymous read access — the list is the same public knowledge as the
-    layer's draft codes are deterministic from the layer existence.
+    The submit form only ever asks for prefixes of layers the user can
+    submit to, so we restrict the response to:
+      * platform admins (role=admin/editor), OR
+      * layer admins / owners / active members of the target layer.
+    Anyone else gets a 403 to avoid leaking prefix choices for layers
+    they cannot submit to.
     """
     project = _ensure_layer_for_prefixes(layer_id)
     if not project:
         return jsonify({'error': 'Layer not found', 'code': 'not_found'}), 404
+
+    current_user = get_current_user()
+    user_id = (current_user or {}).get('id')
+    user_role = ((current_user or {}).get('role') or '').strip().lower()
+
+    if user_role not in ('admin', 'editor'):
+        admin_ids = set(_layer_admin_layer_ids(user_id))
+        member_ids = {
+            m.layer_id for m in
+            LayerMember.query.filter_by(user_id=user_id, status='active').all()
+        }
+        if project.id not in admin_ids and project.id not in member_ids:
+            return jsonify({
+                'error': "You don't have access to this layer's prefixes.",
+                'code': 'forbidden',
+            }), 403
 
     rows = _svc_list_prefixes(project.id)
     return jsonify({

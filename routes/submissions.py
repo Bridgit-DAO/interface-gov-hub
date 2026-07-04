@@ -691,6 +691,7 @@ def _build_submit_form_template(
     layers,
     selected_group: str = '',
     build_number: int,
+    empty_state_message: str = 'No approved layers available. Submit from a layer subdomain (e.g. overweb.themetalayer.org) or create a layer first.',
 ) -> str:
     """Build submit page HTML with DB-backed workgroup options for the layer."""
     from templates.html_templates import SUBMIT_TEMPLATE
@@ -741,9 +742,9 @@ def _build_submit_form_template(
             '<input type="hidden" name="layer_id" class="submit-layer-id-field" value="">'
         )
     else:
-        layer_selector_shared = '''
+        layer_selector_shared = f'''
                     <div class="mb-3">
-                        <p class="text-warning mb-0">No approved layers available. Submit from a layer subdomain (e.g. overweb.themetalayer.org) or create a layer first.</p>
+                        <p class="text-warning mb-0">{html_mod.escape(empty_state_message)}</p>
                     </div>'''
         layer_hidden_field = ''
 
@@ -1006,28 +1007,69 @@ def submit_draft():
     user_menu = generate_user_menu()
     current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
 
-    # Public submit-form layer dropdown. Layer admins still see their own
-    # pending layers so they can iterate during setup; everyone else sees
-    # only layers the admin has flipped to ``display_status='active'``.
-    from services.layer_prefixes import visible_layers_for_user
-    layers = visible_layers_for_user(
-        (get_current_user() or {}).get('id'),
-    )
+    current_user = get_current_user() or {}
+    user_id = current_user.get('id')
+    user_role = (current_user.get('role') or '').strip().lower()
+
+    # Layer dropdown rules:
+    #   * Admins see the full ``visible_layers_for_user`` (pending + active,
+    #     everything approved) so they can review any submission target.
+    #   * Non-admins only see layers where they are a ``LayerAdmin`` (or the
+    #     layer's initiator/owner), filtered to ``approval_status='approved'``
+    #     and deduped by name. Empty result renders a friendly message.
+    from services.layer_prefixes import visible_layers_for_user, _layer_admin_layer_ids
+
+    if user_role == 'admin':
+        layers = visible_layers_for_user(user_id)
+    else:
+        admin_layer_ids = _layer_admin_layer_ids(user_id)
+        if admin_layer_ids:
+            layers = (
+                Layer.query
+                .filter(
+                    Layer.id.in_(admin_layer_ids),
+                    Layer.approval_status == 'approved',
+                )
+                .group_by(Layer.name)
+                .order_by(Layer.name)
+                .all()
+            )
+        else:
+            layers = []
     layer_from_param = None
     if request.args.get('layer'):
         layer_from_param = Layer.query.filter_by(slug=request.args.get('layer').strip()).first()
     elif request.args.get('layer_id'):
         layer_from_param = Layer.query.get(request.args.get('layer_id').strip())
     effective_layer = g.get('layer') or layer_from_param
+    # Non-admins can only target a layer they're a member of. If a layer
+    # came in via query param / subdomain but the user isn't a member,
+    # treat as no effective layer (so the dropdown shows).
+    if effective_layer and user_role != 'admin' and effective_layer.id not in set(_layer_admin_layer_ids(user_id)):
+        effective_layer = None
     if not effective_layer and request.method == 'POST' and request.form.get('layer_id'):
         effective_layer = Layer.query.get(request.form.get('layer_id').strip())
 
     selected_group = request.form.get('group', '').strip() if request.method == 'POST' else ''
+    if not layers and user_role != 'admin':
+        empty_state_message = (
+            "You're not a member of any layer yet, so the layer dropdown is empty. "
+            "Ask a layer admin to add you as a layer admin, or create a new layer from "
+            "the Layers page to start submitting drafts."
+        )
+    elif not layers:
+        empty_state_message = (
+            'No approved layers available. Submit from a layer subdomain '
+            '(e.g. overweb.themetalayer.org) or create a layer first.'
+        )
+    else:
+        empty_state_message = ''
     submit_template = _build_submit_form_template(
         effective_layer=effective_layer,
         layers=layers,
         selected_group=selected_group,
         build_number=BUILD_NUMBER,
+        empty_state_message=empty_state_message,
     )
 
     if request.method == 'POST':
