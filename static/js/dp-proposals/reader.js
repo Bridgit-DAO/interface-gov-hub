@@ -1646,7 +1646,7 @@
           setAssistStatus('AI Assist is not configured on this server.');
           return;
         }
-        runAssistAction(assistDefaultAction(target));
+        setAssistStatus('Pick an action to generate a draft.');
       })
       .catch(function () {
         setAssistStatus('Network error preparing AI Assist context.');
