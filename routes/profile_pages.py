@@ -734,12 +734,9 @@ def profile_edit():
                                     class="form-control"
                                     id="profile-image-file"
                                     accept="image/*"
-                                    onchange="previewImage(this, 'profile-image-preview')"
+                                    onchange="openProfileImageCrop(this)"
                                 >
-                                <div class="form-text">Max 600×600px, 5MB. PNG, JPG, GIF, WebP, SVG</div>
-                                <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadProfileImage()">
-                                    <i class="fas fa-upload me-2"></i>Upload Profile Picture
-                                </button>
+                                <div class="form-text">Upload any size — we'll let you crop and zoom to fit a 600×600 square. PNG/JPG/GIF/WebP/SVG, up to 5MB.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Banner Image</label>
@@ -756,12 +753,9 @@ def profile_edit():
                                     class="form-control"
                                     id="banner-image-file"
                                     accept="image/*"
-                                    onchange="previewBannerImage(this)"
+                                    onchange="openBannerImageCrop(this)"
                                 >
-                                <div class="form-text">Max 5MB. PNG, JPG, GIF, WebP, SVG. Recommended: wide/landscape format.</div>
-                                <button class="btn btn-primary btn-sm mt-2 w-100" onclick="uploadBannerImage()">
-                                    <i class="fas fa-upload me-2"></i>Upload Banner
-                                </button>
+                                <div class="form-text">Upload any size — we'll let you crop and zoom to fit a wide banner. PNG/JPG/GIF/WebP/SVG, up to 5MB.</div>
                             </div>
                         </div>
                     </div>
@@ -868,37 +862,54 @@ def profile_edit():
         window.alert((opts.title ? opts.title + '\\n\\n' : '') + (opts.message || ''));
     }}
 
-    function previewImage(input, previewId) {{
-        if (input.files && input.files[0]) {{
-            const reader = new FileReader();
-            reader.onload = function(e) {{
-                document.getElementById(previewId).src = e.target.result;
-            }};
-            reader.readAsDataURL(input.files[0]);
+    function openProfileImageCrop(input) {{
+        const file = input.files && input.files[0];
+        if (!file) return;
+        if (typeof window.GhImageCrop !== 'object') {{
+            ghNotify({{ title: 'Cropper unavailable', message: 'Image cropper is still loading. Please try again in a moment.', variant: 'danger' }});
+            input.value = '';
+            return;
         }}
+        window.GhImageCrop.open(file, {{
+            outputSize: 600,
+            aspectRatio: 1,
+            title: 'Crop Profile Picture',
+            onConfirm: function(blob) {{ uploadProfileImage(blob, input); }},
+            onCancel:  function() {{ input.value = ''; }},
+        }});
     }}
 
-    function previewBannerImage(input) {{
-        if (input.files && input.files[0]) {{
-            const reader = new FileReader();
-            const preview = document.getElementById('banner-image-preview');
-            reader.onload = function(e) {{
-                preview.src = e.target.result;
-                preview.style.display = 'block';
-            }};
-            reader.readAsDataURL(input.files[0]);
+    function openBannerImageCrop(input) {{
+        const file = input.files && input.files[0];
+        if (!file) return;
+        if (typeof window.GhImageCrop !== 'object') {{
+            ghNotify({{ title: 'Cropper unavailable', message: 'Image cropper is still loading. Please try again in a moment.', variant: 'danger' }});
+            input.value = '';
+            return;
         }}
+        window.GhImageCrop.open(file, {{
+            outputSize: 600,
+            aspectRatio: 16 / 5,
+            title: 'Crop Banner',
+            onConfirm: function(blob) {{ uploadBannerImage(blob, input); }},
+            onCancel:  function() {{ input.value = ''; }},
+        }});
     }}
 
-    async function uploadProfileImage() {{
-        const fileInput = document.getElementById('profile-image-file');
-        if (!fileInput.files || !fileInput.files[0]) {{
+    async function uploadProfileImage(blob, fileInput) {{
+        if (!blob) {{
             await ghNotify({{ title: 'No image selected', message: 'Please select an image first.', variant: 'warning' }});
             return;
         }}
 
+        const mime = blob.type || 'image/jpeg';
+        const ext = (typeof window.GhImageCrop.extensionForMime === 'function')
+            ? window.GhImageCrop.extensionForMime(mime)
+            : (mime.indexOf('png') >= 0 ? 'png' : (mime.indexOf('webp') >= 0 ? 'webp' : 'jpg'));
+        const filename = 'profile.' + ext;
+
         const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
+        formData.append('file', new File([blob], filename, {{ type: mime }}));
         formData.append('type', 'profile');
 
         try {{
@@ -914,22 +925,29 @@ def profile_edit():
                 location.reload();
             }} else {{
                 await ghNotify({{ title: 'Upload failed', message: data.error || 'Failed to upload image', variant: 'danger' }});
+                if (fileInput) fileInput.value = '';
             }}
         }} catch (error) {{
             console.error('Error uploading image:', error);
             await ghNotify({{ title: 'Upload failed', message: 'Failed to upload image.', variant: 'danger' }});
+            if (fileInput) fileInput.value = '';
         }}
     }}
 
-    async function uploadBannerImage() {{
-        const fileInput = document.getElementById('banner-image-file');
-        if (!fileInput.files || !fileInput.files[0]) {{
+    async function uploadBannerImage(blob, fileInput) {{
+        if (!blob) {{
             await ghNotify({{ title: 'No image selected', message: 'Please select an image first.', variant: 'warning' }});
             return;
         }}
 
+        const mime = blob.type || 'image/jpeg';
+        const ext = (typeof window.GhImageCrop.extensionForMime === 'function')
+            ? window.GhImageCrop.extensionForMime(mime)
+            : (mime.indexOf('png') >= 0 ? 'png' : (mime.indexOf('webp') >= 0 ? 'webp' : 'jpg'));
+        const filename = 'banner.' + ext;
+
         const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
+        formData.append('file', new File([blob], filename, {{ type: mime }}));
         formData.append('type', 'banner');
 
         try {{
@@ -945,10 +963,12 @@ def profile_edit():
                 location.reload();
             }} else {{
                 await ghNotify({{ title: 'Upload failed', message: data.error || 'Failed to upload image', variant: 'danger' }});
+                if (fileInput) fileInput.value = '';
             }}
         }} catch (error) {{
             console.error('Error uploading image:', error);
             await ghNotify({{ title: 'Upload failed', message: 'Failed to upload image.', variant: 'danger' }});
+            if (fileInput) fileInput.value = '';
         }}
     }}
 

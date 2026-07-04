@@ -45,6 +45,11 @@ datatracker.sublime-workspace
 !/static/js/gh-theme.js
 !/static/js/dp-proposals/
 !/static/js/dp-proposals/**
+!/static/vendor/
+|/static/vendor/*
+|!/static/vendor/cropperjs/
+|!/static/vendor/cropperjs/cropper.min.css
+|!/static/vendor/cropperjs/cropper.min.js
 !/static/i18n/
 /static/i18n/*
 !/static/i18n/civic-mason/

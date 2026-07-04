@@ -325,6 +325,9 @@ def submit_role_image(role_slug):
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
+    length = request.content_length
+    if length is not None and length > 5 * 1024 * 1024:
+        return jsonify({'error': 'File too large. Maximum size is 5MB.'}), 413
     recent_submissions = RoleImage.query.filter(
         RoleImage.submitted_by_id == current_user['id'],
         RoleImage.submitted_at >= datetime.utcnow() - timedelta(days=1)

@@ -9,7 +9,20 @@ from extensions import db
 from models import User, LayerMember
 from services.identity import get_current_user, require_auth
 from services.avatar import get_avatar_url
-from services.images import upload_image_600x600, upload_image
+from services.images import upload_image_600x600, upload_image, upload_banner
+
+# Per-route 5MB cap for image uploads (kept stricter than the app-level
+# MAX_CONTENT_LENGTH so we can return a clean error rather than Flask's
+# default 413/connection-drop behavior).
+IMAGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _enforce_image_size_limit():
+    """Return a 413 JSON response if the request is too large, else None."""
+    length = request.content_length
+    if length is not None and length > IMAGE_UPLOAD_MAX_BYTES:
+        return jsonify({'error': 'File too large. Maximum size is 5MB.'}), 413
+    return None
 
 bp = Blueprint('users', __name__, url_prefix='')
 
@@ -29,10 +42,17 @@ def _profile_image_folder():
 @bp.route('/api/upload/entity-image', methods=['POST'])
 @require_auth
 def api_upload_entity_image():
-    """Upload an image for project/workgroup/guild/waitlist. Max 600×600, 5MB. Returns { image_url }."""
+    """Upload an image for project/workgroup/guild/waitlist. Max 5MB. Returns { image_url }.
+
+    Accepts images of any reasonable size; the server cover-crops and
+    downscales to 600×600 preserving the original format.
+    """
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
+    too_large = _enforce_image_size_limit()
+    if too_large:
+        return too_large
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     file = request.files['file']
@@ -237,7 +257,7 @@ def serve_profile_image(filename):
 @bp.route('/api/user/upload-image/', methods=['POST'])
 @require_auth
 def api_upload_profile_image():
-    """Upload profile or banner image. Max 600×600px, 5MB."""
+    """Upload profile (600×600) or banner (1920×600) image. Max 5MB."""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
@@ -245,6 +265,10 @@ def api_upload_profile_image():
     user = User.query.get(current_user['id'])
     if not user:
         return jsonify({'error': 'User not found'}), 404
+
+    too_large = _enforce_image_size_limit()
+    if too_large:
+        return too_large
 
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
@@ -257,9 +281,8 @@ def api_upload_profile_image():
 
     prefix = f"{image_type}_{user.id}"
     if image_type == 'banner':
-        image_url, err = upload_image(
-            file, _profile_image_folder(), '/uploads/profile_images',
-            filename_prefix=prefix, max_dimension=None
+        image_url, err = upload_banner(
+            file, _profile_image_folder(), '/uploads/profile_images', filename_prefix=prefix
         )
     else:
         image_url, err = upload_image_600x600(

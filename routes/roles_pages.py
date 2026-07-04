@@ -257,8 +257,8 @@ def role_images_directory():
                         </div>
                         <div id="addUploadField" class="mb-3">
                             <label class="form-label">File</label>
-                            <input type="file" class="form-control" id="addImageFile" accept="image/*">
-                            <small class="text-muted">Max 600×600 px, 5MB. PNG, JPG, GIF, WebP, SVG</small>
+                            <input type="file" class="form-control" id="addImageFile" accept="image/*" onchange="openRoleImageCrop(this)">
+                            <small class="text-muted">Upload any size — we'll let you crop and zoom to fit a 600×600 square. PNG/JPG/GIF/WebP/SVG, up to 5MB.</small>
                         </div>
                         <div id="addUrlField" class="mb-3" style="display:none;">
                             <label class="form-label">Image URL</label>
@@ -431,6 +431,33 @@ def role_images_directory():
         const t = document.getElementById('addSourceType').value;
         document.getElementById('addUploadField').style.display = t === 'upload' ? 'block' : 'none';
         document.getElementById('addUrlField').style.display = t === 'url' ? 'block' : 'none';
+    }}
+
+    function openRoleImageCrop(input) {{
+        const file = input.files && input.files[0];
+        if (!file) return;
+        if (typeof window.GhImageCrop !== 'object') {{
+            alert('Image cropper is still loading. Please try again in a moment.');
+            input.value = '';
+            return;
+        }}
+        window.GhImageCrop.open(file, {{
+            outputSize: 600,
+            aspectRatio: 1,
+            title: 'Crop Role Image',
+            onConfirm: function(blob) {{
+                const mime = blob.type || 'image/jpeg';
+                const ext = (typeof window.GhImageCrop.extensionForMime === 'function')
+                    ? window.GhImageCrop.extensionForMime(mime)
+                    : (mime.indexOf('png') >= 0 ? 'png' : (mime.indexOf('webp') >= 0 ? 'webp' : 'jpg'));
+                const file = new File([blob], 'role-image.' + ext, {{ type: mime }});
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                input.files = dt.files;
+                submitAddImage();
+            }},
+            onCancel: function() {{ input.value = ''; }},
+        }});
     }}
 
     async function submitAddImage() {{

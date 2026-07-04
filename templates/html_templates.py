@@ -68,6 +68,8 @@ BASE_TEMPLATE = """
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     {font_awesome_link}
+    <link href="/static/vendor/cropperjs/cropper.min.css" rel="stylesheet">
+    <script src="/static/vendor/cropperjs/cropper.min.js"></script>
     <script src="{govhub_i18n_js}"></script>
     
     <style>
