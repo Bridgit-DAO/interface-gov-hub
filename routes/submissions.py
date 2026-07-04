@@ -460,66 +460,45 @@ def _apply_submission_document_meta(submission, form, user_id: Optional[str]) ->
         sync_submission_tags_to_artifact(submission)
 
 
-def _build_prefix_selector_html(layer_id, layer_prefixes):
-    """Per-draft prefix selector for the submit form.
+def _build_prefix_selector_inner_html(layer_id, layer_prefixes):
+    """Inner markup for the per-draft prefix selector, per branch.
 
-    0 prefixes: warning (admin hasn't set one yet).
-    1 prefix:   read-only badge (drafts always use this code).
-    >1 prefix:  dropdown — author picks the code for this draft.
-    The selection is mirrored into the hidden #upload-prefix-code and
-    #ordinal-prefix-code fields on change so the server can read it.
+    The wrapper ``<div id="submit-prefix-selector-wrap">`` is the contract
+    used by ``_GhRefreshSubmitPrefixSelector`` (and the workgroup_links.js
+    change handler) and is emitted by ``_build_prefix_selector_html`` —
+    helpers here return only the *contents* of that wrapper.
     """
     if not layer_id:
-        # No layer chosen yet (user must pick one above); don't show selector
-        # until they do. The JS will re-render when they change the select.
         return (
-            '<div class="mb-3" id="submit-prefix-selector-wrap" '
-            'data-prefix-state="no-layer" style="display:none;">'
             '<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>'
             '<div id="submit-prefix-selector-body" class="small text-muted">'
             'Select a layer to see available prefixes.'
-            '</div></div>'
+            '</div>'
         )
 
     if not layer_prefixes:
         return (
-            '<div class="mb-3" id="submit-prefix-selector-wrap" '
-            'data-prefix-state="empty">'
             '<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>'
             '<div class="alert alert-warning small mb-0">'
-            'No prefix configured for this layer — ask your layer admin to add one '
-            'in the layer\'s Admin tab.'
-            '</div></div>'
+            "No prefix configured for this layer — ask your layer admin to add one "
+            "in the layer's Admin tab."
+            '</div>'
         )
 
     if len(layer_prefixes) == 1:
         p = layer_prefixes[0]
+        code = html_mod.escape(p.prefix or "")
         return (
-            '<div class="mb-3" id="submit-prefix-selector-wrap" '
-            'data-prefix-state="single" '
-            f'data-prefix-default="{html_mod.escape(p.prefix or "")}">'
             '<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>'
             '<div class="d-flex align-items-center gap-2">'
-            f'<span class="font-monospace fs-5 fw-bold">{html_mod.escape(p.prefix or "")}</span>'
+            f'<span class="font-monospace fs-5 fw-bold">{code}</span>'
             '<span class="badge bg-success">Default</span>'
             '</div>'
             '<div class="form-text">This is the only prefix for this layer; the new '
             'draft will use it automatically.</div>'
-            # Pre-populate the hidden field with the only option so the
-            # server can read the value even without further interaction.
-            f'<script>(function(){{'
-            f'  function _setSingle() {{ '
-            f'    var u=document.getElementById("upload-prefix-code"); '
-            f'    if (u) u.value="{html_mod.escape(p.prefix or "")}"; '
-            f'    var o=document.getElementById("ordinal-prefix-code"); '
-            f'    if (o) o.value="{html_mod.escape(p.prefix or "")}"; '
-            f'  }} '
-            f'  if (document.readyState==="loading") {{ document.addEventListener("DOMContentLoaded", _setSingle); }} else {{ _setSingle(); }} '
-            f'}})();</script>'
-            '</div>'
         )
 
-    # >1 prefix → dropdown
+    # >1 prefix → dropdown options
     options = []
     for p in layer_prefixes:
         label = p.prefix
@@ -530,17 +509,29 @@ def _build_prefix_selector_html(layer_id, layer_prefixes):
             f'<option value="{html_mod.escape(p.prefix or "")}"{sel}>'
             f'{html_mod.escape(label)}</option>'
         )
-    default_p = next((p for p in layer_prefixes if p.is_default), layer_prefixes[0])
     return (
-        '<div class="mb-3" id="submit-prefix-selector-wrap" '
-        'data-prefix-state="multi">'
         '<label for="submit-prefix-select" class="form-label" '
         'data-gh-i18n="prefix.label">Prefix</label>'
         '<select class="form-select" id="submit-prefix-select" '
-        f'style="max-width: 14rem;">{"".join(options)}</select>'
+        'style="max-width: 14rem;">'
+        f'{"".join(options)}'
+        '</select>'
         '<div class="form-text">This layer has more than one prefix — pick which '
-        'code to use for this draft\'s identifier.</div>'
-        # JS wires the select to the hidden fields on both forms.
+        "code to use for this draft's identifier.</div>"
+    )
+
+
+def _gh_prefix_selector_refresh_script():
+    """Inline script that defines ``window._GhRefreshSubmitPrefixSelector``.
+
+    The wrapper div is always present (emitted by
+    ``_build_prefix_selector_html``); on layer change the change handler
+    in ``services/workgroup_links.py`` calls this function which fetches
+    the live prefixes and rebuilds the wrapper content for all three
+    outcomes (zero / one / many), then keeps the hidden
+    ``#upload-prefix-code`` and ``#ordinal-prefix-code`` fields in sync.
+    """
+    return (
         '<script>(function(){\n'
         'function _syncPrefixFields(val) {\n'
         '  var u=document.getElementById("upload-prefix-code");\n'
@@ -548,64 +539,120 @@ def _build_prefix_selector_html(layer_id, layer_prefixes):
         '  var o=document.getElementById("ordinal-prefix-code");\n'
         '  if (o) o.value = val || "";\n'
         '}\n'
-        'function _initPrefixSelect() {\n'
+        'function _clearPrefixFields() { _syncPrefixFields(""); }\n'
+        'window._GhRefreshSubmitPrefixSelector = function(layerId) {\n'
+        '  var wrap = document.getElementById("submit-prefix-selector-wrap");\n'
+        '  if (!wrap) return;\n'
+        '  if (!layerId) {\n'
+        '    wrap.style.display = "none";\n'
+        '    wrap.setAttribute("data-prefix-state", "no-layer");\n'
+        '    wrap.innerHTML = \'<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>\'\n'
+        '      + \'<div id="submit-prefix-selector-body" class="small text-muted">Select a layer to see available prefixes.</div>\';\n'
+        '    _clearPrefixFields();\n'
+        '    return;\n'
+        '  }\n'
+        '  fetch("/api/layers/" + encodeURIComponent(layerId) + "/prefixes/", {credentials:"same-origin"})\n'
+        '    .then(function(r){ return r.json(); })\n'
+        '    .then(function(data){\n'
+        '      var items = (data && data.prefixes) || [];\n'
+        '      if (!items.length) {\n'
+        '        wrap.setAttribute("data-prefix-state", "empty");\n'
+        '        wrap.innerHTML = \'<label class="form-label">Prefix</label>\'\n'
+        '          + \'<div class="alert alert-warning small mb-0">No prefix configured for this layer — ask your layer admin to add one.</div>\';\n'
+        '        _clearPrefixFields();\n'
+        '        return;\n'
+        '      }\n'
+        '      if (items.length === 1) {\n'
+        '        wrap.setAttribute("data-prefix-state", "single");\n'
+        '        wrap.innerHTML = \'<label class="form-label">Prefix</label>\'\n'
+        '          + \'<div class="d-flex align-items-center gap-2">\'\n'
+        '          + \'<span class="font-monospace fs-5 fw-bold">\' + (items[0].prefix || "") + \'</span>\'\n'
+        '          + \'<span class="badge bg-success">Default</span></div>\'\n'
+        '          + \'<div class="form-text">This is the only prefix for this layer; the new draft will use it automatically.</div>\';\n'
+        '        _syncPrefixFields(items[0].prefix || "");\n'
+        '        return;\n'
+        '      }\n'
+        '      var html = \'<label for="submit-prefix-select" class="form-label">Prefix</label>\'\n'
+        '        + \'<select class="form-select" id="submit-prefix-select" style="max-width: 14rem;">\';\n'
+        '      var def = items.find(function(x){ return x.is_default; }) || items[0];\n'
+        '      items.forEach(function(p){\n'
+        '        var lbl = p.prefix + (p.is_default ? " (default)" : "");\n'
+        '        var sel = p.is_default ? " selected" : "";\n'
+        '        html += \'<option value="\' + p.prefix + \'"\' + sel + \'>\' + lbl + \'</option>\';\n'
+        '      });\n'
+        '      html += \'</select><div class="form-text">This layer has more than one prefix — pick which code to use for this draft\\u2019s identifier.</div>\';\n'
+        '      wrap.setAttribute("data-prefix-state", "multi");\n'
+        '      wrap.innerHTML = html;\n'
+        '      var newSel = document.getElementById("submit-prefix-select");\n'
+        '      _syncPrefixFields(def.prefix || "");\n'
+        '      if (newSel) newSel.addEventListener("change", function(){ _syncPrefixFields(newSel.value); });\n'
+        '    })\n'
+        '    .catch(function(e){ console.warn("prefix fetch failed", e); });\n'
+        '};\n'
+        # If the wrapper was rendered with a concrete layer already chosen
+        # (single or multi), wire the dropdown-or-hidden-field sync to that
+        # initial value so the form has the prefix code even before any
+        # user interaction.
+        'function _initStaticSelectors() {\n'
+        '  var wrap = document.getElementById("submit-prefix-selector-wrap");\n'
+        '  if (!wrap) return;\n'
+        '  var state = wrap.getAttribute("data-prefix-state");\n'
         '  var sel = document.getElementById("submit-prefix-select");\n'
-        '  if (!sel) return;\n'
-        '  _syncPrefixFields(sel.value);\n'
-        '  sel.addEventListener("change", function(){ _syncPrefixFields(sel.value); });\n'
+        '  if (sel) {\n'
+        '    _syncPrefixFields(sel.value);\n'
+        '    sel.addEventListener("change", function(){ _syncPrefixFields(sel.value); });\n'
+        '    return;\n'
+        '  }\n'
+        '  if (state === "single") {\n'
+        '    var def = wrap.getAttribute("data-prefix-default") || "";\n'
+        '    _syncPrefixFields(def);\n'
+        '  }\n'
         '}\n'
-        'if (document.readyState==="loading") {'
-        ' document.addEventListener("DOMContentLoaded", _initPrefixSelect);'
-        '} else { _initPrefixSelect(); }\n'
-        f'window._GhRefreshSubmitPrefixSelector = function(layerId) {{ '
-        f'  var wrap = document.getElementById("submit-prefix-selector-wrap"); '
-        f'  if (!wrap) return; '
-        f'  if (!layerId) {{ wrap.style.display = "none"; wrap.setAttribute("data-prefix-state", "no-layer"); '
-        f'    var body = document.getElementById("submit-prefix-selector-body"); '
-        f'    if (body) body.textContent = "Select a layer to see available prefixes."; '
-        f'    return; '
-        f'  }} '
-        f'  fetch("/api/layers/" + encodeURIComponent(layerId) + "/prefixes/", {{credentials:"same-origin"}}) '
-        f'    .then(function(r){{return r.json();}}) '
-        f'    .then(function(data){{ '
-        f'      var items = (data && data.prefixes) || []; '
-        f'      if (!items.length) {{ '
-        f'        wrap.setAttribute("data-prefix-state", "empty"); '
-        f'        wrap.innerHTML = "<label class=\\"form-label\\">Prefix</label>" '
-        f'          + "<div class=\\"alert alert-warning small mb-0\\">" '
-        f'          + "No prefix configured for this layer — ask your layer admin to add one." '
-        f'          + "</div>"; '
-        f'        _syncPrefixFields(""); '
-        f'        return; '
-        f'      }} '
-        f'      if (items.length === 1) {{ '
-        f'        wrap.setAttribute("data-prefix-state", "single"); '
-        f'        wrap.innerHTML = "<label class=\\"form-label\\">Prefix</label>" '
-        f'          + "<div class=\\"d-flex align-items-center gap-2\\">" '
-        f'          + "<span class=\\"font-monospace fs-5 fw-bold\\">" + (items[0].prefix || "") + "</span>" '
-        f'          + "<span class=\\"badge bg-success\\">Default</span></div>" '
-        f'          + "<div class=\\"form-text\\">This is the only prefix for this layer; the new draft will use it automatically.</div>"; '
-        f'        _syncPrefixFields(items[0].prefix || ""); '
-        f'        return; '
-        f'      }} '
-        f'      var html = "<label class=\\"form-label\\">Prefix</label>" '
-        f'        + "<select class=\\"form-select\\" id=\\"submit-prefix-select\\" style=\\"max-width: 14rem;\\">"; '
-        f'      var def = items.find(function(x){{return x.is_default;}}) || items[0]; '
-        f'      items.forEach(function(p){{ '
-        f'        var lbl = p.prefix + (p.is_default ? " (default)" : ""); '
-        f'        var sel = p.is_default ? " selected" : ""; '
-        f'        html += "<option value=\\"" + p.prefix + "\\"" + sel + ">" + lbl + "</option>"; '
-        f'      }}); '
-        f'      html += "</select><div class=\\"form-text\\">This layer has more than one prefix \\u2014 pick which code to use for this draft\\u2019s identifier.</div>"; '
-        f'      wrap.setAttribute("data-prefix-state", "multi"); '
-        f'      wrap.innerHTML = html; '
-        f'      var newSel = document.getElementById("submit-prefix-select"); '
-        f'      _syncPrefixFields(def.prefix || ""); '
-        f'      if (newSel) newSel.addEventListener("change", function(){{ _syncPrefixFields(newSel.value); }}); '
-        f'    }}) '
-        f'    .catch(function(e){{ console.warn("prefix fetch failed", e); }}); '
-        f'}};\n'
+        'if (document.readyState==="loading") {\n'
+        ' document.addEventListener("DOMContentLoaded", _initStaticSelectors);\n'
+        '} else { _initStaticSelectors(); }\n'
         '})();</script>'
+    )
+
+
+def _build_prefix_selector_html(layer_id, layer_prefixes):
+    """Per-draft prefix selector for the submit form.
+
+    0 prefixes: warning (admin hasn't set one yet).
+    1 prefix:   read-only badge (drafts always use this code).
+    >1 prefix:  dropdown — author picks the code for this draft.
+    The selection is mirrored into the hidden #upload-prefix-code and
+    #ordinal-prefix-code fields on change so the server can read it.
+
+    The wrapper div and the ``_GhRefreshSubmitPrefixSelector`` script are
+    ALWAYS emitted, regardless of branch, so the layer-change handler in
+    ``services/workgroup_links.py`` can always re-render the selector.
+    """
+    if not layer_id:
+        state = 'no-layer'
+        display_style = ' style="display:none;"'
+    elif not layer_prefixes:
+        state = 'empty'
+        display_style = ''
+    elif len(layer_prefixes) == 1:
+        state = 'single'
+        display_style = ''
+    else:
+        state = 'multi'
+        display_style = ''
+
+    if state == 'single':
+        default_attr = f' data-prefix-default="{html_mod.escape(layer_prefixes[0].prefix or "")}"'
+    else:
+        default_attr = ''
+
+    inner_html = _build_prefix_selector_inner_html(layer_id, layer_prefixes)
+    refresh_script = _gh_prefix_selector_refresh_script()
+    return (
+        f'<div class="mb-3" id="submit-prefix-selector-wrap" '
+        f'data-prefix-state="{state}"{display_style}{default_attr}>'
+        f'{inner_html}'
+        f'{refresh_script}'
         '</div>'
     )
 
