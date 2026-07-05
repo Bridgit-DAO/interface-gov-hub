@@ -681,6 +681,23 @@ def workgroup_detail(workgroup_slug):
     const autoAction = _urlParams.get('action');
     let autoActionConsumed = false;
 
+    function maybeAutoOpenAction() {{
+        if (autoActionConsumed || !autoAction) return;
+        const approved = !!(workgroup && workgroup.approval_status === 'approved');
+        if (!approved) return;
+        autoActionConsumed = true;
+        try {{
+            window.history.replaceState({{}}, '', window.location.pathname);
+        }} catch (e) {{
+            console.warn('Could not strip ?action from URL', e);
+        }}
+        if (autoAction === 'nominate') {{
+            nominateForChair();
+        }} else if (autoAction === 'join') {{
+            joinWorkgroup();
+        }}
+    }}
+
     async function loadWorkgroupPositions() {{
         try {{
             const resp = await fetch('/api/workgroups/positions/');
@@ -776,16 +793,11 @@ def workgroup_detail(workgroup_slug):
             // authenticated users — `nominateForChair()` / `joinWorkgroup()`
             // already show a GhDialog if not. Cleanup the URL once so a
             // refresh does not re-trigger the modal.
-            if (!autoActionConsumed && autoAction) {{
-                autoActionConsumed = true;
-                const approved = workgroup && workgroup.approval_status === 'approved';
-                window.history.replaceState({{}}, '', window.location.pathname);
-                if (autoAction === 'nominate' && approved) {{
-                    nominateForChair();
-                }} else if (autoAction === 'join' && approved) {{
-                    joinWorkgroup();
-                }}
-            }}
+            //
+            // Implemented in `maybeAutoOpenAction()` so it can never reference
+            // `workgroup` (or any other variable populated by this function)
+            // before they exist — avoids ReferenceError at module-parse time.
+            maybeAutoOpenAction();
         }} catch (error) {{
             console.error('Error loading workgroup:', error);
             document.getElementById('workgroup-header').innerHTML =
