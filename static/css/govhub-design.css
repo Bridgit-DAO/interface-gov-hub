@@ -2512,3 +2512,19 @@ a.gh-passage-comment-link:focus {
     width: 100%;
   }
 }
+
+/* Workgroup card description clamping (site-wide) */
+.gh-clamp-6 {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gh-card-more {
+  display: inline-block;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+}

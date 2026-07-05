@@ -3487,7 +3487,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             const wgDescEsc = escapeHtml(wg.description || 'No description');
             const wgSlugEsc = escapeHtmlBasic(wg.slug || '');
             const wgStatusEsc = escapeHtml(String(wg.status || ''));
-            html += '<div class="col-md-6 mb-3"><div class="card">' + wgImg + '<div class="card-body"><h5 class="card-title"><a href="/workgroups/' + wgSlugEsc + '/">' + wgNameEsc + '</a></h5><p class="card-text text-muted">' + wgDescEsc + '</p><span class="badge bg-' + (wg.status === 'active' ? 'success' : 'secondary') + '">' + wgStatusEsc + '</span>' + approvalBadge + '</div></div></div>';
+            html += '<div class="col-md-6 mb-3"><div class="card">' + wgImg + '<div class="card-body"><h5 class="card-title"><a href="/workgroups/' + wgSlugEsc + '/">' + wgNameEsc + '</a></h5><p class="card-text text-muted" data-gh-clamp-6>' + wgDescEsc + '</p><a class="gh-card-more" href="/workgroups/' + wgSlugEsc + '/" data-gh-more hidden>More</a><span class="badge bg-' + (wg.status === 'active' ? 'success' : 'secondary') + '">' + wgStatusEsc + '</span>' + approvalBadge + '</div></div></div>';
         }});
         html += '</div>';
         listEl.innerHTML = html;
