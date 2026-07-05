@@ -301,57 +301,23 @@ def all_documents():
     total_docs = len(catalog)
     submit_url = url_for('submissions.submit_draft')
 
-    # Compute unique layers and prefixes for the multi-select filters.
-    # Layers use the public `visible_layers_for_user` source so the same
-    # approval+display-status rules apply. Prefixes are the unique set
-    # across every approved layer so admins can filter by any prefix.
+    # Compute unique layers for the multi-select layer filter. Switch to
+    # strict active-only mode so a layer admin browsing /docs/ never sees
+    # their own pending layers leak into the dropdown; pending layers
+    # stay hidden until flipped to display_status='active'.
     from services.layer_prefixes import (
         visible_layers_for_user,
-        _layer_admin_layer_ids,
     )
     from services.identity import get_current_user
-    from models import LayerPrefix
 
     current_user = get_current_user()
     user_id = (current_user or {}).get('id')
 
-    layers_for_filter = visible_layers_for_user(user_id)
+    layers_for_filter = visible_layers_for_user(user_id, active_only=True)
     layer_options_html = ''.join(
         f'<option value="{html_mod.escape(layer.id)}">'
         f'{html_mod.escape(layer.name)}</option>'
         for layer in layers_for_filter
-    )
-
-    # Prefixes visible to the user: every distinct two-letter prefix used
-    # by any layer the user can access (admin or active member) plus the
-    # default ``ML`` system prefix so seeded drafts stay discoverable.
-    visible_layer_ids = {layer.id for layer in layers_for_filter}
-    admin_layer_ids = set(_layer_admin_layer_ids(user_id))
-    prefix_query_layer_ids = visible_layer_ids | admin_layer_ids
-    if prefix_query_layer_ids:
-        prefixes_rows = (
-            LayerPrefix.query
-            .filter(LayerPrefix.layer_id.in_(prefix_query_layer_ids))
-            .order_by(LayerPrefix.prefix.asc())
-            .all()
-        )
-    else:
-        prefixes_rows = []
-    seen_prefixes = set()
-    unique_prefixes = []
-    for p in prefixes_rows:
-        code = (p.prefix or '').upper()
-        if not code or code in seen_prefixes:
-            continue
-        seen_prefixes.add(code)
-        unique_prefixes.append(code)
-    # Always include the system default 'ML' as a search option.
-    if 'ML' not in seen_prefixes:
-        unique_prefixes.append('ML')
-    unique_prefixes.sort()
-    prefix_options_html = ''.join(
-        f'<option value="{html_mod.escape(code)}">{html_mod.escape(code)}</option>'
-        for code in unique_prefixes
     )
 
     doc_view_actions = (
@@ -375,16 +341,6 @@ def all_documents():
         '<div class="form-text small">Hold Ctrl/Cmd to pick multiple.</div>'
         '</div>'
     )
-    prefix_filter_col = (
-        '<div class="col-md-3">'
-        '<label class="form-label gh-filter-label" for="doc-filter-prefix">Prefix</label>'
-        '<select id="doc-filter-prefix" class="form-select" multiple size="1" '
-        'data-placeholder="Filter by prefix…">'
-        f'{prefix_options_html}'
-        '</select>'
-        '<div class="form-text small">Hold Ctrl/Cmd to pick multiple.</div>'
-        '</div>'
-    )
 
     content = f"""
     <div class="gh-page container doc-all-page mt-4">
@@ -400,7 +356,7 @@ def all_documents():
                 search_placeholder='Search documents…',
                 search_col='col-md-4',
                 sort_col='col-md-2',
-                extra_cols=layer_filter_col + prefix_filter_col + submit_draft_col,
+                extra_cols=layer_filter_col + submit_draft_col,
                 sort_options=(
                     ('recent', 'Newest first'),
                     ('name-asc', 'A–Z'),
@@ -482,24 +438,18 @@ def all_documents():
             + '</tbody></table></div>';
     }}
 
-    function filterByLayerAndPrefix(items, layerIds, prefixCodes) {{
-        if (!layerIds.length && !prefixCodes.length) return items;
+    function filterByLayer(items, layerIds) {{
+        if (!layerIds.length) return items;
         return items.filter(function(d) {{
-            if (layerIds.length) {{
-                if (!d.layer_id || layerIds.indexOf(String(d.layer_id)) === -1) return false;
-            }}
-            if (prefixCodes.length) {{
-                if (!d.prefix || prefixCodes.indexOf(String(d.prefix)) === -1) return false;
-            }}
+            if (!d.layer_id || layerIds.indexOf(String(d.layer_id)) === -1) return false;
             return true;
         }});
     }}
 
     function renderDocDirectory() {{
         const layerIds = getSelectedValues('doc-filter-layer');
-        const prefixCodes = getSelectedValues('doc-filter-prefix');
-        const layerPrefixFiltered = filterByLayerAndPrefix(allDocItems, layerIds, prefixCodes);
-        const items = GhDirectory.filterAndSort(layerPrefixFiltered, {{
+        const layerFiltered = filterByLayer(allDocItems, layerIds);
+        const items = GhDirectory.filterAndSort(layerFiltered, {{
             searchTerm: GhDirectory.getSearchValue('search-input'),
             sort: GhDirectory.getSortValue('sort-filter'),
             searchFields: ['title', 'name', 'abstract', 'group', 'workgroup_name', 'authors', 'layer_name'],
@@ -510,7 +460,7 @@ def all_documents():
         const countEl = document.getElementById('doc-all-count');
         if (countEl) {{
             const total = allDocItems.length;
-            const label = (layerIds.length || prefixCodes.length)
+            const label = layerIds.length
                 ? ('Showing ' + items.length + ' of ' + total + ' documents')
                 : ('Showing ' + items.length + ' documents');
             countEl.textContent = label;
@@ -529,7 +479,7 @@ def all_documents():
     }}
 
     GhDirectory.bindControls('search-input', 'sort-filter', renderDocDirectory);
-    ['doc-filter-layer', 'doc-filter-prefix'].forEach(function(id) {{
+    ['doc-filter-layer'].forEach(function(id) {{
         var el = document.getElementById(id);
         if (el && !el.dataset.ghDirectoryBound) {{
             el.dataset.ghDirectoryBound = '1';
