@@ -158,7 +158,7 @@ def product_rollout_page():
     </div>
     '''
 
-    return render_page('Product rollout — Admin', content, theme=theme, user_menu=user_menu)
+    return render_page('Product rollout – Admin', content, theme=theme, user_menu=user_menu)
 
 
 @bp.route('/admin/nav-pills/', methods=['GET', 'POST'])
@@ -235,4 +235,4 @@ def nav_pills_admin_page():
         </form>
     </div>
     '''
-    return render_page('Navigation pills — Admin', content, theme=theme, user_menu=user_menu)
+    return render_page('Navigation pills – Admin', content, theme=theme, user_menu=user_menu)

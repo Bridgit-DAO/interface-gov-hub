@@ -31,7 +31,7 @@ DB_PATH = os.path.join(INSTANCE_DIR, DB_NAME)
 # /soft-launch/artifact/ POST to /api/artifacts/<id>/support|opposition/ (session auth).
 SOFT_LAUNCH_WIRED_ARTIFACT_ID = os.environ.get('SOFT_LAUNCH_WIRED_ARTIFACT_ID', '').strip()
 
-# Knowledge layer (contribution type + scaffold) — see services/knowledge_layer.py, artifact_contribution_schema.md
+# Knowledge layer (contribution type + scaffold) – see services/knowledge_layer.py, artifact_contribution_schema.md
 def _env_bool(key: str, default: str) -> bool:
     return os.environ.get(key, default).strip().lower() in ('1', 'true', 'yes', 'on')
 
@@ -122,9 +122,9 @@ def load_build_number():
     Footer build number (cache busting / deploy verification).
 
     Priority:
-    1. GOV_HUB_BUILD_NUMBER — CI or emergency override in .env only.
-    2. INSTANCE_DIR/build_number.txt — maintained by scripts/update_build_number.sh on each deploy.
-    3. Git commit depth — only if GOV_HUB_BUILD_FROM_GIT=1 (large on forked repos; opt-in).
+    1. GOV_HUB_BUILD_NUMBER – CI or emergency override in .env only.
+    2. INSTANCE_DIR/build_number.txt – maintained by scripts/update_build_number.sh on each deploy.
+    3. Git commit depth – only if GOV_HUB_BUILD_FROM_GIT=1 (large on forked repos; opt-in).
     4. Default 74.
     """
     env_raw = os.environ.get('GOV_HUB_BUILD_NUMBER', '').strip()

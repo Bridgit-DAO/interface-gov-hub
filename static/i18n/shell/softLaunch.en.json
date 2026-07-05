@@ -216,10 +216,10 @@
         "relArtifactC": "Artifact C"
       },
       "readinessDetailTemplate": {
-        "discussion": "{{count}} event(s) logged in Activity — comments, evidence, and supports.",
+        "discussion": "{{count}} event(s) logged in Activity – comments, evidence, and supports.",
         "supports": "{{count}} linked artifact(s) under Supports (artifact relation: supports).",
         "opposes": "{{count}} linked artifact(s) under Opposition (artifact relation: opposes).",
-        "scope": "Checked against the proposal body above — no separate artifact list.",
+        "scope": "Checked against the proposal body above – no separate artifact list.",
         "question": "Set when opening voting (moderators confirm the exact ballot question)."
       },
       "devHints": "Dev only (debug mode): ?scenario= (under_review, under_review_ready, vote_scheduled, vote_open, approved, implemented, draft). To wire Support/Oppose to the real API, set env SOFT_LAUNCH_WIRED_ARTIFACT_ID to a real artifact UUID and sign in."
@@ -232,8 +232,8 @@
     },
     "js": {
       "signInSupport": "Sign in to record support or opposition on a real artifact.",
-      "networkError": "Network error — try again.",
-      "previewOnly": "“{{action}}” — preview only (not saved yet). Wire Support/Oppose by setting SOFT_LAUNCH_WIRED_ARTIFACT_ID and signing in.",
+      "networkError": "Network error – try again.",
+      "previewOnly": "“{{action}}” – preview only (not saved yet). Wire Support/Oppose by setting SOFT_LAUNCH_WIRED_ARTIFACT_ID and signing in.",
       "savedReloading": "{{action}} saved. Reloading…",
       "requestFailed": "Request failed ({{status}})",
       "signInComments": "Sign in to post comments",
@@ -273,6 +273,6 @@
     "confirmDeleteTitle": "Delete prefix",
     "confirmDeleteBody": "Delete this prefix? Drafts already created will keep their existing identifier.",
     "confirmDeleteDefaultBody": "This is the current default prefix. Mark another prefix as default first, then delete this one.",
-    "manageNothing": "No layer selected — open a layer page first to manage that layer's prefixes."
+    "manageNothing": "No layer selected – open a layer page first to manage that layer's prefixes."
   }
 }

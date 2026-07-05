@@ -100,7 +100,7 @@ def text_looks_like_markdown(text: str) -> bool:
         r'^\s*\d+\.\s+',
         r'\[.+\]\(.+\)',
         r'!\[.*\]\(.+\)',
-        # Italic: single *word* — avoid matching ** (handled by bold elsewhere)
+        # Italic: single *word* – avoid matching ** (handled by bold elsewhere)
         r'(?<!\*)\*(?!\*)([^*]+)\*(?!\*)',
     ]
     for pattern in patterns:

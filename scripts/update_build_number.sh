@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bump INSTANCE_DIR/build_number.txt by 1. Run from deploy/restart scripts — not manually.
+# Bump INSTANCE_DIR/build_number.txt by 1. Run from deploy/restart scripts – not manually.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

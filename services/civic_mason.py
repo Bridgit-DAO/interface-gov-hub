@@ -5,12 +5,12 @@ from sqlalchemy import extract
 
 from models import Brick, Badge, Role, User
 
-# Flask session key — only honored when app is in development (IS_DEVELOPMENT)
+# Flask session key – only honored when app is in development (IS_DEVELOPMENT)
 CIVIC_MASON_SESSION_DEMO = 'civic_mason_demo_mode'
 
 
 def civic_mason_demo_mode_active(session_dict, is_development):
-    """True when dev server and session flag is set — unlimited placements, no badge."""
+    """True when dev server and session flag is set – unlimited placements, no badge."""
     if not is_development or not session_dict:
         return False
     return bool(session_dict.get(CIVIC_MASON_SESSION_DEMO))
@@ -48,7 +48,7 @@ ERR_ROW_FULL = 'ROW_FULL'
 def civic_mason_can_place_brick(user_id, session_dict, is_development):
     """
     Whether this user may place a brick right now.
-    Returns (allowed: bool, error_code_or_none) — codes are SCREAMING_SNAKE for client i18n.
+    Returns (allowed: bool, error_code_or_none) – codes are SCREAMING_SNAKE for client i18n.
     """
     if civic_mason_demo_mode_active(session_dict, is_development):
         return True, None

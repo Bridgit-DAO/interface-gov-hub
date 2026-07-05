@@ -5,7 +5,7 @@ info:
     HTTP JSON API for Gov-Hub-Dev. Session-authenticated browser clients use cookie auth.
     See docs/GOV_HUB_ACCESS_SSOT_AND_OPENAPI.md for access-control enums and schema SSOT notes.
 
-    **Status:** Partial coverage — expand paths/components as routes stabilize; treat undocumented endpoints as unstable.
+    **Status:** Partial coverage – expand paths/components as routes stabilize; treat undocumented endpoints as unstable.
   version: 0.1.0
 
 servers:
@@ -41,7 +41,7 @@ components:
 
     ListingVisibility:
       type: string
-      description: Who may discover listing metadata (not yet enforced on all routes — see target model in docs).
+      description: Who may discover listing metadata (not yet enforced on all routes – see target model in docs).
       enum: [public, private]
 
     JoinPolicyLayerGuild:

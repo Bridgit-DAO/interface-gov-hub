@@ -12,7 +12,7 @@ NAV_PILL_SITE_CONFIG_KEY = 'nav_pill_config'
 PILL_ANIMATIONS: Dict[str, Dict[str, str]] = {
     'none': {
         'label': 'None',
-        'description': 'Static pills — no motion.',
+        'description': 'Static pills – no motion.',
     },
     'hover-grow': {
         'label': 'Grow on hover',
@@ -48,16 +48,16 @@ DEFAULT_SITE_NAV_PILL_CONFIG: Dict[str, Any] = {
 }
 
 LAYER_TAB_TIPS: Dict[str, str] = {
-    'overview': 'Your layer home — overview stats, carousel highlights, and quick entry points.',
+    'overview': 'Your layer home – overview stats, carousel highlights, and quick entry points.',
     'workgroups': 'Teams that organize ongoing work inside this layer.',
-    'docs': 'Every draft and document submitted to this layer — approved, pending, or in revision.',
+    'docs': 'Every draft and document submitted to this layer – approved, pending, or in revision.',
     'clusters': 'Role clusters group related positions and responsibilities.',
     'roles': 'Operational roles people can discover, claim, or be assigned.',
     'claims': 'Track who holds which roles and pending role claims.',
     'votes': 'Elections and decision votes for this layer.',
-    'artifacts': 'Knowledge objects — proposals, evidence, and submissions.',
+    'artifacts': 'Knowledge objects – proposals, evidence, and submissions.',
     'opportunities': 'Open drafts, quests, and ways to contribute right now.',
-    'admin': 'Layer administration — features, admins, waitlists, and settings.',
+    'admin': 'Layer administration – features, admins, waitlists, and settings.',
 }
 
 BADGE_TAB_TIPS: Dict[str, str] = {

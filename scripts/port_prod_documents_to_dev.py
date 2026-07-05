@@ -252,7 +252,7 @@ def main():
         if args.dry_run:
             files = copy_upload_files(prod, prod_sub_ids, dry_run=True)
             print(f'Would copy ~{files} upload file(s)')
-            print('Dry run — no DB changes')
+            print('Dry run – no DB changes')
             return
 
         delete_dev_catalog(dev, dev_sub_ids, dev_art_ids)

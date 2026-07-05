@@ -6,7 +6,7 @@ All changes are **additive**. Existing `referral_code`, `referred_by_id`, and Ca
 
 Migration: [`canopi/migrations/007_referral_attribution_v1.sql`](../../canopi/migrations/007_referral_attribution_v1.sql)
 
-### `share_events` — new columns
+### `share_events` – new columns
 
 | Column | Type | Default | Purpose |
 |--------|------|---------|---------|
@@ -17,7 +17,7 @@ Migration: [`canopi/migrations/007_referral_attribution_v1.sql`](../../canopi/mi
 
 Existing rows: backfilled implicitly by column defaults.
 
-### `referral_attributions` — new table
+### `referral_attributions` – new table
 
 Canonical conversion log. See [contract.json](./contract.json) `referralAttribution` definition.
 
@@ -31,7 +31,7 @@ Prisma model: `canopi/prisma/schema.prisma` → `referral_attributions`.
 
 Migration: `migrate_referral_attribution_v1()` in [`gov-hub-prod/migrations/__init__.py`](../../gov-hub-prod/migrations/__init__.py)
 
-### `referral_attribution` — new table
+### `referral_attribution` – new table
 
 | Column | Type | Notes |
 |--------|------|-------|

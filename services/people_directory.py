@@ -208,12 +208,12 @@ def _role_pills_html(user: User, layer_entries: list[tuple[Layer, str]]) -> str:
         pills.append(_pill_span(label, title, 'bg-info text-dark'))
     if overflow:
         pills.append(_overflow_pill(overflow))
-    return ''.join(pills) if pills else '<span class="text-muted">—</span>'
+    return ''.join(pills) if pills else '<span class="text-muted">–</span>'
 
 
 def _layers_pills_html(layer_entries: list[tuple[Layer, str]]) -> str:
     if not layer_entries:
-        return '<span class="text-muted">—</span>'
+        return '<span class="text-muted">–</span>'
     pills = []
     overflow = 0
     for layer, role in layer_entries:
@@ -237,7 +237,7 @@ def _workgroups_pills_html(
     wg_by_acronym: dict[str, Workgroup],
 ) -> str:
     if not merged:
-        return '<span class="text-muted">—</span>'
+        return '<span class="text-muted">–</span>'
     pills = []
     overflow = 0
     for acronym, is_chair in merged:

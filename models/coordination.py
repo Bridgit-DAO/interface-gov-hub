@@ -1495,7 +1495,7 @@ class QuestSubmission(db.Model):
 
 
 # ================================================================
-# MONUMENT (GOV-HUB-3 Phase 2.5 — Digital Monuments Registry)
+# MONUMENT (GOV-HUB-3 Phase 2.5 – Digital Monuments Registry)
 # ================================================================
 
 class Monument(db.Model):
@@ -1520,7 +1520,7 @@ class Monument(db.Model):
 
 
 # ================================================================
-# BRICK (GOV-HUB-3 Phase 3.2 — Civic Mason)
+# BRICK (GOV-HUB-3 Phase 3.2 – Civic Mason)
 # Global wall; not layer-scoped. Badge-gated placement.
 # ================================================================
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# OPTIONAL — only if govhub.live DNS is hosted on Cloudflare.
+# OPTIONAL – only if govhub.live DNS is hosted on Cloudflare.
 #
 # If you use Namecheap (or most other registrars) for DNS, do NOT use this script.
 # Use: setup-wildcard-cert-govhub-dns-multi.sh

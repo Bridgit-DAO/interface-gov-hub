@@ -15,7 +15,7 @@ WEB3AUTH_ALGORITHMS = ['ES256']
 
 
 def normalize_user_email(email: Optional[str]) -> Optional[str]:
-    """Canonical form for User.email — lookups and storage should use this."""
+    """Canonical form for User.email – lookups and storage should use this."""
     if not email:
         return None
     normalized = str(email).strip().lower()

@@ -60,7 +60,7 @@ def civic_mason_page():
                     <span class="small mb-0"><i class="fas fa-flask me-1 text-warning"></i><span data-cm-i18n="dev.label">Dev only: Civic Mason rules</span></span>
                     <div class="form-check form-switch mb-0">
                         <input class="form-check-input" type="checkbox" id="cm-demo-toggle" role="switch" data-cm-i18n-aria="a11y.demoMode">
-                        <label class="form-check-label small" for="cm-demo-toggle" data-cm-i18n="dev.demoSwitch">Demo mode — no badge required, unlimited placements</label>
+                        <label class="form-check-label small" for="cm-demo-toggle" data-cm-i18n="dev.demoSwitch">Demo mode – no badge required, unlimited placements</label>
                     </div>
                 </div>
             </div>
@@ -101,7 +101,7 @@ def civic_mason_page():
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" data-cm-i18n-aria="a11y.close"></button>
                 </div>
                 <div class="modal-body pt-1">
-                    <p class="small text-white-50 mb-2" data-cm-i18n="config.hint">Choose a color — double-click to select &amp; close.</p>
+                    <p class="small text-white-50 mb-2" data-cm-i18n="config.hint">Choose a color – double-click to select &amp; close.</p>
                     <div class="d-flex flex-wrap gap-2 mb-3" id="config-palette" role="group" data-cm-i18n-aria="a11y.brickColors"></div>
                     <label for="config-msg" class="form-label small mb-1"><span data-cm-i18n="config.message">Message</span> <span class="opacity-50" data-cm-i18n="config.optional">(optional)</span></label>
                     <textarea class="form-control form-control-sm bg-dark text-white border-secondary" id="config-msg" rows="2" maxlength="200" data-cm-i18n-placeholder="config.placeholder"></textarea>
@@ -120,7 +120,7 @@ def civic_mason_page():
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" data-cm-i18n-aria="a11y.close"></button>
                 </div>
                 <div class="modal-body pt-1">
-                    <p class="small text-white-50 mb-2" data-cm-i18n="edit.hint">Update color or message, then Accept — or cancel this placement.</p>
+                    <p class="small text-white-50 mb-2" data-cm-i18n="edit.hint">Update color or message, then Accept – or cancel this placement.</p>
                     <div class="d-flex flex-wrap gap-2 mb-3" id="edit-palette" role="group" data-cm-i18n-aria="a11y.brickColors"></div>
                     <label for="edit-msg" class="form-label small mb-1"><span data-cm-i18n="config.message">Message</span> <span class="opacity-50" data-cm-i18n="config.optional">(optional)</span></label>
                     <textarea class="form-control form-control-sm bg-dark text-white border-secondary" id="edit-msg" rows="2" maxlength="200"></textarea>
@@ -321,7 +321,7 @@ def civic_mason_page():
             floatingBrick.style.pointerEvents = 'none';
         }
 
-        /* True while any Civic Mason modal is open — keeps floating brick off and below modal stack */
+        /* True while any Civic Mason modal is open – keeps floating brick off and below modal stack */
         let suppressFloatingBrick = false;
 
         /* ── Mouse proximity + drag ───────────────────────────────────────── */
@@ -442,7 +442,7 @@ def civic_mason_page():
                     hideBrick();
                     placeBrickAt(gx, gy);
                 } else {
-                    // No snap — restore to center
+                    // No snap – restore to center
                     floatingBrick.style.left      = '50%';
                     floatingBrick.style.top       = '50%';
                     floatingBrick.style.transform = 'translate(-50%,-50%) scale(1)';
@@ -466,7 +466,7 @@ def civic_mason_page():
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    await loadBricks(false); // no auto-scroll — we handle it below
+                    await loadBricks(false); // no auto-scroll – we handle it below
                     const el = gridEl.querySelector('[data-bid="' + data.brick.id + '"]');
                     if (el) {
                         // Scroll the new brick into view, then start the edit window

@@ -6,8 +6,8 @@ Wildcard certificates **must** use the **DNS-01** challenge (Let’s Encrypt doe
 
 If some users see this in Chrome/mobile but others do not:
 
-1. **Confirm the exact URL** — must be `https://govhub.live/` (not the raw IP `216.238.91.120`, not a typo domain).
-2. **ECDSA certificate** — the current cert uses an ECDSA key (`key_type = ecdsa` in `/etc/letsencrypt/renewal/govhub.live.conf`). Very old Android, some corporate proxies, and legacy TLS stacks can fail with `ERR_SSL_PROTOCOL_ERROR`. Reissue with RSA if needed:
+1. **Confirm the exact URL** – must be `https://govhub.live/` (not the raw IP `216.238.91.120`, not a typo domain).
+2. **ECDSA certificate** – the current cert uses an ECDSA key (`key_type = ecdsa` in `/etc/letsencrypt/renewal/govhub.live.conf`). Very old Android, some corporate proxies, and legacy TLS stacks can fail with `ERR_SSL_PROTOCOL_ERROR`. Reissue with RSA if needed:
    ```bash
    sudo certbot certonly -a dns-multi \
      --dns-multi-credentials=/etc/letsencrypt/dns-multi-govhub.ini \
@@ -15,8 +15,8 @@ If some users see this in Chrome/mobile but others do not:
      -d govhub.live -d "*.govhub.live" -d "*.dev.govhub.live"
    sudo nginx -t && sudo systemctl reload nginx
    ```
-3. **IPv6** — govhub nginx blocks should include `listen [::]:443 ssl;` so IPv6 HTTPS does not fall through to the default catch-all vhost. See `docs/nginx-govhub-wildcard-ssl.conf`.
-4. **User-side** — VPN, antivirus HTTPS scanning, or stale DNS cache. Ask affected users to try another network/device or `chrome://net-internals/#dns` → Clear host cache.
+3. **IPv6** – govhub nginx blocks should include `listen [::]:443 ssl;` so IPv6 HTTPS does not fall through to the default catch-all vhost. See `docs/nginx-govhub-wildcard-ssl.conf`.
+4. **User-side** – VPN, antivirus HTTPS scanning, or stale DNS cache. Ask affected users to try another network/device or `chrome://net-internals/#dns` → Clear host cache.
 
 Quick server checks:
 ```bash
@@ -40,7 +40,7 @@ Propagation: wait until `dig +short govhub.live A` and `dig +short randomname.go
 
 ## 2. Issue the certificate (pick one path)
 
-### Option A — DNS on **Cloudflare** (same as many `themetalayer.org` setups)
+### Option A – DNS on **Cloudflare** (same as many `themetalayer.org` setups)
 
 1. Move or **delegate** `govhub.live` to Cloudflare (nameservers), or use a CF-hosted zone with the same records as above.
 2. API token: **Edit zone DNS** for `govhub.live`.
@@ -67,7 +67,7 @@ Cert files will live under:
 
 **Renewal:** Certbot renews with the same plugin; keep the credentials file and permissions.
 
-### Option B — DNS stays on **Namecheap** (no Cloudflare)
+### Option B – DNS stays on **Namecheap** (no Cloudflare)
 
 Use **DNS-01** with a plugin that supports Namecheap, e.g. **certbot-dns-multi** (see `setup-wildcard-cert-dns-multi.sh`).
 
@@ -84,7 +84,7 @@ NAMECHEAP_API_KEY = your_namecheap_api_key
 sudo chmod 600 /etc/letsencrypt/dns-multi.ini
 ```
 
-3. Install plugin (snap or apt — see comments in `setup-wildcard-cert-dns-multi.sh`), then:
+3. Install plugin (snap or apt – see comments in `setup-wildcard-cert-dns-multi.sh`), then:
 
 ```bash
 sudo certbot certonly -a dns-multi \
@@ -94,7 +94,7 @@ sudo certbot certonly -a dns-multi \
   -d govhub.live -d "*.govhub.live"
 ```
 
-### Option C — **Manual** DNS-01 (no API)
+### Option C – **Manual** DNS-01 (no API)
 
 Possible but painful for renewal every ~90 days; prefer A or B.
 
@@ -127,7 +127,7 @@ Adjust `proxy_pass` ports if your Gov-Hub processes differ from `8000` / `8001`.
 
 ## 4. Certbot nginx installer?
 
-`certbot --nginx` only does **HTTP-01** by default — it will **not** obtain `*.govhub.live`. Get the cert with **dns-cloudflare** or **dns-multi** first, then point nginx at the paths above (or run `certbot install` only if you’re using a compatible workflow).
+`certbot --nginx` only does **HTTP-01** by default – it will **not** obtain `*.govhub.live`. Get the cert with **dns-cloudflare** or **dns-multi** first, then point nginx at the paths above (or run `certbot install` only if you’re using a compatible workflow).
 
 ## Quick run (on the server)
 

@@ -1484,7 +1484,7 @@ def migrate_submission_content_hash(app):
 
 
 def migrate_hardcoded_users(app):
-    """Migrate legacy bootstrap users. Passwords are random — use reset-password.py to set one."""
+    """Migrate legacy bootstrap users. Passwords are random – use reset-password.py to set one."""
     import secrets
 
     hardcoded_users = {
@@ -2513,7 +2513,7 @@ def migrate_dp_challenge_notify_waitlist_v1(app):
                 (
                     waitlist_id,
                     layer_id,
-                    'DP Challenge — notify list',
+                    'DP Challenge – notify list',
                     'Get notified when the DP Challenge opens in mid-July. Select the DPs you want to patch.',
                     now,
                     launch_utc_str,
@@ -2725,7 +2725,7 @@ def migrate_layer_prefix_v1(app):
     Globally unique per prefix. Seeds ``"ML"`` as the default prefix for the
     first existing layer that has no default (preserving legacy
     ``ML-Draft-NNN`` references). Every other layer is left with **no**
-    default row — the submission form / directory / etc. render
+    default row – the submission form / directory / etc. render
     ``"ML"`` as the runtime fallback for layers without an
     admin-created prefix. No ``L1``/``L2``/... placeholders are created
     automatically; admins opt in to a real two-letter code via the
@@ -2735,7 +2735,7 @@ def migrate_layer_prefix_v1(app):
     ``L1``–``L9`` placeholder rows (regardless of which layer they were
     attached to) so admin-renamed placeholders are cleaned up too. Only
     the literal ``L1``–``L9`` patterns are considered "placeholders to
-    clean up" — be defensive about scope so we never touch an admin-set
+    clean up" – be defensive about scope so we never touch an admin-set
     prefix.
     """
     try:
@@ -2781,7 +2781,7 @@ def migrate_layer_prefix_v1(app):
         # admin-renamed placeholders too: if an admin flipped ``L3`` to
         # ``CL`` already, the new ``CL`` row stays; the old ``L3`` row
         # (if any) gets cleaned up. Only the literal placeholders are
-        # considered — be defensive about scope.
+        # considered – be defensive about scope.
         cursor.execute(
             "SELECT id, layer_id FROM layer_prefix WHERE prefix GLOB 'L[0-9]'"
         )
@@ -2795,7 +2795,7 @@ def migrate_layer_prefix_v1(app):
             )
             print(
                 f'✅ Cleaned up {cursor.rowcount} legacy L1-L9 placeholder '
-                'prefix row(s) — layers now fall back to the system "ML" '
+                'prefix row(s) – layers now fall back to the system "ML" '
                 'at render time'
             )
 
@@ -2803,7 +2803,7 @@ def migrate_layer_prefix_v1(app):
         # Idempotent: if any layer already has a default ``ML`` (from a
         # prior run, or because the original curated layer has it), we
         # skip the backfill entirely. We DO NOT auto-create placeholders
-        # for other layers — unprefixed layers rely on the runtime "ML"
+        # for other layers – unprefixed layers rely on the runtime "ML"
         # fallback in the submission form / directory.
         cursor.execute("SELECT 1 FROM layer_prefix WHERE prefix = 'ML'")
         ml_taken = cursor.fetchone() is not None
@@ -2852,7 +2852,7 @@ def migrate_layer_prefix_v1(app):
             # Logged so a future reader can spot the edge case.
             print(
                 '⚠️  No "ML" prefix seeded and no layer eligible for '
-                'backfill — unprefixed layers rely on the runtime fallback.'
+                'backfill – unprefixed layers rely on the runtime fallback.'
             )
 
         conn.commit()
@@ -2866,7 +2866,7 @@ def migrate_submission_prefix_code_v1(app):
 
     Lets a draft use a non-default prefix for its identifier (e.g. a layer
     that has both "ML" and "CL" as prefixes). NULL means "use the layer
-    default" (legacy behaviour). Idempotent — safe to re-run.
+    default" (legacy behaviour). Idempotent – safe to re-run.
     """
     try:
         db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
@@ -2940,7 +2940,7 @@ def migrate_layer_unique_v1(app):
     3. Verifies the ``name`` / ``slug`` columns are NOT NULL.
 
     Idempotent: re-running on a clean DB leaves row counts unchanged and
-    emits no errors. Safe against concurrent dev use — wraps each group in
+    emits no errors. Safe against concurrent dev use – wraps each group in
     a transaction.
     """
     try:
@@ -3082,7 +3082,7 @@ def migrate_layer_unique_v1(app):
             notnull = info[3]
             if not notnull:
                 print(
-                    f'⚠️  migrate_layer_unique_v1: layer.{col} allows NULL — '
+                    f'⚠️  migrate_layer_unique_v1: layer.{col} allows NULL – '
                     'SQLite cannot ALTER to NOT NULL in-place. Backfill and '
                     'recreate the table to enforce.'
                 )
@@ -3093,7 +3093,7 @@ def migrate_layer_unique_v1(app):
         )
         existing_indexes = {row[0] for row in cursor.fetchall()}
 
-        # SQLite supports `CREATE UNIQUE INDEX IF NOT EXISTS` — idempotent.
+        # SQLite supports `CREATE UNIQUE INDEX IF NOT EXISTS` – idempotent.
         # Postgres (if ever swapped in) supports the same syntax; the model
         # declares `unique=True` on both columns.
         if 'uq_layer_name' not in existing_indexes:
@@ -3139,9 +3139,9 @@ def migrate_layer_display_status_v1(app):
     (which is the GovHub super-admin gate).
 
     Two values:
-      - ``'pending'`` — layer is hidden from public listings. New layers
+      - ``'pending'`` – layer is hidden from public listings. New layers
         default to this.
-      - ``'active'`` — layer is listed publicly. Layer admins flip their
+      - ``'active'`` – layer is listed publicly. Layer admins flip their
         own layer to active from the Edit Layer modal once ready.
 
     Seeding rule (per product owner: "Only the AUTH communities should be
@@ -3152,7 +3152,7 @@ def migrate_layer_display_status_v1(app):
         ``name LIKE '%API guard%' OR slug LIKE 'api-guard-layer-%'``
 
       Everything else starts as ``'active'``. The seeded value is the
-      initial state only — layer admins can flip their own layer at any
+      initial state only – layer admins can flip their own layer at any
       time, and that flip is the source of truth once the seed has run.
 
     Idempotent: the column / index steps skip when present. The seed step
@@ -3338,7 +3338,7 @@ def _is_test_layer_row(name, slug):
     """Conservative: match only obvious test rows.
 
     A real admin-curated layer would never have a name starting with
-    ``"API guard"`` or ``"Prefix Test Layer"`` — these are the exact
+    ``"API guard"`` or ``"Prefix Test Layer"`` – these are the exact
     strings the pytest suite writes. We intentionally err on the side of
     false negatives: if a real layer has been hidden behind a ``pending``
     ``display_status`` by its admin, we leave it alone. The user can
@@ -3351,7 +3351,7 @@ def _is_test_layer_row(name, slug):
 
 
 # Sentinel key in ``site_config`` that records the first (and only) run
-# of ``migrate_delete_test_layers_v1``. The migration is destructive —
+# of ``migrate_delete_test_layers_v1``. The migration is destructive –
 # once sealed, re-runs are no-ops, so admin-deleted tests don't get
 # silently restored from a backup.
 TEST_LAYERS_DELETED_KEY = 'test_layers_deleted_v1'
@@ -3373,7 +3373,7 @@ def migrate_delete_test_layers_v1(app):
        ``_is_test_layer_row`` rule to flag leftovers.
     2. For each flagged layer id, ``DELETE`` from every
        ``TEST_LAYER_DEPENDENT_TABLES`` row that references the layer
-       (foreign-key enforcement is left at the connection default —
+       (foreign-key enforcement is left at the connection default –
        we're inside a single transaction and the test rows have no
        real user data attached).
     3. ``DELETE FROM layer WHERE id IN (...)`` for the survivors.
@@ -3418,20 +3418,20 @@ def migrate_delete_test_layers_v1(app):
             if test_layer_ids:
                 # New test rows since the sentinel was written (e.g. a
                 # pytest run after the migration). Delete the leftovers
-                # but DO NOT re-seal — the sentinel already says
+                # but DO NOT re-seal – the sentinel already says
                 # "everything before this point was cleaned up".
                 _delete_test_layer_rows(
                     conn, cursor, test_layer_ids, TEST_LAYER_DEPENDENT_TABLES,
                 )
                 print(
                     f'⚠️  test_layers_deleted_v1 sealed, but found '
-                    f'{len(test_layer_ids)} new test layer row(s) — '
+                    f'{len(test_layer_ids)} new test layer row(s) – '
                     'deleted them but did not re-seal the sentinel.'
                 )
             else:
                 print(
                     '✅ migrate_delete_test_layers_v1: sentinel present, '
-                    'no test layers in DB — no-op'
+                    'no test layers in DB – no-op'
                 )
             conn.close()
             return
@@ -3442,7 +3442,7 @@ def migrate_delete_test_layers_v1(app):
             # next time the migration runs (the unsealed branch).
             print(
                 '✅ migrate_delete_test_layers_v1: no test layers found '
-                'in DB — sealing sentinel so future leftovers are '
+                'in DB – sealing sentinel so future leftovers are '
                 'caught on next re-run'
             )
             if site_config_exists:
@@ -3488,8 +3488,8 @@ def _delete_test_layer_rows(
     placeholders = ', '.join('?' * len(test_layer_ids))
     # 1. Dependent rows referencing layer_id / source_layer_id.
     for table in dependent_tables:
-        # Discover which columns reference layer (some tables — like
-        # layer_connection — use ``source_layer_id`` instead of
+        # Discover which columns reference layer (some tables – like
+        # layer_connection – use ``source_layer_id`` instead of
         # ``layer_id``). We delete rows where ANY of those columns
         # match a test-layer id.
         cursor.execute(f"PRAGMA table_info({table})")

@@ -30,7 +30,7 @@ bp = Blueprint('dp_challenge', __name__)
 
 def _format_activity_time(iso: Optional[str]) -> str:
     if not iso:
-        return '—'
+        return '–'
     return html_mod.escape(iso[:19].replace('T', ' '))
 
 
@@ -50,9 +50,9 @@ def _build_doc_table_rows(rows: list, mode_cfg: dict) -> str:
         draft_ref = html_mod.escape(row.get('draft_ref') or '')
         title_short = html_mod.escape(row.get('title_short') or row.get('title') or 'Untitled')
         title_full = html_mod.escape(row.get('title') or 'Untitled')
-        ml = html_mod.escape(row.get('ml_number') or '—')
+        ml = html_mod.escape(row.get('ml_number') or '–')
         dp_num = row.get('dp_number')
-        dp_label = html_mod.escape(f'DP{dp_num}') if dp_num is not None else '—'
+        dp_label = html_mod.escape(f'DP{dp_num}') if dp_num is not None else '–'
         c = row.get('counts') or {}
         doc_href = html_mod.escape(read_page_url(draft_ref, hub_path))
         dp_cell = ''
@@ -129,7 +129,7 @@ def _picker_sort_key(sub, mode: str) -> tuple:
 def _short_dp_name(title: str) -> str:
     """Title without leading 'DP11 - ' prefix."""
     t = (title or '').strip()
-    m = re.match(r'^DP\s*(\d+)\s*[-–—:]\s*(.+)$', t, re.IGNORECASE)
+    m = re.match(r'^DP\s*(\d+)\s*[-––:]\s*(.+)$', t, re.IGNORECASE)
     return m.group(2).strip() if m else t
 
 
@@ -208,7 +208,7 @@ def _render_prelaunch_hub_page(
     <div class="gh-page container mt-4 dp-challenge-page dp-challenge-page--prelaunch">
         {gh_page_header(
             mode_cfg['page_title'],
-            'Opening soon — join the notify list for the start of public input.',
+            'Opening soon – join the notify list for the start of public input.',
             mode_cfg['icon'],
             breadcrumb_html=gh_breadcrumb([('Participate', None), (mode_cfg['breadcrumb'], None)]),
         )}
@@ -278,7 +278,7 @@ def _render_prelaunch_hub_page(
     '''
 
     return render_page(
-        f'{mode_cfg["page_title"]} — opening soon — GovHub',
+        f'{mode_cfg["page_title"]} – opening soon – GovHub',
         content,
         theme=session.get('theme', 'dark'),
         user_menu=generate_user_menu(),
@@ -306,7 +306,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
     mode_cfg = get_proposal_mode(mode)
     if not is_mode_enabled(mode):
         return render_page(
-            f'{mode_cfg["page_title"]} — GovHub',
+            f'{mode_cfg["page_title"]} – GovHub',
             f'<div class="container mt-5"><p class="text-muted">{html_mod.escape(mode_cfg["page_title"])} is not available on this site yet.</p></div>',
             theme=session.get('theme', 'dark'),
             user_menu=generate_user_menu(),
@@ -533,7 +533,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
     '''
 
     return render_page(
-        f'{mode_cfg["page_title"]} — GovHub',
+        f'{mode_cfg["page_title"]} – GovHub',
         content,
         theme=session.get('theme', 'dark'),
         user_menu=generate_user_menu(),

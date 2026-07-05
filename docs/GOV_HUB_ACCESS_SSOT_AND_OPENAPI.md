@@ -8,14 +8,14 @@ This document is the **product + engineering contract** for visibility/join rule
 
 Use **two independent axes** everywhere. Mixing them into one enum causes impossible states and leaky APIs.
 
-### 1.1 `listing_visibility` — *who can see that the entity exists*
+### 1.1 `listing_visibility` – *who can see that the entity exists*
 
 | Value       | Meaning (recommended semantics) |
 |------------|----------------------------------|
 | `public`   | Anonymous and logged-in users may see **listing metadata** (name, slug, teaser) subject to route policy. |
 | `private` | Only eligible members / invite holders / staff see the entity in lists and detail. Others get 404 or empty list (pick one policy per resource and document it in OpenAPI). |
 
-### 1.2 `join_policy` — *how someone becomes a participant*
+### 1.2 `join_policy` – *how someone becomes a participant*
 
 **Layers and guilds** (same enum set):
 
@@ -50,14 +50,14 @@ Use **two independent axes** everywhere. Mixing them into one enum causes imposs
 
 ---
 
-## 2. Notifications (choice **A** — ship the full stack)
+## 2. Notifications (choice **A** – ship the full stack)
 
 **Goal:** No orphaned modules: everything that imports `UserEventSubscription` / `UserNotification` (or successors) lives in git with models, migrations, and routes.
 
 ### 2.1 Recommended shape
 
 1. **Models** in `models/` (or split module), exported from `models/__init__.py`.
-2. **Migration** in `migrations/__init__.py` inside a named `migrate_*` function (consistent with current `init_db`), **or** introduce Alembic (see §3) — do not add tables only in `create_all()` without a migration path for production SQLite/Postgres.
+2. **Migration** in `migrations/__init__.py` inside a named `migrate_*` function (consistent with current `init_db`), **or** introduce Alembic (see §3) – do not add tables only in `create_all()` without a migration path for production SQLite/Postgres.
 3. **Services** (`document_follow_notifications`, `event_subscriptions`, etc.) committed together.
 4. **Routes** re-wired in one change set so `from app import app` and pytest never see a half-imported graph.
 5. **Backfill** optional: migrate `UserFollow` rows into `UserEventSubscription` if you replace the follow table, or keep `UserFollow` read-only until cutover.
@@ -72,7 +72,7 @@ Once subscriptions are authoritative, **remove** duplicate paths: legacy `UserFo
 
 You effectively have **three** patterns in the wild. Here is when to use each and when to switch.
 
-### 3.1 Pattern A — `migrate_*` functions + `database/init_db.py` (current default)
+### 3.1 Pattern A – `migrate_*` functions + `database/init_db.py` (current default)
 
 **What it is:** Idempotent Python checks (`sqlite_master`, `PRAGMA`, etc.) that add columns/tables, invoked from `init_db()` and pytest `conftest`.
 
@@ -82,7 +82,7 @@ You effectively have **three** patterns in the wild. Here is when to use each an
 
 **Stay here if:** You remain SQLite-first, small team, and migrations stay small and idempotent.
 
-### 3.2 Pattern B — Alembic (SQLAlchemy migrations)
+### 3.2 Pattern B – Alembic (SQLAlchemy migrations)
 
 **What it is:** Versioned revision files; `upgrade` / `downgrade`; can target Postgres and SQLite.
 
@@ -92,7 +92,7 @@ You effectively have **three** patterns in the wild. Here is when to use each an
 
 **Switch when:** You add Postgres (or another server DB), hire more contributors, or `migrate_*` becomes unmaintainable.
 
-### 3.3 Pattern C — External SQL + ops-run scripts
+### 3.3 Pattern C – External SQL + ops-run scripts
 
 **Pros:** DBA-friendly for large installations.
 
@@ -111,7 +111,7 @@ You effectively have **three** patterns in the wild. Here is when to use each an
 
 ### 4.1 Location
 
-- **`openapi/openapi.yaml`** — OpenAPI 3.x document, versioned with the API.
+- **`openapi/openapi.yaml`** – OpenAPI 3.x document, versioned with the API.
 
 ### 4.2 SSOT tension
 
@@ -139,25 +139,25 @@ If you publish SDKs, consider generating from OpenAPI; keep the YAML authoritati
 | Hypothesis        | Remove models, routes, and templates if product direction is Canopi-only; grep `hypothesis`, `HypothesisAccount`. |
 | `UserFollow`      | After subscription migration, redirect UI/API to `UserEventSubscription` or drop table behind migration. |
 | Duplicate follow notification code | One delivery pipeline only. |
-| Untracked `services/*` | Nothing under `services/` that is imported should stay untracked — commit or delete. |
+| Untracked `services/*` | Nothing under `services/` that is imported should stay untracked – commit or delete. |
 
 ---
 
 ## 6. Suggested implementation order
 
-1. **OpenAPI baseline** — merge `openapi/openapi.yaml` + lint in CI; cover guild/layer link endpoints first, expand weekly.
-2. **Access columns + migration** — layer, guild, quest; defaults preserve today’s behavior.
-3. **Central policy module** — all list/detail/join checks call shared functions; add pytest matrix.
-4. **Notifications stack (A)** — models, migration, wire routes/services, remove legacy duplicate.
-5. **Quest rules** — enforce `open_to_layer` / `open_to_guild` on submission endpoints.
-6. **UI** — forms for officers/admins; consistent error messages matching OpenAPI error schema.
+1. **OpenAPI baseline** – merge `openapi/openapi.yaml` + lint in CI; cover guild/layer link endpoints first, expand weekly.
+2. **Access columns + migration** – layer, guild, quest; defaults preserve today’s behavior.
+3. **Central policy module** – all list/detail/join checks call shared functions; add pytest matrix.
+4. **Notifications stack (A)** – models, migration, wire routes/services, remove legacy duplicate.
+5. **Quest rules** – enforce `open_to_layer` / `open_to_guild` on submission endpoints.
+6. **UI** – forms for officers/admins; consistent error messages matching OpenAPI error schema.
 
 ---
 
 ## 7. Related files
 
-- `database/__init__.py` — migration runner order.
-- `migrations/__init__.py` — idempotent DDL.
-- `openapi/openapi.yaml` — public HTTP contract.
-- `models/coordination.py` — `Layer`, `Guild`, `Quest` (columns to extend).
-- `services/guild_phase1.py` — guild–layer–artifact–quest **link** permissions (orthogonal to listing/join visibility).
+- `database/__init__.py` – migration runner order.
+- `migrations/__init__.py` – idempotent DDL.
+- `openapi/openapi.yaml` – public HTTP contract.
+- `models/coordination.py` – `Layer`, `Guild`, `Quest` (columns to extend).
+- `services/guild_phase1.py` – guild–layer–artifact–quest **link** permissions (orthogonal to listing/join visibility).

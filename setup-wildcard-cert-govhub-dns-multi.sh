@@ -14,7 +14,7 @@
 #    sudo snap connect certbot:plugin certbot-dns-multi
 #    # or: sudo apt install -y certbot python3-certbot-dns-multi
 #
-# 2) Create /etc/letsencrypt/dns-multi-govhub.ini — example Namecheap:
+# 2) Create /etc/letsencrypt/dns-multi-govhub.ini – example Namecheap:
 #    dns_multi_provider = namecheap
 #    NAMECHEAP_API_USER = your_username
 #    NAMECHEAP_API_KEY = your_api_key

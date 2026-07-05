@@ -1,14 +1,14 @@
-# UUID Primary Key Migration — Maintenance Window
+# UUID Primary Key Migration – Maintenance Window
 
 **Phase:** 6 + 7 (PLANNING_FULL_PICTURE.md)  
 **Scope:** Full PK migration from int/string to UUID for all major entities. Phase 7 migrates remaining string(50) PK tables.
 
 ## Pre-Migration Checklist
 
-- [ ] **Full backup** — Script creates timestamped backup automatically; also take external backup
-- [ ] **Maintenance window** — Schedule downtime; migration can take several minutes
-- [ ] **Stop application** — No writes during migration
-- [ ] **Test on dev first** — Run full migration on dev DB, verify app works
+- [ ] **Full backup** – Script creates timestamped backup automatically; also take external backup
+- [ ] **Maintenance window** – Schedule downtime; migration can take several minutes
+- [ ] **Stop application** – No writes during migration
+- [ ] **Test on dev first** – Run full migration on dev DB, verify app works
 
 ## Running the Migration
 
@@ -51,21 +51,21 @@ If migration fails or issues are discovered:
    cp /path/to/datatable_dev.db.backup_pre_uuid_pk_YYYYMMDD_HHMMSS /path/to/datatable_dev.db
    ```
 3. **Restart application**
-4. **Report** — Migration script does not support partial rollback; restore full backup
+4. **Report** – Migration script does not support partial rollback; restore full backup
 
 ## Post-Migration
 
-1. **Update SQLAlchemy models** — ✅ Done. `id` column types updated for User, Layer, Submission, Role, Claim, Badge, Cluster, Guild, Vote, Ballot. All `user_id`, `layer_id`, `role_id`, etc. FKs updated to `String(36)`.
+1. **Update SQLAlchemy models** – ✅ Done. `id` column types updated for User, Layer, Submission, Role, Claim, Badge, Cluster, Guild, Vote, Ballot. All `user_id`, `layer_id`, `role_id`, etc. FKs updated to `String(36)`.
    - `User.id`: `db.Integer` → `db.String(36)` or `db.Uuid`
    - `Layer.id`: `db.String(50)` → `db.String(36)`
    - `Submission.id`: `db.String(8)` → `db.String(36)`
    - All FK columns referencing these tables
-2. **Update routes** — Any routes using integer/string IDs must accept UUID
-3. **Update API** — Ensure API accepts UUID in paths
-4. **Recreate indexes** — Migration drops tables; run `db.create_all()` or add index migration if needed
-5. **Smoke test** — Login, view layers (workgroups count), submissions, votes, roles, claims, badges, waitlists (Members, Milestones), embed widget
+2. **Update routes** – Any routes using integer/string IDs must accept UUID
+3. **Update API** – Ensure API accepts UUID in paths
+4. **Recreate indexes** – Migration drops tables; run `db.create_all()` or add index migration if needed
+5. **Smoke test** – Login, view layers (workgroups count), submissions, votes, roles, claims, badges, waitlists (Members, Milestones), embed widget
 
-6. **Submission/Layer creation** — Code that creates `Submission(id=submission_id, ...)` or `Layer(id=project_id, ...)` with short human-readable IDs must be updated: either omit `id` (let default UUID generate) or pass `id=str(uuid4())`. Use `draft_name`/`ml_number` for human-readable identifiers.
+6. **Submission/Layer creation** – Code that creates `Submission(id=submission_id, ...)` or `Layer(id=project_id, ...)` with short human-readable IDs must be updated: either omit `id` (let default UUID generate) or pass `id=str(uuid4())`. Use `draft_name`/`ml_number` for human-readable identifiers.
 
 ## Testing
 
@@ -109,11 +109,11 @@ with app.app_context():
 
 ## Requirements
 
-- **SQLite 3.35+** — For `ALTER TABLE RENAME COLUMN` (used in some migrations)
+- **SQLite 3.35+** – For `ALTER TABLE RENAME COLUMN` (used in some migrations)
 - **Python 3.7+**
 
 ## References
 
-- `PLANNING_FULL_PICTURE.md` — Phase 6 scope
-- `GOV-HUB-3.md` — UUID + Layer Migration Plan
-- `UUID_MIGRATION_COMPLETE.md` — Current public_id state (additive migration already done)
+- `PLANNING_FULL_PICTURE.md` – Phase 6 scope
+- `GOV-HUB-3.md` – UUID + Layer Migration Plan
+- `UUID_MIGRATION_COMPLETE.md` – Current public_id state (additive migration already done)

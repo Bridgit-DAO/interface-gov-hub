@@ -19,12 +19,12 @@ It adds a second semantic layer across the existing architecture.
 
 ## Locked decisions (product, comms, environment)
 
-- **Outward roadmap:** The **customer-facing** phased story is **§12 Unified Phasing (Phase I–IV)** — civic, constitutions, graph, and interoperability in one arc. **§3** remains the **knowledge-layer** implementation breakdown (forms → relationships → topic map → bundles/interop) for engineering; release notes should **crosswalk** deploy slices to Phase I–IV so expectations stay aligned.
-- **Unified Phase I vs II boundary:** **Unified Phase I** includes the **current extent of Civic Mason** (already implemented) and **does not** wait on relationship UI, **advanced** constitution grouping UI, topic **graph**, or **bundles** — those belong to **Unified Phase II** onward. **Unified Phase I** *does* include **collections** as the grouping primitive for constitution sets (and similar), implemented as attach/list semantics; richer constitution **views** and **grouping UX** mature in **Unified Phase II**.
+- **Outward roadmap:** The **customer-facing** phased story is **§12 Unified Phasing (Phase I–IV)** – civic, constitutions, graph, and interoperability in one arc. **§3** remains the **knowledge-layer** implementation breakdown (forms → relationships → topic map → bundles/interop) for engineering; release notes should **crosswalk** deploy slices to Phase I–IV so expectations stay aligned.
+- **Unified Phase I vs II boundary:** **Unified Phase I** includes the **current extent of Civic Mason** (already implemented) and **does not** wait on relationship UI, **advanced** constitution grouping UI, topic **graph**, or **bundles** – those belong to **Unified Phase II** onward. **Unified Phase I** *does* include **collections** as the grouping primitive for constitution sets (and similar), implemented as attach/list semantics; richer constitution **views** and **grouping UX** mature in **Unified Phase II**.
 - **Guild (Unified Phase I):** **Guild identity**, **membership** (including richer states as spec’d), **guild ↔ layer link**, and **guild ↔ artifact authorship** (sponsor/co-author/review links as applicable). **Guild internal operating roles** do **not** grant layer governance authority by default.
 - **Environments:** Build and experiment on **dev.govhub.live** first. When the stack behaves acceptably, **soft launch** on **govhub.live** (production). Treat dev as disposable for graph experiments unless a migration path is explicitly defined.
 - **Contribution type (UX):** User-facing label for `knowledge_form` is **Contribution type** (internal/API may remain `knowledge_form` / stable enum values).
-- **`knowledge_form` data rule:** Field is **always optional** and **nullable** when unset — no auto-backfill requirement. **Multi-tag** contribution typing is **not** supported (at most one `knowledge_form` per artifact).
+- **`knowledge_form` data rule:** Field is **always optional** and **nullable** when unset – no auto-backfill requirement. **Multi-tag** contribution typing is **not** supported (at most one `knowledge_form` per artifact).
 - **Scaffolding:** Optional **per–contribution-type** prompts may ship once `knowledge_form` exists (see **§5** and `artifact_contribution_schema.md`). Every scaffold field stays **optional**; nothing in the scaffold blocks publish. Prefer a **feature flag** for scaffold UI until stable. **Localization** should include scaffold labels and placeholders when scaffold is exposed to users.
 - **Who may set contribution type:** **Authors and editors** may set or change `knowledge_form` on artifacts they can edit. **Moderators and administrators** may still override after publish. Operational expectations for overrides: **audit trail** (from → to, actor, timestamp; optional reason), **notification** to authors where practical, and a **written policy** for when reclassification is appropriate (quality and taxonomy vs viewpoint).
 - **Localization:** After the rest of **Unified Phase I** is stable, run a **localization pass** (Contribution type labels, help copy, and **scaffold** strings when scaffold is enabled).
@@ -38,7 +38,7 @@ The following match prior PM recommendations and are **baseline product/engineer
 
 - **Content bridges vs artifact bridges:** Treat **two predicate namespaces**. **Content bridges** express how *ideas or claims* relate (e.g. `supported_by`, `contradicted_by`, and extensions in that family). **Artifact bridges** express how *governance objects* relate (e.g. workflow, derivation, `informed_by`, `derived_from`, duplicate/same-thread patterns as adopted). Document, API, and UI should not imply one mechanism covers both; labels may use “content link” vs “artifact link” (or qualified “bridge”) for clarity.
 - **Permissions:** Content assertions (especially contradicts/supports on others’ work) may warrant **stricter** rules than structural artifact links; define per-predicate or per-family policy.
-- **Topic map (Phase 3):** Prefer **layers, filters, or toggles** for content-heavy vs artifact-heavy edges, or a **merged view with a clear legend** — avoid a single undifferentiated edge soup early.
+- **Topic map (Phase 3):** Prefer **layers, filters, or toggles** for content-heavy vs artifact-heavy edges, or a **merged view with a clear legend** – avoid a single undifferentiated edge soup early.
 - **Analytics:** Track **content-bridge** adoption separately from **artifact-link** adoption.
 - **Bundles (Phase 4):** When a machine bundle format is defined, exports should **name predicate families** (or equivalent grouping) so consumers do not flatten two semantics into one undifferentiated edge list. Until a frozen interchange schema exists, treat published IFP gardens as **human exemplars**, not a byte contract; plan explicit **bundle versioning** when formal exchange lands. **Risk to track:** upstream gardens may define **additional form types** beyond these seven; maintain a **mapping / versioning** story so imports do not silently drop or mislabel nodes.
 - **Unified Phase I scope:** **All** artifact types participate: finalize **§4** matrix after review; acceptance includes **at least one create path per artifact type** with optional contribution type, badges, and filters where applicable.
@@ -186,7 +186,7 @@ Outcome:
 | `announcement` | Announcement | Decision | Principle, Model | |
 | `event` | Event | Scenario | Inquiry, Model | |
 
-**Review questions for you:** (1) Confirm one row per **canonical** `artifact_type` in production. (2) `decision` artifact vs **Decision** contribution type — OK with copy (“Decision record” vs “Decision (contribution)”) or rename label. (3) Whether `event` warrants **Decision** in the alternate set for scheduled governance milestones. (4) Schema doc uses **`monument_context`** as canonical slug.
+**Review questions for you:** (1) Confirm one row per **canonical** `artifact_type` in production. (2) `decision` artifact vs **Decision** contribution type – OK with copy (“Decision record” vs “Decision (contribution)”) or rename label. (3) Whether `event` warrants **Decision** in the alternate set for scheduled governance milestones. (4) Schema doc uses **`monument_context`** as canonical slug.
 
 ---
 
@@ -195,14 +195,14 @@ Outcome:
 ## Badge rules
 
 - **Always show** artifact type (existing behavior).
-- **Contribution type:** show a **second badge** only when `knowledge_form` is **non-null** — avoids noisy “empty” chips and keeps lists scannable.
+- **Contribution type:** show a **second badge** only when `knowledge_form` is **non-null** – avoids noisy “empty” chips and keeps lists scannable.
 - **Order:** `[Artifact type] · [Contribution type]` (contribution type secondary).
-- **Truncation:** on narrow layouts, truncate **artifact type** first if needed; keep contribution type readable when present (or collapse to icon + tooltip — product choice).
+- **Truncation:** on narrow layouts, truncate **artifact type** first if needed; keep contribution type readable when present (or collapse to icon + tooltip – product choice).
 - **Consistency:** same component on list rows, detail header, and (if applicable) thread previews; omit second badge in compact contexts only if explicitly designed (e.g. mobile one-line).
 
 ## Filter placement (options)
 
-- **Primary artifact feeds / search:** add **Contribution type** as a **facet** (multi-select) next to existing filters — highest value.
+- **Primary artifact feeds / search:** add **Contribution type** as a **facet** (multi-select) next to existing filters – highest value.
 - **Guild / layer artifact tabs:** same facet when those views are artifact-centric.
 - **Collections / constitution sets:** optional facet inside collection scope.
 - **Defer:** graph-specific filters to Unified Phase II (graph itself is Phase II+ per §12).
@@ -223,7 +223,7 @@ Outcome:
 ## Indexes
 
 - Index **`knowledge_form`** for filtered lists (and composite `(layer_id, knowledge_form)` or equivalent if queries are always scoped).
-- If filtering “unset only,” use **`WHERE knowledge_form IS NULL`** — ensure planner-friendly partial index if that query is hot.
+- If filtering “unset only,” use **`WHERE knowledge_form IS NULL`** – ensure planner-friendly partial index if that query is hot.
 
 ---
 
@@ -231,11 +231,11 @@ Outcome:
 
 **Purpose:** When `knowledge_form` is set, offer **optional** prompts so authors can add a little structure without required schemas.
 
-**Storage (recommended):** `knowledge_scaffold` — nullable JSON object on the artifact (or equivalent). Shape **depends on** `knowledge_form`. If `knowledge_form` is **null**, `knowledge_scaffold` must be **null** on write (server clears orphaned scaffold).
+**Storage (recommended):** `knowledge_scaffold` – nullable JSON object on the artifact (or equivalent). Shape **depends on** `knowledge_form`. If `knowledge_form` is **null**, `knowledge_scaffold` must be **null** on write (server clears orphaned scaffold).
 
 **Rules:**
 
-- **No required** scaffold fields — ever, in this v1.
+- **No required** scaffold fields – ever, in this v1.
 - **String fields:** trim whitespace; enforce a **max length** (e.g. 2000 UTF-8 codepoints per field; tune per product).
 - **Enums** below are optional; allow `null` = “not specified.”
 - Ship behind **`knowledge_scaffold_enabled`** (or combine with contribution-type master flag) until validated.
@@ -252,7 +252,7 @@ Outcome:
 | `gloss` | `definition` (string) | Definition |
 | `scenario` | `actors_context` (string) | Actors / context |
 
-**Validation:** Reject unknown keys for the active `knowledge_form`. Changing `knowledge_form` may **drop** scaffold keys that do not apply (product choice: wipe vs migrate — default **wipe** for v1 simplicity).
+**Validation:** Reject unknown keys for the active `knowledge_form`. Changing `knowledge_form` may **drop** scaffold keys that do not apply (product choice: wipe vs migrate – default **wipe** for v1 simplicity).
 
 **Readiness to implement:** `knowledge_form` enum + API stable; contribution-type picker live or in same release; migration adds nullable JSON column; copy deck + i18n keys for prompts.
 
@@ -260,7 +260,7 @@ Outcome:
 
 # 6. Future (Rich Forms)
 
-Beyond §5 minimal scaffold, each form may gain **richer** structure (lifecycle, lineage UI, linked artifacts, etc.) — typically **Unified Phase II+**:
+Beyond §5 minimal scaffold, each form may gain **richer** structure (lifecycle, lineage UI, linked artifacts, etc.) – typically **Unified Phase II+**:
 
 - Inquiry → related models, candidate resolutions, full status lifecycle
 - Principle → scope, explicit conflict links
@@ -456,8 +456,8 @@ Result over time:
 
 Use **one** relationship system in the product, with **two explicit families** of predicates (see **Agreed design direction**):
 
-- **Content bridges** — how propositions or narrative content relate (e.g. `supported_by`, `contradicted_by`; align naming with governance copy and moderation policy).
-- **Artifact bridges** — how artifacts link as objects in workflow and lineage (e.g. `informed_by`, `derived_from`, `resolves`, `conflicts_with` where used as **object** links rather than textual support).
+- **Content bridges** – how propositions or narrative content relate (e.g. `supported_by`, `contradicted_by`; align naming with governance copy and moderation policy).
+- **Artifact bridges** – how artifacts link as objects in workflow and lineage (e.g. `informed_by`, `derived_from`, `resolves`, `conflicts_with` where used as **object** links rather than textual support).
 
 Illustrative artifact-side predicates (exact names are implementation details):
 
@@ -471,14 +471,14 @@ No duplicate relationship **store** or parallel graph should be created; **do** 
 
 **Primary outward story:** Use **Phase I–IV** below for public roadmap, partner briefings, and sequencing expectations. Detailed knowledge milestones without civic/graph packaging live in **§3**.
 
-## Phase I — Core System + Knowledge Layer + Civic (baseline)
+## Phase I – Core System + Knowledge Layer + Civic (baseline)
 
 - layers
 - artifact system
 - draft / vote / adoption
 - identity anchors
 - meeting_summary
-- **Civic Mason** at **current** implemented extent (bricks / participation baseline — not deferred)
+- **Civic Mason** at **current** implemented extent (bricks / participation baseline – not deferred)
 - optional **Contribution type** (`knowledge_form`, nullable) per **§3–§4**
 - **Collections** as grouping primitive (e.g. attach artifacts to a constitution set); minimal UX
 - **Guilds (extensions in this phase):** identity surface, membership, **guild ↔ layer** link, **guild ↔ artifact** authorship/sponsorship/review links per guild extensions briefing
@@ -498,7 +498,7 @@ Goal:
 
 ---
 
-## Phase II — Relationships + Constitutions (depth)
+## Phase II – Relationships + Constitutions (depth)
 
 - artifact relationships
 - knowledge relationships (same system)
@@ -512,7 +512,7 @@ Goal:
 
 ---
 
-## Phase III — Civic Layer (expansion)
+## Phase III – Civic Layer (expansion)
 
 Builds on **Civic Mason baseline from Phase I**.
 
@@ -526,7 +526,7 @@ Goal:
 
 ---
 
-## Phase IV — Graph + Interoperability
+## Phase IV – Graph + Interoperability
 
 - topic maps
 - knowledge garden

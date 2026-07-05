@@ -328,10 +328,10 @@ def build_system_prompt(action: str, context: dict) -> str:
             'You are Gov Hub AI Assist, helping a participant draft a document patch. '
             'Write concise, reviewer-friendly text grounded in the selected passage and document context. '
             'Output only the requested patch text, with no meta commentary. '
-            'Do not write a comment — output only the patch text the user requested. '
+            'Do not write a comment – output only the patch text the user requested. '
             'Never output  tags, redacted_thinking tags, reasoning tags, analysis tags, '
-            'reflection tags, or chain-of-thought blocks of any kind — only the final patch text. '
-            'Never use em dashes (—); use the en dash character (–), commas, or hyphens.'
+            'reflection tags, or chain-of-thought blocks of any kind – only the final patch text. '
+            'Never use em dashes (–); use the en dash character (–), commas, or hyphens.'
         )
     else:
         base = (
@@ -341,25 +341,25 @@ def build_system_prompt(action: str, context: dict) -> str:
             'no analysis, no "Let me" or "I will" or "The user wants" reasoning, no headings, '
             'no "Before/After" comparison. The first character of your reply must be the first '
             'character of the actual comment. Do not write a patch or proposed replacement '
-            '— output only the comment text. '
+            '– output only the comment text. '
             'Never output  tags, redacted_thinking tags, reasoning tags, analysis tags, '
-            'reflection tags, or chain-of-thought blocks of any kind — only the final comment text. '
-            'Never use em dashes (—); use the en dash character (–), commas, or hyphens.'
+            'reflection tags, or chain-of-thought blocks of any kind – only the final comment text. '
+            'Never use em dashes (–); use the en dash character (–), commas, or hyphens.'
         )
 
     instructions = {
-        'draft_comment': 'Draft a constructive comment. If a passage is selected, focus on that passage; otherwise address the document as a whole. Output only the comment text — no preamble, no analysis, no headings.',
-        'improve_comment': 'Improve clarity, flow, grammar, and tone of the user comment draft. Preserve the user intent. Output only the improved comment text — no preamble, no analysis, no headings, no "before/after" notes.',
-        'shorten_comment': 'Shorten the user comment draft while preserving substantive meaning. Output only the shortened comment — no preamble.',
-        'expand_comment': 'Expand the user comment draft with additional substantive substance, examples, or reasoning that directly support the user’s point. Do not change the user’s position or tone. Aim for roughly 50–100% longer text. Output only the expanded comment — no preamble.',
-        'find_counterpoint': 'Write a strongest good-faith counterpoint for discussion. Label uncertainty without inventing facts. Output only the counterpoint text — no preamble.',
+        'draft_comment': 'Draft a constructive comment. If a passage is selected, focus on that passage; otherwise address the document as a whole. Output only the comment text – no preamble, no analysis, no headings.',
+        'improve_comment': 'Improve clarity, flow, grammar, and tone of the user comment draft. Preserve the user intent. Output only the improved comment text – no preamble, no analysis, no headings, no "before/after" notes.',
+        'shorten_comment': 'Shorten the user comment draft while preserving substantive meaning. Output only the shortened comment – no preamble.',
+        'expand_comment': 'Expand the user comment draft with additional substantive substance, examples, or reasoning that directly support the user’s point. Do not change the user’s position or tone. Aim for roughly 50–100% longer text. Output only the expanded comment – no preamble.',
+        'find_counterpoint': 'Write a strongest good-faith counterpoint for discussion. Label uncertainty without inventing facts. Output only the counterpoint text – no preamble.',
         'improve_patch': 'Return exactly two sections: "Proposed replacement:" and "Rationale:". Improve the replacement and rationale while preserving the intended correction. Output only those two sections.',
-        'shorten_patch_replacement': 'Shorten only the proposed replacement. Output only the replacement text — no preamble.',
-        'expand_patch_replacement': 'Expand only the proposed replacement with additional substantive substance, examples, or scope while preserving the user’s correction intent. Aim for roughly 50–100% longer text. Output only the expanded replacement — no preamble.',
-        'neutralize_patch_replacement': 'Rewrite only the proposed replacement in a neutral, standards-appropriate tone. Output only the replacement text — no preamble.',
-        'add_patch_evidence': 'Add concise evidence using only the document, selected passage, existing draft, related comments, or explicit URLs already present. Do not invent citations. Output only the evidence text — no preamble.',
-        'draft_patch_rationale': 'Draft only a concise rationale explaining why reviewers should consider the patch. Output only the rationale — no preamble.',
-        'explain_patch_risk': 'Draft only a concise rationale explaining the risk of leaving the current passage unchanged or accepting the proposed change. Output only the rationale — no preamble.',
+        'shorten_patch_replacement': 'Shorten only the proposed replacement. Output only the replacement text – no preamble.',
+        'expand_patch_replacement': 'Expand only the proposed replacement with additional substantive substance, examples, or scope while preserving the user’s correction intent. Aim for roughly 50–100% longer text. Output only the expanded replacement – no preamble.',
+        'neutralize_patch_replacement': 'Rewrite only the proposed replacement in a neutral, standards-appropriate tone. Output only the replacement text – no preamble.',
+        'add_patch_evidence': 'Add concise evidence using only the document, selected passage, existing draft, related comments, or explicit URLs already present. Do not invent citations. Output only the evidence text – no preamble.',
+        'draft_patch_rationale': 'Draft only a concise rationale explaining why reviewers should consider the patch. Output only the rationale – no preamble.',
+        'explain_patch_risk': 'Draft only a concise rationale explaining the risk of leaving the current passage unchanged or accepting the proposed change. Output only the rationale – no preamble.',
     }
 
     submission = context.get('submission') or {}
@@ -379,7 +379,7 @@ def build_system_prompt(action: str, context: dict) -> str:
     else:
         context_lines += [
             f"SELECTED PASSAGE (the user is commenting on this):\n{context.get('selected_passage')}" if context.get('selected_passage') else '',
-            f"USER COMMENT DRAFT (the text to improve — treat this as the only thing being edited):\n{context.get('user_draft')}" if context.get('user_draft') else '',
+            f"USER COMMENT DRAFT (the text to improve – treat this as the only thing being edited):\n{context.get('user_draft')}" if context.get('user_draft') else '',
             _format_related('RELATED COMMENT', context.get('related_comments') or []),
         ]
     context_lines.append(
@@ -483,7 +483,7 @@ def clean_draft(text: str) -> str:
     # Drop any orphaned opening/closing tags that escaped the block match.
     cleaned = re.sub(r'</?(?:think|redacted_thinking)>', '', cleaned, flags=re.I)
     cleaned = re.sub(r'</?(?:reasoning|analysis|reflection)>', '', cleaned, flags=re.I)
-    cleaned = cleaned.replace('—', '–')
+    cleaned = cleaned.replace('–', '–')
     return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 
 

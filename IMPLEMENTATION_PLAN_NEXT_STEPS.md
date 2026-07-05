@@ -14,7 +14,7 @@
 ### ✅ Complete (40%)
 - All 10 database models
 - All helper functions
-- Layers API (5 endpoints) — `/api/layers/`
+- Layers API (5 endpoints) – `/api/layers/`
 - Workgroups API (5 endpoints)
 - Guilds API (4 endpoints)
 - Role Images feature (11 endpoints + 2 pages)

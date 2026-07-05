@@ -116,7 +116,7 @@ def calculate_pages_and_words(file_path, filename, max_size_mb=50, timeout_secon
 
     Security: file size limit (default 50MB) to reduce memory exhaustion risk.
 
-    Note: SIGALRM-based timeouts were removed — Flask's threaded request workers
+    Note: SIGALRM-based timeouts were removed – Flask's threaded request workers
     are not the main interpreter thread, so signal handlers raise and every
     listing/detail ended up as (1, 0) words.
     """

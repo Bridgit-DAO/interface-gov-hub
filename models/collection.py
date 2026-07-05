@@ -1,4 +1,4 @@
-"""Artifact collections (e.g. constitution sets) — Unified Phase I grouping primitive."""
+"""Artifact collections (e.g. constitution sets) – Unified Phase I grouping primitive."""
 from datetime import datetime
 from uuid import uuid4
 

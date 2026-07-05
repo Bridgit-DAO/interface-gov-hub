@@ -57,7 +57,7 @@
   "theme": {
     "switchToLight": "切换到浅色模式",
     "switchToDark": "切换到深色模式",
-    "systemAuto": "跟随系统（自动）— 点击切换",
+    "systemAuto": "跟随系统（自动）– 点击切换",
     "toggle": "切换主题"
   },
   "prefix": {
@@ -81,6 +81,6 @@
     "confirmDeleteTitle": "删除前缀",
     "confirmDeleteBody": "删除此前缀？已创建的草稿将保留其标识符。",
     "confirmDeleteDefaultBody": "这是当前默认前缀。请先将其他前缀设为默认，再删除此项。",
-    "manageNothing": "尚未选择 layer — 请先打开一个 layer 页面。"
+    "manageNothing": "尚未选择 layer – 请先打开一个 layer 页面。"
   }
 }

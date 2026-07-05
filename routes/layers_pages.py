@@ -96,7 +96,7 @@ def layer_quest_detail(layer_slug, quest_id):
     desc_esc = html_mod.escape(quest.description or '') if quest.description else ''
     criteria_esc = html_mod.escape(quest.acceptance_criteria or '') if quest.acceptance_criteria else ''
     status_badge = 'success' if quest.status == 'open' else 'secondary' if quest.status == 'closed' else 'warning'
-    created_str = quest.created_at.strftime('%Y-%m-%d %H:%M') if quest.created_at else '—'
+    created_str = quest.created_at.strftime('%Y-%m-%d %H:%M') if quest.created_at else '–'
     creator_name = None
     if quest.creator_user_id:
         u = User.query.get(quest.creator_user_id)
@@ -110,11 +110,11 @@ def layer_quest_detail(layer_slug, quest_id):
         if qs.submitter_user_id:
             su = User.query.get(qs.submitter_user_id)
             submitter_name = (su.displayName or su.username or su.oauthName) if su else None
-        art_title = (art.title or art.id[:8]) if art else (qs.artifact_id[:8] + '...' if qs.artifact_id else '—')
-        art_link = f'<a href="/layers/{layer_slug}/artifacts/{qs.artifact_id}/">{html_mod.escape(art_title[:50])}</a>' if qs.artifact_id and art else (qs.artifact_id[:12] + '...' if qs.artifact_id else '—')
+        art_title = (art.title or art.id[:8]) if art else (qs.artifact_id[:8] + '...' if qs.artifact_id else '–')
+        art_link = f'<a href="/layers/{layer_slug}/artifacts/{qs.artifact_id}/">{html_mod.escape(art_title[:50])}</a>' if qs.artifact_id and art else (qs.artifact_id[:12] + '...' if qs.artifact_id else '–')
         draft_link = f' <a href="/submit/status/{sub.id}/" class="badge bg-outline-primary text-decoration-none">Draft</a>' if sub else ''
         status_cls = 'success' if qs.status == 'approved' else 'warning' if qs.status == 'pending_review' else 'secondary'
-        sub_rows.append(f'<tr><td>{art_link}{draft_link}</td><td>{html_mod.escape(submitter_name or "—")}</td><td><span class="badge bg-{status_cls}">{qs.status}</span></td><td>{qs.created_at.strftime("%Y-%m-%d") if qs.created_at else "—"}</td></tr>')
+        sub_rows.append(f'<tr><td>{art_link}{draft_link}</td><td>{html_mod.escape(submitter_name or "–")}</td><td><span class="badge bg-{status_cls}">{qs.status}</span></td><td>{qs.created_at.strftime("%Y-%m-%d") if qs.created_at else "–"}</td></tr>')
     submissions_html = ''.join(sub_rows) if sub_rows else '<tr><td colspan="4" class="text-muted">No submissions yet.</td></tr>'
     back_link = f'<a href="/layers/{layer_slug}/#opportunities" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Opportunities</a>'
     submit_form_html = ''
@@ -278,7 +278,7 @@ def artifact_detail(layer_slug, artifact_id):
             )
         if _parts:
             guild_badges_block = '<span class="ms-1">' + ' '.join(_parts) + '</span>'
-    created_str = artifact.created_at.strftime('%Y-%m-%d %H:%M') if artifact.created_at else '—'
+    created_str = artifact.created_at.strftime('%Y-%m-%d %H:%M') if artifact.created_at else '–'
     body_raw = (getattr(artifact, 'body', None) or '').strip()
     body_block = (
         f'<div class="mb-4"><h5>Body</h5><div class="border rounded p-3" style="white-space:pre-wrap;">'
@@ -498,11 +498,11 @@ def create_project_page():
                         <label class="form-label">Discovery</label>
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="listing_visibility" id="vis_public" value="public" checked>
-                            <label class="form-check-label" for="vis_public">Public — listed in the layer directory</label>
+                            <label class="form-check-label" for="vis_public">Public – listed in the layer directory</label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="listing_visibility" id="vis_private" value="private">
-                            <label class="form-check-label" for="vis_private">Private — only members and people you invite</label>
+                            <label class="form-check-label" for="vis_private">Private – only members and people you invite</label>
                         </div>
                         <div class="form-text">Private layers can be made public later in Edit (one-way only).</div>
                     </div>
@@ -570,7 +570,7 @@ def create_project_page():
                     prefixFeedback.textContent = 'Prefix must be exactly 2 uppercase letters.';
                     prefixFeedback.className = 'form-text small text-danger';
                 } else {
-                    prefixFeedback.textContent = 'Looks good — uniqueness is checked on save.';
+                    prefixFeedback.textContent = 'Looks good – uniqueness is checked on save.';
                     prefixFeedback.className = 'form-text small text-muted';
                 }
             });
@@ -686,7 +686,7 @@ def create_project_page():
                                 }
                             }
                         } catch (cleanupErr) {
-                            // Non-fatal — admin can fix this in Edit.
+                            // Non-fatal – admin can fix this in Edit.
                             console.warn('Prefix cleanup failed:', cleanupErr);
                         }
                     }

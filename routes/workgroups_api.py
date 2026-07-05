@@ -10,7 +10,7 @@ single-purpose surface and so we can document the contract explicitly.
 NOTE on identifiers: workgroup IDs in this codebase are UUIDs (not
 integers), so the URL converter is ``<string:workgroup_id>``.
 
-Existing endpoints — these are duplicated on purpose. Flask's URL map
+Existing endpoints – these are duplicated on purpose. Flask's URL map
 matches the FIRST registered blueprint for a given URL, so
 ``routes.workgroups.bp`` (registered earlier in ``app.py``) continues
 to answer requests. Defining them here provides a clear contract and

@@ -154,7 +154,7 @@ def get_workgroup(workgroup_id):
 
 @bp.route('/workgroups/by-slug/<workgroup_slug>/', methods=['GET'])
 def get_workgroup_by_slug(workgroup_slug):
-    """Direct workgroup lookup by slug — used by the /workgroups/<slug>/ page bootstrap."""
+    """Direct workgroup lookup by slug – used by the /workgroups/<slug>/ page bootstrap."""
     wg = (
         db.session.query(Workgroup)
         .join(Layer, Layer.id == Workgroup.layer_id)

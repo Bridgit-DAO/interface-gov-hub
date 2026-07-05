@@ -879,7 +879,7 @@ def draft_reader(draft_name):
     '''
 
     return _format_base_template(
-        title=f'{display_id} — Reader',
+        title=f'{display_id} – Reader',
         theme=current_theme,
         user_menu=user_menu,
         content=content,
@@ -1226,7 +1226,7 @@ Meta-Layer Initiative
                     </div>
                     <div class="modal-body">
                         <div id="artifact-alert" class="alert d-none mb-2"></div>
-                        <div class="mb-2"><label class="form-label">Type</label><select class="form-select" id="artifact-type"><option value="">—</option>{''.join(f'<option value="{t}">{t}</option>' for t in artifact_types)}</select></div>
+                        <div class="mb-2"><label class="form-label">Type</label><select class="form-select" id="artifact-type"><option value="">–</option>{''.join(f'<option value="{t}">{t}</option>' for t in artifact_types)}</select></div>
                         <div class="mb-2"><label class="form-label">Subtype</label><input type="text" class="form-control" id="artifact-subtype" placeholder="e.g. governance proposal"></div>
                         <div class="mb-2"><label class="form-label">Title</label><input type="text" class="form-control" id="artifact-title" placeholder="Artifact title"></div>
                         <div class="mb-2"><label class="form-label">Summary</label><textarea class="form-control" id="artifact-summary" rows="2" placeholder="Brief summary"></textarea></div>
@@ -1236,7 +1236,7 @@ Meta-Layer Initiative
                         <div class="row"><div class="col-6"><label class="form-label">Source language</label><input type="text" class="form-control" id="artifact-source-lang" placeholder="en"></div><div class="col-6"><label class="form-label">Current language</label><input type="text" class="form-control" id="artifact-current-lang" placeholder="en"></div></div>
                         <div class="mb-2 border-top pt-2 mt-2" id="kl-contribution-wrap" style="display:none;">
                             <label class="form-label">Contribution type <span class="text-muted">(optional)</span></label>
-                            <select class="form-select" id="kl-contribution-type"><option value="">— Not set</option></select>
+                            <select class="form-select" id="kl-contribution-type"><option value="">– Not set</option></select>
                             <p class="small text-muted mb-0">Helps others understand how to engage with this contribution.</p>
                         </div>
                         <div class="mb-2" id="kl-scaffold-wrap" style="display:none;"></div>
@@ -1294,7 +1294,7 @@ Meta-Layer Initiative
                 const at = (atEl.value || '').trim();
                 const spec = klSchema.artifact_types && klSchema.artifact_types[at];
                 const prev = sel.value;
-                sel.innerHTML = '<option value="">— Not set</option>';
+                sel.innerHTML = '<option value="">– Not set</option>';
                 if (spec && spec.allowed) {{
                     spec.allowed.forEach(function(v) {{ sel.add(new Option(v, v)); }});
                     if (prev && [...sel.options].some(function(o) {{ return o.value === prev; }})) sel.value = prev;
@@ -1524,7 +1524,7 @@ Meta-Layer Initiative
         wg_opts = workgroup_select_options_html(
             getattr(_sub, 'layer_id', None),
             (_sub.group or '').strip(),
-            placeholder='— None —',
+            placeholder='– None –',
         )
         sub_id_esc = html_mod.escape(_sub.id, quote=True)
         workgroup_metadata_edit_html = f'''
@@ -2061,7 +2061,7 @@ def draft_comments(draft_name):
     content = f"""
     <div class="gh-page container mt-4">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Comments', None)])}
-        {gh_page_header(f'Comments — {display_id}', draft['title'], 'fa-comments')}
+        {gh_page_header(f'Comments – {display_id}', draft['title'], 'fa-comments')}
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
@@ -2266,9 +2266,9 @@ def draft_patches(draft_name):
     <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260604patchpage">
     <div class="gh-page container mt-4 gh-patches-page">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Patches', None)])}
-        {gh_page_header(f'Patches — {display_id}', draft['title'], 'fa-code-branch')}
+        {gh_page_header(f'Patches – {display_id}', draft['title'], 'fa-code-branch')}
         <p class="text-muted mb-4">
-            Patches are <strong>passage-level only</strong> — each one is tied to selected text in the reader.
+            Patches are <strong>passage-level only</strong> – each one is tied to selected text in the reader.
             There are no document-wide patches. Use comments for general feedback on the whole document.
         </p>
         <div class="mb-4">
@@ -2386,7 +2386,7 @@ def draft_history(draft_name):
     content = f"""
     <div class="gh-page container mt-4">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('History', None)])}
-        {gh_page_header(f'History — {display_id}', draft['title'], 'fa-history')}
+        {gh_page_header(f'History – {display_id}', draft['title'], 'fa-history')}
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft
@@ -2429,7 +2429,7 @@ def update_draft_subscriptions(draft_name):
     replace_draft_subscriptions_matrix(current_user['id'], draft_name, matrix)
     db.session.commit()
     if not matrix:
-        flash('No channels enabled — this draft has no notification subscriptions.', 'info')
+        flash('No channels enabled – this draft has no notification subscriptions.', 'info')
     else:
         flash('Subscription settings saved.', 'success')
     return _redirect_after_subscription(draft_name)
@@ -2559,7 +2559,7 @@ def draft_revisions(draft_name):
     content = f"""
     <div class="gh-page container mt-4">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Revisions', None)])}
-        {gh_page_header(f'Revisions — {display_id}', draft['title'], 'fa-code-branch')}
+        {gh_page_header(f'Revisions – {display_id}', draft['title'], 'fa-code-branch')}
         <div class="mb-4">
             <a href="/doc/draft/{draft_name}/" class="btn btn-secondary me-2">
                 <i class="fas fa-arrow-left me-1"></i>Back to Draft

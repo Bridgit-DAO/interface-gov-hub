@@ -1,4 +1,4 @@
-"""Layer organizational connections — types, submissions, review (MVP)."""
+"""Layer organizational connections – types, submissions, review (MVP)."""
 from __future__ import annotations
 
 from datetime import datetime

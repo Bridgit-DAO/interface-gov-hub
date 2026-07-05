@@ -1,4 +1,4 @@
-# Civic Mason — Brick Placement Interface Specification
+# Civic Mason – Brick Placement Interface Specification
 
 This document defines the intended user experience and rules for the Civic Mason brick placement interface.
 
@@ -39,7 +39,7 @@ It is meant to guide design and implementation in Cursor.
 
 The following phases integrate the interface spec, Task 14 (Brick System + UI), and Task 15 (Localization) into a single implementation sequence.
 
-### Phase A — Data & Eligibility (Foundation)
+### Phase A – Data & Eligibility (Foundation)
 
 | Step | Description | Spec |
 |------|-------------|------|
@@ -48,7 +48,7 @@ The following phases integrate the interface spec, Task 14 (Brick System + UI), 
 | A3 | Add `color_variant` to Brick; year-based palettes (5–7 variants) | Task 14 Color System |
 | A4 | Testing bypass: `earned = true` for dev | Testing Mode |
 
-### Phase B — Eligibility UX & States
+### Phase B – Eligibility UX & States
 
 | Step | Description | Spec |
 |------|-------------|------|
@@ -56,7 +56,7 @@ The following phases integrate the interface spec, Task 14 (Brick System + UI), 
 | B2 | Message update flow: view brick, update message, view history | Already Placed State, Message System |
 | B3 | Aspirational CTAs for non-Masons: "Earn your Civic Mason badge"; Start Steward Challenge, View Open Quests, Learn how to earn | Non-Mason State |
 
-### Phase C — Visual & Interaction Polish
+### Phase C – Visual & Interaction Polish
 
 | Step | Description | Spec |
 |------|-------------|------|
@@ -66,7 +66,7 @@ The following phases integrate the interface spec, Task 14 (Brick System + UI), 
 | C4 | Brick rendering: soft bevel, micro-noise texture, subtle variation | Task 14 Brick Rendering |
 | C5 | Aging system: darkening/desaturation, edge wear over time (client-side from timestamp) | Task 14 Aging System |
 
-### Phase D — Mural & Full-Page Experience
+### Phase D – Mural & Full-Page Experience
 
 | Step | Description | Spec |
 |------|-------------|------|
@@ -75,14 +75,14 @@ The following phases integrate the interface spec, Task 14 (Brick System + UI), 
 | D3 | Full-page civic surface; mural fades under bricks | Full-Page Visual Concept |
 | D4 | Grid helper toggle (show/hide scaffold outlines) | Task 14 Rendering Layers |
 
-### Phase E — Performance & Scale
+### Phase E – Performance & Scale
 
 | Step | Description | Spec |
 |------|-------------|------|
 | E1 | Tiling/virtualization for large walls | Task 14 Performance |
 | E2 | Lazy-load bricks outside viewport | Task 14 Performance |
 
-### Phase F — Localization (Task 15)
+### Phase F – Localization (Task 15)
 
 | Step | Description | Spec |
 |------|-------------|------|
@@ -92,14 +92,14 @@ The following phases integrate the interface spec, Task 14 (Brick System + UI), 
 
 ### Architectural Constraint (All Phases)
 
-**"Never Let Presentation Shape the System"** — Mural must NOT define grid or placement. All relationships via Artifact, ArtifactRelation, EventLog.
+**"Never Let Presentation Shape the System"** – Mural must NOT define grid or placement. All relationships via Artifact, ArtifactRelation, EventLog.
 
 ## Code Locations
 
-- `models/coordination.py` — Brick, BrickMessage, Role.civic_mason_eligible
-- `services/civic_mason.py` — Eligibility, placement validation
-- `routes/civic_mason.py` — API: `/api/civic-mason/bricks/`, `/eligible/`
-- `routes/civic_mason_pages.py` — Page at `/civic-mason/`, drag-drop UI
+- `models/coordination.py` – Brick, BrickMessage, Role.civic_mason_eligible
+- `services/civic_mason.py` – Eligibility, placement validation
+- `routes/civic_mason.py` – API: `/api/civic-mason/bricks/`, `/eligible/`
+- `routes/civic_mason_pages.py` – Page at `/civic-mason/`, drag-drop UI
 
 ## Design Decision: Layer Scope
 
@@ -449,7 +449,7 @@ It should communicate that clearly.
 
 ---
 
-# Task 14 — Civic Mason Wall (Brick System + UI Spec)
+# Task 14 – Civic Mason Wall (Brick System + UI Spec)
 
 This defines the full rendering, interaction, and data model for the Civic Mason brick interface.
 
@@ -544,7 +544,7 @@ On hover of a placed brick:
 
 - Three-band conceptual composition:
   1. Human builders / civic action (bottom)
-  2. Brick field (middle — user contributions)
+  2. Brick field (middle – user contributions)
   3. Network / meta-layer / future city (top)
 
 - Mural must:
@@ -601,7 +601,7 @@ BrickMessageHistory:
 
 ---
 
-# Task 15 — Localization (i18n + Artifact Translation)
+# Task 15 – Localization (i18n + Artifact Translation)
 
 Implement two layers of localization: interface language and artifact translation.
 

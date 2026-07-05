@@ -19,7 +19,7 @@
   },
   "dev": {
     "label": "Dev uniquement : règles Civic Mason",
-    "demoSwitch": "Mode démo — pas de badge requis, placements illimités"
+    "demoSwitch": "Mode démo – pas de badge requis, placements illimités"
   },
   "a11y": {
     "demoMode": "Mode démo",
@@ -41,14 +41,14 @@
   },
   "config": {
     "title": "Configurer la brique",
-    "hint": "Choisissez une couleur — double-cliquez pour valider et fermer.",
+    "hint": "Choisissez une couleur – double-cliquez pour valider et fermer.",
     "message": "Message",
     "optional": "(facultatif)",
     "placeholder": "Laissez un message…"
   },
   "edit": {
     "title": "Modifier la brique",
-    "hint": "Modifiez la couleur ou le message, puis Accepter — ou annulez ce placement.",
+    "hint": "Modifiez la couleur ou le message, puis Accepter – ou annulez ce placement.",
     "cancelPlacement": "Annuler le placement",
     "accept": "Accepter"
   },

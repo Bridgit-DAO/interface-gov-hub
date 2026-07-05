@@ -43,7 +43,7 @@ def test_create_invitation_requires_member():
 
         layer = Layer.query.first()
         if not layer:
-            print('⚠️  No layer — skip')
+            print('⚠️  No layer – skip')
             return
         outsider = None
         for user in User.query.filter(User.role.notin_(['admin', 'editor'])).all():
@@ -52,7 +52,7 @@ def test_create_invitation_requires_member():
             outsider = user
             break
         if not outsider:
-            print('⚠️  No non-inviter user — skip')
+            print('⚠️  No non-inviter user – skip')
             return
         layer_id = layer.id
         outsider_username = outsider.username
@@ -75,11 +75,11 @@ def test_create_invitation_allows_layer_initiator():
         if not layer:
             layer = Layer.query.first()
         if not layer or not layer.initiator_id:
-            print('⚠️  Need layer with initiator — skip')
+            print('⚠️  Need layer with initiator – skip')
             return
         initiator = User.query.get(layer.initiator_id)
         if not initiator:
-            print('⚠️  Initiator missing — skip')
+            print('⚠️  Initiator missing – skip')
             return
         layer_id = layer.id
         username = initiator.username
@@ -103,7 +103,7 @@ def test_create_invitation_duplicate_member():
         layer = Layer.query.first()
         users = User.query.filter(User.email.isnot(None)).limit(2).all()
         if not layer or len(users) < 2:
-            print('⚠️  Need layer + 2 users with email — skip')
+            print('⚠️  Need layer + 2 users with email – skip')
             return
         inviter, existing = users[0], users[1]
         layer_id = layer.id
@@ -147,7 +147,7 @@ def test_accept_invitation_sets_referrer():
         layer = Layer.query.first()
         users = User.query.filter(User.email.isnot(None)).limit(2).all()
         if not layer or len(users) < 2:
-            print('⚠️  Need layer + 2 users with email — skip')
+            print('⚠️  Need layer + 2 users with email – skip')
             return
         inviter, invitee = users[0], users[1]
         for u in (inviter, invitee):
@@ -219,7 +219,7 @@ def test_preview_includes_layer_mission_and_description():
         layer = Layer.query.first()
         user = User.query.filter(User.email.isnot(None)).first()
         if not layer or not user:
-            print('⚠️  Need layer + user — skip')
+            print('⚠️  Need layer + user – skip')
             return
         layer.mission = 'Test mission for invite preview'
         layer.description = 'Test description for invite preview'

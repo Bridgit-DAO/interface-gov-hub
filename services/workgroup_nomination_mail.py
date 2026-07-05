@@ -89,7 +89,7 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
         if nominator and nominator.email:
             send_resend_email(
                 to=[nominator.email.strip()],
-                subject=f'Your {pos_label} nomination was submitted — {wg_name}',
+                subject=f'Your {pos_label} nomination was submitted – {wg_name}',
                 html=_email_shell('Nomination submitted', confirm_body),
             )
         return
@@ -102,12 +102,12 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
 <p style="margin:24px 0;">
   <a href="{html.escape(respond_url)}" style="background:#667eea;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Review nomination</a>
 </p>
-<p style="font-size:13px;color:#666;">Accepting does not appoint you yet — layer administrators still review all nominations.</p>
+<p style="font-size:13px;color:#666;">Accepting does not appoint you yet – layer administrators still review all nominations.</p>
 """
     if nomination.nominee_email:
         send_resend_email(
             to=[nomination.nominee_email.strip()],
-            subject=f'You were nominated as {pos_label} — {wg_name}',
+            subject=f'You were nominated as {pos_label} – {wg_name}',
             html=_email_shell('Workgroup nomination', nominee_body),
         )
 
@@ -128,7 +128,7 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
     if nominator and nominator.email:
         send_resend_email(
             to=[nominator.email.strip()],
-            subject=f'Nomination sent — {nomination.chair_name} for {pos_label}',
+            subject=f'Nomination sent – {nomination.chair_name} for {pos_label}',
             html=_email_shell('Nomination sent', nominator_body),
         )
 
@@ -195,11 +195,11 @@ def send_admin_decision(nomination: WorkingGroupChair, approved: bool):
     wg_url = f"{_public_base_url()}/workgroups/{wg.slug}/" if wg else _public_base_url()
 
     if approved:
-        subject = f'Nomination approved — {pos_label} in {wg_name}'
+        subject = f'Nomination approved – {pos_label} in {wg_name}'
         body_nominee = f'<p>Your nomination for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was approved.</p><p><a href="{html.escape(wg_url)}">View workgroup</a></p>'
         body_nominator = f'<p>The nomination of <strong>{html.escape(nomination.chair_name or "")}</strong> for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was approved.</p>'
     else:
-        subject = f'Nomination not approved — {pos_label} in {wg_name}'
+        subject = f'Nomination not approved – {pos_label} in {wg_name}'
         body_nominee = f'<p>Your nomination for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was not approved by administrators.</p>'
         body_nominator = f'<p>The nomination of <strong>{html.escape(nomination.chair_name or "")}</strong> for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was not approved.</p>'
 

@@ -53,7 +53,7 @@ def _strip_immortalize_from_submit_template(template: str) -> str:
 def _layer_prefix_for_submission(submission) -> str:
     """Return the 2-letter draft prefix for a submission's primary layer.
 
-    Honours an explicit per-draft override on ``submission.prefix_code`` —
+    Honours an explicit per-draft override on ``submission.prefix_code`` –
     the submit form sets this when a layer has more than one prefix and the
     author chose a non-default code. Falls back to the layer's default
     ``LayerPrefix`` row, then to 'ML' as a last resort.
@@ -465,7 +465,7 @@ def _build_prefix_selector_inner_html(layer_id, layer_prefixes):
 
     The wrapper ``<div id="submit-prefix-selector-wrap">`` is the contract
     used by ``_GhRefreshSubmitPrefixSelector`` (and the workgroup_links.js
-    change handler) and is emitted by ``_build_prefix_selector_html`` —
+    change handler) and is emitted by ``_build_prefix_selector_html`` –
     helpers here return only the *contents* of that wrapper.
     """
     if not layer_id:
@@ -486,7 +486,7 @@ def _build_prefix_selector_inner_html(layer_id, layer_prefixes):
             '<label class="form-label" data-gh-i18n="prefix.label">Prefix</label>'
             '<div class="d-flex align-items-center gap-2">'
             '<span class="font-monospace fs-5 fw-bold">ML</span>'
-            '<span class="text-muted small">No prefixes configured for this layer — '
+            '<span class="text-muted small">No prefixes configured for this layer – '
             "drafts will use the system default <code>ML</code>.</span>"
             '</div>'
             '<div class="form-text">Layer admins can add additional prefixes from '
@@ -524,7 +524,7 @@ def _build_prefix_selector_inner_html(layer_id, layer_prefixes):
         'style="max-width: 14rem;">'
         f'{"".join(options)}'
         '</select>'
-        '<div class="form-text">This layer has more than one prefix — pick which '
+        '<div class="form-text">This layer has more than one prefix – pick which '
         "code to use for this draft's identifier.</div>"
     )
 
@@ -593,7 +593,7 @@ def _gh_prefix_selector_refresh_script():
         '        var sel = p.is_default ? " selected" : "";\n'
         '        html += \'<option value="\' + p.prefix + \'"\' + sel + \'>\' + lbl + \'</option>\';\n'
         '      });\n'
-        '      html += \'</select><div class="form-text">This layer has more than one prefix — pick which code to use for this draft\\u2019s identifier.</div>\';\n'
+        '      html += \'</select><div class="form-text">This layer has more than one prefix – pick which code to use for this draft\\u2019s identifier.</div>\';\n'
         '      wrap.setAttribute("data-prefix-state", "multi");\n'
         '      wrap.innerHTML = html;\n'
         '      wrap.style.display = "";\n'
@@ -638,7 +638,7 @@ def _build_prefix_selector_html(layer_id, layer_prefixes):
 
     0 prefixes: warning (admin hasn't set one yet).
     1 prefix:   read-only badge (drafts always use this code).
-    >1 prefix:  dropdown — author picks the code for this draft.
+    >1 prefix:  dropdown – author picks the code for this draft.
     The selection is mirrored into the hidden #upload-prefix-code and
     #ordinal-prefix-code fields on change so the server can read it.
 
@@ -1849,7 +1849,7 @@ def submission_detail(submission_id):
                             "..." if len(text_content) > 2000 else ""
                         )
                 else:
-                    # e.g. text/css — show snippet
+                    # e.g. text/css – show snippet
                     file_content = text_content[:2000] + (
                         "..." if len(text_content) > 2000 else ""
                     )
@@ -2041,7 +2041,7 @@ def list_layer_submissions(layer_id):
 
 @bp.route('/api/layers/<layer_id>/docs/', methods=['GET'])
 def list_layer_docs(layer_id):
-    """List all docs (submissions of doc_type='draft') for a layer — any status.
+    """List all docs (submissions of doc_type='draft') for a layer – any status.
 
     Used by the layer detail page 'Docs' tab so contributors can find a draft
     they added to a workgroup-less layer. Returns the most recent first; pending

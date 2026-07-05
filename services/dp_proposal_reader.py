@@ -211,7 +211,7 @@ def render_dp_proposal_reader_assets(
           </div>
           <div class="modal-body">
             <div id="dpComposePanePropose">
-              <p class="text-muted small">Original sentence(s) — expanded from your selection.</p>
+              <p class="text-muted small">Original sentence(s) – expanded from your selection.</p>
               <textarea id="dpProposalOriginal" class="form-control font-monospace dp-proposal-pre mb-3" rows="5" readonly></textarea>
               <label class="form-label" for="dpProposalProposed">{html_mod.escape(labels.get("proposed_label", "Patched text"))}</label>
               <textarea id="dpProposalProposed" class="form-control font-monospace dp-proposal-pre mb-3" rows="5"></textarea>

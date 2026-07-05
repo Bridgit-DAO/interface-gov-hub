@@ -17,7 +17,7 @@ CONTENT_TYPES = frozenset({'text', 'image', 'video', 'audio'})
 
 def parse_bridge_relationship(raw, *, default_if_missing=False):
     """
-    Validate relationship for API. Pre-launch: no legacy aliases — must be canonical.
+    Validate relationship for API. Pre-launch: no legacy aliases – must be canonical.
 
     If default_if_missing and raw is empty/whitespace, return DEFAULT_RELATIONSHIP.
     Otherwise return (value, None) or (None, error_message).

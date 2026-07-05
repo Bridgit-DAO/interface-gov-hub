@@ -2,7 +2,7 @@
 
 **Project:** gov-hub-dev  
 **Scope:** Project detail page (`/projects/<slug>/`)  
-**Source:** `ietf_data_viewer_simple.py` — `_render_project_detail()`, `project_detail()`, `project_detail_waitlist()`
+**Source:** `ietf_data_viewer_simple.py` – `_render_project_detail()`, `project_detail()`, `project_detail_waitlist()`
 
 ---
 
@@ -27,11 +27,11 @@
 
 ## Requirements
 
-1. **Move tabs to the top** — Tabs become the first element on the page.
-2. **New first tab "Overview" (default)** — Overview is the first tab and opens by default.
-3. **Overview = current main content** — The project header (name, description, image, actions) + current overview content (Layer Information, Quick Stats) move into the Overview tab pane.
-4. **Record current and previous tabs** — Persist tab state.
-5. **Restore tab on return** — When returning to the page, open the last active tab.
+1. **Move tabs to the top** – Tabs become the first element on the page.
+2. **New first tab "Overview" (default)** – Overview is the first tab and opens by default.
+3. **Overview = current main content** – The project header (name, description, image, actions) + current overview content (Layer Information, Quick Stats) move into the Overview tab pane.
+4. **Record current and previous tabs** – Persist tab state.
+5. **Restore tab on return** – When returning to the page, open the last active tab.
 
 ---
 
@@ -107,7 +107,7 @@ Or a simpler format: `"votes"` for current only; previous can be derived from th
 
 **On page load (after `loadProject`):**
 1. After `displayProjectHeader()`, `loadOverview()`, `buildWaitlistTabs()`.
-2. Check `initialWaitlistId` (URL `/projects/<slug>/waitlist/<id>/`) — if set, open that waitlist tab (existing behavior).
+2. Check `initialWaitlistId` (URL `/projects/<slug>/waitlist/<id>/`) – if set, open that waitlist tab (existing behavior).
 3. Else read `projectDetailTab_${projectSlug}_current` from localStorage.
 4. If valid and that tab exists, programmatically activate it (e.g. `document.getElementById('votes-tab')?.click()`).
 5. Otherwise keep default (Overview).
@@ -145,6 +145,6 @@ Or a simpler format: `"votes"` for current only; previous can be derived from th
 
 ## Notes
 
-- **Overview already exists** — The Overview tab is already first and default. The main change is moving the project header into it.
-- **Waitlist URL** — `/projects/<slug>/waitlist/<id>/` should still open the specific waitlist tab; this overrides stored state.
-- **Admin tab** — Conditionally rendered; ensure stored tab is validated before activation.
+- **Overview already exists** – The Overview tab is already first and default. The main change is moving the project header into it.
+- **Waitlist URL** – `/projects/<slug>/waitlist/<id>/` should still open the specific waitlist tab; this overrides stored state.
+- **Admin tab** – Conditionally rendered; ensure stored tab is validated before activation.

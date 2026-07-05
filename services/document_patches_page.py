@@ -1,4 +1,4 @@
-"""Public patches list page — passage-anchored only (no document-wide patches)."""
+"""Public patches list page – passage-anchored only (no document-wide patches)."""
 from __future__ import annotations
 
 import html as html_mod
@@ -225,7 +225,7 @@ def render_patches_list_html(
         <div class="alert alert-info mb-0">
           <i class="fas fa-info-circle me-2"></i>
           No patches yet. Open the reader, <strong>select a passage</strong>, and propose a patch.
-          Patches are always anchored to specific text — there are no document-wide patches.
+          Patches are always anchored to specific text – there are no document-wide patches.
         </div>'''
 
     wg = workgroup_for_submission(submission)

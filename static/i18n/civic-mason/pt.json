@@ -19,7 +19,7 @@
   },
   "dev": {
     "label": "Somente dev: regras do Civic Mason",
-    "demoSwitch": "Modo demo — sem distintivo, colocações ilimitadas"
+    "demoSwitch": "Modo demo – sem distintivo, colocações ilimitadas"
   },
   "a11y": {
     "demoMode": "Modo demo",
@@ -41,14 +41,14 @@
   },
   "config": {
     "title": "Configurar tijolo",
-    "hint": "Escolha uma cor — clique duas vezes para selecionar e fechar.",
+    "hint": "Escolha uma cor – clique duas vezes para selecionar e fechar.",
     "message": "Mensagem",
     "optional": "(opcional)",
     "placeholder": "Deixe uma mensagem…"
   },
   "edit": {
     "title": "Editar tijolo",
-    "hint": "Atualize cor ou mensagem e Aceitar — ou cancele esta colocação.",
+    "hint": "Atualize cor ou mensagem e Aceitar – ou cancele esta colocação.",
     "cancelPlacement": "Cancelar colocação",
     "accept": "Aceitar"
   },

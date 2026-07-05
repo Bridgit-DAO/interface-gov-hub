@@ -105,7 +105,7 @@ def register_disabled():
 
 @bp.route('/api/auth/web3auth', methods=['POST'])
 def web3auth_login():
-    """Web3Auth login — requires a verified idToken from Web3Auth getIdentityToken()."""
+    """Web3Auth login – requires a verified idToken from Web3Auth getIdentityToken()."""
     from flask import current_app
     from jwt.exceptions import InvalidTokenError, PyJWKClientError
     from services.web3auth_verify import identity_from_web3auth_claims, verify_web3auth_id_token
@@ -298,7 +298,7 @@ def _update_user_from_web3auth(
                 if not conflict:
                     user.email = normalized
             elif user.email.strip().lower() == normalized:
-                # Fix casing only — never reassign a different mailbox on login.
+                # Fix casing only – never reassign a different mailbox on login.
                 user.email = normalized
     if name:
         user.displayName = name

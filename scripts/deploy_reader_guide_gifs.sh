@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy reader-guide modal animations. Files MUST be real GIF (not JPEG/PNG).
-# Pasting GIFs into Cursor chat strips animation — copy .gif files to incoming/ via scp instead.
+# Pasting GIFs into Cursor chat strips animation – copy .gif files to incoming/ via scp instead.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

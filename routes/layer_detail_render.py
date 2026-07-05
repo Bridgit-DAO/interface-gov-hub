@@ -389,7 +389,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     <button type="button" class="btn btn-primary" onclick="submitJoinFromPioneersModal()">
-                        <i class="fas fa-check me-2"></i>I have an ordinal — join
+                        <i class="fas fa-check me-2"></i>I have an ordinal – join
                     </button>
                 </div>
             </div>
@@ -489,11 +489,11 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                             <label class="form-label">Vote type *</label>
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="vote-type" id="vote-type-approval" value="approval" checked onchange="toggleVoteTypeFields()">
-                                <label class="form-check-label" for="vote-type-approval">Approval — Vote on a draft (yes/no)</label>
+                                <label class="form-check-label" for="vote-type-approval">Approval – Vote on a draft (yes/no)</label>
                             </div>
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="vote-type" id="vote-type-election" value="election" onchange="toggleVoteTypeFields()">
-                                <label class="form-check-label" for="vote-type-election">Election — Vote for a role (choose among candidates)</label>
+                                <label class="form-check-label" for="vote-type-election">Election – Vote for a role (choose among candidates)</label>
                             </div>
                         </div>
                         <div class="mb-3">
@@ -725,8 +725,8 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                                 <div class="mb-2">
                                     <label for="edit-project-display-status" class="form-label small">Display status</label>
                                     <select class="form-select" id="edit-project-display-status">
-                                        <option value="pending">Pending — only admins can see this layer</option>
-                                        <option value="active">Active — listed publicly</option>
+                                        <option value="pending">Pending – only admins can see this layer</option>
+                                        <option value="active">Active – listed publicly</option>
                                     </select>
                                 </div>
                                 <div class="d-flex gap-2 align-items-center">
@@ -1227,7 +1227,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                         results.push({{ email, status: 'duplicate', msg: 'Already a member' }});
                     }} else if (data.email_sent === false) {{
                         const path = data.invite_path || (data.invitation && data.invitation.token ? '/layer/invite/' + data.invitation.token + '/' : '');
-                        results.push({{ email, status: 'link', msg: 'Email not sent — share link', link: path ? (window.location.origin + path) : '' }});
+                        results.push({{ email, status: 'link', msg: 'Email not sent – share link', link: path ? (window.location.origin + path) : '' }});
                     }} else {{
                         results.push({{ email, status: 'sent', msg: data.resent ? 'Resent' : 'Sent' }});
                     }}
@@ -1368,7 +1368,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     function loadOverview() {{
         const statusEsc = escapeHtml(String(project.status || ''));
         const approvalEsc = escapeHtml(String(project.approval_status || ''));
-        const createdStr = project.created_at ? new Date(project.created_at).toLocaleDateString() : '—';
+        const createdStr = project.created_at ? new Date(project.created_at).toLocaleDateString() : '–';
         const lastActivityStr = project.last_activity_at ? new Date(project.last_activity_at).toLocaleDateString() : 'Never';
         const wgCount = project.workgroups_count || 0;
         const modules = [];
@@ -1637,7 +1637,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             const rows = docs.map(function (d) {{
                 const statusKey = (d.status || '').toLowerCase();
                 const badgeCls = statusMap[statusKey] || 'bg-secondary';
-                const badgeText = statusLabel[statusKey] || (d.status || '—');
+                const badgeText = statusLabel[statusKey] || (d.status || '–');
                 const ref = d.draft_name || d.id;
                 const href = '/doc/draft/' + encodeURIComponent(ref) + '/';
                 const title = (d.title || ref).toString();
@@ -2588,15 +2588,15 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             embed_visit: 'Embed visit',
             install_click: 'Install click',
         }};
-        return labels[key] || key || '—';
+        return labels[key] || key || '–';
     }}
 
     function renderReferralByType(byType) {{
-        if (!byType || typeof byType !== 'object') return '—';
+        if (!byType || typeof byType !== 'object') return '–';
         const parts = Object.keys(byType).map(function(k) {{
             return formatReferralConversionType(k) + ': ' + byType[k];
         }});
-        return parts.length ? escapeHtml(parts.join(' · ')) : '—';
+        return parts.length ? escapeHtml(parts.join(' · ')) : '–';
     }}
 
     let layerReferralLinkUrl = '';
@@ -2628,7 +2628,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         card += '<div class="col-md-4"><div class="border rounded p-3 text-center h-100">';
         card += '<div class="fs-4 fw-bold">' + conversions + '</div><div class="small text-muted">Attributed conversions</div></div></div>';
         card += '<div class="col-md-4"><div class="border rounded p-3 text-center h-100">';
-        const rate = landings > 0 ? Math.round((conversions / landings) * 100) + '%' : '—';
+        const rate = landings > 0 ? Math.round((conversions / landings) * 100) + '%' : '–';
         card += '<div class="fs-4 fw-bold">' + rate + '</div><div class="small text-muted">Landing → conversion</div></div></div></div>';
         if (!referrers.length) {{
             card += '<p class="text-muted small mb-0">No referral activity recorded yet. Enable referrals on a waitlist so members receive shareable <code>?ref_token=</code> links.</p>';
@@ -2775,7 +2775,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             html += '</select></div><div class="col-md-5"><label class="form-label" for="admin-layer-status-reason">Status reason (optional)</label>';
             html += '<input type="text" class="form-control" id="admin-layer-status-reason" value="' + statusReasonEsc + '" placeholder="Reason for change"></div>';
             html += '<div class="col-md-3"><button type="button" class="btn btn-primary w-100" onclick="saveLayerStatus()"><i class="fas fa-save me-1"></i>Save status</button></div></div>';
-            html += '<p class="small text-muted mt-2 mb-0">Site approval: <strong>' + approvalEsc + '</strong> (site admins only — <a href="/admin/layers/">Admin → Layers</a>).</p>';
+            html += '<p class="small text-muted mt-2 mb-0">Site approval: <strong>' + approvalEsc + '</strong> (site admins only – <a href="/admin/layers/">Admin → Layers</a>).</p>';
             html += '<p class="small mb-0 mt-1" id="admin-layer-status-msg"></p></div></div>';
             const curVis = (project.listing_visibility || 'public');
             html += '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Discovery &amp; access</h5></div><div class="card-body">';
@@ -2841,7 +2841,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                         html += '<thead><tr><th>Program</th><th>Status</th><th>Hub</th><th class="text-end">Actions</th></tr></thead><tbody>';
                         programs.forEach(function(p) {{
                             const pid = escapeForJsAttr(String(p.id || ''));
-                            const hub = p.hub_path ? '<a href="' + escapeHtmlBasic(p.hub_path) + '" target="_blank" rel="noopener">' + escapeHtmlBasic(p.hub_path) + '</a>' : '—';
+                            const hub = p.hub_path ? '<a href="' + escapeHtmlBasic(p.hub_path) + '" target="_blank" rel="noopener">' + escapeHtmlBasic(p.hub_path) + '</a>' : '–';
                             const statusBadge = p.status === 'active'
                                 ? '<span class="badge bg-success">Active</span>'
                                 : (p.status === 'waitlist'
@@ -2899,7 +2899,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             html += '<button type="button" class="btn btn-primary btn-sm mt-2" onclick="saveNavPillConfig()"><i class="fas fa-save me-1"></i>Save navigation pills</button>';
             html += '<p class="small text-muted mt-2 mb-0" id="layer-nav-pill-save-msg"></p></div></div>';
             html += renderPrefixesCard();
-            html += '<div class="d-flex justify-content-between align-items-center mb-3"><h4>Layer admins</h4><button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button></div><p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p><div class="list-group"><div class="list-group-item d-flex justify-content-between align-items-center"><div><a href="/profile/' + ownerUserEsc + '/" class="fw-bold text-decoration-none">' + ownerNameEsc + '</a><span class="badge bg-primary ms-2">Owner</span></div><span class="text-muted">—</span></div>';
+            html += '<div class="d-flex justify-content-between align-items-center mb-3"><h4>Layer admins</h4><button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button></div><p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p><div class="list-group"><div class="list-group-item d-flex justify-content-between align-items-center"><div><a href="/profile/' + ownerUserEsc + '/" class="fw-bold text-decoration-none">' + ownerNameEsc + '</a><span class="badge bg-primary ms-2">Owner</span></div><span class="text-muted">–</span></div>';
             (data.admins || []).forEach(a => {{
                 html += '<div class="list-group-item d-flex justify-content-between align-items-center"><a href="/profile/' + escapeHtmlBasic(a.username || '') + '/" class="text-decoration-none">' + escapeHtml(a.display_name || '') + '</a><button class="btn btn-outline-danger btn-sm" onclick="removeAdmin(\\'' + (a.user_id || '') + '\\', this)">Remove</button></div>';
             }});
@@ -2957,7 +2957,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                             refStatsLine = '<p class="mb-0 small text-muted"><i class="fas fa-chart-line me-1"></i>' +
                                 (ws.landing_count || 0) + ' landings · ' + (ws.conversion_count || 0) + ' conversions</p>';
                         }} else if (wl.referrals) {{
-                            refStatsLine = '<p class="mb-0 small text-muted">Referrals enabled — no activity yet</p>';
+                            refStatsLine = '<p class="mb-0 small text-muted">Referrals enabled – no activity yet</p>';
                         }}
                         html += '<div class="list-group-item"><div class="d-flex justify-content-between align-items-start">' +
                             '<div class="flex-grow-1">' +
@@ -3518,7 +3518,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                     const rolesHtml = roles.length
                         ? '<ul class="list-unstyled mb-0 mt-2 small">' + roles.map(r => '<li><a href="/layer/' + (project.slug || project.id || '') + '/roles/' + escapeHtmlBasic(r.role_slug || r.slug || '') + '/">' + escapeHtml(r.title_guild || r.title_operational || 'Role') + '</a></li>').join('') + '</ul>'
                         : '<p class="text-muted small mb-0 mt-2">No roles in this cluster</p>';
-                    const orderStr = cluster.order != null ? cluster.order : '—';
+                    const orderStr = cluster.order != null ? cluster.order : '–';
                     const adminBtns = isProjectAdmin ? '<div class="btn-group btn-group-sm"><button class="btn btn-outline-secondary" onclick="editCluster(\\'' + (cluster.id || '') + '\\')"><i class="fas fa-edit"></i></button><button class="btn btn-outline-danger" onclick="deleteCluster(\\'' + (cluster.id || '') + '\\', \\'' + cNameEsc + '\\')"><i class="fas fa-trash"></i></button></div>' : '';
                     html += '<div class="col-md-6 mb-3"><div class="card"><div class="card-body"><div class="d-flex justify-content-between align-items-start"><div><h5 class="card-title">' + escapeHtml(cName) + '</h5><p class="card-text text-muted">' + cDescEsc + '</p><small class="text-muted">Order: ' + orderStr + '</small><div class="mt-2"><strong>Roles:</strong> ' + rolesHtml + '</div></div>' + adminBtns + '</div></div></div></div>';
                 }});
@@ -3632,7 +3632,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                     const claimNameEsc = escapeHtml(claimName);
                     const roleNameEsc = escapeHtml(roleName);
                     const userNameEsc = escapeHtml(userName);
-                    const statusEsc = escapeHtml(claim.status || '—');
+                    const statusEsc = escapeHtml(claim.status || '–');
                     const tdRole = claim.role_slug ? '<a href="' + roleLink + '">' + roleNameEsc + '</a>' : roleNameEsc;
                     const tdUser = claim.claimant_username ? '<a href="' + userLink + '">' + userNameEsc + '</a>' : userNameEsc;
                     html += '<tr class="project-claim-row" data-claim-index="' + idx + '" tabindex="0" title="Hover for claim details"><td>' + claimNameEsc + '</td><td><span class="badge bg-' + statusClass + '">' + statusEsc + '</span></td><td>' + tdRole + '</td><td>' + tdUser + '</td></tr>';
@@ -4177,7 +4177,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                         statusEl.innerHTML = '<small class="text-danger"><i class="fas fa-exclamation-triangle"></i> Upload OK but save failed: ' + escapeHtmlBasic(err) + '</small>';
                     }}
                 }} catch (_) {{
-                    statusEl.innerHTML = '<small class="text-warning"><i class="fas fa-check"></i> Uploaded — click Save to apply</small>';
+                    statusEl.innerHTML = '<small class="text-warning"><i class="fas fa-check"></i> Uploaded – click Save to apply</small>';
                 }}
                 fileInput.value = '';
             }} else {{
@@ -4214,7 +4214,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const alertEl = document.getElementById('edit-project-alert');
         alertEl.classList.add('d-none');
         alertEl.textContent = '';
-        // Visibility card — initialize from the live project data.
+        // Visibility card – initialize from the live project data.
         const displayStatusSelect = document.getElementById('edit-project-display-status');
         if (displayStatusSelect) {{
             displayStatusSelect.value = (project.display_status || 'pending');
@@ -4262,7 +4262,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     }}
 
     // ------------------------------------------------------------------------
-    // Edit Layer modal — draft prefixes
+    // Edit Layer modal – draft prefixes
     // ------------------------------------------------------------------------
     async function loadEditModalPrefixes() {{
         const container = document.getElementById('edit-modal-prefixes-list');
@@ -4277,7 +4277,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }}
             const items = data.prefixes || [];
             if (!items.length) {{
-                container.innerHTML = '<p class="text-muted small mb-0">No prefixes yet — add one below.</p>';
+                container.innerHTML = '<p class="text-muted small mb-0">No prefixes yet – add one below.</p>';
                 return;
             }}
             let html = '<div class="list-group">';
@@ -4351,7 +4351,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
 
     // Shared JSON-aware response parser. When the server returns HTML (e.g.
     // a redirect to the login page that fetch followed silently), res.ok can
-    // be true but the body is not JSON — surface that as an error instead of
+    // be true but the body is not JSON – surface that as an error instead of
     // treating it as success.
     async function _ghParseApiResponse(res, fallbackError) {{
         const ct = (res.headers.get('content-type') || '').toLowerCase();
@@ -4451,7 +4451,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 confirmLabel: 'Delete',
             }});
         }} else {{
-            // No GhDialog available — render an inline confirmation instead of native confirm().
+            // No GhDialog available – render an inline confirmation instead of native confirm().
             const fb = document.getElementById('edit-modal-add-prefix-feedback');
             if (fb) {{
                 fb.innerHTML = '<span class="text-danger">' + message + '</span> '
@@ -4675,7 +4675,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }});
             const data = await res.json().catch(function () {{ return {{}}; }});
             if (res.ok) {{
-                feedback.textContent = 'Saved — layer is now ' + newStatus + '.';
+                feedback.textContent = 'Saved – layer is now ' + newStatus + '.';
                 feedback.className = 'small text-success';
                 project.display_status = newStatus;
             }} else {{
@@ -5160,7 +5160,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
                 '</div>' +
                 '<div class="card-body">' +
                     '<p class="text-muted small mb-3">Two-letter prefix prepended to draft identifiers in this layer (e.g. <code>ML-001</code>, <code>CL-013</code>). ' +
-                    'Prefixes are <strong>globally unique across the entire Gov Hub</strong> — pick a code another layer isn\\'t using.</p>' +
+                    'Prefixes are <strong>globally unique across the entire Gov Hub</strong> – pick a code another layer isn\\'t using.</p>' +
                     '<div id="layer-prefixes-list"><div class="text-center py-3"><div class="spinner-border spinner-border-sm text-secondary"></div> Loading...</div></div>' +
                     '<p class="small text-muted mt-2 mb-0">The active prefix is the one shown in the header chip. Make sure every layer has at least one prefix so admins can always switch.</p>' +
                 '</div>' +
@@ -5202,7 +5202,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (!res.ok) throw new Error(data.error || 'Failed to load prefixes');
             const items = data.prefixes || [];
             if (!items.length) {{
-                container.innerHTML = '<p class="text-muted small mb-0">No prefixes yet — add one to get started.</p>';
+                container.innerHTML = '<p class="text-muted small mb-0">No prefixes yet – add one to get started.</p>';
                 return;
             }}
             let html = '<div class="list-group">';

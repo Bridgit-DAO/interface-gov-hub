@@ -24,7 +24,7 @@ def test_set_and_filter_tags():
     with app.app_context():
         layer = Layer.query.first()
         if not layer:
-            print('⚠️  No layer — skip tag test')
+            print('⚠️  No layer – skip tag test')
             return
         art = Artifact(
             layer_id=layer.id,
@@ -73,7 +73,7 @@ def test_artifact_tags_api():
             layer = Layer.query.first()
             user = User.query.first()
             if not layer or not user:
-                print('⚠️  No layer/user — skip API test')
+                print('⚠️  No layer/user – skip API test')
                 return
             username = user.username
             art = Artifact(

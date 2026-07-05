@@ -3,7 +3,7 @@ import { Web3Auth } from "@web3auth/modal";
 let web3auth: Web3Auth | null = null;
 
 export async function initWeb3Auth() {
-  // Do NOT cache the web3auth instance across logins — a fresh instance with
+  // Do NOT cache the web3auth instance across logins – a fresh instance with
   // storageType:'session' ensures init() always finds no cached session and
   // connect() always shows the provider selection modal.
   if (!web3auth) {

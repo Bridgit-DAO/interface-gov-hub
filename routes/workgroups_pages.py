@@ -92,7 +92,7 @@ def workgroups_join_landing():
         },
         {
             'q': "What if I don't have time for ongoing commitments?",
-            'a': "Some roles are flexible and low-touch. Roles like Recorder or Liaison can be episodic — contribute when you have capacity.",
+            'a': "Some roles are flexible and low-touch. Roles like Recorder or Liaison can be episodic – contribute when you have capacity.",
         },
         {
             'q': 'Can I be a member of more than one workgroup?',
@@ -166,7 +166,7 @@ def workgroups_join_landing():
             <h1 class="display-5 mb-3"><i class="fas fa-users-cog me-2 text-primary" aria-hidden="true"></i>Join a Workgroup</h1>
             <p class="lead text-muted mb-0">
                 Workgroups are the heart of how The Metaweb coordinates contributions.
-                Each workgroup advances one Design Principle (DP) — pick yours and join an active community of contributors.
+                Each workgroup advances one Design Principle (DP) – pick yours and join an active community of contributors.
             </p>
         </section>
 
@@ -175,7 +175,7 @@ def workgroups_join_landing():
             <p class="mb-0">
                 Workgroups are small, focused teams that move a single Design Principle (DP) from concept to working draft.
                 Each workgroup has a charter, a coordinator, and a flexible roster of members who contribute as their time allows.
-                There is no requirement to attend every meeting or write every line — workgroups run on async collaboration, with synchronous time reserved for moments that need it.
+                There is no requirement to attend every meeting or write every line – workgroups run on async collaboration, with synchronous time reserved for moments that need it.
             </p>
         </section>
 
@@ -212,7 +212,7 @@ def workgroups_join_landing():
                             <h3 class="h5 mb-2"><i class="fas fa-hand-pointer me-1 text-success" aria-hidden="true"></i>Nominate someone (or yourself)</h3>
                             <p class="text-muted mb-3">
                                 Want to step into a Coordinator, Editor, or other leadership role?
-                                Open any workgroup below and use the Nominate button — you can nominate yourself or someone else, and the nominee reviews the nomination before it goes to layer admins.
+                                Open any workgroup below and use the Nominate button – you can nominate yourself or someone else, and the nominee reviews the nomination before it goes to layer admins.
                             </p>
                             <a href="/workgroups/{first_card_slug_esc}/" class="btn btn-success">
                                 <i class="fas fa-arrow-right me-2" aria-hidden="true"></i>Open a workgroup to nominate
@@ -247,7 +247,7 @@ def workgroups_join_landing():
                     <h2 class="h4 mb-2"><i class="fas fa-rocket me-2 text-primary" aria-hidden="true"></i>Ready to contribute?</h2>
                     <p class="mb-3">
                         Pick a workgroup, click Join, and start contributing at the level that fits your time.
-                        If you want to lead, nominate yourself — the path from member to coordinator is open to everyone.
+                        If you want to lead, nominate yourself – the path from member to coordinator is open to everyone.
                     </p>
                     <a href="/workgroups/" class="btn btn-primary">
                         <i class="fas fa-arrow-right me-2" aria-hidden="true"></i>Browse all workgroups
@@ -259,7 +259,7 @@ def workgroups_join_landing():
     """
 
     return render_page(
-        title='Join a Workgroup — GovHub',
+        title='Join a Workgroup – GovHub',
         content=content,
         theme=current_theme,
         user_menu=user_menu,
@@ -1185,7 +1185,7 @@ def workgroup_detail(workgroup_slug):
                                 <div class="mb-3">
                                     <label for="edit-wg-document-ref" class="form-label">Document (optional)</label>
                                     <select class="form-select" id="edit-wg-document-ref">
-                                        <option value="">— None —</option>
+                                        <option value="">– None –</option>
                                     </select>
                                     <div class="form-text">Link this workgroup to a specific draft document.</div>
                                 </div>
@@ -1289,7 +1289,7 @@ def workgroup_detail(workgroup_slug):
                 throw new Error(data.error || ('Could not load documents (' + resp.status + ')'));
             }}
             const docs = data.documents || [];
-            let html = '<option value="">— None —</option>';
+            let html = '<option value="">– None –</option>';
             docs.forEach(function(d) {{
                 const label = d.label || d.title || d.id;
                 const selected = selectedId && d.id === selectedId ? ' selected' : '';
@@ -1301,11 +1301,11 @@ def workgroup_detail(workgroup_slug):
             }}
         }} catch (e) {{
             console.warn('Workgroup document picker:', e);
-            sel.innerHTML = '<option value="">— None —</option>';
+            sel.innerHTML = '<option value="">– None –</option>';
             if (selectedId) {{
                 sel.innerHTML += '<option value="' + String(selectedId).replace(/"/g, '&quot;') + '" selected>Linked document (' + selectedId + ')</option>';
             }}
-            sel.innerHTML += '<option value="" disabled>Could not load draft list — refresh and try again</option>';
+            sel.innerHTML += '<option value="" disabled>Could not load draft list – refresh and try again</option>';
         }}
         sel.disabled = false;
     }}

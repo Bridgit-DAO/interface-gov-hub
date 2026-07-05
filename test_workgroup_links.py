@@ -42,7 +42,7 @@ def test_workgroup_select_options_html():
     with app.app_context():
         wg = Workgroup.query.filter(Workgroup.acronym.like('dp%')).first()
         if not wg:
-            print('⚠️  No DP workgroup — skip')
+            print('⚠️  No DP workgroup – skip')
             return
         options = workgroup_select_options_html(wg.layer_id, wg.acronym)
         assert wg.acronym in options
@@ -144,7 +144,7 @@ def test_resolve_document_workgroup_meta_by_dp_title():
     with app.app_context():
         wg = Workgroup.query.filter(Workgroup.acronym.like('dp%')).first()
         if not wg:
-            print('⚠️  No DP workgroup — skip')
+            print('⚠️  No DP workgroup – skip')
             return
         dp = extract_dp_number(wg.acronym or '')
         if dp is None:

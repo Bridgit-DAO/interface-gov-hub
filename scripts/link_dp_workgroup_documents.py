@@ -33,7 +33,7 @@ if __name__ == '__main__':
     dry = '--dry-run' in sys.argv
     force = '--force' in sys.argv
     if dry:
-        print('Dry run — no changes will be saved.')
+        print('Dry run – no changes will be saved.')
     if force:
-        print('Force — overwriting existing links.')
+        print('Force – overwriting existing links.')
     main(dry_run=dry, force=force)

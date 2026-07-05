@@ -1264,7 +1264,7 @@ def admin_chairs():
 
     content = f"""
     <div class="gh-page container mt-4 gh-admin-page">
-        {gh_page_header('Coordinator Management', 'Manage workgroup coordinators — add from User Management or People', 'fa-user-tie', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Coordinator Management', None)]))}
+        {gh_page_header('Coordinator Management', 'Manage workgroup coordinators – add from User Management or People', 'fa-user-tie', breadcrumb_html=gh_breadcrumb([('Admin Dashboard', '/admin/'), ('Coordinator Management', None)]))}
 
         <div class="row mb-4">
             <div class="col-md-4">

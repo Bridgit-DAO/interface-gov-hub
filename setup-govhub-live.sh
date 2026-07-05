@@ -50,7 +50,7 @@ check_dns() {
     echo "WARN: govhub.live A ($apex) != EXPECTED_SERVER_IP ($EXPECTED_IP)"
   fi
   if [[ -z "$sub" ]]; then
-    echo "WARN: No A record for *.govhub.live — add Host '*' Type A in Namecheap (same IP as @)."
+    echo "WARN: No A record for *.govhub.live – add Host '*' Type A in Namecheap (same IP as @)."
     echo "      Wildcard TLS still works (DNS-01), but subdomains will not reach this server until '*' exists."
   fi
   echo ""
@@ -67,7 +67,7 @@ cmd_cert_cloudflare() {
     chmod 600 "$CF_FILE"
     echo "Wrote $CF_FILE (from env token)"
   fi
-  [[ -f "$CF_FILE" ]] || die "Missing $CF_FILE — set CLOUDFLARE_API_TOKEN or create file with: dns_cloudflare_api_token = ..."
+  [[ -f "$CF_FILE" ]] || die "Missing $CF_FILE – set CLOUDFLARE_API_TOKEN or create file with: dns_cloudflare_api_token = ..."
 
   certbot certonly --dns-cloudflare \
     --dns-cloudflare-credentials "$CF_FILE" \
@@ -81,7 +81,7 @@ cmd_cert_cloudflare() {
 
 cmd_cert_dns_multi() {
   need_root
-  [[ -f "$DM_FILE" ]] || die "Missing $DM_FILE — see setup-wildcard-cert-dns-multi.sh (namecheap, etc.)"
+  [[ -f "$DM_FILE" ]] || die "Missing $DM_FILE – see setup-wildcard-cert-dns-multi.sh (namecheap, etc.)"
   certbot certonly -a dns-multi \
     --dns-multi-credentials="$DM_FILE" \
     --non-interactive --agree-tos \
@@ -104,7 +104,7 @@ cmd_cert() {
 cmd_nginx() {
   need_root
   [[ -f "$NGINX_SRC" ]] || die "Missing $NGINX_SRC"
-  [[ -f "/etc/letsencrypt/live/govhub.live/fullchain.pem" ]] || die "No cert yet — run: sudo $0 cert"
+  [[ -f "/etc/letsencrypt/live/govhub.live/fullchain.pem" ]] || die "No cert yet – run: sudo $0 cert"
 
   cp -a "$NGINX_SRC" "$NGINX_DST"
   ln -sf "$NGINX_DST" /etc/nginx/sites-enabled/govhub.live
@@ -126,7 +126,7 @@ cmd_all() {
   if [[ ! -f /etc/letsencrypt/live/govhub.live/fullchain.pem ]]; then
     cmd_cert
   else
-    echo "Cert already present at /etc/letsencrypt/live/govhub.live/ — skip cert (delete dir to force re-issue)"
+    echo "Cert already present at /etc/letsencrypt/live/govhub.live/ – skip cert (delete dir to force re-issue)"
   fi
   cmd_nginx
   echo ""

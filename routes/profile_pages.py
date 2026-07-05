@@ -736,7 +736,7 @@ def profile_edit():
                                     accept="image/*"
                                     onchange="openProfileImageCrop(this)"
                                 >
-                                <div class="form-text">Upload any size — we'll let you crop and zoom to fit a 600×600 square. PNG/JPG/GIF/WebP/SVG, up to 5MB.</div>
+                                <div class="form-text">Upload any size – we'll let you crop and zoom to fit a 600×600 square. PNG/JPG/GIF/WebP/SVG, up to 5MB.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Banner Image</label>
@@ -755,7 +755,7 @@ def profile_edit():
                                     accept="image/*"
                                     onchange="openBannerImageCrop(this)"
                                 >
-                                <div class="form-text">Upload any size — we'll let you crop and zoom to fit a wide banner. PNG/JPG/GIF/WebP/SVG, up to 5MB.</div>
+                                <div class="form-text">Upload any size – we'll let you crop and zoom to fit a wide banner. PNG/JPG/GIF/WebP/SVG, up to 5MB.</div>
                             </div>
                         </div>
                     </div>

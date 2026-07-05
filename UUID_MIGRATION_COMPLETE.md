@@ -37,9 +37,9 @@ Added `public_id` (UUID) to all major entities. Canonical UUID-based URLs now wo
 
 ### 4. API Support for UUID Lookup
 
-- `GET /api/claims/<id>/` — accepts claim id or public_id UUID
-- `GET /api/roles/<id>/` — accepts role id or public_id UUID
-- `GET /api/badges/<id>/` — accepts badge id or public_id UUID
+- `GET /api/claims/<id>/` – accepts claim id or public_id UUID
+- `GET /api/roles/<id>/` – accepts role id or public_id UUID
+- `GET /api/badges/<id>/` – accepts badge id or public_id UUID
 
 ### 5. Startup Migration
 

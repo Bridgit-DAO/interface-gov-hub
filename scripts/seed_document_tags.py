@@ -196,7 +196,7 @@ def main():
             sub = pick_canonical_submission(subs)
             prop = resolve_proposal(sub)
             if not prop:
-                print(f'  SKIP {ml} — no proposal ({sub.title})')
+                print(f'  SKIP {ml} – no proposal ({sub.title})')
                 continue
             category, tags = prop
             category = normalize_document_category(category)
@@ -213,7 +213,7 @@ def main():
             db.session.commit()
             print('\n✅ Applied categories and tags.')
         else:
-            print('\n(dry run — use --apply to write)')
+            print('\n(dry run – use --apply to write)')
 
 
 if __name__ == '__main__':

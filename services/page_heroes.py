@@ -1,4 +1,4 @@
-"""Inspirational page heroes — hourly-cycling title + text with shared placeholder art."""
+"""Inspirational page heroes – hourly-cycling title + text with shared placeholder art."""
 from __future__ import annotations
 
 import html as html_mod
@@ -29,7 +29,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
         'messages': [
             {
                 'title': 'Put your idea on the record',
-                'text': 'A draft is more than a file — it is a claim that something should be true. Start here.',
+                'text': 'A draft is more than a file – it is a claim that something should be true. Start here.',
             },
             {
                 'title': 'Someone has to write it first',
@@ -47,7 +47,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
         'messages': [
             {
                 'title': 'Find the people doing the work',
-                'text': 'Workgroups are where intent becomes action — join one, or start one.',
+                'text': 'Workgroups are where intent becomes action – join one, or start one.',
             },
             {
                 'title': 'No one builds a layer alone',
@@ -65,7 +65,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
         'messages': [
             {
                 'title': 'Governance, one layer at a time',
-                'text': 'Each layer is a living system — workgroups, roles, docs, and decisions stacked together.',
+                'text': 'Each layer is a living system – workgroups, roles, docs, and decisions stacked together.',
             },
             {
                 'title': 'From local intent to shared infrastructure',
@@ -83,11 +83,11 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
         'messages': [
             {
                 'title': 'Read what is being written',
-                'text': 'Drafts are living arguments. RFCs are commitments. Browse both — then add yours.',
+                'text': 'Drafts are living arguments. RFCs are commitments. Browse both – then add yours.',
             },
             {
                 'title': 'From draft to adopted',
-                'text': 'Every document here is on a path: refine, collaborate, improve — until it belongs to the layer.',
+                'text': 'Every document here is on a path: refine, collaborate, improve – until it belongs to the layer.',
             },
             {
                 'title': 'The record of how we decided',
@@ -101,7 +101,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
         'messages': [
             {
                 'title': 'Responsibility has a name',
-                'text': 'Roles make work legible — discover what needs doing, and who can do it.',
+                'text': 'Roles make work legible – discover what needs doing, and who can do it.',
             },
             {
                 'title': 'Step into what you are ready to carry',
@@ -123,7 +123,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
             },
             {
                 'title': 'Belong beyond a single layer',
-                'text': 'Find collaborators who think like you — then build something neither layer could alone.',
+                'text': 'Find collaborators who think like you – then build something neither layer could alone.',
             },
             {
                 'title': 'Community is infrastructure too',
@@ -141,7 +141,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
             },
             {
                 'title': 'Show up when it matters',
-                'text': 'The layers that endure are the ones whose people vote — and accept the result.',
+                'text': 'The layers that endure are the ones whose people vote – and accept the result.',
             },
             {
                 'title': 'Your ballot is a kind of authorship',
@@ -155,7 +155,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
         'messages': [
             {
                 'title': 'Ideas that outlive the meeting',
-                'text': 'Artifacts capture proposals, evidence, and submissions — the substance behind the talk.',
+                'text': 'Artifacts capture proposals, evidence, and submissions – the substance behind the talk.',
             },
             {
                 'title': 'Build the layer\'s memory',
@@ -173,7 +173,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
         'messages': [
             {
                 'title': 'Something here needs you',
-                'text': 'Open drafts, quests, and calls to contribute — find where your effort moves the needle.',
+                'text': 'Open drafts, quests, and calls to contribute – find where your effort moves the needle.',
             },
             {
                 'title': 'Do not wait for permission to help',
@@ -191,7 +191,7 @@ PAGE_HEROES: Dict[str, PageHeroConfig] = {
         'messages': [
             {
                 'title': 'Your place in line matters',
-                'text': 'Join waitlists for launches, features, and cohorts — show up early, stay informed.',
+                'text': 'Join waitlists for launches, features, and cohorts – show up early, stay informed.',
             },
             {
                 'title': 'Good things have a queue',

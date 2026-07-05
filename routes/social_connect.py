@@ -46,7 +46,7 @@ def _provider_user_info(blueprint, token):
         if not resp.ok:
             return None
         data = resp.json()
-        # Google+ shut down in 2019 — don't fabricate a plus.google.com URL; store empty string when no link is returned.
+        # Google+ shut down in 2019 – don't fabricate a plus.google.com URL; store empty string when no link is returned.
         return (
             str(data.get('id', '')),
             data.get('link') or '',
@@ -104,7 +104,7 @@ def _provider_user_info(blueprint, token):
                 display_name = user_data.get('name', '') or username or uid
                 return (str(uid), profile_url, avatar_url, display_name)
 
-            # API blocked by tier (403) — store account using token fingerprint as uid
+            # API blocked by tier (403) – store account using token fingerprint as uid
             if resp.status_code == 403:
                 _log.info("[oauth] twitter API tier limitation, storing account with token fingerprint")
                 uid = 'tw_' + _hashlib.sha256(access_token.encode()).hexdigest()[:16]

@@ -30,32 +30,32 @@ What the object *is*.
 
 ### Contribution type (optional, single value)
 
-What kind of thinking the artifact embodies — **IFP-aligned knowledge form**.
+What kind of thinking the artifact embodies – **IFP-aligned knowledge form**.
 
 - **UI label:** Contribution type  
 - **Storage / API:** `knowledge_form` (nullable enum; **fifteen** IFP-aligned values, snake_case in JSON)
 
 `knowledge_form` (when set, exactly one of):
 
-- `inquiry` — what should we think about next?
-- `principle` — what must we always or never do?
-- `model` — how do these elements relate?
-- `claim` — what do we believe is true?
-- `decision` — why did we choose this over alternatives?
-- `gloss` — what does this concept mean?
-- `scenario` — what might happen if these forces play out?
-- `pattern` — what resolves this recurring tension?
-- `boundary` — where does authority end?
-- `domain` — what knowledge area is this?
-- `case` — what happened when we tried this?
-- `reference` — what do I need to know about this domain?
-- `research` — what are we investigating?
-- `skill` — how does an agent execute this reliably?
-- `opus` — what am I saying here?
+- `inquiry` – what should we think about next?
+- `principle` – what must we always or never do?
+- `model` – how do these elements relate?
+- `claim` – what do we believe is true?
+- `decision` – why did we choose this over alternatives?
+- `gloss` – what does this concept mean?
+- `scenario` – what might happen if these forces play out?
+- `pattern` – what resolves this recurring tension?
+- `boundary` – where does authority end?
+- `domain` – what knowledge area is this?
+- `case` – what happened when we tried this?
+- `reference` – what do I need to know about this domain?
+- `research` – what are we investigating?
+- `skill` – how does an agent execute this reliably?
+- `opus` – what am I saying here?
 
 **Rules (Unified Phase I):**
 
-- Optional — **`NULL` / omitted = unset** (no default backfill on create).
+- Optional – **`NULL` / omitted = unset** (no default backfill on create).
 - **At most one** value per artifact (not a list). **Multi-tag contribution typing is explicitly not supported.**
 - Picker offers **default + up to three alternates** (four choices total) per `artifact_type`; user may **clear** selection to leave unset.
 - **Authors and editors** may set or change while they can edit the artifact; **moderators / administrators** may override with audit + policy (see briefing locked decisions).
@@ -115,10 +115,10 @@ Values below are the **only** values the **server** accepts for that `artifact_t
 
 1. User selects or has `artifact_type` (required).
 2. Optional block: **“What kind of contribution is this?”** with helper: *Helps others understand how to engage with this contribution.*
-3. If the user expands the control: show **only** the allowed set for that artifact type (§3); **no** value pre-persisted until they confirm (or persist default only if product chooses “default on save” — briefing assumes nullable unless set).
+3. If the user expands the control: show **only** the allowed set for that artifact type (§3); **no** value pre-persisted until they confirm (or persist default only if product chooses “default on save” – briefing assumes nullable unless set).
 4. User may select **one** value or **clear** to unset (clears `knowledge_scaffold` on save).
 5. If **`knowledge_scaffold_enabled`** and `knowledge_form` is set: show **optional** prompts per **§6** (collapsible section is fine).
-6. **Badges (display):** always **artifact type**; **second chip only if `knowledge_form` is non-null** — `[Artifact type] · [Contribution type]` (see briefing §4a). Scaffold does not add a third badge in v1.
+6. **Badges (display):** always **artifact type**; **second chip only if `knowledge_form` is non-null** – `[Artifact type] · [Contribution type]` (see briefing §4a). Scaffold does not add a third badge in v1.
 
 ---
 
@@ -172,13 +172,13 @@ Full spec: briefing **§5**.
 - Do **not** merge `artifact_type` and `knowledge_form` into one field.
 - Do **not** require `knowledge_form` or any scaffold field.
 - Do **not** allow **multiple** contribution types per artifact.
-- Keep scaffold **lightweight** — no required sub-schema in v1.
+- Keep scaffold **lightweight** – no required sub-schema in v1.
 - **No** relationship / graph UI in Unified Phase I (briefing).
 - **Guild ↔ artifact** links remain separate from future **artifact ↔ artifact** edges.
 
 ---
 
-## 8. Unified Phase I — also in scope (see briefing §4a)
+## 8. Unified Phase I – also in scope (see briefing §4a)
 
 - **Filtering** by contribution type (facets on feeds / search; feature-flagged rollout).
 - **Feature flags:** e.g. `knowledge_contribution_type_enabled`, optional `knowledge_contribution_type_filters_enabled`.
@@ -219,20 +219,20 @@ Keep them separate. **One** contribution type max. Scaffold never blocks publish
 | Migration | `migrations.migrate_knowledge_layer_integration`, wired in `database/init_db` |
 | Feature flags | `config.py` → `app.config` (`KNOWLEDGE_CONTRIBUTION_*`) |
 | Events | `contribution_type_set`, `contribution_type_cleared`, `contribution_type_filter_applied`, `artifact_collection_*` via `emit_event`; default `GET .../activity/` excludes filter-applied (see `routes/layers.py`) |
-| Layer artifact tab | `routes/layer_detail_render.py` — filter chips + `reportContributionFilterApplied` |
+| Layer artifact tab | `routes/layer_detail_render.py` – filter chips + `reportContributionFilterApplied` |
 | Layer artifact editor | `routes/layer_artifact_ui.py` |
 | Smoke tests | `test_knowledge_layer_integration.py` |
-| Document artifact modal | `routes/documents.py` — fetches `/api/knowledge-layer/schema/`, contribution select + optional scaffold fields, PATCH includes `knowledge_form` / `knowledge_scaffold` |
-| Layer artifact header | `routes/layers_pages.py` — second badge when `knowledge_form` is set |
+| Document artifact modal | `routes/documents.py` – fetches `/api/knowledge-layer/schema/`, contribution select + optional scaffold fields, PATCH includes `knowledge_form` / `knowledge_scaffold` |
+| Layer artifact header | `routes/layers_pages.py` – second badge when `knowledge_form` is set |
 
 Env: `GOVHUB_KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED`, `GOVHUB_KNOWLEDGE_SCAFFOLD_ENABLED`, `GOVHUB_KNOWLEDGE_CONTRIBUTION_FILTERS_ENABLED`.
 
-### Unified Phase I — guild (separate from artifact ↔ artifact)
+### Unified Phase I – guild (separate from artifact ↔ artifact)
 
 | Area | Location |
 |------|-----------|
 | Models | `GuildLayerLink`, `GuildArtifactLink`, `GuildMembership.membership_state` in `models/coordination.py` |
-| Permissions | `services/guild_phase1.py` — layer admin **or** guild officer + active layer member for layer links; guild officer + (layer admin **or** layer member) for artifact links |
+| Permissions | `services/guild_phase1.py` – layer admin **or** guild officer + active layer member for layer links; guild officer + (layer admin **or** layer member) for artifact links |
 | Layer API | `GET/POST /api/layers/<id>/guilds/`, `DELETE .../guilds/<guild_id>/` in `routes/layers.py` |
 | Guild API | `GET/POST /api/guilds/<id>/layers/`, `DELETE .../layers/<layer_id>/`, `GET/POST /api/guilds/<id>/artifact-links/`, `DELETE .../artifact-links/<artifact_id>/?link_type=` in `routes/guilds.py` |
 | Artifact read | `GET /api/artifacts/<id>/guild-links/` in `routes/artifacts.py` |

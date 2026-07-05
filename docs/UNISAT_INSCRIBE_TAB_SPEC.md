@@ -1,4 +1,4 @@
-# Unisat Inscription Capability — Specification
+# Unisat Inscription Capability – Specification
 
 **Version:** 0.3  
 **Date:** February 2026  
@@ -11,7 +11,7 @@
 - **Standalone**: `/inscribe/` route + nav link
 - **API**: `/api/inscription/create`, `/api/inscription/status/<id>`, `/api/inscription/search-duplicate/text`, `/api/inscription/search-duplicate/image`
 - **Config**: `UNISAT_API_KEY` (env), `UNISAT_TESTNET` (optional, for testnet)
-- **Duplicate search**: Placeholder — returns "API access pending" for both text and image endpoints
+- **Duplicate search**: Placeholder – returns "API access pending" for both text and image endpoints
 
 ---
 
@@ -43,9 +43,9 @@ The capability enables users to create Bitcoin Ordinal inscriptions via Unisat's
 
 ### 2.2 Existing Ordinals Infrastructure
 
-- **Read path**: Ordinals loading (preview, convert markdown, display) — ~75% complete per UNISAT_INSCRIPTION_FEASIBILITY.md
+- **Read path**: Ordinals loading (preview, convert markdown, display) – ~75% complete per UNISAT_INSCRIPTION_FEASIBILITY.md
 - **Schema**: `sourceType`, `ordinalId`, `inscriptionNumber`, `blockHeight`, `inscriptionTimestamp`, `ordinalContentUrl`, `ordinalContentType` on submission
-- **Size limit**: **390KB** (Unisat limit) — applies to both draft and standalone inscriptions
+- **Size limit**: **390KB** (Unisat limit) – applies to both draft and standalone inscriptions
 - **Unisat feasibility**: Create-order API analyzed; payment flow, order tracking, status polling designed but not implemented
 
 ### 2.3 Gaps
@@ -109,7 +109,7 @@ The capability enables users to create Bitcoin Ordinal inscriptions via Unisat's
 **Definition**: Attach structured metadata to any new inscription at creation time (not reinscription). Uses Ordinals metadata field (tag 5).
 
 **Use cases**:
-- **Draft metadata**: `{"title": "...", "authors": [...], "abstract": "...", "workgroup": "..."}` — enables on-chain discovery without relying on datatracker DB.
+- **Draft metadata**: `{"title": "...", "authors": [...], "abstract": "...", "workgroup": "..."}` – enables on-chain discovery without relying on datatracker DB.
 - **Schema version**: `{"schema": "mltf-draft-v1", ...}` for future compatibility.
 - **Licensing**: `{"license": "CC-BY-4.0"}`.
 
@@ -120,7 +120,7 @@ The capability enables users to create Bitcoin Ordinal inscriptions via Unisat's
 
 ---
 
-## 4. Submit Page UX — Inscribe Tab
+## 4. Submit Page UX – Inscribe Tab
 
 ### 4.1 Tab Layout
 
@@ -132,7 +132,7 @@ The capability enables users to create Bitcoin Ordinal inscriptions via Unisat's
 └─────────────┴─────────────┴─────────────┘                        │
 ```
 
-### 4.2 Inscribe Tab — Modes (Sub-tabs or Accordion)
+### 4.2 Inscribe Tab – Modes (Sub-tabs or Accordion)
 
 | Mode | Description | Primary action |
 |------|-------------|----------------|
@@ -140,7 +140,7 @@ The capability enables users to create Bitcoin Ordinal inscriptions via Unisat's
 | **Create Child** | Inscribe content as child of an existing parent | "Create Child Inscription" |
 | **Add Metadata** | Reinscribe metadata onto an existing inscription | "Add Metadata" |
 
-**Design decision**: Whether these are sub-tabs, a dropdown, or a stepped wizard. Recommendation: **stepped flow** — user selects mode first, then sees mode-specific form.
+**Design decision**: Whether these are sub-tabs, a dropdown, or a stepped wizard. Recommendation: **stepped flow** – user selects mode first, then sees mode-specific form.
 
 ---
 
@@ -149,14 +149,14 @@ The capability enables users to create Bitcoin Ordinal inscriptions via Unisat's
 1. **Content input**
    - Option A: File upload (same types as Upload File tab)
    - Option B: Paste text / markdown
-   - Size indicator (e.g., "12 KB / 390 KB max" — Unisat limit)
+   - Size indicator (e.g., "12 KB / 390 KB max" – Unisat limit)
 
 2. **Preview**
    - **Required step** before proceeding
    - **Canonical source**: All inscription content and metadata API calls use **`https://ordinals.com/`** as the base (e.g. `https://ordinals.com/content/{id}`, `https://ordinals.com/inscription/{id}`)
    - For new content (file/paste): render preview locally (same UX as From Ordinal)
    - For existing inscriptions (parent, reinscription target): fetch from ordinals.com
-   - **Duplicate check** (optional): Before inscribing, call duplicate-search API (see §11) — if identical content exists, warn user and optionally link to existing inscription
+   - **Duplicate check** (optional): Before inscribing, call duplicate-search API (see §11) – if identical content exists, warn user and optionally link to existing inscription
 
 3. **Optional metadata** (if metadata capability enabled)
    - Collapsible "Add metadata" section
@@ -169,7 +169,7 @@ The capability enables users to create Bitcoin Ordinal inscriptions via Unisat's
 
 5. **Fee options**
    - Fee rate selector (e.g., 5 / 10 / 20 / 50 sat/byte) or "Use recommended"
-   - Cost estimate: "~3,745 sats (~$X.XX)" — update when fee rate changes
+   - Cost estimate: "~3,745 sats (~$X.XX)" – update when fee rate changes
 
 6. **Create Inscription**
    - Button triggers backend: create Unisat order
@@ -193,7 +193,7 @@ Same as standalone, but with explicit **continuation** into draft submission:
 - **Yes** → Pre-fill "From Ordinal" flow with the new inscription ID; user adds title, authors, abstract, workgroup, terms; submits.
 - **No** → User exits; inscription exists standalone.
 
-**Alternative**: Inscribe tab could have a checkbox "Submit as draft after inscription" — if checked, after payment confirmation, user is taken directly to the draft metadata form with ordinal pre-filled.
+**Alternative**: Inscribe tab could have a checkbox "Submit as draft after inscription" – if checked, after payment confirmation, user is taken directly to the draft metadata form with ordinal pre-filled.
 
 ---
 
@@ -207,7 +207,7 @@ Same as standalone, but with explicit **continuation** into draft submission:
 
 2. **Child content**
    - Same as Create New: file upload or paste
-   - Optional: "This is a revision of the parent" checkbox — could auto-add metadata `{"type": "revision", "parent": "..."}`
+   - Optional: "This is a revision of the parent" checkbox – could auto-add metadata `{"type": "revision", "parent": "..."}`
 
 3. **Receive address, fee, Create Child**
    - Same payment flow as Create New
@@ -217,7 +217,7 @@ Same as standalone, but with explicit **continuation** into draft submission:
 
 ---
 
-### 4.6 Add Metadata (Reinscription) Flow — Required
+### 4.6 Add Metadata (Reinscription) Flow – Required
 
 Reinscription flow is **required** in the spec. Implementation will need an alternative to Unisat (see §6.1).
 
@@ -248,8 +248,8 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 **Definition**: User can inscribe without creating or linking an MLTF draft.
 
 **Entry points** (both):
-- **Submit page** — Inscribe tab with "Create New" / "Create Child" / "Add Metadata"
-- **Top-level nav** — Standalone "Inscribe" page for users who only want on-chain storage (no draft workflow)
+- **Submit page** – Inscribe tab with "Create New" / "Create Child" / "Add Metadata"
+- **Top-level nav** – Standalone "Inscribe" page for users who only want on-chain storage (no draft workflow)
 
 **Output**: Inscription ID, `https://ordinals.com/inscription/{id}` link. No submission record in datatracker.
 
@@ -263,7 +263,7 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 
 **Flows**:
 1. **Inscribe → Submit**: Create inscription in Inscribe tab → continue to submit draft from that ordinal.
-2. **Submit → Inscribe**: From a draft (e.g., uploaded file), user chooses "Inscribe this draft" — creates ordinal from draft content, then links submission to ordinal (or replaces file source with ordinal).
+2. **Submit → Inscribe**: From a draft (e.g., uploaded file), user chooses "Inscribe this draft" – creates ordinal from draft content, then links submission to ordinal (or replaces file source with ordinal).
 3. **Reinscription for status**: When a draft is approved, optionally create a reinscription with `{"status": "approved"}` on the draft's ordinal.
 
 **Data model**: Submission can have `sourceType: 'ordinal'` and `ordinalId`; optionally `parentOrdinalId`, `reinscriptionIds[]`, `metadataInscriptionId` for advanced cases.
@@ -272,11 +272,11 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 
 ## 6. Technical Considerations
 
-### 6.1 Unisat API — Research Findings
+### 6.1 Unisat API – Research Findings
 
 | Capability | Unisat API support | Notes |
 |------------|--------------------|-------|
-| Basic create order | ✅ Documented | Use `/v2/inscribe/order/create` — payload: `receiveAddress`, `feeRate`, `outputValue`, `files[]` (filename, dataURL only) |
+| Basic create order | ✅ Documented | Use `/v2/inscribe/order/create` – payload: `receiveAddress`, `feeRate`, `outputValue`, `files[]` (filename, dataURL only) |
 | Parent-child | ❌ Not in create-order | Create-order payload has no `parentInscriptionId`. Child inscriptions require spending parent UTXO as input; Unisat API does not expose this. **Workaround**: Custom tx construction or alternative inscribe service. |
 | Metadata (tag 5) | ❌ Not in create-order | Files object only has `filename` and `dataURL`. No metadata envelope field. **Workaround**: Encode metadata in content (e.g. JSON file) or use separate inscription. |
 | Reinscription | ❌ Not documented | Reinscription = inscribing additional content onto same satoshi (spend UTXO, inscribe again). Unisat create-order does not support "inscribe onto existing UTXO." **Workaround**: May require ord/bitcoin-core or specialized service. |
@@ -289,7 +289,7 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 
 - **Inscription order service**: Create order, poll status, persist `inscription_order` (or equivalent)
 - **Unisat config**: API key, environment (**mainnet** | **testnet**), fee defaults
-- **Testnet support**: **Yes** — Use `https://open-api-testnet.unisat.io` for dev/staging. Config flag to switch environments.
+- **Testnet support**: **Yes** – Use `https://open-api-testnet.unisat.io` for dev/staging. Config flag to switch environments.
 - **Wallet/receive address**: User provides address; no custody. Future: UniSat wallet connect for address auto-fill
 - **Payment flow**: Stateless polling or webhook (if Unisat supports) for order status
 
@@ -314,7 +314,7 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 
 ## 7. Phasing
 
-### Phase 1 — Basic Inscribe (MVP)
+### Phase 1 – Basic Inscribe (MVP)
 
 - Inscribe tab + top-level Inscribe page
 - **Create New** only: File/paste → Preview (ordinals.com) → receive address → fee → pay → inscription ID → optional "Submit as Draft"
@@ -322,14 +322,14 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 - Testnet support for dev/staging
 - Size limit: 390KB (Unisat)
 
-### Phase 2 — Reinscription Flow
+### Phase 2 – Reinscription Flow
 
 - Add **Add Metadata** mode (reinscription)
 - **Note**: Unisat API does not support reinscription. Requires alternative: custom tx construction, ord/bitcoin-core, or other inscribe service.
 - Flow: Target inscription ID → verify ownership → metadata input → pay → create reinscription
 - Schema: `metadata_inscription_id` on submission
 
-### Phase 3 — Child-Parent
+### Phase 3 – Child-Parent
 
 - Add **Create Child** mode
 - **Note**: Unisat API does not support parent-child. Requires alternative implementation.
@@ -337,7 +337,7 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 - Schema: `parent_ordinal_id` on submission
 - Use case: revisions, provenance chains
 
-### Phase 4 — Polish
+### Phase 4 – Polish
 
 - UniSat wallet connect (address auto-fill)
 - Batch inscription (multiple files in one order)
@@ -350,11 +350,11 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 
 | Question | Decision |
 |----------|----------|
-| Unisat API parent-child & metadata | **Research complete** — Not supported in create-order. See §6.1. |
-| Reinscription mechanism | **Research complete** — Reinscription = inscribing onto same satoshi (spend UTXO, inscribe again). Unisat API does not support. See §6.1. |
-| Standalone entry point | **Both** — Inscribe tab under Submit + top-level "Inscribe" nav. |
-| Testnet | **Yes** — Use testnet API for dev/staging. |
-| Size limit | **Unisat 390KB** — Use Unisat's limit for all inscriptions. |
+| Unisat API parent-child & metadata | **Research complete** – Not supported in create-order. See §6.1. |
+| Reinscription mechanism | **Research complete** – Reinscription = inscribing onto same satoshi (spend UTXO, inscribe again). Unisat API does not support. See §6.1. |
+| Standalone entry point | **Both** – Inscribe tab under Submit + top-level "Inscribe" nav. |
+| Testnet | **Yes** – Use testnet API for dev/staging. |
+| Size limit | **Unisat 390KB** – Use Unisat's limit for all inscriptions. |
 | Duplicate content search | See §11. |
 
 ---
@@ -372,15 +372,15 @@ Reinscription flow is **required** in the spec. Implementation will need an alte
 
 ## 10. References
 
-- UNISAT_INSCRIPTION_FEASIBILITY.md — Unisat API analysis, create-order flow
-- ORDINALS_USER_GUIDE.md — Current From Ordinal UX
-- Ordinals protocol: parent (tag 3), metadata (tag 5) — docs.ordinals.com
+- UNISAT_INSCRIPTION_FEASIBILITY.md – Unisat API analysis, create-order flow
+- ORDINALS_USER_GUIDE.md – Current From Ordinal UX
+- Ordinals protocol: parent (tag 3), metadata (tag 5) – docs.ordinals.com
 - Unisat Open API: https://open-api.unisat.io (Swagger)
 - Unisat Testnet: https://open-api-testnet.unisat.io
 
 ---
 
-## 11. Duplicate Content Search — Can We Avoid Re-Inscribing Identical Content?
+## 11. Duplicate Content Search – Can We Avoid Re-Inscribing Identical Content?
 
 ### 11.1 Question
 
@@ -391,28 +391,28 @@ Can we use an API to check whether identical content is already inscribed (or in
 | Source | Content-hash search | Mempool | Notes |
 |--------|---------------------|---------|-------|
 | **Unisat API** | ❌ No | ❌ No | Unisat has `Get Inscription Content` (by ID), `Get Address Inscriptions` (by address). No search-by-content or search-by-hash. |
-| **OrdinalsBot API** | ✅ Yes | ❌ No | `GET https://api.ordinalsbot.com/search` — search by content hash. You SHA256 the file content, API compares against previous inscriptions. Results sorted by inscription number (earliest first). **Requires**: API key or allowlisted domain (request via Discord). |
+| **OrdinalsBot API** | ✅ Yes | ❌ No | `GET https://api.ordinalsbot.com/search` – search by content hash. You SHA256 the file content, API compares against previous inscriptions. Results sorted by inscription number (earliest first). **Requires**: API key or allowlisted domain (request via Discord). |
 | **ordinals.com** | ❌ No | ❌ No | Content endpoint is fetch-by-ID only. No search. |
 | **Mempool** | N/A | ❌ Not indexed | Inscriptions in mempool are unconfirmed until mined. No public API indexes mempool inscriptions for content-hash search. |
 
 ### 11.3 Recommendation
 
-**Yes, duplicate detection is possible** — but not via Unisat:
+**Yes, duplicate detection is possible** – but not via Unisat:
 
-1. **OrdinalsBot Search API** — Primary option. SHA256 the content before inscribing, call OrdinalsBot search with the hash. If match found, warn user: "This content may already be inscribed. [View existing inscription]. Proceed anyway?"
-2. **Mempool** — Cannot be checked. If someone is inscribing the same content right now, we cannot detect it until confirmed.
-3. **Implementation** — Add optional "Check for duplicates" step before Create Inscription. If enabled, compute content hash, call OrdinalsBot (or similar) API, show result. User can proceed or cancel.
+1. **OrdinalsBot Search API** – Primary option. SHA256 the content before inscribing, call OrdinalsBot search with the hash. If match found, warn user: "This content may already be inscribed. [View existing inscription]. Proceed anyway?"
+2. **Mempool** – Cannot be checked. If someone is inscribing the same content right now, we cannot detect it until confirmed.
+3. **Implementation** – Add optional "Check for duplicates" step before Create Inscription. If enabled, compute content hash, call OrdinalsBot (or similar) API, show result. User can proceed or cancel.
 
 ### 11.4 Open Items
 
-- OrdinalsBot API key / allowlist — need to request access
+- OrdinalsBot API key / allowlist – need to request access
 - Fallback: If OrdinalsBot unavailable, skip duplicate check or use alternative indexer (Hiro, Ordiscan) if they support content-hash search
-- UX: Make duplicate check optional (checkbox) — some users may want to inscribe a copy intentionally
+- UX: Make duplicate check optional (checkbox) – some users may want to inscribe a copy intentionally
 
 ### 11.5 Implementation Note (Phase 1)
 
 Duplicate search uses **two different endpoints**:
-- **Text**: `POST /api/inscription/search-duplicate/text` — body: `{ text: "..." }` — for regular text content
-- **Image**: `POST /api/inscription/search-duplicate/image` — body: `{ contentHash: "sha256..." }` — for image content (hash-based)
+- **Text**: `POST /api/inscription/search-duplicate/text` – body: `{ text: "..." }` – for regular text content
+- **Image**: `POST /api/inscription/search-duplicate/image` – body: `{ contentHash: "sha256..." }` – for image content (hash-based)
 
 Placeholder implementation returns `{ placeholder: true, message: "..." }` until API access is granted.

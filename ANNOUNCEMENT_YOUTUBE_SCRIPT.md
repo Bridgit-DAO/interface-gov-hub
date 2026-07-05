@@ -10,11 +10,11 @@
 
 **[Screen: Platform homepage]**
 
-"We're building the next level of the internet — and we're launching Early Access today."
+"We're building the next level of the internet – and we're launching Early Access today."
 
 **[Cut to talking head]**
 
-"I'm [Your Name], and I'm excited to invite you to help build the next internet. This is your chance to shape the foundational rules that will guide how we govern the interface layer — where meaning, identity, and trust are formed. Your voice matters, and we need it now."
+"I'm [Your Name], and I'm excited to invite you to help build the next internet. This is your chance to shape the foundational rules that will guide how we govern the interface layer – where meaning, identity, and trust are formed. Your voice matters, and we need it now."
 
 ---
 
@@ -22,7 +22,7 @@
 
 **[Screen: Visual diagram of meta-layer concept]**
 
-"The current internet works at the technical level — data flows, servers connect, protocols communicate. But the next internet needs governance at the interface level — where people and AI interact, where meaning is created, where trust is built."
+"The current internet works at the technical level – data flows, servers connect, protocols communicate. But the next internet needs governance at the interface level – where people and AI interact, where meaning is created, where trust is built."
 
 **[Screen: Platform demo - Documents page]**
 
@@ -34,7 +34,7 @@
 
 **[Screen: ML-Draft-001 page]**
 
-"We're starting with the most important document: **ML-Draft-001: Foundational Governance Practices**. This draft establishes how the Interface Governance Hub itself will operate — it's essentially our constitution."
+"We're starting with the most important document: **ML-Draft-001: Foundational Governance Practices**. This draft establishes how the Interface Governance Hub itself will operate – it's essentially our constitution."
 
 **[Screen: Scroll through document]**
 
@@ -43,8 +43,8 @@
 **[Screen: Highlight key sections]**
 
 "It covers things like:
-- How we make decisions — rough consensus vs. formal voting
-- Our document lifecycle — ML-Drafts becoming ML-RFCs
+- How we make decisions – rough consensus vs. formal voting
+- Our document lifecycle – ML-Drafts becoming ML-RFCs
 - Our commitment to transparency and permanent archiving
 - Our two-year timeline and transition to a full Task Force"
 
@@ -54,7 +54,7 @@
 
 **[Screen: Platform demo - Registration/Login]**
 
-"Here's how you can participate. First, go to rfc.themetalayer.org and create a free account. Anyone can join — developers, governance professionals, community builders, or anyone who cares about the future of internet governance."
+"Here's how you can participate. First, go to rfc.themetalayer.org and create a free account. Anyone can join – developers, governance professionals, community builders, or anyone who cares about the future of internet governance."
 
 **[Screen: Navigate to ML-Draft-001 comments page]**
 
@@ -70,7 +70,7 @@
 
 **[Screen: Talking head]**
 
-"This is Early Access — you're among the first to help build this. The first draft is always the most important because it sets the foundation. Your comments now will influence how we govern the meta-layer for years to come."
+"This is Early Access – you're among the first to help build this. The first draft is always the most important because it sets the foundation. Your comments now will influence how we govern the meta-layer for years to come."
 
 "We're measuring success by the depth and quality of community engagement. Each thoughtful comment helps us build consensus and refine our approach."
 

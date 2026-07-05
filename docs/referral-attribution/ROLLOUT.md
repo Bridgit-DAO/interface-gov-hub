@@ -2,7 +2,7 @@
 
 Phased delivery for shared scoped attribution. Each phase is independently shippable.
 
-## Phase 1 — Contract + token infrastructure ✅ (this implementation)
+## Phase 1 – Contract + token infrastructure ✅ (this implementation)
 
 **Goal:** Shared v2 token format and verifier in both codebases.
 
@@ -17,11 +17,11 @@ Phased delivery for shared scoped attribution. Each phase is independently shipp
 
 **Ops:** Run `node canopi/scripts/run-migration-007-referral-attribution.js` on Canopi DB; restart Gov Hub to apply SQLite migration.
 
-**Feature flag:** None required — v1 tokens still work.
+**Feature flag:** None required – v1 tokens still work.
 
 ---
 
-## Phase 2 — Gov Hub scoped links + dual param support
+## Phase 2 – Gov Hub scoped links + dual param support
 
 **Goal:** All referral links use `ref_token` only (legacy `?ref=` removed).
 
@@ -37,7 +37,7 @@ Phased delivery for shared scoped attribution. Each phase is independently shipp
 
 ---
 
-## Phase 3 — Landing capture + embed referrals
+## Phase 3 – Landing capture + embed referrals
 
 **Goal:** Full funnel analytics per org/layer.
 
@@ -50,7 +50,7 @@ Phased delivery for shared scoped attribution. Each phase is independently shipp
 
 ---
 
-## Phase 4 — Org-scoped codes + reporting UI
+## Phase 4 – Org-scoped codes + reporting UI
 
 **Goal:** True multi-org isolation.
 

@@ -188,7 +188,7 @@ def program_public_view(program: LayerProgram, user: Optional[dict] = None) -> D
 
 def _short_dp_name(title: str) -> str:
     t = (title or '').strip()
-    m = re.match(r'^DP\s*(\d+)\s*[-–—:]\s*(.+)$', t, re.IGNORECASE)
+    m = re.match(r'^DP\s*(\d+)\s*[-––:]\s*(.+)$', t, re.IGNORECASE)
     return m.group(2).strip() if m else t
 
 

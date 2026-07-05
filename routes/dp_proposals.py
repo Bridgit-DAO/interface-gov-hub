@@ -392,15 +392,15 @@ def dp_proposals_dashboard():
     for row in rows:
         submission_id = row.get('submission_id') or ''
         title = html_mod.escape(row.get('title') or submission_id or 'Untitled')
-        ml = html_mod.escape(row.get('ml_number') or '—')
-        wg = html_mod.escape(row.get('workgroup_name') or row.get('workgroup_acronym') or '—')
+        ml = html_mod.escape(row.get('ml_number') or '–')
+        wg = html_mod.escape(row.get('workgroup_name') or row.get('workgroup_acronym') or '–')
         c = row.get('counts') or {}
         pending = int(c.get('pending', 0))
         accepted = int(c.get('accepted', 0))
         declined = int(c.get('declined', 0))
         total = int(c.get('total', 0))
         last = row.get('last_activity')
-        last_display = html_mod.escape(last[:19].replace('T', ' ') if last else '—')
+        last_display = html_mod.escape(last[:19].replace('T', ' ') if last else '–')
         doc_href = html_mod.escape(f'/doc/draft/{submission_id}/read/')
         table_rows += f'''
             <tr>
@@ -443,7 +443,7 @@ def dp_proposals_dashboard():
 
     header = gh_page_header(
         'Patches',
-        'Patch activity by document — most active first',
+        'Patch activity by document – most active first',
         'fa-highlighter',
         breadcrumb_html=gh_breadcrumb([
             ('Admin Dashboard', '/admin/'),
@@ -462,7 +462,7 @@ def dp_proposals_dashboard():
     </div>
     '''
     return render_page(
-        'Patches — Admin',
+        'Patches – Admin',
         content,
         theme=current_theme,
         user_menu=user_menu,

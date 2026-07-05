@@ -142,7 +142,7 @@ def migrate(*, dry_run: bool) -> None:
                     c.get('text'),
                     c.get('author'),
                     c.get('timestamp'),
-                    None,  # parent_id remapped below if needed — prod uses int chain; flat here
+                    None,  # parent_id remapped below if needed – prod uses int chain; flat here
                     c.get('edited_at'),
                     c.get('is_deleted'),
                     c.get('original_text'),

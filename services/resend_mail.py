@@ -210,10 +210,10 @@ def send_resend_email_result(
     from_config = get_resend_from()
     from_addr = (from_config or {}).get('formatted', '')
     if not api_key:
-        _log_resend_warning('RESEND_API_KEY not set — skipping email')
+        _log_resend_warning('RESEND_API_KEY not set – skipping email')
         return {'ok': False, 'error': 'RESEND_API_KEY is not set.'}
     if not from_addr:
-        _log_resend_warning('RESEND_FROM is not configured — skipping email')
+        _log_resend_warning('RESEND_FROM is not configured – skipping email')
         return {'ok': False, 'error': 'RESEND_FROM is not set.'}
 
     to_list = _normalize_recipients(to)

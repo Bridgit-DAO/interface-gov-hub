@@ -47,7 +47,7 @@ def _unique_handle(*, email: Optional[str], evm_address: Optional[str], type_of_
 def ensure_metaweb_pioneers_membership(user, *, verifier_id: str = '') -> dict:
     """
     Add Gov Hub user to Metaweb Pioneers layer and mirror membership to Canopi.
-    Book buyers bypass nft_gated join — trusted server path after purchase bind.
+    Book buyers bypass nft_gated join – trusted server path after purchase bind.
     """
     from config import METAWEB_PIONEERS_LAYER_SLUG
     from models import Layer, LayerMember

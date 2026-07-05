@@ -89,7 +89,7 @@ def send_platform_invitation_email(
         passage_block = (
             '<p style="margin:16px 0 8px;line-height:1.5;">'
             'You will open this document on Gov Hub. To suggest a change, '
-            '<strong>select the sentence(s)</strong> you want to edit in the text — '
+            '<strong>select the sentence(s)</strong> you want to edit in the text – '
             'a compose panel will open automatically.</p>'
         )
     sign_in_note = (
@@ -108,7 +108,7 @@ def send_platform_invitation_email(
 """
     html_doc = f"""<!DOCTYPE html>
 <html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#222;max-width:560px;margin:0 auto;padding:24px;">
-<h2 style="color:#667eea;margin-top:0;">Invitation — {html.escape(short_name)}</h2>
+<h2 style="color:#667eea;margin-top:0;">Invitation – {html.escape(short_name)}</h2>
 {body}
 <p style="font-size:12px;color:#888;margin-top:32px;">Gov Hub · Interface Governance Hub</p>
 </body></html>"""

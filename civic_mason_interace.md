@@ -1,4 +1,4 @@
-# Civic Mason — Brick Placement Interface Specification
+# Civic Mason – Brick Placement Interface Specification
 
 This document defines the intended user experience and rules for the Civic Mason brick placement interface.
 
@@ -49,10 +49,10 @@ It is meant to guide design and implementation in Cursor.
 
 ## Code Locations
 
-- `models/coordination.py` — Brick, BrickMessage, Role.civic_mason_eligible
-- `services/civic_mason.py` — Eligibility, placement validation
-- `routes/civic_mason.py` — API: `/api/civic-mason/bricks/`, `/eligible/`
-- `routes/civic_mason_pages.py` — Page at `/civic-mason/`, drag-drop UI
+- `models/coordination.py` – Brick, BrickMessage, Role.civic_mason_eligible
+- `services/civic_mason.py` – Eligibility, placement validation
+- `routes/civic_mason.py` – API: `/api/civic-mason/bricks/`, `/eligible/`
+- `routes/civic_mason_pages.py` – Page at `/civic-mason/`, drag-drop UI
 
 ## Design Decision: Layer Scope
 

@@ -83,7 +83,7 @@ def home():
             <div class="gh-home-hero-banner">
                 <img
                     src="/static/images/gov-hub-home-hero.png"
-                    alt="Gov Hub — Interface Governance Hub"
+                    alt="Gov Hub – Interface Governance Hub"
                     width="1600"
                     height="900"
                     loading="eager"

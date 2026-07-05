@@ -1,4 +1,4 @@
-# DP Proposals — specification
+# DP Proposals – specification
 
 **Status:** Scaffolding (dev)  
 **Last updated:** 2026-05-25
@@ -35,7 +35,7 @@ Multiple **competing proposals** per anchor are allowed. Accepting one does not 
 
 Future: dedicated editor role via `can_manage_amendments`.
 
-## Badge & visibility (UI — later phases)
+## Badge & visibility (UI – later phases)
 
 Badge counts **all** statuses: pending, declined, amendments, incorporated (optional), orphaned.
 
@@ -51,7 +51,7 @@ Three display modes (Canopi-style): Hidden · Proximity · Show all.
 - `GET/POST /api/doc/draft/<ref>/proposals/`
 - `POST /api/doc/draft/<ref>/proposals/<id>/accept/`
 - `POST /api/doc/draft/<ref>/proposals/<id>/decline/`
-- `GET /admin/dp-proposals/` — activity dashboard (placeholder)
+- `GET /admin/dp-proposals/` – activity dashboard (placeholder)
 
 ## Product rollout
 

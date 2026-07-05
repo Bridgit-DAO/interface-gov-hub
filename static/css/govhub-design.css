@@ -1,5 +1,5 @@
 /**
- * GovHub Living Layer Map — design tokens & layer UI components
+ * GovHub Living Layer Map – design tokens & layer UI components
  */
 
 :root {
@@ -57,7 +57,7 @@
   max-width: var(--gh-content-max-wide);
 }
 
-/* Docs directory — prod-like two-column cards with dev tokens */
+/* Docs directory – prod-like two-column cards with dev tokens */
 .doc-all-page .document-card {
   margin-bottom: 0;
 }
@@ -83,7 +83,7 @@
   padding-top: 0.75rem;
 }
 
-/* Documents directory — collapsible tag cloud + wrap chips */
+/* Documents directory – collapsible tag cloud + wrap chips */
 .doc-all-page .doc-active-filters {
   display: flex;
   flex-wrap: wrap;
@@ -228,7 +228,7 @@
   flex: 0 0 auto;
 }
 
-/* Documents directory — collapsible tag cloud + wrap chips */
+/* Documents directory – collapsible tag cloud + wrap chips */
 .doc-all-page .doc-active-filters {
   display: flex;
   flex-wrap: wrap;
@@ -683,7 +683,7 @@
   }
 }
 
-/* Stay at 2 columns max — avoids ultra-wide module rows */
+/* Stay at 2 columns max – avoids ultra-wide module rows */
 @media (min-width: 1200px) {
   .living-modules-grid--wide {
     grid-template-columns: repeat(2, 1fr);
@@ -1048,7 +1048,7 @@
   border-top: 1px solid var(--border-color);
 }
 
-/* Detail pages (guild, etc.) — lighter hero */
+/* Detail pages (guild, etc.) – lighter hero */
 .gh-detail-hero {
   border-radius: var(--gh-radius-lg);
   border: 1px solid var(--card-border);
@@ -1121,7 +1121,7 @@
   gap: var(--gh-space-md);
 }
 
-/* Workgroup charter & goals — sidebar teasers with expand */
+/* Workgroup charter & goals – sidebar teasers with expand */
 .wg-sidebar-section-title {
   font-size: 0.7rem;
   font-weight: 700;
@@ -1241,7 +1241,7 @@
   line-height: 1.55;
 }
 
-/* Home — single-row activity rotator (between tagline and hub cards) */
+/* Home – single-row activity rotator (between tagline and hub cards) */
 .gh-home-activity {
   display: flex;
   align-items: center;
@@ -1351,7 +1351,7 @@
   max-width: 36rem;
 }
 
-/* Page heroes — cycling copy over full-width art (Select_3 placeholder until per-page swap) */
+/* Page heroes – cycling copy over full-width art (Select_3 placeholder until per-page swap) */
 .gh-page-hero {
   margin-bottom: var(--gh-space-lg);
 }
@@ -1466,7 +1466,7 @@
   box-shadow: 0 0 18px var(--gh-glow-soft);
 }
 
-/* Shared entity thumbnails — layers, workgroups, roles, guilds */
+/* Shared entity thumbnails – layers, workgroups, roles, guilds */
 .gh-entity-thumb,
 .layer-hero-image,
 .layer-display-image,
@@ -1561,7 +1561,7 @@ img.gh-entity-thumb {
   margin: 0 0 var(--gh-space-md);
 }
 
-/* Badge directory tabs — match feature pills */
+/* Badge directory tabs – match feature pills */
 .gh-badge-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1801,7 +1801,7 @@ img.gh-entity-thumb {
   display: block;
 }
 
-/* Auth panel — hide duplicate module title inside living-module */
+/* Auth panel – hide duplicate module title inside living-module */
 .gh-auth-panel .living-module-header {
   display: none;
 }
@@ -2002,7 +2002,7 @@ a:hover {
   transform: translateY(-4px);
 }
 
-/* Comments page — passage pill links to read view anchor */
+/* Comments page – passage pill links to read view anchor */
 a.gh-passage-comment-link {
   display: inline-flex;
   align-items: center;
@@ -2019,7 +2019,7 @@ a.gh-passage-comment-link:focus {
   text-decoration: none;
 }
 
-/* Image-overlay heroes only — fixed light text (no light-mode art variants yet) */
+/* Image-overlay heroes only – fixed light text (no light-mode art variants yet) */
 .gh-page-hero-overlay .gh-page-hero-title {
   color: #eef2ff;
 }
@@ -2053,7 +2053,7 @@ a.gh-passage-comment-link:focus {
   background: transparent;
 }
 
-/* GhImageCrop toolbar — rotate/flip button group on the modal footer */
+/* GhImageCrop toolbar – rotate/flip button group on the modal footer */
 .gh-crop-toolbar {
   display: flex;
   align-items: center;

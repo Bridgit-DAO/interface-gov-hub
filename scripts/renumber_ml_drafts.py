@@ -19,7 +19,7 @@ def main(dry_run: bool = False, force: bool = False, seal: bool = False) -> None
     app = create_app()
     with app.app_context():
         if is_ml_numbering_sealed() and not force:
-            print('ML numbering is SEALED — no changes made.')
+            print('ML numbering is SEALED – no changes made.')
             print('Pass --force to renumber anyway, or --seal after a successful renumber.')
             return
 
@@ -38,14 +38,14 @@ def main(dry_run: bool = False, force: bool = False, seal: bool = False) -> None
             )
 
         if not changes:
-            print('\nAlready in creation order — nothing to do.')
+            print('\nAlready in creation order – nothing to do.')
             if seal and not dry_run:
                 seal_ml_numbering(note='sealed after verify (no changes needed)')
                 print('Sealed ML numbering.')
             return
 
         if dry_run:
-            print('\nDry run — no changes saved.')
+            print('\nDry run – no changes saved.')
             db.session.rollback()
             return
 
@@ -55,7 +55,7 @@ def main(dry_run: bool = False, force: bool = False, seal: bool = False) -> None
 
         if seal:
             seal_ml_numbering(note='sealed after creation-order renumber')
-            print('Sealed ML numbering — numbers will not change on restart or init_db.')
+            print('Sealed ML numbering – numbers will not change on restart or init_db.')
 
 
 if __name__ == '__main__':
@@ -63,5 +63,5 @@ if __name__ == '__main__':
     force = '--force' in sys.argv
     seal = '--seal' in sys.argv
     if dry:
-        print('Dry run — no changes will be saved.\n')
+        print('Dry run – no changes will be saved.\n')
     main(dry_run=dry, force=force, seal=seal)

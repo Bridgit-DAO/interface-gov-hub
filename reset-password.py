@@ -5,7 +5,7 @@ Usage:
   FLASK_ENV=development python reset-password.py [username]
   FLASK_ENV=production python reset-password.py [username]
 
-Prints the new password once to stdout — store it securely; it is not saved elsewhere.
+Prints the new password once to stdout – store it securely; it is not saved elsewhere.
 """
 
 import secrets

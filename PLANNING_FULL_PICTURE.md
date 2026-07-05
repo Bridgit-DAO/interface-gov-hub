@@ -1,4 +1,4 @@
-# Gov Hub — Full Picture Planning
+# Gov Hub – Full Picture Planning
 
 **Version:** 1.0  
 **Date:** March 12, 2026  
@@ -16,17 +16,17 @@ This document integrates all active and planned tasks into a single view. It exp
 
 | Area | Status |
 |------|--------|
-| **Election flow** | ✅ Done — self-registration, multi-candidate ballots, claim creation for winners |
-| **Reinscription resolution** | ✅ Done — `get_last_inscription_for_sat()` in gov-hub |
+| **Election flow** | ✅ Done – self-registration, multi-candidate ballots, claim creation for winners |
+| **Reinscription resolution** | ✅ Done – `get_last_inscription_for_sat()` in gov-hub |
 | **Project → Layer** | ✅ Done |
-| **public_id (UUID-style URLs)** | ✅ Done — entities expose public_id; routes accept UUID |
-| **Full UUID PK migration** | ⏳ Planned — see Phase 6 below |
+| **public_id (UUID-style URLs)** | ✅ Done – entities expose public_id; routes accept UUID |
+| **Full UUID PK migration** | ⏳ Planned – see Phase 6 below |
 
 ---
 
-## Phase 2.4 — Role Elections (Expanded)
+## Phase 2.4 – Role Elections (Expanded)
 
-**Location in GOV-HUB-3:** Phase 2 — Contribution Engine  
+**Location in GOV-HUB-3:** Phase 2 – Contribution Engine  
 **Dependencies:** Election flow (done), Vote/VoteCandidate/Ballot models (exist)
 
 ### Scope
@@ -35,8 +35,8 @@ This document integrates all active and planned tasks into a single view. It exp
 |------|--------|
 | **Candidate registration** | ✅ Self-register + admin-add via `POST /api/votes/<id>/candidates/` |
 | **Multi-candidate ballots** | ✅ `castBallotCandidate()`, choice = candidate_id |
-| **Randomized ballot order** | ❌ Not yet — ballot UI shows candidates in fixed `display_order` |
-| **Multi-seat elections** | ⚠️ Partial — `close_vote` supports `seats`; UI may need seat-count display |
+| **Randomized ballot order** | ❌ Not yet – ballot UI shows candidates in fixed `display_order` |
+| **Multi-seat elections** | ⚠️ Partial – `close_vote` supports `seats`; UI may need seat-count display |
 
 ### Remaining Work
 
@@ -50,7 +50,7 @@ This document integrates all active and planned tasks into a single view. It exp
    - UI: show "Elect up to N" and display seat count in results
 
 3. **Withdrawal**
-   - VoteCandidate has `status` (approved, withdrawn) — ensure UI supports candidate withdrawal before vote closes
+   - VoteCandidate has `status` (approved, withdrawn) – ensure UI supports candidate withdrawal before vote closes
 
 ### Deliverables
 
@@ -60,7 +60,7 @@ This document integrates all active and planned tasks into a single view. It exp
 
 ---
 
-## Artifact System — Specification Reference
+## Artifact System – Specification Reference
 
 **Source of truth:** `artifact_specification.md`
 
@@ -75,9 +75,9 @@ The artifact model defines:
 
 ---
 
-## Phase 3.4 — Artifact Lineage Visualization (Expanded)
+## Phase 3.4 – Artifact Lineage Visualization (Expanded)
 
-**Location in GOV-HUB-3:** Phase 3 — Recognition & Civic Memory  
+**Location in GOV-HUB-3:** Phase 3 – Recognition & Civic Memory  
 **Dependencies:** Artifact model, ArtifactRelation (see `artifact_specification.md` for full relation types)
 
 ### Scope
@@ -85,8 +85,8 @@ The artifact model defines:
 | Item | Detail |
 |------|--------|
 | **Visual graph** | Interactive graph of artifact relations |
-| **Ancestry** | Parents / builds_on / references — "where did this come from?" |
-| **Descendants** | Children — "what was built from this?" |
+| **Ancestry** | Parents / builds_on / references – "where did this come from?" |
+| **Descendants** | Children – "what was built from this?" |
 | **Governance impact** | Votes, claims, badges linked to artifacts |
 
 ### Implementation Approach
@@ -113,7 +113,7 @@ The artifact model defines:
 
 ---
 
-## Phase 6 — UUID Migration (Full PK Migration)
+## Phase 6 – UUID Migration (Full PK Migration)
 
 **Location in GOV-HUB-3:** UUID + Layer Migration Plan (Phase 2)  
 **Current state:** `public_id` added to entities; URLs use public_id. **PKs remain int/string.**
@@ -131,9 +131,9 @@ The artifact model defines:
 
 ### Execution Order (Topological)
 
-1. **User** — int → UUID
-2. **Layer** — string → UUID
-3. **Submission** — string → UUID
+1. **User** – int → UUID
+2. **Layer** – string → UUID
+3. **Submission** – string → UUID
 4. **Role, Workgroup, Guild**
 5. **Vote, Claim, Badge, Ballot, VoteEligibilitySnapshot**
 6. **Remaining tables**
@@ -194,20 +194,20 @@ The artifact model defines:
 
 | Order | Task | Phase | Status |
 |-------|------|-------|--------|
-| 1 | Meta-domain for Layer | — | ✅ Done — Layer.meta_domain_inscription_id, meta_domain; Edit modal; fetch_meta_domain_from_inscription |
-| 2 | Phase 2.4 — Randomized ballot order | 2.4 | ✅ Done — ballot_order_seed on Vote; _election_candidates_ordered() |
-| 3 | Phase 2.4 — Multi-seat polish | 2.4 | ✅ Done — seats, "Elect up to N", "Winners (top N)"; close_vote excludes withdrawn |
-| 4 | Phase 3.4 — Artifact lineage | 3.4 | ✅ Done — GET /api/artifacts/<id>/lineage/; D3 lineage graph modal |
-| 5 | UUID migration | 6 | ✅ Done — All PKs migrated to UUID |
-| 6 | Phase 3.2 — Civic Mason | 3.2 | Pending — Brick model, placement UI, hover state |
-| 7 | Phase 2.5 — Digital Monuments Registry UI | 2.5 | Pending — Monument model exists; needs registry UI |
-| 8 | Phase 3.3 — Bitcoin Taproot wallet | 3.3 | Pending |
-| 9 | Localization | — | Last |
+| 1 | Meta-domain for Layer | – | ✅ Done – Layer.meta_domain_inscription_id, meta_domain; Edit modal; fetch_meta_domain_from_inscription |
+| 2 | Phase 2.4 – Randomized ballot order | 2.4 | ✅ Done – ballot_order_seed on Vote; _election_candidates_ordered() |
+| 3 | Phase 2.4 – Multi-seat polish | 2.4 | ✅ Done – seats, "Elect up to N", "Winners (top N)"; close_vote excludes withdrawn |
+| 4 | Phase 3.4 – Artifact lineage | 3.4 | ✅ Done – GET /api/artifacts/<id>/lineage/; D3 lineage graph modal |
+| 5 | UUID migration | 6 | ✅ Done – All PKs migrated to UUID |
+| 6 | Phase 3.2 – Civic Mason | 3.2 | Pending – Brick model, placement UI, hover state |
+| 7 | Phase 2.5 – Digital Monuments Registry UI | 2.5 | Pending – Monument model exists; needs registry UI |
+| 8 | Phase 3.3 – Bitcoin Taproot wallet | 3.3 | Pending |
+| 9 | Localization | – | Last |
 
 ---
 
 ## References
 
-- **GOV-HUB-3.md** — Canonical architecture, Phase 0–5
-- **UUID_MIGRATION_COMPLETE.md** — Current public_id state; full PK migration deferred
-- **RFC_ROLES_CLAIMS_BADGES.md** — Role/claim/badge implementation
+- **GOV-HUB-3.md** – Canonical architecture, Phase 0–5
+- **UUID_MIGRATION_COMPLETE.md** – Current public_id state; full PK migration deferred
+- **RFC_ROLES_CLAIMS_BADGES.md** – Role/claim/badge implementation

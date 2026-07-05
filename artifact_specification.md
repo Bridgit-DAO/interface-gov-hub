@@ -1,6 +1,6 @@
-# Gov Hub — Artifact System Specification
+# Gov Hub – Artifact System Specification
 
-**Part of:** GOV-HUB-3 artifact work (Task 7 — Artifact Base Model, Task 8 — ArtifactRelation, Phase 3.4 — Lineage). Referenced from `GOV-HUB-3.md` and `PLANNING_FULL_PICTURE.md`.
+**Part of:** GOV-HUB-3 artifact work (Task 7 – Artifact Base Model, Task 8 – ArtifactRelation, Phase 3.4 – Lineage). Referenced from `GOV-HUB-3.md` and `PLANNING_FULL_PICTURE.md`.
 
 This document defines the **artifact model** for the Governance Hub. Artifacts are the core knowledge objects of the system and form the basis of governance, collaboration, and institutional memory.
 
