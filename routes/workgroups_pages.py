@@ -705,6 +705,12 @@ def workgroup_detail(workgroup_slug):
     let selectedNomineeUserId = null;
     let nominationSearchResults = [];
     let workgroupPositions = [];
+    // Read ?action= once so we can auto-open the nominate / join modal
+    // after the page finishes loading. Stripped after firing so a refresh
+    // doesn't re-trigger the modal.
+    const _urlParams = new URLSearchParams(window.location.search);
+    const autoAction = _urlParams.get('action');
+    let autoActionConsumed = false;
 
     async function loadWorkgroupPositions() {{
         try {{
@@ -769,6 +775,23 @@ def workgroup_detail(workgroup_slug):
             loadChairs();
             loadMembers();
             loadAssignedDocuments();
+
+            // Auto-open the nominate / join modal when the user arrived here
+            // via a "?action=nominate" or "?action=join" link (e.g. from the
+            // Next.js /workgroups/join page). Only fires for approved,
+            // authenticated users — `nominateForChair()` / `joinWorkgroup()`
+            // already show a GhDialog if not. Cleanup the URL once so a
+            // refresh does not re-trigger the modal.
+            if (!autoActionConsumed && autoAction) {{
+                autoActionConsumed = true;
+                const approved = workgroup && workgroup.approval_status === 'approved';
+                window.history.replaceState({{}}, '', window.location.pathname);
+                if (autoAction === 'nominate' && approved) {{
+                    nominateForChair();
+                }} else if (autoAction === 'join' && approved) {{
+                    joinWorkgroup();
+                }}
+            }}
         }} catch (error) {{
             console.error('Error loading workgroup:', error);
             document.getElementById('workgroup-header').innerHTML = '<div class="alert alert-danger">Error loading workgroup</div>';
