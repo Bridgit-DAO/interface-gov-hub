@@ -2385,3 +2385,86 @@ a.gh-passage-comment-link:focus {
 @media (max-width: 991.98px) {
   #gh-prefix-chip-wrap .gh-prefix-chip-label { display: none; }
 }
+
+/* ============================================================================
+ * Workgroup join landing (/workgroups/join/)
+ *
+ * The page renders three Bootstrap components that ship with hardcoded
+ * `--bs-accordion-*` variables and a near-white default `.card` background.
+ * In dark mode that combination renders as light-on-light, washing out the
+ * FAQ, the workgroup cards, and the "Ready to contribute?" CTA. Rebind each
+ * to the Gov Hub theme tokens so both themes look on-brand.
+ * ========================================================================== */
+
+/* FAQ accordion on /workgroups/join/ — global overrides so the Bootstrap
+   accordion picks up dark-mode-aware colors from our theme tokens. */
+.accordion,
+.accordion-item {
+  --bs-accordion-bg: var(--bg-secondary);
+  --bs-accordion-color: var(--text-primary);
+  --bs-accordion-border-color: var(--border-color);
+  --bs-accordion-active-bg: var(--bg-tertiary);
+  --bs-accordion-active-color: var(--text-primary);
+  --bs-accordion-button-bg: var(--bg-secondary);
+  --bs-accordion-button-color: var(--text-primary);
+  --bs-accordion-button-active-bg: var(--bg-tertiary);
+  --bs-accordion-button-active-color: var(--text-primary);
+  --bs-accordion-btn-focus-box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Belt-and-suspenders: the official Bootstrap variables don't always cascade
+   into every nested color, so set the actual `color`/`background` props too. */
+.accordion-button {
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+}
+
+.accordion-button:not(.collapsed) {
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  box-shadow: inset 0 calc(-1 * var(--bs-accordion-border-width)) 0 var(--bs-accordion-border-color);
+}
+
+.accordion-body {
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+}
+
+.accordion-button::after {
+  filter: var(--gh-accordion-chevron-filter, none);
+}
+
+[data-theme="dark"] .accordion-button::after {
+  /* Invert the chevron so it stays legible on the dark button. */
+  filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+/* CTA card on /workgroups/join/ lives inside .living-module which already
+   uses theme tokens, but the inner heading and paragraph can pick up
+   muted-color overrides from Bootstrap utilities. Force them back to the
+   primary text color so the CTA stays readable in dark mode. */
+.wg-join-cta,
+.wg-join-cta h2,
+.wg-join-cta p {
+  color: var(--text-primary);
+}
+
+/* Layer filter on /workgroups/join/ — small touch-up so the <select>
+   matches the rest of the GovHub form inputs in dark mode. */
+.wg-join-layer-filter-wrap .form-select {
+  background-color: var(--input-bg, var(--bg-secondary));
+  color: var(--text-primary);
+  border-color: var(--input-border, var(--border-color));
+}
+
+[data-theme="dark"] .wg-join-layer-filter-wrap .form-select {
+  background-color: var(--input-bg, var(--bg-secondary));
+  color: var(--text-primary);
+  border-color: var(--input-border, var(--border-color));
+}
+
+/* Sticky empty-state when the layer filter hides everything */
+#wg-join-grid .wg-join-empty {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+}

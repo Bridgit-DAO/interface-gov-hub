@@ -48,6 +48,7 @@ def _fetch_approved_workgroups_for_layer(layer_id):
         workgroups = resp.json().get('workgroups', []) or []
         return [
             {
+                'id': w.get('id') or w.get('slug', ''),
                 'slug': w.get('slug', ''),
                 'name': w.get('name', ''),
                 'description': w.get('description', '') or '',
@@ -88,6 +89,12 @@ def _fetch_workgroups_grouped_by_layer():
     Metaweb is always first; remaining layers follow in the order returned by
     the API. Layers with no approved workgroups are skipped entirely.
 
+    A single workgroup may be linked to multiple layers (primary `layer_id`
+    plus secondary links in `working_group_secondary_layer`), so the same
+    workgroup can appear in more than one layer's response. The caller is
+    responsible for deduping by `id` after flattening — keeping the first
+    occurrence ensures the canonical (Metaweb-first) layer wins.
+
     Returns a list of {'layer': {...}, 'workgroups': [...]} dicts, or None on
     total failure so callers can fall back to Metaweb-only behavior.
     """
@@ -107,6 +114,27 @@ def _fetch_workgroups_grouped_by_layer():
         if workgroups:
             groups.append({'layer': layer, 'workgroups': workgroups[:_PER_LAYER_WORKGROUP_CAP]})
     return groups
+
+
+def _dedupe_flat_cards_by_id(flat_cards):
+    """Drop duplicate workgroups from the flat list, keeping the first occurrence.
+
+    The natural order is already "Metaweb first then Overweb then others", so
+    the first-seen layer is the one we want to keep on each card. Returns
+    (deduped_cards, seen_count) — the seen count is useful for logging when
+    duplicates are dropped.
+    """
+    seen = set()
+    deduped = []
+    for wg in flat_cards:
+        wg_id = wg.get('id')
+        if not wg_id:
+            continue
+        if wg_id in seen:
+            continue
+        seen.add(wg_id)
+        deduped.append(wg)
+    return deduped, len(seen)
 
 
 def _escape_text(value):
@@ -145,7 +173,26 @@ def workgroups_join_landing():
             else []
         )
 
-    flat_cards = [wg for group in grouped_workgroups for wg in group['workgroups']]
+    # Flatten all grouped workgroups into one list. Each card is annotated
+    # with its primary `layer_id`/`layer_name` so the template can render the
+    # `data-layer` attribute for the layer filter.
+    annotated_cards = []
+    for group in grouped_workgroups:
+        layer = group.get('layer') or {}
+        layer_id_val = layer.get('id') or ''
+        layer_name = layer.get('name') or 'Layer'
+        for wg in group['workgroups']:
+            annotated = dict(wg)
+            if not annotated.get('id'):
+                annotated['id'] = annotated.get('slug', '')
+            annotated['layer_id'] = layer_id_val
+            annotated['layer_name'] = layer_name
+            annotated_cards.append(annotated)
+
+    # Dedupe across layers — same workgroup can be linked to multiple layers,
+    # so we keep only the first occurrence (Metaweb-first order means the
+    # canonical layer wins).
+    flat_cards, _seen_count = _dedupe_flat_cards_by_id(annotated_cards)
     first_card_slug = flat_cards[0]['slug'] if flat_cards else NOMINATE_FALLBACK_WG_SLUG
 
     # FAQ items
@@ -182,36 +229,64 @@ def workgroups_join_landing():
         for pos in positions
     )
 
-    if grouped_workgroups:
+    # Build the layer filter options. Only include a layer in the dropdown if
+    # at least one workgroup survives dedup. Use the layer's stable `id` as
+    # both the <option value> and the card's `data-layer` attribute so vanilla
+    # JS can show/hide without needing a layer-name slug translation.
+    layer_filter_options = []
+    seen_layer_ids = set()
+    for wg in flat_cards:
+        lid = wg.get('layer_id')
+        if lid and lid not in seen_layer_ids:
+            seen_layer_ids.add(lid)
+            layer_filter_options.append((lid, wg.get('layer_name') or 'Layer'))
+
+    layer_filter_html = ''
+    if layer_filter_options:
+        options_html = ''.join(
+            f'<option value="{_escape_text(lid)}">{_escape_text(lname)}</option>'
+            for lid, lname in layer_filter_options
+        )
+        layer_filter_html = (
+            '<div class="wg-join-layer-filter-wrap mb-3 d-flex align-items-center gap-2 flex-wrap">'
+            '<label for="wg-join-layer-filter" class="gh-filter-label mb-0">Filter by layer</label>'
+            '<select id="wg-join-layer-filter" class="form-select form-select-sm w-auto" aria-label="Filter workgroups by layer">'
+            '<option value="all" selected>All layers</option>'
+            f'{options_html}'
+            '</select>'
+            '<span id="wg-join-layer-count" class="small text-muted ms-1"></span>'
+            '</div>'
+        )
+
+    if flat_cards:
         cards_html_parts = []
-        for group in grouped_workgroups:
-            layer_name_esc = _escape_text(group['layer'].get('name') or 'Layer')
+        for wg in flat_cards:
+            slug_esc = _escape_text(wg['slug'])
+            name_esc = _escape_text(wg['name'])
+            desc_esc = _escape_text(wg['description']) or 'No description provided.'
+            status_esc = _escape_text(wg['status'])
+            status_class = 'success' if wg['status'] == 'active' else 'secondary'
+            layer_id_esc = _escape_text(wg.get('layer_id') or '')
             cards_html_parts.append(
-                f'<div class="col-12"><h3 class="h5 mb-2 mt-2">'
-                f'<i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>'
-                f'{layer_name_esc}</h3></div>'
+                '<div class="col-md-6 col-lg-4 wg-join-card-col"'
+                f' data-layer="{layer_id_esc}">'
+                '<div class="card h-100 living-module">'
+                '<div class="card-body d-flex flex-column">'
+                f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
+                f'<p class="card-text text-muted small mb-2 flex-grow-1">{desc_esc}</p>'
+                '<div class="d-flex justify-content-between align-items-center">'
+                f'<span class="badge bg-{status_class}">{status_esc}</span>'
+                f'<a href="/workgroups/{slug_esc}/" class="btn btn-sm btn-primary">View workgroup</a>'
+                '</div>'
+                '</div>'
+                '</div>'
+                '</div>'
             )
-            for wg in group['workgroups']:
-                slug_esc = _escape_text(wg['slug'])
-                name_esc = _escape_text(wg['name'])
-                desc_esc = _escape_text(wg['description']) or 'No description provided.'
-                status_esc = _escape_text(wg['status'])
-                status_class = 'success' if wg['status'] == 'active' else 'secondary'
-                cards_html_parts.append(
-                    '<div class="col-md-6 col-lg-4">'
-                    '<div class="card h-100">'
-                    '<div class="card-body d-flex flex-column">'
-                    f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
-                    f'<p class="card-text text-muted small mb-2 flex-grow-1">{desc_esc}</p>'
-                    '<div class="d-flex justify-content-between align-items-center">'
-                    f'<span class="badge bg-{status_class}">{status_esc}</span>'
-                    f'<a href="/workgroups/{slug_esc}/" class="btn btn-sm btn-primary">View workgroup</a>'
-                    '</div>'
-                    '</div>'
-                    '</div>'
-                    '</div>'
-                )
         cards_html = ''.join(cards_html_parts)
+    elif grouped_workgroups:
+        # grouped_workgroups had cards before dedupe but all were duplicates —
+        # show an honest empty state.
+        cards_html = '<div class="col-12"><div class="alert alert-info mb-0">No approved workgroups yet. Check back soon.</div></div>'
     else:
         cards_html = '<div class="col-12"><div class="alert alert-info mb-0">No approved workgroups yet. Check back soon.</div></div>'
 
@@ -300,7 +375,8 @@ def workgroups_join_landing():
                 Approved workgroups from every active layer, with The Metaweb listed first.
                 Click any card to view details, members, and the Join button.
             </p>
-            <div class="row g-3">
+            {layer_filter_html}
+            <div class="row g-3" id="wg-join-grid">
                 {cards_html}
             </div>
         </section>
@@ -327,6 +403,36 @@ def workgroups_join_landing():
             </div>
         </section>
     </div>
+    <script>
+    (function () {{
+        const sel = document.getElementById('wg-join-layer-filter');
+        const grid = document.getElementById('wg-join-grid');
+        const counter = document.getElementById('wg-join-layer-count');
+        if (!sel || !grid) return;
+
+        const cards = grid.querySelectorAll('.wg-join-card-col');
+        const total = cards.length;
+
+        function applyFilter(value) {{
+            let visible = 0;
+            cards.forEach(function (card) {{
+                const match = value === 'all' || card.getAttribute('data-layer') === value;
+                card.style.display = match ? '' : 'none';
+                if (match) visible += 1;
+            }});
+            if (counter) {{
+                counter.textContent = value === 'all'
+                    ? 'Showing all ' + total + ' workgroup' + (total === 1 ? '' : 's')
+                    : 'Showing ' + visible + ' of ' + total;
+            }}
+        }}
+
+        sel.addEventListener('change', function () {{
+            applyFilter(sel.value);
+        }});
+        applyFilter(sel.value);
+    }})();
+    </script>
     """
 
     return render_page(
