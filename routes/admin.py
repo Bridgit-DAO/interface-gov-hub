@@ -1828,6 +1828,7 @@ def admin_workgroups():
 
     <script>
     async function loadWorkgroups() {
+        let loadError = '';
         try {
             // Load all projects first
             const projectsResp = await fetch('/api/layers/');
@@ -1835,17 +1836,26 @@ def admin_workgroups():
 
             let allWorkgroups = [];
 
-            // Load workgroups from all projects
-            for (const project of projectsData.layers) {
-                const wgResp = await fetch(`/api/layers/${project.id}/workgroups/`);
-                const wgData = await wgResp.json();
-
-                // Add project info to each workgroup
-                wgData.workgroups.forEach(wg => {
-                    wg.layer_name = project.name;
-                    wg.layer_slug = project.slug;
-                    allWorkgroups.push(wg);
-                });
+            // Load workgroups from each project. One failing layer must not
+            // abort the entire load (which would leave the panel empty while
+            // the badge counter was never refreshed), so fan out in parallel
+            // and skip individual failures.
+            const perLayer = await Promise.allSettled(
+                (projectsData.layers || []).map(async (project) => {
+                    const wgResp = await fetch(`/api/layers/${project.id}/workgroups/`);
+                    if (!wgResp.ok) throw new Error(`HTTP ${wgResp.status} for ${project.slug}`);
+                    const wgData = await wgResp.json();
+                    wgData.workgroups.forEach(wg => {
+                        wg.layer_name = project.name;
+                        wg.layer_slug = project.slug;
+                        allWorkgroups.push(wg);
+                    });
+                })
+            );
+            const failures = perLayer.filter(r => r.status === 'rejected');
+            if (failures.length) {
+                loadError = failures.map(f => f.reason && f.reason.message).join('; ');
+                console.error('Some layers failed to load:', failures);
             }
 
             const pending = allWorkgroups.filter(wg => wg.approval_status === 'pending');
@@ -1857,12 +1867,23 @@ def admin_workgroups():
             displayWorkgroups('pending-workgroups', pending, true);
             displayWorkgroups('approved-workgroups', approved, false);
         } catch (error) {
+            loadError = (loadError ? loadError + ' | ' : '') + (error.message || String(error));
             console.error('Error loading workgroups:', error);
+        }
+        // Surface diagnostic info inside the panel area so an empty queue
+        // is never silently empty.
+        if (loadError) {
+            const pe = document.getElementById('pending-workgroups');
+            if (pe && pe.querySelector('.alert-info')) {
+                pe.innerHTML = `<div class="alert alert-warning">Some layers failed to load: ${loadError}</div>`;
+            }
         }
     }
 
     function displayWorkgroups(containerId, workgroups, showActions) {
         const container = document.getElementById(containerId);
+
+        if (!container) return;
 
         if (workgroups.length === 0) {
             container.innerHTML = '<div class="alert alert-info">No workgroups in this category</div>';
@@ -1871,15 +1892,27 @@ def admin_workgroups():
 
         let html = '<div class="list-group">';
         workgroups.forEach(wg => {
+            const desc = (wg.description || 'No description').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+            }[c]));
+            const layerName = (wg.layer_name || '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+            }[c]));
+            const wgName = (wg.name || '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+            }[c]));
+            let created = '';
+            try { created = new Date(wg.created_at).toLocaleDateString(); }
+            catch (_e) { created = wg.created_at || ''; }
             html += `
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
-                            <h5><a href="/workgroups/${wg.slug}/" target="_blank">${wg.name}</a></h5>
-                            <p class="mb-2">${wg.description || 'No description'}</p>
+                            <h5><a href="/workgroups/${wg.slug}/" target="_blank">${wgName}</a></h5>
+                            <p class="mb-2">${desc}</p>
                             <small class="text-muted">
-                                Layer: <a href="/layers/${wg.layer_slug}/" target="_blank">${wg.layer_name}</a> |
-                                Created: ${new Date(wg.created_at).toLocaleDateString()} |
+                                Layer: <a href="/layers/${wg.layer_slug}/" target="_blank">${layerName}</a> |
+                                Created: ${created} |
                                 Status: ${wg.status}
                             </small>
                         </div>
