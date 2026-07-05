@@ -28,16 +28,18 @@ METAWEB_LAYER_ID = '22d90c89-2783-4726-a8b6-220dca505402'
 # Hardcoded fallback if the local API is unreachable (e.g. during tests).
 NOMINATE_FALLBACK_WG_SLUG = 'dp1-federated-auth'
 
-# Cap the number of workgroups per layer so a single layer can't dominate the page.
-_PER_LAYER_WORKGROUP_CAP = 12
-
 # Per-layer fetch timeout. Short so the public landing stays fast even when one
 # layer's API is slow; total wait stays bounded across many layers.
 _LAYER_FETCH_TIMEOUT = 3
 
 
 def _fetch_approved_workgroups_for_layer(layer_id):
-    """Fetch approved workgroups for a layer. Returns a list of dicts."""
+    """Fetch approved workgroups for a layer. Returns a list of dicts.
+
+    Returns the full approved set (no per-layer cap) so the public landing can
+    surface every workgroup visible in the layer. Dedup across layers happens
+    in the view, not here.
+    """
     try:
         resp = requests.get(
             f'http://127.0.0.1:8000/api/layers/{layer_id}/workgroups/',
@@ -59,7 +61,7 @@ def _fetch_approved_workgroups_for_layer(layer_id):
             }
             for w in workgroups
             if w.get('approval_status') == 'approved' and w.get('slug')
-        ][:12]
+        ]
     except Exception:
         return []
 
@@ -112,7 +114,7 @@ def _fetch_workgroups_grouped_by_layer():
     for layer in ordered_layers:
         workgroups = _fetch_approved_workgroups_for_layer(layer['id'])
         if workgroups:
-            groups.append({'layer': layer, 'workgroups': workgroups[:_PER_LAYER_WORKGROUP_CAP]})
+            groups.append({'layer': layer, 'workgroups': workgroups})
     return groups
 
 
@@ -195,6 +197,24 @@ def workgroups_join_landing():
     flat_cards, _seen_count = _dedupe_flat_cards_by_id(annotated_cards)
     first_card_slug = flat_cards[0]['slug'] if flat_cards else NOMINATE_FALLBACK_WG_SLUG
 
+    # Build a workgroup_id -> set(layer_ids) map by walking the raw
+    # grouped_workgroups (before dedup). Each workgroup can appear in multiple
+    # layers (primary + secondary links); we want every layer it shows up in so
+    # the filter can match a workgroup from any of its layers. The deduped
+    # `flat_cards` only carries the primary layer — not enough to surface
+    # every layer that has at least one approved workgroup.
+    workgroup_layer_ids = {}
+    for group in grouped_workgroups:
+        layer = group.get('layer') or {}
+        layer_id_val = layer.get('id') or ''
+        if not layer_id_val:
+            continue
+        for wg in group['workgroups']:
+            wg_id = wg.get('id') or wg.get('slug', '')
+            if not wg_id:
+                continue
+            workgroup_layer_ids.setdefault(wg_id, set()).add(layer_id_val)
+
     # FAQ items
     faq = [
         {
@@ -229,17 +249,21 @@ def workgroups_join_landing():
         for pos in positions
     )
 
-    # Build the layer filter options. Only include a layer in the dropdown if
-    # at least one workgroup survives dedup. Use the layer's stable `id` as
-    # both the <option value> and the card's `data-layer` attribute so vanilla
-    # JS can show/hide without needing a layer-name slug translation.
+    # Build the layer filter options from the per-layer fetch (before dedup),
+    # so every layer that has at least one approved workgroup shows up in the
+    # dropdown — even if all of its workgroups are duplicates of an earlier
+    # layer's workgroups. Layer order matches the per-layer fetch order
+    # (Metaweb first when present). Use the layer's stable `id` as both the
+    # <option value> and the card's `data-layers` token so vanilla JS can
+    # show/hide without needing a layer-name slug translation.
     layer_filter_options = []
     seen_layer_ids = set()
-    for wg in flat_cards:
-        lid = wg.get('layer_id')
-        if lid and lid not in seen_layer_ids:
+    for group in grouped_workgroups:
+        layer = group.get('layer') or {}
+        lid = layer.get('id')
+        if lid and lid not in seen_layer_ids and group.get('workgroups'):
             seen_layer_ids.add(lid)
-            layer_filter_options.append((lid, wg.get('layer_name') or 'Layer'))
+            layer_filter_options.append((lid, layer.get('name') or 'Layer'))
 
     layer_filter_html = ''
     if layer_filter_options:
@@ -266,10 +290,22 @@ def workgroups_join_landing():
             desc_esc = _escape_text(wg['description']) or 'No description provided.'
             status_esc = _escape_text(wg['status'])
             status_class = 'success' if wg['status'] == 'active' else 'secondary'
-            layer_id_esc = _escape_text(wg.get('layer_id') or '')
+            primary_layer_id = wg.get('layer_id') or ''
+            # Build the full set of layer ids this workgroup appears in
+            # (primary + any secondary layer links). Primary first so the
+            # canonical Metaweb layer is the first token in `data-layers`.
+            all_layer_ids = list(workgroup_layer_ids.get(wg.get('id') or wg.get('slug', ''), set()))
+            if primary_layer_id and primary_layer_id in all_layer_ids:
+                all_layer_ids.remove(primary_layer_id)
+                all_layer_ids.insert(0, primary_layer_id)
+            elif primary_layer_id:
+                all_layer_ids.insert(0, primary_layer_id)
+            layers_attr = _escape_text(' '.join(all_layer_ids))
+            primary_attr = _escape_text(primary_layer_id)
             cards_html_parts.append(
                 '<div class="col-md-6 col-lg-4 wg-join-card-col"'
-                f' data-layer="{layer_id_esc}">'
+                f' data-layer="{primary_attr}"'
+                f' data-layers="{layers_attr}">'
                 '<div class="card h-100 living-module">'
                 '<div class="card-body d-flex flex-column">'
                 f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
@@ -416,7 +452,9 @@ def workgroups_join_landing():
         function applyFilter(value) {{
             let visible = 0;
             cards.forEach(function (card) {{
-                const match = value === 'all' || card.getAttribute('data-layer') === value;
+                const layersAttr = card.getAttribute('data-layers') || '';
+                const layerIds = layersAttr ? layersAttr.split(/\s+/).filter(Boolean) : [];
+                const match = value === 'all' || layerIds.indexOf(value) !== -1;
                 card.style.display = match ? '' : 'none';
                 if (match) visible += 1;
             }});
