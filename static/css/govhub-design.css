@@ -529,6 +529,57 @@
   --bs-table-hover-bg: rgba(77, 159, 255, 0.10);
 }
 
+/* Dark-mode FAQ accordion (Bootstrap 5 default is light; re-skin so it
+ * matches the surrounding navy card theme). Scoped to [data-theme="dark"]
+ * so light mode keeps Bootstrap's native accordion look. */
+[data-theme="dark"] .accordion {
+  --bs-accordion-bg: transparent;
+  --bs-accordion-color: var(--text-primary);
+  --bs-accordion-border-color: var(--border-color);
+  --bs-accordion-btn-bg: var(--bg-secondary);
+  --bs-accordion-btn-color: var(--text-primary);
+  --bs-accordion-btn-icon: var(--text-muted);
+  --bs-accordion-btn-active-bg: var(--bg-tertiary);
+  --bs-accordion-btn-active-color: var(--text-primary);
+  --bs-accordion-active-bg: var(--bg-tertiary);
+  --bs-accordion-active-color: var(--text-primary);
+  --bs-accordion-btn-focus-border-color: var(--accent-color);
+  --bs-accordion-btn-focus-box-shadow: 0 0 0 0.2rem var(--gh-glow-soft, rgba(102, 126, 234, 0.18));
+}
+
+[data-theme="dark"] .accordion-item {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .accordion-button {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .accordion-button:not(.collapsed) {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  box-shadow: inset 0 -1px 0 var(--border-color);
+}
+
+[data-theme="dark"] .accordion-button:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .accordion-button:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 0.2rem var(--gh-glow-soft, rgba(102, 126, 234, 0.18));
+}
+
+[data-theme="dark"] .accordion-body {
+  background-color: transparent;
+  color: var(--text-primary);
+}
+
 /* Docx-rendered tables: headers stay bold and use the primary text
    color, body cells stay readable on the dark card background. Bootstrap's
    `:nth-of-type(odd)` rule no longer applies because the docx renderer
