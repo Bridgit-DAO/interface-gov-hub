@@ -1,4 +1,5 @@
 """Workgroup page routes: /workgroups/<workgroup_slug>/ and /workgroups/join/."""
+import html as html_mod
 import json
 
 from flask import Blueprint, session
@@ -6,6 +7,173 @@ from flask import Blueprint, session
 from services.identity import get_current_user
 
 bp = Blueprint('workgroups_pages', __name__, url_prefix='')
+
+
+# Hard-coded list of the 22 Desirable Properties (DP) workgroups.
+# Mirrors the canonical slugs in gov-hub-prod (`working_group.slug`) so the
+# "View workgroup" and "Nominate" links resolve to real workgroups via
+# `/workgroups/<slug>/`. This is intentionally a static list (not derived from
+# the DB) so the page is predictable on the dev mirror even when dummy data
+# is in play, and so it stays in sync with the matching page on
+# `desirableproperties.org/workgroups/join/` (which uses the same slug map).
+# Update this list if/when a DP's canonical slug or description changes on
+# Gov Hub.
+WORKGROUP_JOIN_DPS = [
+    {
+        'dp_id': 'DP1',
+        'slug': 'dp1-federated-auth',
+        'title': 'DP1 - Federated Authentication & Accountability',
+        'description': 'Developing standards for federated authentication systems that enable cross-platform identity verification while maintaining accountability and audit trails.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP2',
+        'slug': 'dp2-participant-agency',
+        'title': 'DP2 - Participant Agency and Empowerment',
+        'description': 'Creating frameworks that empower participants with full control over their digital presence, decision-making authority, and ability to shape their environment.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP3',
+        'slug': 'dp3-adaptive-governance',
+        'title': 'DP3 - Adaptive Governance Supporting an Exponentially Growing Community',
+        'description': 'Designing governance systems that can scale with exponential community growth while maintaining fairness, participation, and adaptability to emerging challenges.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP4',
+        'slug': 'dp4-data-sovereignty',
+        'title': 'DP4 - Data Sovereignty and Privacy',
+        'description': 'Establishing protocols for complete data ownership, privacy by design, and user-controlled data portability across the Meta-Layer ecosystem.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP5',
+        'slug': 'dp5-decentralized-namespace',
+        'title': 'DP5 - Decentralized Namespace',
+        'description': 'Developing decentralized naming systems that provide persistent, user-controlled identifiers and namespaces independent of centralized authorities.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP6',
+        'slug': 'dp6-commerce',
+        'title': 'DP6 - Commerce',
+        'description': 'Creating secure, transparent commerce protocols that enable value exchange, micropayments, and economic interactions within the Meta-Layer.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP7',
+        'slug': 'dp7-simplicity-interoperability',
+        'title': 'DP7 - Simplicity and Interoperability',
+        'description': 'Designing systems that reduce complexity while ensuring seamless interoperability between different platforms, tools, and communities.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP8',
+        'slug': 'dp8-collaborative-environment',
+        'title': 'DP8 - Collaborative Environment and Meta-Communities',
+        'description': 'Building frameworks for meta-communities that span multiple platforms and enable fluid collaboration across organizational boundaries.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP9',
+        'slug': 'dp9-developer-incentives',
+        'title': 'DP9 - Developer and Community Incentives',
+        'description': 'Creating incentive structures that reward developers and communities for contributing to the ecosystem while aligning with long-term sustainability.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP10',
+        'slug': 'dp10-education',
+        'title': 'DP10 - Education',
+        'description': 'Developing educational frameworks and tools that help participants understand and effectively use the Meta-Layer capabilities.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP11',
+        'slug': 'dp11-safe-ethical-ai',
+        'title': 'DP11 - Safe and Ethical AI',
+        'description': 'Establishing ethical frameworks and safety protocols for AI systems operating within the Meta-Layer to ensure alignment with human values.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP12',
+        'slug': 'dp12-community-ai-governance',
+        'title': 'DP12 - Community-Based AI Governance',
+        'description': 'Creating community-driven governance models for AI systems that ensure transparency, accountability, and collective oversight.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP13',
+        'slug': 'dp13-ai-containment',
+        'title': 'DP13 - AI Containment',
+        'description': 'Developing containment strategies and technical measures to prevent AI systems from exceeding intended boundaries or causing unintended consequences.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP14',
+        'slug': 'dp14-trust-transparency',
+        'title': 'DP14 - Trust and Transparency',
+        'description': 'Building trust through transparent decision-making, auditable processes, and verifiable system behaviors throughout the Meta-Layer.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP15',
+        'slug': 'dp15-security-provenance',
+        'title': 'DP15 - Security and Provenance',
+        'description': 'Ensuring security through comprehensive provenance tracking, secure infrastructure, and verifiable data lineage across all interactions.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP16',
+        'slug': 'dp16-roadmap-milestones',
+        'title': 'DP16 - Roadmap and Milestones',
+        'description': 'Developing structured roadmaps with clear milestones that guide the evolution of the Meta-Layer while maintaining community alignment.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP17',
+        'slug': 'dp17-financial-sustainability',
+        'title': 'DP17 - Financial Sustainability',
+        'description': 'Creating financial models and incentive structures that ensure the long-term sustainability and equitable growth of the Meta-Layer ecosystem.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP18',
+        'slug': 'dp18-feedback-reputation',
+        'title': 'DP18 - Feedback Loops and Reputation',
+        'description': 'Implementing feedback mechanisms and reputation systems that reward positive contributions and maintain community standards.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP19',
+        'slug': 'dp19-community-engagement',
+        'title': 'DP19 - Amplifying Presence and Community Engagement',
+        'description': 'Developing systems that amplify community participation, enhance visibility of contributions, and strengthen community bonds.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP20',
+        'slug': 'dp20-community-ownership',
+        'title': 'DP20 - Community Ownership',
+        'description': 'Ensuring community ownership through decentralized governance, shared decision-making, and equitable distribution of value and control.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP21',
+        'slug': 'dp21-multi-modal',
+        'title': 'DP21 - Multi-modal',
+        'description': 'Enabling seamless interaction across multiple communication modalities including text, voice, video, AR/VR, and emerging interaction paradigms.',
+        'status': 'active',
+    },
+    {
+        'dp_id': 'DP22',
+        'slug': 'dp22---epistemic-continuity-digital-artifacts',
+        'title': 'DP22 - Civic Memory & Epistemic Continuity',
+        'description': 'Exploring how the Meta-Layer can preserve the continuity of civic meaning across artifacts, evidence, interpretation, AI transformation, governance, and feedback over time. The group focuses on building the conceptual, governance, and technical foundations for durable, navigable, and plural collective memory systems that support civilization-scale collective intelligence without collapsing into surveillance, narrative capture, or synthetic consensus.',
+        'status': 'active',
+    },
+]
 
 
 def _get_imports():
@@ -33,7 +201,12 @@ def _get_imports():
 
 @bp.route('/workgroups/join/')
 def workgroups_join():
-    """Public join experience: FAQ, "Ready to contribute?" CTA, and cross-layer listing of approved workgroups."""
+    """Public DP-specific landing page: every Desirable Property workgroup.
+
+    Mirrors the page on `desirableproperties.org/workgroups/join/`. The 22
+    cards are hard-coded in `WORKGROUP_JOIN_DPS` (top of this module) so the
+    listing stays stable even when the dev DB has dummy data.
+    """
     (
         render_page,
         generate_user_menu,
@@ -41,10 +214,10 @@ def workgroups_join():
             gh_page_open,
             gh_page_close,
             gh_page_header,
-            gh_filter_row,
-            gh_filter_col,
-            gh_directory_grid,
-            gh_directory_toolbar,
+            _gh_filter_row,
+            _gh_filter_col,
+            _gh_directory_grid,
+            _gh_directory_toolbar,
         ),
     ) = _get_imports()
     user_menu = generate_user_menu()
@@ -54,102 +227,155 @@ def workgroups_join():
     next_path = '/workgroups/join/'
 
     # Sign-in CTA shown when the visitor is anonymous. We still let them
-    # browse the listing; only the per-card Join button prompts sign-in.
+    # browse the listing; only the per-card Nominate button prompts sign-in.
     sign_in_cta = (
         '<a href="/login/?next=' + next_path + '" class="btn btn-primary">'
-        '<i class="fas fa-sign-in-alt me-2"></i>Sign in to join</a>'
+        '<i class="fas fa-sign-in-alt me-2"></i>Sign in to nominate</a>'
         if not is_authenticated
         else ''
     )
 
-    # FAQ items – fixed copy from the design brief. Answers are short and
-    # focused so the accordion stays scannable.
+    # Header for the DP-specific landing. The lead explicitly calls out that
+    # this is the DP-specific list of all 22 workgroups.
+    wg_join_header = gh_page_header(
+        'Join a DP Workgroup',
+        'Each of the 22 Desirable Properties is stewarded by a dedicated workgroup. '
+        'Pick the property whose purpose resonates with you \u2013 join as a member, '
+        'or nominate yourself (or someone else) for a coordinator or contributor role.',
+        'fa-users-cog',
+        actions_html=sign_in_cta,
+    )
+
+    # Status badge color (matches the conventions used elsewhere on Gov Hub).
+    def _status_class(status: str) -> str:
+        return {
+            'active': 'success',
+            'forming': 'info',
+            'inactive': 'secondary',
+            'archived': 'secondary',
+            'completed': 'primary',
+        }.get((status or '').lower(), 'secondary')
+
+    def _truncate(text: str, max_len: int = 220) -> str:
+        text = (text or '').strip()
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 1].rstrip() + '\u2026'
+
+    # Build the 22-card grid. Each card links to the workgroup detail page
+    # and exposes a Nominate link that opens the nomination modal on the
+    # detail page via the `?action=nominate` query string.
+    dp_cards_html = ''.join(
+        (
+            '<div class="col-md-6 col-lg-4 dp-join-card-col" data-dp-id="'
+            + html_mod.escape(dp['dp_id'], quote=True) + '">'
+            '<div class="card h-100 living-module">'
+            '<div class="card-body d-flex flex-column">'
+            '<div class="d-flex justify-content-between align-items-start mb-2 gap-2">'
+            '<span class="badge bg-secondary dp-join-card-id">'
+            + html_mod.escape(dp['dp_id'], quote=True) + '</span>'
+            '<span class="badge bg-' + _status_class(dp['status']) + '">'
+            + html_mod.escape((dp['status'] or 'active').title(), quote=True) + '</span>'
+            '</div>'
+            '<h3 class="h6 card-title mb-2">'
+            '<a href="/workgroups/' + html_mod.escape(dp['slug'], quote=True) + '/" '
+            'class="text-decoration-none">'
+            + html_mod.escape(dp['title'], quote=True) + '</a></h3>'
+            '<p class="card-text text-muted small mb-3 flex-grow-1">'
+            + html_mod.escape(_truncate(dp['description']), quote=True) + '</p>'
+            '<div class="d-flex flex-wrap gap-2 mt-auto">'
+            '<a href="/workgroups/' + html_mod.escape(dp['slug'], quote=True) + '/" '
+            'class="btn btn-sm btn-primary dp-join-view-btn">'
+            '<i class="fas fa-arrow-right me-1" aria-hidden="true"></i>View workgroup</a>'
+            '<a href="/workgroups/' + html_mod.escape(dp['slug'], quote=True)
+            + '/?action=nominate" class="btn btn-sm btn-outline-success dp-join-nominate-btn">'
+            '<i class="fas fa-user-plus me-1" aria-hidden="true"></i>Nominate</a>'
+            '</div>'
+            '</div>'
+            '</div>'
+            '</div>'
+        )
+        for dp in WORKGROUP_JOIN_DPS
+    )
+
+    # FAQ items – focused on a "pick a DP" experience.
     faq_items = (
         (
             'How do I know which workgroup is right for me?',
-            'Browse the listing below and read each workgroup\u2019s description. '
-            'Match by topic, layer, and the level of commitment you\u2019re ready to give \u2013 '
-            'you can always step back later.',
+            'Read each DP\u2019s short description and pick the one whose purpose '
+            'resonates with your interests and skills. You can always join a different '
+            'workgroup later.',
         ),
         (
             'What if I don\u2019t have time for ongoing commitments?',
-            'You can join as a member and contribute when you have time \u2013 '
-            'there is no required minimum. Watch the workgroup\u2019s updates and jump in '
-            'when something fits.',
+            'Some roles are flexible and low-touch. Roles like Recorder or Liaison '
+            'can be episodic \u2013 contribute when you have capacity.',
         ),
         (
             'Can I be a member of more than one workgroup?',
-            'Yes. Many contributors are members of several workgroups across different layers. '
-            'Each workgroup is independent \u2013 joining one does not lock you out of others.',
+            'Yes. Many community members participate across multiple workgroups.',
         ),
         (
             'How are Coordinators chosen?',
-            'Coordinators nominate themselves; nominations are reviewed by the layer admin and '
-            'the wider community. The path from member to coordinator is open to everyone who '
-            'wants to lead.',
+            'Coordinators can be nominated by anyone in the community, or you can '
+            'nominate yourself. The layer admin reviews and approves each nomination.',
         ),
     )
     faq_id = 'wg-join-faq'
     faq_buttons = ''.join(
-        f'<h2 class="accordion-header" id="{faq_id}-h-{i}">'
-        f'<button class="accordion-button{" collapsed" if i else ""}" type="button" '
-        f'data-bs-toggle="collapse" data-bs-target="#{faq_id}-c-{i}" '
-        f'aria-expanded="{"true" if i == 0 else "false"}" aria-controls="{faq_id}-c-{i}">'
-        f'{q}</button></h2>'
-        f'<div id="{faq_id}-c-{i}" class="accordion-collapse collapse{" show" if i == 0 else ""}" '
-        f'aria-labelledby="{faq_id}-h-{i}" data-bs-parent="#{faq_id}">'
-        f'<div class="accordion-body">{a}</div></div>'
+        (
+            '<div class="accordion-item">'
+            '<h2 class="accordion-header" id="' + faq_id + '-h-' + str(i) + '">'
+            '<button class="accordion-button' + (' collapsed' if i else '')
+            + '" type="button" data-bs-toggle="collapse" '
+            'data-bs-target="#' + faq_id + '-c-' + str(i) + '" '
+            'aria-expanded="' + ('true' if i == 0 else 'false') + '" '
+            'aria-controls="' + faq_id + '-c-' + str(i) + '">'
+            + html_mod.escape(q) + '</button></h2>'
+            '<div id="' + faq_id + '-c-' + str(i) + '" '
+            'class="accordion-collapse collapse' + (' show' if i == 0 else '') + '" '
+            'aria-labelledby="' + faq_id + '-h-' + str(i) + '" data-bs-parent="#' + faq_id + '">'
+            '<div class="accordion-body">' + html_mod.escape(a) + '</div></div>'
+            '</div>'
+        )
         for i, (q, a) in enumerate(faq_items)
     )
 
-    # Join buttons depend on auth state. We render them per-card in JS so the
-    # label flips on the fly when the user signs in or out.
-    join_label_signed_in = 'Join'
-    join_label_signed_out = 'Sign in to join'
-
-    # Header / toolbar fragments built outside the f-string to keep the
-    # expression parts free of unicode escapes (Python 3.9 f-strings cannot
-    # contain backslashes inside `{...}`).
-    wg_join_header = gh_page_header(
-        'Join a Workgroup',
-        'Find your fit across every layer \u2013 join as a member, contribute at the level that works for you.',
-        'fa-user-plus',
-        actions_html=sign_in_cta,
-    )
-    wg_join_toolbar = gh_directory_toolbar(
-        search_placeholder='Search workgroups\u2026',
-        sort_default='name-asc',
-        extra_cols=gh_filter_col(
-            'Layer',
-            '<select id="wg-join-layer-filter" class="form-select">'
-            '<option value="">All layers</option></select>',
-        ),
-        sort_options=(
-            ('name-asc', 'A\u2013Z'),
-            ('name-desc', 'Z\u2013A'),
-            ('recent', 'Most recent'),
-        ),
-    )
+    dp_count = len(WORKGROUP_JOIN_DPS)
 
     content = f"""
-    {gh_page_open('wg-join-page')}
+    {gh_page_open('wg-join-page dp-join-page')}
     {wg_join_header}
 
     <section class="wg-join-cta mb-4" aria-label="Ready to contribute">
         <div class="wg-join-cta-inner">
             <div class="wg-join-cta-body">
-                <h2 class="wg-join-cta-title">Ready to contribute?</h2>
+                <h2 class="wg-join-cta-title">Ready to participate?</h2>
                 <p class="wg-join-cta-text">
-                    Pick a workgroup, click join, and start contributing at the level that fits your time.
-                    If you want to lead, nominate yourself \u2013 the path from member to coordinator is
-                    open to everyone.
+                    Pick a workgroup below, or go straight to The Metaweb layer on Gov Hub
+                    to discover drafts and discussions across all 22 properties.
                 </p>
             </div>
             <div class="wg-join-cta-actions">
                 <a href="#wg-join-listing" class="btn btn-primary wg-join-cta-btn">
-                    <i class="fas fa-arrow-down me-2"></i>Browse all workgroups
+                    <i class="fas fa-arrow-down me-2"></i>Browse the {dp_count} workgroups
+                </a>
+                <a href="/layers/the-metaweb/" class="btn btn-outline-primary wg-join-cta-btn">
+                    <i class="fas fa-layer-group me-2"></i>Open the Metaweb layer
                 </a>
             </div>
+        </div>
+    </section>
+
+    <section id="wg-join-listing" class="wg-join-listing mb-5" aria-label="The 22 DP workgroups">
+        <h2 class="wg-join-section-title">The {dp_count} Desirable Properties workgroups</h2>
+        <p class="text-muted mb-3">
+            Each workgroup stewards one Desirable Property &ndash; drafting the canonical
+            text, reviewing contributions, and proposing updates. Click through to Gov Hub
+            to view details or nominate a coordinator.
+        </p>
+        <div class="row g-3">
+            {dp_cards_html}
         </div>
     </section>
 
@@ -160,233 +386,30 @@ def workgroups_join():
         </div>
     </section>
 
-    <section id="wg-join-listing" class="wg-join-listing mb-4" aria-label="All workgroups">
-        <h2 class="wg-join-section-title">All workgroups</h2>
-        {gh_filter_row(wg_join_toolbar)}
-        {gh_directory_grid('wg-join-grid')}
+    <section class="mb-5">
+        <div class="card border-0 living-module">
+            <div class="card-body py-4 px-4">
+                <h2 class="h4 mb-2"><i class="fas fa-rocket me-2 text-primary" aria-hidden="true"></i>Ready to contribute?</h2>
+                <p class="mb-3">
+                    Pick a workgroup above and start contributing at the level that fits your time.
+                    If you want to lead, nominate yourself &ndash; the path from member to coordinator
+                    is open to everyone.
+                </p>
+                <a href="#wg-join-listing" class="btn btn-primary">
+                    <i class="fas fa-arrow-up me-2"></i>Back to the {dp_count} workgroups
+                </a>
+            </div>
+        </div>
     </section>
     {gh_page_close()}
-
-    <script>
-    const wgJoinIsAuth = {'true' if is_authenticated else 'false'};
-    const wgJoinNextPath = '{next_path}';
-    const wgJoinLabelIn = '{join_label_signed_in}';
-    const wgJoinLabelOut = '{join_label_signed_out}';
-
-    let wgJoinAllProjects = [];
-    let wgJoinAllWorkgroups = [];
-
-    function wgJoinStatusBadge(status) {{
-        const map = {{
-            'active': '<span class="badge bg-success">Active</span>',
-            'inactive': '<span class="badge bg-warning text-dark">Inactive</span>',
-            'completed': '<span class="badge bg-primary">Completed</span>',
-            'archived': '<span class="badge bg-secondary">Archived</span>'
-        }};
-        return map[status] || '';
-    }}
-
-    function wgJoinApprovalBadge(approval) {{
-        const map = {{
-            'pending': '<span class="badge bg-warning text-dark">Pending Approval</span>',
-            'approved': '<span class="badge bg-success">Approved</span>',
-            'rejected': '<span class="badge bg-danger">Rejected</span>'
-        }};
-        return map[approval] || '';
-    }}
-
-    function wgJoinEsc(s) {{
-        if (s == null) return '';
-        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }}
-
-    async function wgJoinLoadProjects() {{
-        try {{
-            const resp = await fetch('/api/layers/?approval_status=approved');
-            const data = await resp.json();
-            wgJoinAllProjects = (data && data.layers) ? data.layers : [];
-            const sel = document.getElementById('wg-join-layer-filter');
-            if (sel) {{
-                wgJoinAllProjects
-                    .slice()
-                    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
-                    .forEach(function(p) {{
-                        const opt = document.createElement('option');
-                        opt.value = p.id;
-                        opt.textContent = p.name || '';
-                        sel.appendChild(opt);
-                    }});
-            }}
-        }} catch (e) {{
-            console.error('wg-join: error loading layers', e);
-        }}
-    }}
-
-    async function wgJoinLoadWorkgroups() {{
-        const grid = document.getElementById('wg-join-grid');
-        if (!grid) return;
-        grid.innerHTML = '<div class="col-12 text-center py-5">'
-            + '<div class="spinner-border text-primary" role="status">'
-            + '<span class="visually-hidden">Loading\u2026</span></div></div>';
-        try {{
-            const collected = [];
-            for (const p of wgJoinAllProjects) {{
-                try {{
-                    const resp = await fetch('/api/layers/' + p.id + '/workgroups/?status=active');
-                    const data = await resp.json();
-                    const wgs = (resp.ok && Array.isArray(data.workgroups)) ? data.workgroups : [];
-                    wgs.forEach(function(wg) {{
-                        collected.push(Object.assign({{}}, wg, {{
-                            layer_name: p.name,
-                            layer_slug: p.slug,
-                        }}));
-                    }});
-                }} catch (e) {{
-                    console.warn('wg-join: layer ' + p.id + ' workgroups failed', e);
-                }}
-            }}
-            // Hide workgroups not yet approved; keep only approved ones for joining.
-            wgJoinAllWorkgroups = collected
-                .filter(function(wg) {{ return wg.approval_status === 'approved'; }})
-                .map(function(wg) {{ return Object.assign({{}}, wg, {{
-                    can_join: wgJoinIsAuth && wg.approval_status === 'approved' && wg.status !== 'archived'
-                }}); }});
-            wgJoinAllWorkgroups = GhDirectory.dedupeById(wgJoinAllWorkgroups, 'id');
-            wgJoinFilter();
-        }} catch (e) {{
-            console.error('wg-join: error loading workgroups', e);
-            grid.innerHTML = GhDirectory.emptyState('Error loading workgroups', 'danger');
-        }}
-    }}
-
-    function wgJoinFilter() {{
-        const layerVal = (document.getElementById('wg-join-layer-filter') || {{}}).value || '';
-        let items = wgJoinAllWorkgroups.slice();
-        if (layerVal) items = items.filter(function(w) {{ return String(w.layer_id) === String(layerVal); }});
-        items = GhDirectory.filterAndSort(items, {{
-            searchTerm: GhDirectory.getSearchValue('wg-join-search'),
-            sort: GhDirectory.getSortValue('wg-join-sort') || 'name-asc',
-            searchFields: ['name', 'description', 'acronym', 'slug', 'layer_name'],
-            nameKey: 'name',
-            dateKeys: ['updated_at', 'created_at'],
-        }});
-        wgJoinRender(items);
-    }}
-
-    function wgJoinRender(workgroups) {{
-        const grid = document.getElementById('wg-join-grid');
-        if (!grid) return;
-        if (!workgroups.length) {{
-            grid.innerHTML = GhDirectory.emptyState('No workgroups available right now. Check back soon.');
-            return;
-        }}
-        let html = '';
-        workgroups.forEach(function(wg) {{
-            const statusBadge = wgJoinStatusBadge(wg.status);
-            const approvalBadge = wgJoinApprovalBadge(wg.approval_status);
-            const detailHref = '/workgroups/' + wg.slug + '/';
-            const tileBody = GhDirectory.tile({{
-                href: detailHref,
-                title: wg.name || 'Untitled workgroup',
-                description: wg.description || 'No description provided.',
-                imageUrl: wg.image_url || '',
-                icon: 'fa-users-cog',
-                pulse: wg.status === 'active' ? 'Active' : '',
-                badgesHtml: statusBadge + approvalBadge,
-                metaHtml: '<i class="fas fa-layer-group me-1"></i>' + wgJoinEsc(wg.layer_name || ''),
-                footerHtml: 'Created ' + new Date(wg.created_at).toLocaleDateString(),
-            }});
-            // Inject a Join action row at the end of the tile body.
-            const joinLabel = wgJoinIsAuth ? wgJoinLabelIn : wgJoinLabelOut;
-            const joinIcon = wgJoinIsAuth ? 'fa-user-plus' : 'fa-sign-in-alt';
-            const joinBtn = (
-                '<button type="button" class="btn btn-sm btn-primary wg-join-card-btn" ' +
-                'data-workgroup-id="' + wgJoinEsc(wg.id) + '" ' +
-                'data-workgroup-name="' + wgJoinEsc(wg.name || '') + '">' +
-                '<i class="fas ' + joinIcon + ' me-1"></i>' + joinLabel + '</button>'
-            );
-            html += tileBody.replace(
-                '<div class="gh-directory-tile-foot">',
-                '<div class="wg-join-tile-action">' + joinBtn + '</div><div class="gh-directory-tile-foot">'
-            );
-        }});
-        grid.innerHTML = html;
-        grid.querySelectorAll('.wg-join-card-btn').forEach(function(btn) {{
-            btn.addEventListener('click', function() {{
-                wgJoinHandleJoin(btn.getAttribute('data-workgroup-id'),
-                                 btn.getAttribute('data-workgroup-name'));
-            }});
-        }});
-    }}
-
-    async function wgJoinHandleJoin(workgroupId, workgroupName) {{
-        if (!wgJoinIsAuth) {{
-            const proceed = await GhDialog.confirm({{
-                title: 'Sign in required',
-                message: 'Sign in to join ' + (workgroupName || 'this workgroup') + '.',
-                confirmLabel: 'Sign in',
-                cancelLabel: 'Cancel',
-                variant: 'info',
-            }});
-            if (proceed) {{
-                window.location.href = '/login/?next=' + encodeURIComponent(wgJoinNextPath);
-            }}
-            return;
-        }}
-        const confirmed = await GhDialog.confirm({{
-            title: 'Join workgroup',
-            message: 'Join ' + (workgroupName || 'this workgroup') + ' as a member?',
-            confirmLabel: 'Join',
-            cancelLabel: 'Cancel',
-            variant: 'info',
-        }});
-        if (!confirmed) return;
-        try {{
-            const resp = await fetch('/api/workgroups/' + encodeURIComponent(workgroupId) + '/join/', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }}
-            }});
-            const data = await resp.json();
-            if (resp.ok) {{
-                const pending = data && data.pending_approval === true;
-                await GhDialog.alert({{
-                    title: pending ? 'Request submitted' : 'Welcome',
-                    message: pending
-                        ? 'Your membership request is pending approval.'
-                        : 'You joined this workgroup.',
-                    variant: pending ? 'info' : 'success',
-                    confirmLabel: 'OK',
-                }});
-            }} else {{
-                await GhDialog.alert({{
-                    title: 'Could not join',
-                    message: (data && data.error) ? data.error : 'Failed to join workgroup.',
-                    variant: 'danger',
-                    confirmLabel: 'OK',
-                }});
-            }}
-        }} catch (e) {{
-            console.error('wg-join: join error', e);
-            await GhDialog.alert({{
-                title: 'Error',
-                message: 'Failed to join workgroup. Please try again.',
-                variant: 'danger',
-                confirmLabel: 'OK',
-            }});
-        }}
-    }}
-
-    wgJoinLoadProjects().then(function() {{
-        wgJoinLoadWorkgroups();
-        GhDirectory.bindControls('wg-join-search', 'wg-join-sort', wgJoinFilter);
-        const layerEl = document.getElementById('wg-join-layer-filter');
-        if (layerEl) layerEl.addEventListener('change', wgJoinFilter);
-    }});
-    </script>
     """
 
-    return render_page('Join a Workgroup - GovHub', content, theme=current_theme, user_menu=user_menu)
+    return render_page(
+        'Join a DP Workgroup \u2013 GovHub',
+        content,
+        theme=current_theme,
+        user_menu=user_menu,
+    )
 
 
 @bp.route('/workgroups/<workgroup_slug>/')
