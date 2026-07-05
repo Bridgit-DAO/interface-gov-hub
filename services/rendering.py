@@ -503,8 +503,6 @@ def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_i
 
     if theme is None:
         theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
-    if user_menu is None:
-        user_menu = generate_user_menu()
     font_awesome_link = '' if not font_awesome else _font_awesome_link
     img_html = ''
     if layer_image_url:
@@ -521,9 +519,31 @@ def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_i
         govhub_js = url_for('static', filename='js/govhub-i18n.js')
     except RuntimeError:
         govhub_js = '/static/js/govhub-i18n.js'
+    if has_request_context():
+        from services.csrf import get_or_create_csrf_token
+        csrf_token = get_or_create_csrf_token()
+    else:
+        csrf_token = ''
+    from services.web3auth_config import get_web3auth_settings
+    web3auth = get_web3auth_settings()
+    try:
+        from config import CANOPI_API_URL
+        canopi_api_url = CANOPI_API_URL
+    except ImportError:
+        canopi_api_url = 'https://api.canopi.live'
+    from services.theme import theme_template_context
+    session_theme = session.get('theme') if has_request_context() else None
+    theme_ctx = theme_template_context(
+        explicit_preference=theme,
+        current_user=get_current_user(),
+        session_theme=session_theme,
+    )
     return LAYER_STANDALONE_BASE_TEMPLATE.format(
         title=title,
-        theme=theme,
+        theme=theme_ctx['theme'],
+        theme_preference=theme_ctx['theme_preference'],
+        theme_effective=theme_ctx['theme_effective'],
+        user_theme_preference_meta=theme_ctx['user_theme_preference_meta'],
         user_menu=user_menu,
         content=content,
         build_number=_build_number,
@@ -545,6 +565,11 @@ def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_i
         civic_mason_nav_li=generate_civic_mason_nav_li(),
         flash_messages=render_flash_messages_html(),
         body_attrs='',
+        csrf_token=csrf_token,
+        canopi_api_url=canopi_api_url,
+        web3auth_client_id=web3auth['client_id'],
+        web3auth_network=web3auth['network'],
+        web3auth_google_verifier=web3auth['google_verifier'],
     )
 
 
