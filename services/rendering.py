@@ -118,6 +118,7 @@ def generate_learn_nav_html(layer_slug=None):
         'aria-expanded="false" data-gh-i18n="nav.learn">Learn</a>'
         '<ul class="dropdown-menu">'
         f'<li><a class="dropdown-item" href="{href}" data-gh-i18n="nav.docsDrafts">Docs &amp; Drafts</a></li>'
+        '<li><a class="dropdown-item" href="/workgroups/join/" data-gh-i18n="nav.joinWorkgroup">Join Workgroup</a></li>'
         '</ul></li>'
     )
 

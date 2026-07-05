@@ -28,13 +28,20 @@ METAWEB_LAYER_ID = '22d90c89-2783-4726-a8b6-220dca505402'
 # Hardcoded fallback if the local API is unreachable (e.g. during tests).
 NOMINATE_FALLBACK_WG_SLUG = 'dp1-federated-auth'
 
+# Cap the number of workgroups per layer so a single layer can't dominate the page.
+_PER_LAYER_WORKGROUP_CAP = 12
+
+# Per-layer fetch timeout. Short so the public landing stays fast even when one
+# layer's API is slow; total wait stays bounded across many layers.
+_LAYER_FETCH_TIMEOUT = 3
+
 
 def _fetch_approved_workgroups_for_layer(layer_id):
     """Fetch approved workgroups for a layer. Returns a list of dicts."""
     try:
         resp = requests.get(
             f'http://127.0.0.1:8000/api/layers/{layer_id}/workgroups/',
-            timeout=3,
+            timeout=_LAYER_FETCH_TIMEOUT,
         )
         if not resp.ok:
             return []
@@ -54,6 +61,52 @@ def _fetch_approved_workgroups_for_layer(layer_id):
         ][:12]
     except Exception:
         return []
+
+
+def _fetch_approved_layers():
+    """Fetch all approved layers. Returns a list of dicts (id, name, slug)."""
+    try:
+        resp = requests.get(
+            'http://127.0.0.1:8000/api/layers/?approval_status=approved',
+            timeout=_LAYER_FETCH_TIMEOUT,
+        )
+        if not resp.ok:
+            return []
+        layers = resp.json().get('layers', []) or []
+        return [
+            {'id': layer.get('id'), 'name': layer.get('name', ''), 'slug': layer.get('slug', '')}
+            for layer in layers
+            if layer.get('id')
+        ]
+    except Exception:
+        return []
+
+
+def _fetch_workgroups_grouped_by_layer():
+    """Fetch approved workgroups grouped by approved layer.
+
+    Metaweb is always first; remaining layers follow in the order returned by
+    the API. Layers with no approved workgroups are skipped entirely.
+
+    Returns a list of {'layer': {...}, 'workgroups': [...]} dicts, or None on
+    total failure so callers can fall back to Metaweb-only behavior.
+    """
+    layers = _fetch_approved_layers()
+    if not layers:
+        return None
+
+    # Re-order so Metaweb is first when present, followed by the rest in their
+    # original order.
+    metaweb = [layer for layer in layers if layer.get('id') == METAWEB_LAYER_ID]
+    others = [layer for layer in layers if layer.get('id') != METAWEB_LAYER_ID]
+    ordered_layers = metaweb + others
+
+    groups = []
+    for layer in ordered_layers:
+        workgroups = _fetch_approved_workgroups_for_layer(layer['id'])
+        if workgroups:
+            groups.append({'layer': layer, 'workgroups': workgroups[:_PER_LAYER_WORKGROUP_CAP]})
+    return groups
 
 
 def _escape_text(value):
@@ -80,9 +133,20 @@ def workgroups_join_landing():
         for key, meta in WORKGROUP_POSITIONS.items()
     ]
 
-    # Live workgroup cards for the Metaweb layer
-    cards = _fetch_approved_workgroups_for_layer(METAWEB_LAYER_ID)
-    first_card_slug = cards[0]['slug'] if cards else NOMINATE_FALLBACK_WG_SLUG
+    # Live workgroup cards, grouped by approved layer. Metaweb first when
+    # available. Falls back to Metaweb-only on total API failure.
+    grouped_workgroups = _fetch_workgroups_grouped_by_layer()
+    if grouped_workgroups is None:
+        fallback_cards = _fetch_approved_workgroups_for_layer(METAWEB_LAYER_ID)
+        grouped_workgroups = (
+            [{'layer': {'id': METAWEB_LAYER_ID, 'name': 'The Metaweb', 'slug': 'metaweb'},
+              'workgroups': fallback_cards}]
+            if fallback_cards
+            else []
+        )
+
+    flat_cards = [wg for group in grouped_workgroups for wg in group['workgroups']]
+    first_card_slug = flat_cards[0]['slug'] if flat_cards else NOMINATE_FALLBACK_WG_SLUG
 
     # FAQ items
     faq = [
@@ -118,28 +182,35 @@ def workgroups_join_landing():
         for pos in positions
     )
 
-    if cards:
+    if grouped_workgroups:
         cards_html_parts = []
-        for wg in cards:
-            slug_esc = _escape_text(wg['slug'])
-            name_esc = _escape_text(wg['name'])
-            desc_esc = _escape_text(wg['description']) or 'No description provided.'
-            status_esc = _escape_text(wg['status'])
-            status_class = 'success' if wg['status'] == 'active' else 'secondary'
+        for group in grouped_workgroups:
+            layer_name_esc = _escape_text(group['layer'].get('name') or 'Layer')
             cards_html_parts.append(
-                '<div class="col-md-6 col-lg-4">'
-                '<div class="card h-100">'
-                '<div class="card-body d-flex flex-column">'
-                f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
-                f'<p class="card-text text-muted small mb-2 flex-grow-1">{desc_esc}</p>'
-                '<div class="d-flex justify-content-between align-items-center">'
-                f'<span class="badge bg-{status_class}">{status_esc}</span>'
-                f'<a href="/workgroups/{slug_esc}/" class="btn btn-sm btn-primary">View workgroup</a>'
-                '</div>'
-                '</div>'
-                '</div>'
-                '</div>'
+                f'<div class="col-12"><h3 class="h5 mb-2 mt-2">'
+                f'<i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>'
+                f'{layer_name_esc}</h3></div>'
             )
+            for wg in group['workgroups']:
+                slug_esc = _escape_text(wg['slug'])
+                name_esc = _escape_text(wg['name'])
+                desc_esc = _escape_text(wg['description']) or 'No description provided.'
+                status_esc = _escape_text(wg['status'])
+                status_class = 'success' if wg['status'] == 'active' else 'secondary'
+                cards_html_parts.append(
+                    '<div class="col-md-6 col-lg-4">'
+                    '<div class="card h-100">'
+                    '<div class="card-body d-flex flex-column">'
+                    f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
+                    f'<p class="card-text text-muted small mb-2 flex-grow-1">{desc_esc}</p>'
+                    '<div class="d-flex justify-content-between align-items-center">'
+                    f'<span class="badge bg-{status_class}">{status_esc}</span>'
+                    f'<a href="/workgroups/{slug_esc}/" class="btn btn-sm btn-primary">View workgroup</a>'
+                    '</div>'
+                    '</div>'
+                    '</div>'
+                    '</div>'
+                )
         cards_html = ''.join(cards_html_parts)
     else:
         cards_html = '<div class="col-12"><div class="alert alert-info mb-0">No approved workgroups yet. Check back soon.</div></div>'
@@ -224,9 +295,9 @@ def workgroups_join_landing():
         </section>
 
         <section class="mb-5">
-            <h2 class="h3 mb-3"><i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>Active Metaweb workgroups</h2>
+            <h2 class="h3 mb-3"><i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>Active workgroups</h2>
             <p class="text-muted mb-3">
-                These are the approved workgroups on The Metaweb layer.
+                Approved workgroups from every active layer, with The Metaweb listed first.
                 Click any card to view details, members, and the Join button.
             </p>
             <div class="row g-3">
@@ -242,7 +313,7 @@ def workgroups_join_landing():
         </section>
 
         <section class="mb-5">
-            <div class="card border-0 bg-light">
+            <div class="card border-0 living-module">
                 <div class="card-body py-4 px-4">
                     <h2 class="h4 mb-2"><i class="fas fa-rocket me-2 text-primary" aria-hidden="true"></i>Ready to contribute?</h2>
                     <p class="mb-3">
