@@ -1,12 +1,17 @@
 /**
  * GovHub card description clamp helper.
  *
- * Targets every `[data-gh-clamp-10]` description element. If its
- * `scrollHeight` exceeds `clientHeight` (i.e. it overflows the line-clamp),
- * the corresponding `[data-gh-more]` link is revealed so users can read the
- * full description on the workgroup detail page. When the content fits in
- * 10 lines, the clamp class is removed so the description is never
- * visually clipped and the "More" link stays hidden.
+ * Targets every `[data-gh-clamp-10]` description element. Measures the
+ * natural (un-clamped) height, applies the `.gh-clamp-10` class (which
+ * uses `-webkit-line-clamp: 10`), and only keeps the clamp when the
+ * natural height exceeds the clamped height — i.e. when the description
+ * would overflow 10 lines. When the content fits naturally in 10 lines,
+ * the clamp class is removed so the description is never visually
+ * clipped and the "More" link stays hidden.
+ *
+ * The previous implementation measured `scrollHeight` while the clamp
+ * class was already applied (or absent on first run), which always
+ * reported "fits, no clamp needed" and so the clamp never engaged.
  */
 (function () {
   'use strict';
@@ -15,17 +20,22 @@
     var nodes = document.querySelectorAll('[data-gh-clamp-10]');
     if (!nodes.length) return;
     nodes.forEach(function (el) {
-      // Reset to measure intrinsic height with no clamp applied.
+      // Ensure no clamp while we measure the un-clamped height.
       el.classList.remove('gh-clamp-10');
-      // Force a synchronous layout reflow so clientHeight reflects the
-      // un-clamped content height.
-      var natural = el.scrollHeight;
-      var visible = el.clientHeight;
-      var overflows = natural > visible + 1;
-      if (overflows) {
-        el.classList.add('gh-clamp-10');
+      // Force a synchronous layout reflow.
+      var naturalHeight = el.scrollHeight;
+
+      // Now apply the clamp and re-measure.
+      el.classList.add('gh-clamp-10');
+      var clampedHeight = el.clientHeight;
+
+      var overflows = naturalHeight > clampedHeight + 1;
+      if (!overflows) {
+        el.classList.remove('gh-clamp-10');
       }
-      var more = el.parentElement && el.parentElement.querySelector('[data-gh-more]');
+
+      var parent = el.parentElement;
+      var more = parent && parent.querySelector('[data-gh-more]');
       if (more) {
         if (overflows) {
           more.removeAttribute('hidden');

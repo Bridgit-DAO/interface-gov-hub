@@ -880,7 +880,7 @@ BASE_TEMPLATE = """
     <script src="/static/js/gh-nav-pills.js?v=1" defer></script>
     <script src="/static/js/gh-nav-user-name.js?v=3" defer></script>
     <script src="/static/js/gh-directory.js"></script>
-    <script src="/static/js/gh-clamp.js?v=1" defer></script>
+    <script src="/static/js/gh-clamp.js?v=2" defer></script>
 </head>
 <body data-build-number="{build_number}" {body_attrs}>
     <script>
