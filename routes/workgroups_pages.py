@@ -224,30 +224,56 @@ def workgroup_detail(workgroup_slug):
 
     async function loadWorkgroup() {{
         try {{
-            // Load all projects first to find the workgroup
-            const projectsResp = await fetch('/api/layers/');
-            const projectsData = await projectsResp.json();
+            // Cache-bust to avoid stale HTML on repeat visits.
+            const cacheBuster = '?_=' + Date.now();
 
-            // Search for workgroup across all projects
-            for (const proj of (projectsData.layers || [])) {{
-                const wgResp = await fetch(`/api/layers/${{proj.id}}/workgroups/`);
-                const wgData = await wgResp.json();
-                const found = (wgData.workgroups || []).find(wg => wg.slug === workgroupSlug);
-
-                if (found) {{
-                    workgroup = found;
-                    project = proj;
-                    break;
+            // Fast path: slug-direct lookup (avoids the up-to-8 sequential
+            // layer-by-layer search the page used to do).
+            let found = null;
+            const directResp = await fetch(
+                '/api/workgroups/by-slug/' + encodeURIComponent(workgroupSlug) + '/' + cacheBuster
+            );
+            if (directResp.ok) {{
+                found = await directResp.json();
+            }} else {{
+                // Fallback: layer-by-layer search (kept for environments
+                // that haven't deployed the by-slug endpoint yet).
+                const projectsResp = await fetch('/api/layers/' + cacheBuster);
+                const projectsData = await projectsResp.json();
+                for (const proj of (projectsData.layers || [])) {{
+                    const wgResp = await fetch(
+                        '/api/layers/' + proj.id + '/workgroups/' + cacheBuster
+                    );
+                    const wgData = await wgResp.json();
+                    const candidate = (wgData.workgroups || []).find(wg => wg.slug === workgroupSlug);
+                    if (candidate) {{
+                        found = candidate;
+                        project = proj;
+                        break;
+                    }}
+                }}
+                if (!found) {{
+                    document.getElementById('workgroup-header').innerHTML =
+                        '<div class="alert alert-danger">Workgroup not found</div>';
+                    return;
                 }}
             }}
 
-            if (!workgroup) {{
-                document.getElementById('workgroup-header').innerHTML = '<div class="alert alert-danger">Workgroup not found</div>';
-                return;
+            workgroup = found;
+            if (!project && workgroup.layer_id) {{
+                // Fetch the layer list to identify the parent project (used
+                // for the sidebar/breadcrumb). Non-fatal if it fails.
+                try {{
+                    const projectsResp = await fetch('/api/layers/' + cacheBuster);
+                    const projectsData = await projectsResp.json();
+                    project = (projectsData.layers || []).find(l => l.id === workgroup.layer_id) || null;
+                }} catch (_) {{ /* non-fatal */ }}
             }}
 
             // Load full workgroup details
-            const detailResp = await fetch(`/api/workgroups/${{workgroup.id}}/`);
+            const detailResp = await fetch(
+                '/api/workgroups/' + workgroup.id + '/' + cacheBuster
+            );
             if (!detailResp.ok) {{
                 throw new Error('Workgroup detail request failed');
             }}
@@ -262,7 +288,8 @@ def workgroup_detail(workgroup_slug):
             loadAssignedDocuments();
         }} catch (error) {{
             console.error('Error loading workgroup:', error);
-            document.getElementById('workgroup-header').innerHTML = '<div class="alert alert-danger">Error loading workgroup</div>';
+            document.getElementById('workgroup-header').innerHTML =
+                '<div class="alert alert-danger">Error loading workgroup</div>';
         }}
     }}
 
@@ -454,7 +481,7 @@ def workgroup_detail(workgroup_slug):
     async function loadChairs() {{
         try {{
             // Load chairs from working_group_chair table using acronym
-            const response = await fetch(`/api/workgroups/${{workgroup.id}}/chairs/`);
+            const response = await fetch(`/api/workgroups/${{workgroup.id}}/chairs/?_=${{Date.now()}}`);
             const data = await response.json();
 
             // Show nominate button for any signed-in user on approved workgroups
@@ -502,7 +529,7 @@ def workgroup_detail(workgroup_slug):
     async function loadMembers() {{
         try {{
             // Load members from working_group_member table using acronym
-            const response = await fetch(`/api/workgroups/${{workgroup.id}}/members/`);
+            const response = await fetch(`/api/workgroups/${{workgroup.id}}/members/?_=${{Date.now()}}`);
             const data = await response.json();
 
             // Check if current user is already a member
@@ -555,7 +582,7 @@ def workgroup_detail(workgroup_slug):
         const container = document.getElementById('workgroup-assigned-docs');
         if (!container || !workgroup || !workgroup.id) return;
         try {{
-            const response = await fetch(`/api/workgroups/${{workgroup.id}}/assigned-documents/`);
+            const response = await fetch(`/api/workgroups/${{workgroup.id}}/assigned-documents/?_=${{Date.now()}}`);
             const data = await response.json();
             const docs = data.documents || [];
             let html = '<p class="text-muted small mb-3">Drafts linked at submission time (separate from the primary document in Edit).</p>';

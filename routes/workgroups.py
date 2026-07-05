@@ -151,6 +151,29 @@ def get_workgroup(workgroup_id):
     return jsonify(d)
 
 
+@bp.route('/workgroups/by-slug/<workgroup_slug>/', methods=['GET'])
+def get_workgroup_by_slug(workgroup_slug):
+    """Direct workgroup lookup by slug — used by the /workgroups/<slug>/ page bootstrap."""
+    wg = (
+        db.session.query(Workgroup)
+        .join(Layer, Layer.id == Workgroup.layer_id)
+        .filter(Workgroup.slug == workgroup_slug)
+        .first()
+    )
+    if not wg:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({
+        'id': wg.id,
+        'slug': wg.slug,
+        'name': wg.name,
+        'layer_id': wg.layer_id,
+        'layer_name': wg.layer.name if wg.layer else None,
+        'state': wg.state,
+        'status': wg.status,
+        'approval_status': wg.approval_status,
+    })
+
+
 @bp.route('/workgroups/<workgroup_id>/', methods=['PATCH'])
 @require_auth
 def update_workgroup(workgroup_id):
