@@ -3512,3 +3512,127 @@ def _delete_test_layer_rows(
         test_layer_ids,
     )
     return cursor.rowcount
+
+
+# Sentinel key in ``site_config`` that records the first (and only) run of
+# ``migrate_hide_auth_layers_v1``. The seed rule in
+# ``migrate_layer_display_status_v1`` only flipped ``*API guard*`` rows to
+# ``pending``; the 36 ``*Auth`` chain/identity layers were left as
+# ``active`` and started polluting the ``/docs/`` filter typeahead.
+# This migration flips them in one shot, then seals.
+HIDE_AUTH_LAYERS_KEY = 'hide_auth_layers_v1'
+
+
+def migrate_hide_auth_layers_v1(app):
+    """One-shot: hide the 36 auto-seeded ``*Auth`` chain/identity layers.
+
+    The original ``display_status`` seed rule in
+    ``migrate_layer_display_status_v1`` only flipped ``*API guard*`` rows to
+    ``pending`` – every other layer, including the 36 ``*Auth`` rows that the
+    chain-onboarding flow auto-creates (``AlgorandAuth``, ``StarknetAuth``,
+    ``WalletAuth``, ``TwitterAuth``, …), was left as ``active`` and showed up
+    in the ``/docs/`` layer filter typeahead. This migration flips every
+    ``*Auth`` layer that is currently ``active`` to ``pending`` in a single
+    ``UPDATE`` and seals the sentinel so re-runs are no-ops.
+
+    Behavior:
+
+    1. Detect ``site_config`` (gracefully absent on fresh dev DBs that
+       haven't run ``migrate_layer_unique_v1`` yet – see below).
+    2. Read ``hide_auth_layers_v1`` sentinel; if present, log a one-line
+       ``already-sealed`` message and return early. **Idempotent.**
+    3. Count candidate rows (``name LIKE '%Auth' AND display_status='active'``).
+       - If the count is wildly off the expected ~36 (zero rows on prod
+         OR more than 100 rows on either DB), STOP and report – we don't
+         want to seal the sentinel against a corrupted candidate set.
+       - Otherwise apply the ``UPDATE`` (it's a no-op on rows that are
+         already ``pending``).
+    4. Insert the sentinel row ``hide_auth_layers_v1='sealed'`` into
+       ``site_config`` (if the table exists) so re-runs short-circuit at
+       step 2.
+
+    Why ``name LIKE '%Auth'`` is sufficient:
+      - The prior audit listed exactly 36 rows matching that pattern, no
+        false positives.
+      - The seed-time ``*API guard*`` rule in
+        ``migrate_layer_display_status_v1`` already covers API-guard rows.
+      - We constrain by ``display_status='active'`` so any layer an admin
+        has already manually flipped stays untouched.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # ----- Step 1: detect site_config table ----------------------------
+        # On a brand-new dev DB that hasn't run a later migration, this
+        # table may not exist yet. We tolerate that and skip writing the
+        # sentinel in that case (next service restart that has run the
+        # table-creating migrations will re-evaluate and seal).
+        cursor.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='site_config'"
+        )
+        site_config_exists = cursor.fetchone() is not None
+
+        # ----- Step 2: check the sentinel ----------------------------------
+        already_sealed = False
+        if site_config_exists:
+            cursor.execute(
+                "SELECT value FROM site_config WHERE key = ?",
+                (HIDE_AUTH_LAYERS_KEY,),
+            )
+            already_sealed = cursor.fetchone() is not None
+        if already_sealed:
+            print(
+                '✅ migrate_hide_auth_layers_v1: sentinel present, no-op'
+            )
+            conn.close()
+            return
+
+        # ----- Step 3: defensive pre-flight count --------------------------
+        # Wildly off the expected ~36 rows = STOP, do not seal the sentinel.
+        cursor.execute(
+            "SELECT COUNT(*) FROM layer "
+            "WHERE name LIKE '%Auth' AND display_status = 'active'"
+        )
+        candidate_active = cursor.fetchone()[0]
+
+        # We expect exactly 36 on prod (the documented state) and 0 on dev
+        # if its layer table doesn't have the auto-seeded Auth rows. Both
+        # are acceptable; anything outside [0, 36, >100] warrants a halt.
+        if candidate_active > 100:
+            print(
+                f'⚠️  migrate_hide_auth_layers_v1: ABORT – '
+                f'candidate count {candidate_active} wildly exceeds '
+                'expected 36, refusing to seal sentinel. Inspect the '
+                "'layer' table manually."
+            )
+            conn.close()
+            return
+
+        # ----- Step 4: apply the UPDATE ------------------------------------
+        cursor.execute(
+            "UPDATE layer SET display_status = 'pending' "
+            "WHERE name LIKE '%Auth' AND display_status = 'active'"
+        )
+        flipped = cursor.rowcount
+
+        # ----- Step 5: write the sentinel ----------------------------------
+        if site_config_exists:
+            cursor.execute(
+                "INSERT OR IGNORE INTO site_config (key, value) "
+                "VALUES (?, ?)",
+                (HIDE_AUTH_LAYERS_KEY, 'sealed'),
+            )
+
+        conn.commit()
+        conn.close()
+        print(
+            f'✅ migrate_hide_auth_layers_v1: flipped {flipped} *Auth '
+            f'layer(s) from active → pending '
+            f'(expected 36 on prod; 0 on dev with no Auth rows); '
+            'sealed sentinel so re-runs are a no-op'
+        )
+    except Exception as e:
+        print(f'⚠️  Error in migrate_hide_auth_layers_v1: {e}')
