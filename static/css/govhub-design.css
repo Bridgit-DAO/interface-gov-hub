@@ -479,10 +479,17 @@
   margin: 0;
   padding: 0.25rem 0;
   list-style: none;
-  background: var(--bg-primary, #fff);
+  background: var(--bg-secondary, #ffffff);
+  color: var(--text-primary, #0a1628);
   border: 1px solid var(--border-color);
   border-radius: var(--gh-radius-md, 0.5rem);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="dark"] .gh-typeahead-menu {
+  background: var(--bg-secondary, #0a1224);
+  border-color: var(--input-border, rgba(77, 159, 255, 0.22));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
 }
 
 .gh-typeahead-menu[hidden] {
@@ -493,12 +500,23 @@
   padding: 0.4rem 0.75rem;
   cursor: pointer;
   font-size: 0.9rem;
+  color: var(--text-primary, #0a1628);
+}
+
+[data-theme="dark"] .gh-typeahead-option {
+  color: var(--text-primary, #eef2ff);
 }
 
 .gh-typeahead-option.gh-typeahead-option-active,
 .gh-typeahead-option:hover {
   background: var(--gh-hover, rgba(102, 126, 234, 0.12));
   color: var(--text-primary);
+}
+
+[data-theme="dark"] .gh-typeahead-option.gh-typeahead-option-active,
+[data-theme="dark"] .gh-typeahead-option:hover {
+  background: rgba(77, 159, 255, 0.18);
+  color: #ffffff;
 }
 
 .gh-typeahead-empty {
