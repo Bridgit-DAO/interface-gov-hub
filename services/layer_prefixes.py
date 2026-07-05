@@ -241,13 +241,18 @@ def _layer_admin_layer_ids(user_id: Optional[str]) -> list[str]:
     return list(set(admin_ids) | set(owner_ids))
 
 
-def visible_layers_for_user(user_id: Optional[str] = None):
+def visible_layers_for_user(user_id: Optional[str] = None, *, active_only: bool = False):
     """Approved layers visible to ``user_id`` (or anonymous when ``None``).
 
     Always limited to ``approval_status='approved'``. Plus:
       * ``display_status='active'`` layers are visible to everyone.
       * A layer's admin / owner also sees their own layers regardless of
         ``display_status`` (so they can finish setup before flipping active).
+
+    Set ``active_only=True`` to ignore the admin-owner exception and return
+    ONLY ``display_status='active'`` layers — used by user-facing surfaces
+    like the ``/docs/`` directory filter where pending layers must never
+    leak even for the layer's own admins.
 
     Returns the Layer rows ordered alphabetically by name and deduped by
     name (mirrors the ``group_by(Layer.name)`` pattern used elsewhere).
@@ -256,16 +261,20 @@ def visible_layers_for_user(user_id: Optional[str] = None):
 
     base = Layer.query.filter(Layer.approval_status == 'approved')
 
-    admin_ids = _layer_admin_layer_ids(user_id)
-    if admin_ids:
-        from sqlalchemy import or_
-
-        q = base.filter(or_(
-            Layer.display_status == 'active',
-            Layer.id.in_(admin_ids),
-        ))
-    else:
+    if active_only:
+        # Public user-facing surfaces: strict active-only, no exceptions.
         q = base.filter(Layer.display_status == 'active')
+    else:
+        admin_ids = _layer_admin_layer_ids(user_id)
+        if admin_ids:
+            from sqlalchemy import or_
+
+            q = base.filter(or_(
+                Layer.display_status == 'active',
+                Layer.id.in_(admin_ids),
+            ))
+        else:
+            q = base.filter(Layer.display_status == 'active')
 
     rows = q.group_by(Layer.name).order_by(Layer.name).all()
 
