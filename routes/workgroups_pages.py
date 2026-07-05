@@ -1,6 +1,8 @@
 """Workgroup page routes: /workgroups/<workgroup_slug>/."""
+import html
 import json
 
+import requests
 from flask import Blueprint, session
 
 from services.identity import get_current_user
@@ -12,6 +14,256 @@ def _get_imports():
     """Late imports from main app to avoid circular imports."""
     from services.rendering import render_page, generate_user_menu
     return render_page, generate_user_menu
+
+
+def _get_workgroup_positions():
+    """Late import to avoid circular imports."""
+    from services.workgroup_positions import WORKGROUP_POSITIONS
+    return WORKGROUP_POSITIONS
+
+
+# The Metaweb layer is the canonical home of the public-facing DP workgroups.
+METAWEB_LAYER_ID = '22d90c89-2783-4726-a8b6-220dca505402'
+
+# Hardcoded fallback if the local API is unreachable (e.g. during tests).
+NOMINATE_FALLBACK_WG_SLUG = 'dp1-federated-auth'
+
+
+def _fetch_approved_workgroups_for_layer(layer_id):
+    """Fetch approved workgroups for a layer. Returns a list of dicts."""
+    try:
+        resp = requests.get(
+            f'http://127.0.0.1:8000/api/layers/{layer_id}/workgroups/',
+            timeout=3,
+        )
+        if not resp.ok:
+            return []
+        workgroups = resp.json().get('workgroups', []) or []
+        return [
+            {
+                'slug': w.get('slug', ''),
+                'name': w.get('name', ''),
+                'description': w.get('description', '') or '',
+                'status': w.get('status', 'active'),
+                'state': w.get('state'),
+                'approval_status': w.get('approval_status'),
+                'image_url': w.get('image_url'),
+            }
+            for w in workgroups
+            if w.get('approval_status') == 'approved' and w.get('slug')
+        ][:12]
+    except Exception:
+        return []
+
+
+def _escape_text(value):
+    return html.escape(str(value or ''), quote=True)
+
+
+@bp.route('/workgroups/join/')
+def workgroups_join_landing():
+    """Public landing page: explains workgroups, lists roles, CTAs, workgroup cards, FAQ."""
+    render_page, generate_user_menu = _get_imports()
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+
+    # Roles from the canonical config (server-side rendered, no HTTP needed)
+    WORKGROUP_POSITIONS = _get_workgroup_positions()
+    positions = [
+        {
+            'key': key,
+            'label': meta['label'],
+            'description': meta['description'],
+            'icon': meta.get('icon', 'fa-user'),
+        }
+        for key, meta in WORKGROUP_POSITIONS.items()
+    ]
+
+    # Live workgroup cards for the Metaweb layer
+    cards = _fetch_approved_workgroups_for_layer(METAWEB_LAYER_ID)
+    first_card_slug = cards[0]['slug'] if cards else NOMINATE_FALLBACK_WG_SLUG
+
+    # FAQ items
+    faq = [
+        {
+            'q': 'How do I know which workgroup is right for me?',
+            'a': "Read each DP's short description and pick the one whose purpose resonates with your interests and skills. You can always join a different workgroup later.",
+        },
+        {
+            'q': "What if I don't have time for ongoing commitments?",
+            'a': "Some roles are flexible and low-touch. Roles like Recorder or Liaison can be episodic — contribute when you have capacity.",
+        },
+        {
+            'q': 'Can I be a member of more than one workgroup?',
+            'a': "Yes. Many community members participate across multiple workgroups. Each workgroup runs independently and you can join as many as your time allows.",
+        },
+        {
+            'q': 'How are Coordinators chosen?',
+            'a': "Coordinators can be nominated by anyone in the community, or you can nominate yourself. The layer admin reviews and approves each nomination. Nominations go through a transparent review process.",
+        },
+    ]
+
+    # Build the content
+    role_cards_html = ''.join(
+        '<div class="col-md-6 col-lg-4">'
+        '<div class="card h-100 living-module">'
+        '<div class="card-body">'
+        f'<div class="living-module-icon mb-2"><i class="fas {_escape_text(pos["icon"])} fa-2x text-primary" aria-hidden="true"></i></div>'
+        f'<h5 class="card-title mb-1">{_escape_text(pos["label"])}</h5>'
+        f'<p class="card-text text-muted mb-0">{_escape_text(pos["description"])}</p>'
+        '</div>'
+        '</div>'
+        '</div>'
+        for pos in positions
+    )
+
+    if cards:
+        cards_html_parts = []
+        for wg in cards:
+            slug_esc = _escape_text(wg['slug'])
+            name_esc = _escape_text(wg['name'])
+            desc_esc = _escape_text(wg['description']) or 'No description provided.'
+            status_esc = _escape_text(wg['status'])
+            status_class = 'success' if wg['status'] == 'active' else 'secondary'
+            cards_html_parts.append(
+                '<div class="col-md-6 col-lg-4">'
+                '<div class="card h-100">'
+                '<div class="card-body d-flex flex-column">'
+                f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
+                f'<p class="card-text text-muted small mb-2 flex-grow-1">{desc_esc}</p>'
+                '<div class="d-flex justify-content-between align-items-center">'
+                f'<span class="badge bg-{status_class}">{status_esc}</span>'
+                f'<a href="/workgroups/{slug_esc}/" class="btn btn-sm btn-primary">View workgroup</a>'
+                '</div>'
+                '</div>'
+                '</div>'
+                '</div>'
+            )
+        cards_html = ''.join(cards_html_parts)
+    else:
+        cards_html = '<div class="col-12"><div class="alert alert-info mb-0">No approved workgroups yet. Check back soon.</div></div>'
+
+    faq_html = ''.join(
+        f'<div class="accordion-item">'
+        f'<h2 class="accordion-header">'
+        f'<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq-{i}" aria-expanded="false" aria-controls="faq-{i}">'
+        f'{_escape_text(item["q"])}'
+        f'</button>'
+        f'</h2>'
+        f'<div id="faq-{i}" class="accordion-collapse collapse" data-bs-parent="#workgroup-faq">'
+        f'<div class="accordion-body">{_escape_text(item["a"])}</div>'
+        f'</div>'
+        f'</div>'
+        for i, item in enumerate(faq)
+    )
+
+    first_card_slug_esc = _escape_text(first_card_slug)
+
+    content = f"""
+    <div class="gh-page container mt-4">
+        <section class="gh-hero mb-5">
+            <h1 class="display-5 mb-3"><i class="fas fa-users-cog me-2 text-primary" aria-hidden="true"></i>Join a Workgroup</h1>
+            <p class="lead text-muted mb-0">
+                Workgroups are the heart of how The Metaweb coordinates contributions.
+                Each workgroup advances one Design Principle (DP) — pick yours and join an active community of contributors.
+            </p>
+        </section>
+
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-info-circle me-2 text-info" aria-hidden="true"></i>What are workgroups?</h2>
+            <p class="mb-0">
+                Workgroups are small, focused teams that move a single Design Principle (DP) from concept to working draft.
+                Each workgroup has a charter, a coordinator, and a flexible roster of members who contribute as their time allows.
+                There is no requirement to attend every meeting or write every line — workgroups run on async collaboration, with synchronous time reserved for moments that need it.
+            </p>
+        </section>
+
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-user-tag me-2 text-success" aria-hidden="true"></i>Workgroup roles</h2>
+            <p class="text-muted mb-3">
+                Every workgroup has seven named positions. Pick the role that fits the contribution you want to make.
+            </p>
+            <div class="row g-3">
+                {role_cards_html}
+            </div>
+        </section>
+
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-bullhorn me-2 text-warning" aria-hidden="true"></i>Join or nominate</h2>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h3 class="h5 mb-2"><i class="fas fa-user-plus me-1 text-primary" aria-hidden="true"></i>Join as a member</h3>
+                            <p class="text-muted mb-3">
+                                Already a GovHub member? Pick a workgroup below and click "View workgroup," then use the Join button on the workgroup page.
+                                You can join as many workgroups as you have time for.
+                            </p>
+                            <a href="/workgroups/" class="btn btn-primary">
+                                <i class="fas fa-list me-2" aria-hidden="true"></i>Browse workgroups
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h3 class="h5 mb-2"><i class="fas fa-hand-pointer me-1 text-success" aria-hidden="true"></i>Nominate someone (or yourself)</h3>
+                            <p class="text-muted mb-3">
+                                Want to step into a Coordinator, Editor, or other leadership role?
+                                Open any workgroup below and use the Nominate button — you can nominate yourself or someone else, and the nominee reviews the nomination before it goes to layer admins.
+                            </p>
+                            <a href="/workgroups/{first_card_slug_esc}/" class="btn btn-success">
+                                <i class="fas fa-arrow-right me-2" aria-hidden="true"></i>Open a workgroup to nominate
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>Active Metaweb workgroups</h2>
+            <p class="text-muted mb-3">
+                These are the approved workgroups on The Metaweb layer.
+                Click any card to view details, members, and the Join button.
+            </p>
+            <div class="row g-3">
+                {cards_html}
+            </div>
+        </section>
+
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-question-circle me-2 text-secondary" aria-hidden="true"></i>Frequently asked questions</h2>
+            <div class="accordion" id="workgroup-faq">
+                {faq_html}
+            </div>
+        </section>
+
+        <section class="mb-5">
+            <div class="card border-0 bg-light">
+                <div class="card-body py-4 px-4">
+                    <h2 class="h4 mb-2"><i class="fas fa-rocket me-2 text-primary" aria-hidden="true"></i>Ready to contribute?</h2>
+                    <p class="mb-3">
+                        Pick a workgroup, click Join, and start contributing at the level that fits your time.
+                        If you want to lead, nominate yourself — the path from member to coordinator is open to everyone.
+                    </p>
+                    <a href="/workgroups/" class="btn btn-primary">
+                        <i class="fas fa-arrow-right me-2" aria-hidden="true"></i>Browse all workgroups
+                    </a>
+                </div>
+            </div>
+        </section>
+    </div>
+    """
+
+    return render_page(
+        title='Join a Workgroup — GovHub',
+        content=content,
+        theme=current_theme,
+        user_menu=user_menu,
+    )
 
 
 @bp.route('/workgroups/<workgroup_slug>/')

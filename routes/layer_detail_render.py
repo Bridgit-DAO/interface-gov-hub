@@ -1025,13 +1025,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         return isOrdinalMembershipLayer();
     }}
 
-    function showMetawebPioneersJoinModal() {{
+    async function showMetawebPioneersJoinModal() {{
         if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to join this project'), variant: 'info' }}); return; }}
         const modal = new bootstrap.Modal(document.getElementById('metawebPioneersJoinModal'));
         modal.show();
     }}
 
-    function showJoinProjectModal() {{
+    async function showJoinProjectModal() {{
         if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to join this project'), variant: 'info' }}); return; }}
         if (isOrdinalMembershipLayer()) {{
             showMetawebPioneersJoinModal();
@@ -1134,7 +1134,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }} catch (e) {{ /* private layer */ }}
     }}
 
-    function showInviteMemberModal() {{
+    async function showInviteMemberModal() {{
         if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to invite members'), variant: 'info' }}); return; }}
         const alertEl = document.getElementById('invite-member-alert');
         if (alertEl) {{
@@ -1291,6 +1291,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             actionsHtml += '<div class="mb-3"><a href="/login/?next=' + joinNext + '" class="btn btn-primary btn-sm w-100"><i class="fas fa-sign-in-alt me-2"></i>Sign in to join</a></div>';
         }}
         actionsHtml += '<div class="mb-3"><a href="' + layerBase + 'connections/" class="btn btn-outline-primary btn-sm w-100"><i class="fas fa-handshake me-2"></i>Connect your organization</a></div>';
+        actionsHtml += '<div class="mb-3"><a href="/workgroups/join/" class="btn btn-outline-success btn-sm w-100"><i class="fas fa-users-cog me-2"></i>Join a Workgroup</a></div>';
         if (isProjectAdmin) {{
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="createWaitlist()"><i class="fas fa-plus me-2"></i>Create Waitlist</button></div>';
             actionsHtml += {json.dumps(create_quest_admin_btn)};
@@ -2090,7 +2091,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const res = await fetch('/api/scope-email/campaigns/' + campaignId + '/', {{ method: 'DELETE' }});
         const data = await res.json();
         if (!res.ok) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not cancel', message: data.error || 'Failed', variant: 'danger' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Could not cancel', message: data.error || 'Failed', variant: 'danger' }});
             return;
         }}
         await loadScheduledEmailCampaigns();
@@ -2509,7 +2510,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     
     let pendingWaitlistId = null;
     
-    function showJoinWaitlistModal(waitlistId, waitlistName) {{
+    async function showJoinWaitlistModal(waitlistId, waitlistName) {{
         if (!isAuthenticated) {{ await GhDialog.alert({{ title: 'Notice', message: ('Please sign in to join this waitlist'), variant: 'info' }}); return; }}
         pendingWaitlistId = waitlistId;
         const titleEl = document.getElementById('join-waitlist-modal-title');
@@ -2740,7 +2741,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             loadAdmins();
         }} catch (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Launch failed', message: e.message || 'Could not launch program.', variant: 'danger' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Launch failed', message: e.message || 'Could not launch program.', variant: 'danger' }});
             }} else {{
                 console.warn('Launch failed:', e);
             }}
@@ -3262,7 +3263,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         html += '</div>';
         container.innerHTML = html;
     }}
-    function addCarouselCustomItem() {{
+    async function addCarouselCustomItem() {{
         const title = (await GhDialog.prompt({{ title: 'Enter value', message: 'Title for this carousel item:', variant: 'info' }}));
         if (!title) return;
         const link = (await GhDialog.prompt({{ title: 'Enter value', message: 'Link URL (optional):', variant: 'info' }}));
@@ -3321,13 +3322,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (response.ok) {{
                 loadAdmins();
                 loadWorkgroups();
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Approved', message: 'Workgroup approved.', variant: 'success' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Approved', message: 'Workgroup approved.', variant: 'success' }});
             }} else {{
                 const data = await response.json();
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not approve', message: data.error || 'Failed to approve workgroup', variant: 'danger' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Could not approve', message: data.error || 'Failed to approve workgroup', variant: 'danger' }});
             }}
         }} catch (e) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: 'Failed to approve workgroup.', variant: 'danger' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Error', message: 'Failed to approve workgroup.', variant: 'danger' }});
         }}
     }}
     
@@ -3347,13 +3348,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             if (response.ok) {{
                 loadAdmins();
                 loadWorkgroups();
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Rejected', message: 'Workgroup rejected.', variant: 'success' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Rejected', message: 'Workgroup rejected.', variant: 'success' }});
             }} else {{
                 const data = await response.json();
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not reject', message: data.error || 'Failed to reject workgroup', variant: 'danger' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Could not reject', message: data.error || 'Failed to reject workgroup', variant: 'danger' }});
             }}
         }} catch (e) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: 'Failed to reject workgroup.', variant: 'danger' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Error', message: 'Failed to reject workgroup.', variant: 'danger' }});
         }}
     }}
     
@@ -4188,7 +4189,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
     }}
     
-    function editProject() {{
+    async function editProject() {{
         if (!project) {{
             await GhDialog.alert({{ title: 'Notice', message: ('Layer details are still loading. Please wait a moment and try again.'), variant: 'info' }});
             return;
@@ -4367,9 +4368,9 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         return {{ ok: res.ok, status: res.status, data: data }};
     }}
 
-    function _ghShowDanger(title, message) {{
+    async function _ghShowDanger(title, message) {{
         if (typeof GhDialog !== 'undefined' && GhDialog.alert) {{
-            return GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: title, message: message || 'Unknown error', variant: 'danger' }}), variant: 'info' }});
+            return await GhDialog.alert({{ title: title, message: message || 'Unknown error', variant: 'danger' }});
         }}
         // Fallback: write into the inline feedback area so we never use native alert().
         editModalShowPrefixFeedback((title ? title + ': ' : '') + (message || 'Unknown error'), 'error');
@@ -4688,7 +4689,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         saveBtn.disabled = false;
     }}
 
-    function createWorkgroup() {{
+    async function createWorkgroup() {{
         const modalHtml = `
             <div class="modal fade" id="projectCreateWorkgroupModal" tabindex="-1">
                 <div class="modal-dialog">
@@ -4765,7 +4766,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }};
     }}
     
-    function createRole() {{
+    async function createRole() {{
         // Create modal HTML
         const modalHtml = `
             <div class="modal fade" id="createRoleModal" tabindex="-1">
@@ -4943,7 +4944,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }};
     }}
     
-    function createCluster() {{
+    async function createCluster() {{
         const modalHtml = `
             <div class="modal fade" id="createClusterModal" tabindex="-1">
                 <div class="modal-dialog">
@@ -5304,7 +5305,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             loadPrefixes();
         }} catch (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not set default', message: e.message || 'Unknown error', variant: 'danger' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Could not set default', message: e.message || 'Unknown error', variant: 'danger' }});
             }}
         }}
     }}
@@ -5335,19 +5336,19 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             loadPrefixes();
         }} catch (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not delete prefix', message: e.message || 'Unknown error', variant: 'danger' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Could not delete prefix', message: e.message || 'Unknown error', variant: 'danger' }});
             }}
         }}
     }}
 
-    function showRenamePrefixPrompt(prefixId, currentPrefix) {{
+    async function showRenamePrefixPrompt(prefixId, currentPrefix) {{
         if (!prefixId) return;
         var next = await GhDialog.prompt({{ title: 'Input required', message: ('New prefix (2 uppercase letters):'), defaultValue: (currentPrefix || ''), confirmLabel: 'OK', inputType: 'text' }});
         if (next == null) return;
         const value = next.trim().toUpperCase();
         if (!/^[A-Z]{{2}}$/.test(value)) {{
             if (typeof GhDialog !== 'undefined') {{
-                GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Invalid prefix', message: 'Prefix must be exactly two uppercase ASCII letters.', variant: 'danger' }}), variant: 'info' }});
+                GhDialog.alert({{ title: 'Invalid prefix', message: 'Prefix must be exactly two uppercase ASCII letters.', variant: 'danger' }});
             }} else {{
                 await GhDialog.alert({{ title: 'Notice', message: ('Invalid prefix format'), variant: 'info' }});
             }}
@@ -5364,7 +5365,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             loadPrefixes();
         }}).catch(async function (e) {{
             if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not rename prefix', message: e.message || 'Unknown error', variant: 'danger' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Could not rename prefix', message: e.message || 'Unknown error', variant: 'danger' }});
             }} else {{
                 await GhDialog.alert({{ title: 'Notice', message: ('Rename failed: ' + e.message), variant: 'info' }});
             }}
