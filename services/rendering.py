@@ -104,7 +104,11 @@ def _rollout_for_layer_slug(layer_slug=None):
 
 
 def generate_learn_nav_html(layer_slug=None):
-    """Learn nav dropdown: hidden when `docs` rollout is off. Uses g.product_rollout when set."""
+    """Learn nav dropdown: hidden when `docs` rollout is off. Uses g.product_rollout when set.
+
+    The "Join Workgroup" entry points at the focused /workgroups/join/ page
+    (FAQ + cross-layer listing) and is gated on the same `workgroups` rollout
+    flag used elsewhere (e.g. the Governance nav)."""
     r = _rollout_for_layer_slug(layer_slug)
     if not r.get('docs', True):
         return ''
@@ -112,13 +116,21 @@ def generate_learn_nav_html(layer_slug=None):
         href = '/layer/' + layer_slug + '/doc/'
     else:
         href = '/doc/all/'
+    lines = [
+        f'<li><a class="dropdown-item" href="{href}" data-gh-i18n="nav.docsDrafts">Docs &amp; Drafts</a></li>',
+    ]
+    if r.get('workgroups', True):
+        lines.append(
+            '<li><a class="dropdown-item" href="/workgroups/join/" data-gh-i18n="nav.joinWorkgroup">'
+            'Join Workgroup</a></li>'
+        )
     return (
         '<li class="nav-item dropdown">'
         '<a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" '
         'aria-expanded="false" data-gh-i18n="nav.learn">Learn</a>'
         '<ul class="dropdown-menu">'
-        f'<li><a class="dropdown-item" href="{href}" data-gh-i18n="nav.docsDrafts">Docs &amp; Drafts</a></li>'
-        '</ul></li>'
+        + '\n'.join(lines)
+        + '</ul></li>'
     )
 
 

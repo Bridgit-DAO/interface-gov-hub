@@ -2367,3 +2367,148 @@ a.gh-passage-comment-link:focus {
 @media (max-width: 991.98px) {
   #gh-prefix-chip-wrap .gh-prefix-chip-label { display: none; }
 }
+
+/* ----------------------------------------------------------------------
+ * /workgroups/join/ – focused join experience
+ *
+ * The styles below are intentionally token-driven (var(--text-primary),
+ * var(--bg-secondary), var(--card-bg), var(--border-color), …) so they
+ * remain legible in both light and dark themes. Earlier hardcoded
+ * `color: #fff` rules made the "Ready to contribute?" copy disappear
+ * against the dark card background; using theme tokens fixes that.
+ * ---------------------------------------------------------------------- */
+.wg-join-section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+/* "Ready to contribute?" CTA card */
+.wg-join-cta {
+  border-radius: var(--gh-radius-lg, 16px);
+  border: 1px solid var(--card-border, var(--border-color));
+  background: var(--gh-gradient-hero, var(--card-bg));
+  padding: 1.75rem 1.5rem;
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
+}
+
+.wg-join-cta-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+
+.wg-join-cta-body {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.wg-join-cta-title {
+  font-size: 1.4rem;
+  font-weight: 800;
+  margin: 0 0 0.5rem;
+  color: var(--text-primary);
+}
+
+.wg-join-cta-text {
+  color: var(--text-secondary);
+  font-size: 0.98rem;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 56ch;
+}
+
+.wg-join-cta-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.wg-join-cta-btn {
+  white-space: nowrap;
+}
+
+/* FAQ accordion – re-skin Bootstrap's default so it inherits theme tokens
+ * instead of its hardcoded light-mode colors. */
+.wg-join-faq .accordion {
+  --bs-accordion-bg: var(--bg-secondary);
+  --bs-accordion-color: var(--text-primary);
+  --bs-accordion-btn-color: var(--text-primary);
+  --bs-accordion-active-bg: var(--bg-tertiary);
+  --bs-accordion-active-color: var(--text-primary);
+  --bs-accordion-border-color: var(--border-color);
+  --bs-accordion-btn-focus-border-color: var(--accent-color);
+  --bs-accordion-btn-focus-box-shadow: 0 0 0 0.2rem rgba(77, 159, 255, 0.25);
+  border-radius: var(--gh-radius-md, 12px);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.wg-join-faq .accordion-button {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.wg-join-faq .accordion-button:not(.collapsed) {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  box-shadow: inset 0 -1px 0 var(--border-color);
+}
+
+.wg-join-faq .accordion-button:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.wg-join-faq .accordion-button:focus {
+  box-shadow: 0 0 0 0.2rem rgba(77, 159, 255, 0.25);
+  border-color: var(--accent-color);
+}
+
+.wg-join-faq .accordion-body {
+  color: var(--text-secondary);
+  background-color: var(--bg-secondary);
+  line-height: 1.6;
+  padding: 1rem 1.25rem;
+}
+
+.wg-join-faq .accordion-item {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+/* Per-card Join button row, inserted above the existing tile foot text. */
+.wg-join-tile-action {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+.wg-join-card-btn {
+  font-weight: 600;
+}
+
+@media (max-width: 575.98px) {
+  .wg-join-cta {
+    padding: 1.25rem 1rem;
+  }
+  .wg-join-cta-title {
+    font-size: 1.2rem;
+  }
+  .wg-join-cta-inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .wg-join-cta-btn {
+    width: 100%;
+  }
+}

@@ -1,4 +1,4 @@
-"""Workgroup page routes: /workgroups/<workgroup_slug>/."""
+"""Workgroup page routes: /workgroups/<workgroup_slug>/ and /workgroups/join/."""
 import json
 
 from flask import Blueprint, session
@@ -11,13 +11,30 @@ bp = Blueprint('workgroups_pages', __name__, url_prefix='')
 def _get_imports():
     """Late imports from main app to avoid circular imports."""
     from services.rendering import render_page, generate_user_menu
-    return render_page, generate_user_menu
+    from services.directory_ui import (
+        gh_page_open,
+        gh_page_close,
+        gh_page_header,
+        gh_filter_row,
+        gh_filter_col,
+        gh_directory_grid,
+        gh_directory_toolbar,
+    )
+    return render_page, generate_user_menu, (
+        gh_page_open,
+        gh_page_close,
+        gh_page_header,
+        gh_filter_row,
+        gh_filter_col,
+        gh_directory_grid,
+        gh_directory_toolbar,
+    )
 
 
 @bp.route('/workgroups/<workgroup_slug>/')
 def workgroup_detail(workgroup_slug):
     """Workgroup detail page"""
-    render_page, generate_user_menu = _get_imports()
+    render_page, generate_user_menu, _directory_helpers = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
@@ -1038,3 +1055,361 @@ def workgroup_detail(workgroup_slug):
     """
 
     return render_page(f"Workgroup: {workgroup_slug} - GovHub", content, theme=current_theme, user_menu=user_menu)
+
+
+@bp.route('/workgroups/join/')
+def workgroups_join():
+    """Public join experience: FAQ, "Ready to contribute?" CTA, and cross-layer listing of approved workgroups."""
+    (
+        render_page,
+        generate_user_menu,
+        (
+            gh_page_open,
+            gh_page_close,
+            gh_page_header,
+            gh_filter_row,
+            gh_filter_col,
+            gh_directory_grid,
+            gh_directory_toolbar,
+        ),
+    ) = _get_imports()
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+    current_user = get_current_user()
+    is_authenticated = bool(current_user)
+    next_path = '/workgroups/join/'
+
+    # Sign-in CTA shown when the visitor is anonymous. We still let them
+    # browse the listing; only the per-card Join button prompts sign-in.
+    sign_in_cta = (
+        '<a href="/login/?next=' + next_path + '" class="btn btn-primary">'
+        '<i class="fas fa-sign-in-alt me-2"></i>Sign in to join</a>'
+        if not is_authenticated
+        else ''
+    )
+
+    # FAQ items – fixed copy from the design brief. Answers are short and
+    # focused so the accordion stays scannable.
+    faq_items = (
+        (
+            'How do I know which workgroup is right for me?',
+            'Browse the listing below and read each workgroup\u2019s description. '
+            'Match by topic, layer, and the level of commitment you\u2019re ready to give \u2013 '
+            'you can always step back later.',
+        ),
+        (
+            'What if I don\u2019t have time for ongoing commitments?',
+            'You can join as a member and contribute when you have time \u2013 '
+            'there is no required minimum. Watch the workgroup\u2019s updates and jump in '
+            'when something fits.',
+        ),
+        (
+            'Can I be a member of more than one workgroup?',
+            'Yes. Many contributors are members of several workgroups across different layers. '
+            'Each workgroup is independent \u2013 joining one does not lock you out of others.',
+        ),
+        (
+            'How are Coordinators chosen?',
+            'Coordinators nominate themselves; nominations are reviewed by the layer admin and '
+            'the wider community. The path from member to coordinator is open to everyone who '
+            'wants to lead.',
+        ),
+    )
+    faq_id = 'wg-join-faq'
+    faq_buttons = ''.join(
+        f'<h2 class="accordion-header" id="{faq_id}-h-{i}">'
+        f'<button class="accordion-button{" collapsed" if i else ""}" type="button" '
+        f'data-bs-toggle="collapse" data-bs-target="#{faq_id}-c-{i}" '
+        f'aria-expanded="{"true" if i == 0 else "false"}" aria-controls="{faq_id}-c-{i}">'
+        f'{q}</button></h2>'
+        f'<div id="{faq_id}-c-{i}" class="accordion-collapse collapse{" show" if i == 0 else ""}" '
+        f'aria-labelledby="{faq_id}-h-{i}" data-bs-parent="#{faq_id}">'
+        f'<div class="accordion-body">{a}</div></div>'
+        for i, (q, a) in enumerate(faq_items)
+    )
+
+    # Join buttons depend on auth state. We render them per-card in JS so the
+    # label flips on the fly when the user signs in or out.
+    join_label_signed_in = 'Join'
+    join_label_signed_out = 'Sign in to join'
+
+    # Header / toolbar fragments built outside the f-string to keep the
+    # expression parts free of unicode escapes (Python 3.9 f-strings cannot
+    # contain backslashes inside `{...}`).
+    wg_join_header = gh_page_header(
+        'Join a Workgroup',
+        'Find your fit across every layer \u2013 join as a member, contribute at the level that works for you.',
+        'fa-user-plus',
+        actions_html=sign_in_cta,
+    )
+    wg_join_toolbar = gh_directory_toolbar(
+        search_placeholder='Search workgroups\u2026',
+        sort_default='name-asc',
+        extra_cols=gh_filter_col(
+            'Layer',
+            '<select id="wg-join-layer-filter" class="form-select">'
+            '<option value="">All layers</option></select>',
+        ),
+        sort_options=(
+            ('name-asc', 'A\u2013Z'),
+            ('name-desc', 'Z\u2013A'),
+            ('recent', 'Most recent'),
+        ),
+    )
+
+    content = f"""
+    {gh_page_open('wg-join-page')}
+    {wg_join_header}
+
+    <section class="wg-join-cta mb-4" aria-label="Ready to contribute">
+        <div class="wg-join-cta-inner">
+            <div class="wg-join-cta-body">
+                <h2 class="wg-join-cta-title">Ready to contribute?</h2>
+                <p class="wg-join-cta-text">
+                    Pick a workgroup, click join, and start contributing at the level that fits your time.
+                    If you want to lead, nominate yourself \u2013 the path from member to coordinator is
+                    open to everyone.
+                </p>
+            </div>
+            <div class="wg-join-cta-actions">
+                <a href="#wg-join-listing" class="btn btn-primary wg-join-cta-btn">
+                    <i class="fas fa-arrow-down me-2"></i>Browse all workgroups
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section class="wg-join-faq mb-5" aria-label="Frequently asked questions">
+        <h2 class="wg-join-section-title">Frequently asked questions</h2>
+        <div class="accordion" id="{faq_id}">
+            {faq_buttons}
+        </div>
+    </section>
+
+    <section id="wg-join-listing" class="wg-join-listing mb-4" aria-label="All workgroups">
+        <h2 class="wg-join-section-title">All workgroups</h2>
+        {gh_filter_row(wg_join_toolbar)}
+        {gh_directory_grid('wg-join-grid')}
+    </section>
+    {gh_page_close()}
+
+    <script>
+    const wgJoinIsAuth = {'true' if is_authenticated else 'false'};
+    const wgJoinNextPath = '{next_path}';
+    const wgJoinLabelIn = '{join_label_signed_in}';
+    const wgJoinLabelOut = '{join_label_signed_out}';
+
+    let wgJoinAllProjects = [];
+    let wgJoinAllWorkgroups = [];
+
+    function wgJoinStatusBadge(status) {{
+        const map = {{
+            'active': '<span class="badge bg-success">Active</span>',
+            'inactive': '<span class="badge bg-warning text-dark">Inactive</span>',
+            'completed': '<span class="badge bg-primary">Completed</span>',
+            'archived': '<span class="badge bg-secondary">Archived</span>'
+        }};
+        return map[status] || '';
+    }}
+
+    function wgJoinApprovalBadge(approval) {{
+        const map = {{
+            'pending': '<span class="badge bg-warning text-dark">Pending Approval</span>',
+            'approved': '<span class="badge bg-success">Approved</span>',
+            'rejected': '<span class="badge bg-danger">Rejected</span>'
+        }};
+        return map[approval] || '';
+    }}
+
+    function wgJoinEsc(s) {{
+        if (s == null) return '';
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }}
+
+    async function wgJoinLoadProjects() {{
+        try {{
+            const resp = await fetch('/api/layers/?approval_status=approved');
+            const data = await resp.json();
+            wgJoinAllProjects = (data && data.layers) ? data.layers : [];
+            const sel = document.getElementById('wg-join-layer-filter');
+            if (sel) {{
+                wgJoinAllProjects
+                    .slice()
+                    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                    .forEach(function(p) {{
+                        const opt = document.createElement('option');
+                        opt.value = p.id;
+                        opt.textContent = p.name || '';
+                        sel.appendChild(opt);
+                    }});
+            }}
+        }} catch (e) {{
+            console.error('wg-join: error loading layers', e);
+        }}
+    }}
+
+    async function wgJoinLoadWorkgroups() {{
+        const grid = document.getElementById('wg-join-grid');
+        if (!grid) return;
+        grid.innerHTML = '<div class="col-12 text-center py-5">'
+            + '<div class="spinner-border text-primary" role="status">'
+            + '<span class="visually-hidden">Loading\u2026</span></div></div>';
+        try {{
+            const collected = [];
+            for (const p of wgJoinAllProjects) {{
+                try {{
+                    const resp = await fetch('/api/layers/' + p.id + '/workgroups/?status=active');
+                    const data = await resp.json();
+                    const wgs = (resp.ok && Array.isArray(data.workgroups)) ? data.workgroups : [];
+                    wgs.forEach(function(wg) {{
+                        collected.push(Object.assign({{}}, wg, {{
+                            layer_name: p.name,
+                            layer_slug: p.slug,
+                        }}));
+                    }});
+                }} catch (e) {{
+                    console.warn('wg-join: layer ' + p.id + ' workgroups failed', e);
+                }}
+            }}
+            // Hide workgroups not yet approved; keep only approved ones for joining.
+            wgJoinAllWorkgroups = collected
+                .filter(function(wg) {{ return wg.approval_status === 'approved'; }})
+                .map(function(wg) {{ return Object.assign({{}}, wg, {{
+                    can_join: wgJoinIsAuth && wg.approval_status === 'approved' && wg.status !== 'archived'
+                }}); }});
+            wgJoinAllWorkgroups = GhDirectory.dedupeById(wgJoinAllWorkgroups, 'id');
+            wgJoinFilter();
+        }} catch (e) {{
+            console.error('wg-join: error loading workgroups', e);
+            grid.innerHTML = GhDirectory.emptyState('Error loading workgroups', 'danger');
+        }}
+    }}
+
+    function wgJoinFilter() {{
+        const layerVal = (document.getElementById('wg-join-layer-filter') || {{}}).value || '';
+        let items = wgJoinAllWorkgroups.slice();
+        if (layerVal) items = items.filter(function(w) {{ return String(w.layer_id) === String(layerVal); }});
+        items = GhDirectory.filterAndSort(items, {{
+            searchTerm: GhDirectory.getSearchValue('wg-join-search'),
+            sort: GhDirectory.getSortValue('wg-join-sort') || 'name-asc',
+            searchFields: ['name', 'description', 'acronym', 'slug', 'layer_name'],
+            nameKey: 'name',
+            dateKeys: ['updated_at', 'created_at'],
+        }});
+        wgJoinRender(items);
+    }}
+
+    function wgJoinRender(workgroups) {{
+        const grid = document.getElementById('wg-join-grid');
+        if (!grid) return;
+        if (!workgroups.length) {{
+            grid.innerHTML = GhDirectory.emptyState('No workgroups available right now. Check back soon.');
+            return;
+        }}
+        let html = '';
+        workgroups.forEach(function(wg) {{
+            const statusBadge = wgJoinStatusBadge(wg.status);
+            const approvalBadge = wgJoinApprovalBadge(wg.approval_status);
+            const detailHref = '/workgroups/' + wg.slug + '/';
+            const tileBody = GhDirectory.tile({{
+                href: detailHref,
+                title: wg.name || 'Untitled workgroup',
+                description: wg.description || 'No description provided.',
+                imageUrl: wg.image_url || '',
+                icon: 'fa-users-cog',
+                pulse: wg.status === 'active' ? 'Active' : '',
+                badgesHtml: statusBadge + approvalBadge,
+                metaHtml: '<i class="fas fa-layer-group me-1"></i>' + wgJoinEsc(wg.layer_name || ''),
+                footerHtml: 'Created ' + new Date(wg.created_at).toLocaleDateString(),
+            }});
+            // Inject a Join action row at the end of the tile body.
+            const joinLabel = wgJoinIsAuth ? wgJoinLabelIn : wgJoinLabelOut;
+            const joinIcon = wgJoinIsAuth ? 'fa-user-plus' : 'fa-sign-in-alt';
+            const joinBtn = (
+                '<button type="button" class="btn btn-sm btn-primary wg-join-card-btn" ' +
+                'data-workgroup-id="' + wgJoinEsc(wg.id) + '" ' +
+                'data-workgroup-name="' + wgJoinEsc(wg.name || '') + '">' +
+                '<i class="fas ' + joinIcon + ' me-1"></i>' + joinLabel + '</button>'
+            );
+            html += tileBody.replace(
+                '<div class="gh-directory-tile-foot">',
+                '<div class="wg-join-tile-action">' + joinBtn + '</div><div class="gh-directory-tile-foot">'
+            );
+        }});
+        grid.innerHTML = html;
+        grid.querySelectorAll('.wg-join-card-btn').forEach(function(btn) {{
+            btn.addEventListener('click', function() {{
+                wgJoinHandleJoin(btn.getAttribute('data-workgroup-id'),
+                                 btn.getAttribute('data-workgroup-name'));
+            }});
+        }});
+    }}
+
+    async function wgJoinHandleJoin(workgroupId, workgroupName) {{
+        if (!wgJoinIsAuth) {{
+            const proceed = await GhDialog.confirm({{
+                title: 'Sign in required',
+                message: 'Sign in to join ' + (workgroupName || 'this workgroup') + '.',
+                confirmLabel: 'Sign in',
+                cancelLabel: 'Cancel',
+                variant: 'info',
+            }});
+            if (proceed) {{
+                window.location.href = '/login/?next=' + encodeURIComponent(wgJoinNextPath);
+            }}
+            return;
+        }}
+        const confirmed = await GhDialog.confirm({{
+            title: 'Join workgroup',
+            message: 'Join ' + (workgroupName || 'this workgroup') + ' as a member?',
+            confirmLabel: 'Join',
+            cancelLabel: 'Cancel',
+            variant: 'info',
+        }});
+        if (!confirmed) return;
+        try {{
+            const resp = await fetch('/api/workgroups/' + encodeURIComponent(workgroupId) + '/join/', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }}
+            }});
+            const data = await resp.json();
+            if (resp.ok) {{
+                const pending = data && data.pending_approval === true;
+                await GhDialog.alert({{
+                    title: pending ? 'Request submitted' : 'Welcome',
+                    message: pending
+                        ? 'Your membership request is pending approval.'
+                        : 'You joined this workgroup.',
+                    variant: pending ? 'info' : 'success',
+                    confirmLabel: 'OK',
+                }});
+            }} else {{
+                await GhDialog.alert({{
+                    title: 'Could not join',
+                    message: (data && data.error) ? data.error : 'Failed to join workgroup.',
+                    variant: 'danger',
+                    confirmLabel: 'OK',
+                }});
+            }}
+        }} catch (e) {{
+            console.error('wg-join: join error', e);
+            await GhDialog.alert({{
+                title: 'Error',
+                message: 'Failed to join workgroup. Please try again.',
+                variant: 'danger',
+                confirmLabel: 'OK',
+            }});
+        }}
+    }}
+
+    wgJoinLoadProjects().then(function() {{
+        wgJoinLoadWorkgroups();
+        GhDirectory.bindControls('wg-join-search', 'wg-join-sort', wgJoinFilter);
+        const layerEl = document.getElementById('wg-join-layer-filter');
+        if (layerEl) layerEl.addEventListener('change', wgJoinFilter);
+    }});
+    </script>
+    """
+
+    return render_page('Join a Workgroup - GovHub', content, theme=current_theme, user_menu=user_menu)
