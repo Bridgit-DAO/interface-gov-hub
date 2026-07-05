@@ -433,8 +433,8 @@ def join_workgroup(workgroup_id):
 @bp.route('/workgroups/<workgroup_id>/nominate-chair/', methods=['POST'])
 @bp.route('/workgroups/<workgroup_id>/nominate/', methods=['POST'])
 @require_auth
-def nominate_chair(workgroup_id):
-    """Nominate a person (self or another) for a workgroup position."""
+def nominate_position(workgroup_id):
+    """Nominate a person (self or another) for a workgroup position (chair, co-lead, editor, etc.)."""
     current_user = get_current_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401

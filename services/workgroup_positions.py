@@ -2,7 +2,7 @@
 
 WORKGROUP_POSITIONS = {
     'chair': {
-        'label': 'Chair / Coordinator',
+        'label': 'Coordinator',
         'description': 'Leads the workgroup, sets agenda, and coordinates contributors.',
         'icon': 'fa-star',
     },
