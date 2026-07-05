@@ -319,6 +319,10 @@ def all_documents():
         f'{html_mod.escape(layer.name)}</option>'
         for layer in layers_for_filter
     )
+    layers_for_typeahead_json = json.dumps([
+        {'id': layer.id, 'name': layer.name, 'slug': layer.slug}
+        for layer in layers_for_filter
+    ])
 
     doc_view_actions = (
         '<div class="btn-group" role="group" aria-label="View mode">'
@@ -332,13 +336,22 @@ def all_documents():
         '</div>'
     )
     layer_filter_col = (
-        '<div class="col-md-3">'
-        '<label class="form-label gh-filter-label" for="doc-filter-layer">Layer</label>'
-        '<select id="doc-filter-layer" class="form-select" multiple size="1" '
-        'data-placeholder="Filter by layer…">'
-        f'{layer_options_html}'
-        '</select>'
-        '<div class="form-text small">Hold Ctrl/Cmd to pick multiple.</div>'
+        '<div class="col-md-4">'
+        '<label class="form-label gh-filter-label" for="doc-filter-layer-input">Layer</label>'
+        '<div class="gh-typeahead" id="doc-filter-layer-typeahead" data-gh-typeahead>'
+        '<div class="gh-typeahead-control">'
+        '<input type="text" id="doc-filter-layer-input" class="form-control gh-typeahead-input" '
+        'placeholder="Type a layer name…" autocomplete="off" role="combobox" '
+        'aria-autocomplete="list" aria-expanded="false" aria-controls="doc-filter-layer-listbox">'
+        '<button type="button" class="gh-typeahead-clear" id="doc-filter-layer-clear" '
+        'aria-label="Clear layer filter" title="Show all layers">&times;</button>'
+        '</div>'
+        '<div class="gh-typeahead-chip" id="doc-filter-layer-chip" hidden></div>'
+        '<ul class="gh-typeahead-menu" id="doc-filter-layer-listbox" role="listbox" '
+        'aria-label="Layer suggestions" hidden></ul>'
+        '<input type="hidden" id="doc-filter-layer" value="">'
+        '</div>'
+        '<div class="form-text small">Type to filter; pick one layer.</div>'
         '</div>'
     )
 
@@ -369,7 +382,9 @@ def all_documents():
     </div>
     <script>
     const allDocItems = {docs_json};
+    const docLayerOptions = {layers_for_typeahead_json};
     let docViewMode = 'cards';
+    let selectedLayerId = '';
 
     function setDocView(mode) {{
         docViewMode = mode === 'list' ? 'list' : 'cards';
@@ -380,12 +395,6 @@ def all_documents():
 
     function docHref(name) {{
         return encodeURIComponent(String(name || ''));
-    }}
-
-    function getSelectedValues(id) {{
-        var el = document.getElementById(id);
-        if (!el) return [];
-        return Array.from(el.selectedOptions || []).map(function(o) {{ return o.value; }}).filter(Boolean);
     }}
 
     function renderDocCards(docs) {{
@@ -438,17 +447,15 @@ def all_documents():
             + '</tbody></table></div>';
     }}
 
-    function filterByLayer(items, layerIds) {{
-        if (!layerIds.length) return items;
+    function filterByLayer(items, layerId) {{
+        if (!layerId) return items;
         return items.filter(function(d) {{
-            if (!d.layer_id || layerIds.indexOf(String(d.layer_id)) === -1) return false;
-            return true;
+            return d.layer_id && String(d.layer_id) === String(layerId);
         }});
     }}
 
     function renderDocDirectory() {{
-        const layerIds = getSelectedValues('doc-filter-layer');
-        const layerFiltered = filterByLayer(allDocItems, layerIds);
+        const layerFiltered = filterByLayer(allDocItems, selectedLayerId);
         const items = GhDirectory.filterAndSort(layerFiltered, {{
             searchTerm: GhDirectory.getSearchValue('search-input'),
             sort: GhDirectory.getSortValue('sort-filter'),
@@ -460,7 +467,7 @@ def all_documents():
         const countEl = document.getElementById('doc-all-count');
         if (countEl) {{
             const total = allDocItems.length;
-            const label = layerIds.length
+            const label = selectedLayerId
                 ? ('Showing ' + items.length + ' of ' + total + ' documents')
                 : ('Showing ' + items.length + ' documents');
             countEl.textContent = label;
@@ -478,14 +485,147 @@ def all_documents():
         }}
     }}
 
-    GhDirectory.bindControls('search-input', 'sort-filter', renderDocDirectory);
-    ['doc-filter-layer'].forEach(function(id) {{
-        var el = document.getElementById(id);
-        if (el && !el.dataset.ghDirectoryBound) {{
-            el.dataset.ghDirectoryBound = '1';
-            el.addEventListener('change', renderDocDirectory);
+    (function setupLayerTypeahead() {{
+        var input = document.getElementById('doc-filter-layer-input');
+        var clearBtn = document.getElementById('doc-filter-layer-clear');
+        var listbox = document.getElementById('doc-filter-layer-listbox');
+        var chip = document.getElementById('doc-filter-layer-chip');
+        var hidden = document.getElementById('doc-filter-layer');
+        var highlight = -1;
+        if (!input || !listbox || !hidden || !clearBtn || !chip) return;
+
+        function escapeHtml(s) {{
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
         }}
-    }});
+
+        function closeMenu() {{
+            listbox.hidden = true;
+            input.setAttribute('aria-expanded', 'false');
+            highlight = -1;
+        }}
+
+        function openMenu() {{
+            if (!listbox.children.length) return;
+            listbox.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+        }}
+
+        function matches(term, name) {{
+            if (!term) return true;
+            return String(name || '').toLowerCase().indexOf(term) !== -1;
+        }}
+
+        function renderOptions() {{
+            var term = input.value.trim().toLowerCase();
+            var items = docLayerOptions.filter(function(l) {{ return matches(term, l.name); }});
+            if (!items.length) {{
+                listbox.innerHTML = '<li class="gh-typeahead-empty" role="option" aria-disabled="true">No layers match.</li>';
+                return;
+            }}
+            listbox.innerHTML = items.map(function(l, i) {{
+                return '<li class="gh-typeahead-option" role="option" data-layer-id="' + escapeHtml(l.id) + '" data-index="' + i + '" tabindex="-1">'
+                    + escapeHtml(l.name) + '</li>';
+            }}).join('');
+            Array.prototype.forEach.call(listbox.querySelectorAll('.gh-typeahead-option'), function(li) {{
+                li.addEventListener('mousedown', function(e) {{
+                    // mousedown so the input blur does not close the menu first.
+                    e.preventDefault();
+                    selectLayer(li.getAttribute('data-layer-id'), li.textContent);
+                }});
+                li.addEventListener('mouseenter', function() {{
+                    setHighlight(parseInt(li.getAttribute('data-index'), 10));
+                }});
+            }});
+        }}
+
+        function setHighlight(idx) {{
+            var nodes = listbox.querySelectorAll('.gh-typeahead-option');
+            highlight = idx;
+            Array.prototype.forEach.call(nodes, function(n, i) {{
+                if (i === idx) {{
+                    n.classList.add('gh-typeahead-option-active');
+                    if (n.scrollIntoView) n.scrollIntoView({{ block: 'nearest' }});
+                }} else {{
+                    n.classList.remove('gh-typeahead-option-active');
+                }}
+            }});
+        }}
+
+        function selectLayer(id, name) {{
+            selectedLayerId = id || '';
+            hidden.value = selectedLayerId;
+            if (selectedLayerId) {{
+                input.value = '';
+                chip.hidden = false;
+                chip.innerHTML = '<span class="gh-typeahead-chip-label">Layer:</span> '
+                    + '<span class="gh-typeahead-chip-value">' + escapeHtml(name) + '</span>'
+                    + '<button type="button" class="gh-typeahead-chip-remove" aria-label="Remove layer filter">&times;</button>';
+                var removeBtn = chip.querySelector('.gh-typeahead-chip-remove');
+                if (removeBtn) {{
+                    removeBtn.addEventListener('click', clearLayer);
+                }}
+            }} else {{
+                chip.hidden = true;
+                chip.innerHTML = '';
+            }}
+            closeMenu();
+            renderDocDirectory();
+        }}
+
+        function clearLayer() {{
+            selectedLayerId = '';
+            hidden.value = '';
+            input.value = '';
+            chip.hidden = true;
+            chip.innerHTML = '';
+            closeMenu();
+            renderDocDirectory();
+        }}
+
+        input.addEventListener('focus', function() {{
+            renderOptions();
+            openMenu();
+        }});
+        input.addEventListener('input', function() {{
+            renderOptions();
+            openMenu();
+        }});
+        input.addEventListener('blur', function() {{
+            // Defer so a click on an option (mousedown) can register first.
+            setTimeout(closeMenu, 120);
+        }});
+        input.addEventListener('keydown', function(e) {{
+            var nodes = listbox.querySelectorAll('.gh-typeahead-option');
+            if (e.key === 'ArrowDown') {{
+                e.preventDefault();
+                if (!nodes.length) return;
+                setHighlight((highlight + 1) % nodes.length);
+            }} else if (e.key === 'ArrowUp') {{
+                e.preventDefault();
+                if (!nodes.length) return;
+                setHighlight((highlight - 1 + nodes.length) % nodes.length);
+            }} else if (e.key === 'Enter') {{
+                if (highlight >= 0 && nodes[highlight]) {{
+                    e.preventDefault();
+                    selectLayer(nodes[highlight].getAttribute('data-layer-id'), nodes[highlight].textContent);
+                }}
+            }} else if (e.key === 'Escape') {{
+                e.preventDefault();
+                closeMenu();
+                input.blur();
+            }}
+        }});
+        clearBtn.addEventListener('click', function() {{
+            clearLayer();
+            input.focus();
+        }});
+    }})();
+
+    GhDirectory.bindControls('search-input', 'sort-filter', renderDocDirectory);
     renderDocDirectory();
     </script>
     """
