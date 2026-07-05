@@ -1,11 +1,11 @@
 /**
  * GovHub card description clamp helper.
  *
- * Targets every `[data-gh-clamp-10]` description element. Measures the
- * natural (un-clamped) height, applies the `.gh-clamp-10` class (which
- * uses `-webkit-line-clamp: 10`), and only keeps the clamp when the
+ * Targets every `[data-gh-clamp-6]` description element. Measures the
+ * natural (un-clamped) height, applies the `.gh-clamp-6` class (which
+ * uses `-webkit-line-clamp: 6`), and only keeps the clamp when the
  * natural height exceeds the clamped height — i.e. when the description
- * would overflow 10 lines. When the content fits naturally in 10 lines,
+ * would overflow 6 lines. When the content fits naturally in 6 lines,
  * the clamp class is removed so the description is never visually
  * clipped and the "More" link stays hidden.
  *
@@ -17,21 +17,21 @@
   'use strict';
 
   function apply() {
-    var nodes = document.querySelectorAll('[data-gh-clamp-10]');
+    var nodes = document.querySelectorAll('[data-gh-clamp-6]');
     if (!nodes.length) return;
     nodes.forEach(function (el) {
       // Ensure no clamp while we measure the un-clamped height.
-      el.classList.remove('gh-clamp-10');
+      el.classList.remove('gh-clamp-6');
       // Force a synchronous layout reflow.
       var naturalHeight = el.scrollHeight;
 
       // Now apply the clamp and re-measure.
-      el.classList.add('gh-clamp-10');
+      el.classList.add('gh-clamp-6');
       var clampedHeight = el.clientHeight;
 
       var overflows = naturalHeight > clampedHeight + 1;
       if (!overflows) {
-        el.classList.remove('gh-clamp-10');
+        el.classList.remove('gh-clamp-6');
       }
 
       var parent = el.parentElement;

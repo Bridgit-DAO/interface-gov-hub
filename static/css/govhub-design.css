@@ -2470,10 +2470,10 @@ a.gh-passage-comment-link:focus {
 }
 
 /* Workgroup card description clamping (site-wide) */
-.gh-clamp-10 {
+.gh-clamp-6 {
   display: -webkit-box;
-  -webkit-line-clamp: 10;
-  line-clamp: 10;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
