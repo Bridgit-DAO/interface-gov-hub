@@ -31,6 +31,7 @@ from services.workgroup_positions import (
     WORKGROUP_POSITIONS,
     ACTIVE_NOMINATION_STATUSES,
     NOMINATION_STATUS_NOMINEE_ACCEPTED,
+    NOMINATION_STATUS_NOMINEE_DECLINED,
     NOMINATION_STATUS_PENDING_NOMINEE,
     NOMINATION_STATUS_APPROVED,
     NOMINATION_STATUS_REJECTED,
@@ -515,3 +516,39 @@ def nominate_position(workgroup_id):
     else:
         message = f'Nomination sent. {nominee_name} will receive an email with your statement and a link to accept or decline.'
     return jsonify({'success': True, 'message': message})
+
+
+def _respond_to_nomination(nomination_id, accept: bool):
+    """Shared logic for accept/decline. Returns a Flask response tuple."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    row = WorkingGroupChair.query.get_or_404(nomination_id)
+    if row.status != NOMINATION_STATUS_PENDING_NOMINEE:
+        return jsonify({
+            'error': f'Nomination is not pending nominee action (current status: {row.status})'
+        }), 400
+
+    row.status = (
+        NOMINATION_STATUS_NOMINEE_ACCEPTED if accept else NOMINATION_STATUS_NOMINEE_DECLINED
+    )
+    row.nominee_responded_at = datetime.utcnow()
+    db.session.commit()
+
+    new_label = status_label(row.status)
+    return jsonify({'ok': True, 'status': row.status, 'status_label': new_label})
+
+
+@bp.route('/workgroup-nominations/<nomination_id>/accept/', methods=['POST'])
+@require_auth
+def accept_workgroup_nomination(nomination_id):
+    """Nominee (or any signed-in user) accepts a pending nomination."""
+    return _respond_to_nomination(nomination_id, accept=True)
+
+
+@bp.route('/workgroup-nominations/<nomination_id>/decline/', methods=['POST'])
+@require_auth
+def decline_workgroup_nomination(nomination_id):
+    """Nominee (or any signed-in user) declines a pending nomination."""
+    return _respond_to_nomination(nomination_id, accept=False)
