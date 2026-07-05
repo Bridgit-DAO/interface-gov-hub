@@ -80,7 +80,7 @@ def send_program_notify_confirmation(
     action = 'updated your notification preferences for' if updated else 'added you to the notify list for'
     body = f"""
 <p>Hi {html.escape(_user_display(user))},</p>
-<p>You are on the list — we {action} <strong>{html.escape(program.name)}</strong>
+<p>You are on the list – we {action} <strong>{html.escape(program.name)}</strong>
 {f' on {html.escape(layer.name)}' if layer and layer.name else ''}.</p>
 {when_line}
 {_interest_lines(dp_interests or [])}
@@ -99,7 +99,7 @@ def send_program_notify_confirmation(
 
     result = send_resend_email_result(
         to=[email],
-        subject=f'You\'re on the list — {program.name}',
+        subject=f'You\'re on the list – {program.name}',
         html=_email_shell('Notify list confirmed', body),
         text='\n'.join(text_lines),
         tags=[

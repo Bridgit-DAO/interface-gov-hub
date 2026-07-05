@@ -61,7 +61,7 @@
     if (!themeToggle || !icon) return;
     if (preference === 'auto') {
       icon.className = 'fas fa-circle-half-stroke';
-      themeToggle.title = 'System theme (auto) — click to switch';
+      themeToggle.title = 'System theme (auto) – click to switch';
     } else if (effective === 'dark') {
       icon.className = 'fas fa-sun';
       themeToggle.title = 'Switch to light mode';

@@ -464,13 +464,13 @@
       if (p.reference_url) {
         html += '<div class="small text-muted mb-1 mt-2">Reference</div>' +
           '<a class="dp-proposal-reference" href="' + esc(p.reference_url) + '" target="_blank" rel="noopener noreferrer">' +
-          esc(referenceHost(p.reference_url)) + ' — ' + esc(p.reference_url) + '</a>';
+          esc(referenceHost(p.reference_url)) + ' – ' + esc(p.reference_url) + '</a>';
       }
       html += '</div>';
     } else if (p.reference_url) {
       html += '<div class="dp-proposal-meta-block"><div class="small text-muted mb-1">Reference</div>' +
         '<a class="dp-proposal-reference" href="' + esc(p.reference_url) + '" target="_blank" rel="noopener noreferrer">' +
-        esc(referenceHost(p.reference_url)) + ' — ' + esc(p.reference_url) + '</a></div>';
+        esc(referenceHost(p.reference_url)) + ' – ' + esc(p.reference_url) + '</a></div>';
     }
     return html;
   }
@@ -1126,7 +1126,7 @@
     }
 
     entry.boxes.forEach(function (box) {
-      box.setAttribute('title', total + ' on this passage — click to open');
+      box.setAttribute('title', total + ' on this passage – click to open');
       box.addEventListener('click', function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1134,7 +1134,7 @@
       });
     });
     if (badge) {
-      badge.setAttribute('title', total + ' on this passage — hover or click badge');
+      badge.setAttribute('title', total + ' on this passage – hover or click badge');
       badge.addEventListener('mouseenter', onBadgeEnter);
       badge.addEventListener('mouseleave', onBadgeLeave);
       badge.addEventListener('click', function (ev) {
@@ -1171,7 +1171,7 @@
       badge.className = 'dp-proposal-badge';
       badge.dataset.dpAnchorHash = hash;
       badge.textContent = String(total);
-      badge.title = total + ' on this passage — hover to preview';
+      badge.title = total + ' on this passage – hover to preview';
       badge.setAttribute('aria-label', total + ' patches and comments on this passage');
       var panel = document.createElement('div');
       panel.className = 'dp-proposal-hover-panel';
@@ -1186,7 +1186,7 @@
       return;
     }
 
-    // Passage not found in current document text — keep in registry for list/deep-link only.
+    // Passage not found in current document text – keep in registry for list/deep-link only.
     entry.unlocated = true;
   }
 
@@ -2009,7 +2009,7 @@
       }, 1800);
       })
       .catch(function () {
-        showComposeMessage('Network error — check your connection and try again.', 'error');
+        showComposeMessage('Network error – check your connection and try again.', 'error');
         if (submitComm) {
           submitComm.disabled = false;
         }
@@ -2624,7 +2624,7 @@
   // Comment/Propose + Whole document/Passage tabs. No new modal, no new UI.
   // (pointer: coarse) AND (hover: none) is the textbook "touch-only
   // device" check. (pointer: coarse) alone is true on some 2-in-1
-  // laptops where the user primarily uses mouse — adding (hover: none)
+  // laptops where the user primarily uses mouse – adding (hover: none)
   // excludes those without affecting phones or tablets.
   if (window.matchMedia &&
       window.matchMedia('(pointer: coarse)').matches &&

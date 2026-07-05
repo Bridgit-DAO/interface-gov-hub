@@ -1,4 +1,4 @@
-# Gov Hub — Modularization Spec
+# Gov Hub – Modularization Spec
 
 **Purpose:** File-by-file extraction plan for splitting `ietf_data_viewer_simple.py` (~29k lines) into domain modules.  
 **Source:** GOV-HUB-3 Phase 0.2, GOV_HUB_REMAINING_TASKS.md  
@@ -187,7 +187,7 @@ gov-hub-dev/
 
 ### Phase E: Cleanup ✓
 1. Remove dead code from original file. ✓
-2. Delete `ietf_data_viewer_simple.py` — migrated to app.py, run.py. ✓
+2. Delete `ietf_data_viewer_simple.py` – migrated to app.py, run.py. ✓
 3. Scripts updated to import from app, extensions, models, database. ✓
 
 ---
@@ -196,7 +196,7 @@ gov-hub-dev/
 
 ```
 models/events.py       (no model deps)
-models/identity.py    (User, etc. — no coordination deps)
+models/identity.py    (User, etc. – no coordination deps)
 models/artifact.py   (may reference User, Layer)
 models/coordination.py (references User, Layer, Artifact, EventLog)
 

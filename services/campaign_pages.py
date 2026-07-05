@@ -1,4 +1,4 @@
-"""Gov Hub public campaign pages — file-backed config (MVP)."""
+"""Gov Hub public campaign pages – file-backed config (MVP)."""
 from __future__ import annotations
 
 import html as html_mod

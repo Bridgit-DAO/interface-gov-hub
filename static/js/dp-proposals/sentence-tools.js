@@ -8,7 +8,7 @@
   var EXPANSION_MAX_CHARS = 4000;
   /** Only used by legacy expandToSentences exact-match guard, not sentence expansion. */
   var EXPANSION_MAX_LENGTH_RATIO = 4;
-  /** @deprecated Gate disabled — any non-empty in-block selection is accepted. */
+  /** @deprecated Gate disabled – any non-empty in-block selection is accepted. */
   var DEFAULT_MIN_FRACTION = 0;
 
   function normalizeForMatch(s) {
@@ -54,7 +54,7 @@
 
   /**
    * Expand a character range in fullText to all complete sentences that overlap it.
-   * Prefer this over indexOf(exact) — DOM selection text can differ from blockText offsets.
+   * Prefer this over indexOf(exact) – DOM selection text can differ from blockText offsets.
    */
   function expandSelectionToSentences(fullText, selStart, selEnd) {
     var ft = normalizeForMatch(fullText);

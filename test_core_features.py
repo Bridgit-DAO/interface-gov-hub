@@ -35,7 +35,7 @@ def test_critical_features():
             or User.query.first()
         )
         if not user_row:
-            pytest.skip("No users in DB — seed data needed for full core feature test")
+            pytest.skip("No users in DB – seed data needed for full core feature test")
         with client.session_transaction() as sess:
             sess['user'] = user_row.username
         print("   ✅ Login page OK; session set for follow-on checks")

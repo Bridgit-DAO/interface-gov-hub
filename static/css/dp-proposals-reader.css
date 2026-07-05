@@ -51,7 +51,7 @@
   height: 1rem;
 }
 
-/* Overlay highlights — do not alter document layout */
+/* Overlay highlights – do not alter document layout */
 #dp-reader-selectable-body,
 .draft-reader-body#dp-reader-selectable-body {
   position: relative;

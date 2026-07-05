@@ -38,7 +38,7 @@ def test_artifact_and_submission_tags():
     with app.app_context():
         layer = Layer.query.first()
         if not layer:
-            print('⚠️  No layer — skip tag test')
+            print('⚠️  No layer – skip tag test')
             return
         art = Artifact(
             layer_id=layer.id,
@@ -80,12 +80,12 @@ def test_layer_tags_api():
 
         layer = Layer.query.first()
         if not layer:
-            print('⚠️  No layer — skip API test')
+            print('⚠️  No layer – skip API test')
             return
         client = app.test_client()
         r = client.get(f'/api/layers/{layer.id}/layer-tags/')
         if r.status_code == 403:
-            print('⚠️  Artifacts rollout disabled in test env — skip API test')
+            print('⚠️  Artifacts rollout disabled in test env – skip API test')
             return
         assert r.status_code == 200
         data = r.get_json()

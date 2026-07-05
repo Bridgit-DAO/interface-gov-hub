@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-UUID Primary Key Migration (Phase 6 — PLANNING_FULL_PICTURE.md)
+UUID Primary Key Migration (Phase 6 – PLANNING_FULL_PICTURE.md)
 
 Migrates primary keys from int/string to UUID for all major entities.
-LARGE MIGRATION — requires maintenance window. Full backup before running.
+LARGE MIGRATION – requires maintenance window. Full backup before running.
 
 Execution order (topological):
 1. User (int → UUID)

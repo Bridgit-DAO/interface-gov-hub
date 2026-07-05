@@ -23,7 +23,7 @@ class EventTypeDef:
 # document_follow_category is historical grouping; subscriptions match REGISTERED_EVENT_TYPES keys per draft.
 
 REGISTERED_EVENT_TYPES: Dict[str, EventTypeDef] = {
-    # —— Document / draft (Meta-Layer submissions) ——
+    # –– Document / draft (Meta-Layer submissions) ––
     'draft_comment_added': EventTypeDef('Comment on draft', True, 'comment'),
     'draft_comment_liked': EventTypeDef('Comment liked on draft', True, 'comment'),
     'comment_moderation_edit': EventTypeDef('Comment moderation edit', False, None),
@@ -36,17 +36,17 @@ REGISTERED_EVENT_TYPES: Dict[str, EventTypeDef] = {
     'dp_proposal_accepted': EventTypeDef('DP proposal accepted', True, None),
     'dp_proposal_declined': EventTypeDef('DP proposal declined', True, None),
     'artifact_commented': EventTypeDef('Comment on artifact', True, None),
-    # —— Layer / membership ——
+    # –– Layer / membership ––
     'layer_config_changed': EventTypeDef('Layer configuration changed', True, None),
     'member_joined': EventTypeDef('Member joined layer', True, None),
     'member_removed': EventTypeDef('Member left layer', True, None),
     'contribution_type_filter_applied': EventTypeDef('Contribution filter used', False, None),
-    # —— Guilds ——
+    # –– Guilds ––
     'guild_layer_linked': EventTypeDef('Guild linked to layer', True, None),
     'guild_layer_unlinked': EventTypeDef('Guild unlinked from layer', True, None),
     'guild_artifact_linked': EventTypeDef('Guild linked to artifact', True, None),
     'guild_artifact_unlinked': EventTypeDef('Guild unlinked from artifact', True, None),
-    # —— Artifacts ——
+    # –– Artifacts ––
     'artifact_created': EventTypeDef('Artifact created', True, None),
     'artifact_updated': EventTypeDef('Artifact updated', True, None),
     'artifact_status_changed': EventTypeDef('Artifact status changed', True, None),
@@ -55,22 +55,22 @@ REGISTERED_EVENT_TYPES: Dict[str, EventTypeDef] = {
     'contribution_type_cleared': EventTypeDef('Contribution type cleared', True, None),
     'quest_created': EventTypeDef('Quest created', True, None),
     'monument_created': EventTypeDef('Monument created', True, None),
-    # —— Collections ——
+    # –– Collections ––
     'artifact_collection_created': EventTypeDef('Collection created', True, None),
     'artifact_collection_item_added': EventTypeDef('Item added to collection', True, None),
-    # —— Votes / roles / coordination ——
+    # –– Votes / roles / coordination ––
     'vote_started': EventTypeDef('Vote started', True, None),
     'vote_closed': EventTypeDef('Vote closed', True, None),
     'ballot_cast': EventTypeDef('Ballot cast', True, None),
     'vote_candidate_added': EventTypeDef('Vote candidate added', True, None),
     'vote_candidate_withdrawn': EventTypeDef('Vote candidate withdrawn', True, None),
     'role_claimed': EventTypeDef('Role claimed', True, None),
-    # —— Waitlists ——
+    # –– Waitlists ––
     'waitlist_joined': EventTypeDef('Waitlist joined', True, None),
     'waitlist_left': EventTypeDef('Waitlist left', True, None),
-    # —— Civic Mason ——
+    # –– Civic Mason ––
     'brick_placed': EventTypeDef('Brick placed', True, None),
-    # —— Badges ——
+    # –– Badges ––
     'badge_nominated': EventTypeDef('Badge nominated', True, None),
     'badge_approved': EventTypeDef('Badge approved', True, None),
     'badge_rejected': EventTypeDef('Badge rejected', True, None),

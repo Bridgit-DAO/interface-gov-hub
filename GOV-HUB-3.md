@@ -1,18 +1,18 @@
-# Gov Hub — Canonical Architecture & Build Plan
+# Gov Hub – Canonical Architecture & Build Plan
 
 **Version:** 3.0
 **Date:** March 10, 2026
-**Status:** Authoritative — supersedes GOV-HUB-2.md for implementation purposes.
+**Status:** Authoritative – supersedes GOV-HUB-2.md for implementation purposes.
 
 GOV-HUB-2.md is retained as the original feature vocabulary reference.
 
 **See also:**
-- `artifact_specification.md` — full artifact model spec: types (Proposal, Evidence, Insight, Reflection, Translation, Implementation, Decision, Monument, Bridge), relationships, status lifecycle, ArtifactRelation schema.
-- `PLANNING_FULL_PICTURE.md` — consolidated view of Phase 2.4 (Role elections), Phase 3.4 (Artifact lineage), UUID migration, meta-domain, and localization with implementation detail and sequencing.
+- `artifact_specification.md` – full artifact model spec: types (Proposal, Evidence, Insight, Reflection, Translation, Implementation, Decision, Monument, Bridge), relationships, status lifecycle, ArtifactRelation schema.
+- `PLANNING_FULL_PICTURE.md` – consolidated view of Phase 2.4 (Role elections), Phase 3.4 (Artifact lineage), UUID migration, meta-domain, and localization with implementation detail and sequencing.
 
 ---
 
-# Building Context — This Is an Evolution, Not a Greenfield Build
+# Building Context – This Is an Evolution, Not a Greenfield Build
 
 **This document describes an architectural evolution of an existing, running system.**
 
@@ -25,7 +25,7 @@ Do not treat this as a fresh start. The Gov Hub is already in production.
 | **Dev environment** | `/home/ubuntu/gov-hub-dev` |
 | **Dev URL** | `https://dev.rfc.themetalayer.org` |
 | **Production URL** | `https://rfc.themetalayer.org` |
-| **Backend** | Flask + SQLAlchemy (`ietf_data_viewer_simple.py` — MLGH/Meta-Layer app) |
+| **Backend** | Flask + SQLAlchemy (`ietf_data_viewer_simple.py` – MLGH/Meta-Layer app) |
 | **Frontend** | Vue 3 + Vite + Bootstrap 5 (`client/`) |
 | **Database** | SQLite (dev: `instance_dev/datatracker_dev.db`, prod: `instance/datatracker.db`) |
 | **Auth** | Session-based + Web3Auth (already deployed) |
@@ -35,13 +35,13 @@ Do not treat this as a fresh start. The Gov Hub is already in production.
 
 The following features are already implemented in some form and must not be broken:
 
-- **Projects** (= Layers in GOV-HUB-3 terminology) — model exists, routes exist
-- **Roles & Role Claims** — implemented (`RFC_ROLES_CLAIMS_BADGES.md`)
-- **Workgroups & Guilds** — implemented (`PROJECTS_WORKGROUPS_GUILDS_STATUS.md`)
-- **Drafts / Submissions** — IETF-inspired draft workflow exists
-- **Badges** — feature planned and partially implemented (`BADGES_FEATURE_PLAN.md`)
-- **Ordinals** — Bitcoin Ordinals integration implemented (`ORDINALS_FINAL_SUMMARY.md`)
-- **Web3Auth** — wallet auth deployed (`WEB3AUTH_DEPLOYMENT.md`)
+- **Projects** (= Layers in GOV-HUB-3 terminology) – model exists, routes exist
+- **Roles & Role Claims** – implemented (`RFC_ROLES_CLAIMS_BADGES.md`)
+- **Workgroups & Guilds** – implemented (`PROJECTS_WORKGROUPS_GUILDS_STATUS.md`)
+- **Drafts / Submissions** – IETF-inspired draft workflow exists
+- **Badges** – feature planned and partially implemented (`BADGES_FEATURE_PLAN.md`)
+- **Ordinals** – Bitcoin Ordinals integration implemented (`ORDINALS_FINAL_SUMMARY.md`)
+- **Web3Auth** – wallet auth deployed (`WEB3AUTH_DEPLOYMENT.md`)
 
 ## Approach
 
@@ -56,20 +56,20 @@ All work in GOV-HUB-3 follows the "minimize blast radius" principle:
 
 **Planned migrations (approved):**
 
-- **Project → Layer in code**: Full rename. Model `Project` → `Layer`, table `project` → `layer`, all `project_id` → `layer_id`. Routes `/api/projects/` → `/api/layers/`. No backward compatibility layer — clean break.
-- **UUID for existing entities**: Migrate all primary keys to UUID. User (int→UUID), Project/Layer (string→UUID), Submission (string→UUID), Vote, Ballot, Claim, Role, Workgroup, Guild, Badge, etc. SQLite: use `CHAR(36)` or `TEXT`. Clean break — no legacy ID support.
+- **Project → Layer in code**: Full rename. Model `Project` → `Layer`, table `project` → `layer`, all `project_id` → `layer_id`. Routes `/api/projects/` → `/api/layers/`. No backward compatibility layer – clean break.
+- **UUID for existing entities**: Migrate all primary keys to UUID. User (int→UUID), Project/Layer (string→UUID), Submission (string→UUID), Vote, Ballot, Claim, Role, Workgroup, Guild, Badge, etc. SQLite: use `CHAR(36)` or `TEXT`. Clean break – no legacy ID support.
 
 ## Migration Safety Rules
 
 1. Never run destructive migrations on production without a verified backup
 2. Always test in `gov-hub-dev` (dev.rfc.themetalayer.org) before deploying to prod (rfc.themetalayer.org)
-3. New modules and models are additive — existing routes and models stay functional during transition
+3. New modules and models are additive – existing routes and models stay functional during transition
 4. Any schema change that touches existing tables requires a migration script and a rollback path
-5. The EventLog is new infrastructure — it does not replace any existing table; it runs alongside
+5. The EventLog is new infrastructure – it does not replace any existing table; it runs alongside
 
 ---
 
-# Gap Analysis — What Exists vs What GOV-HUB-3 Requires
+# Gap Analysis – What Exists vs What GOV-HUB-3 Requires
 
 This section maps the current codebase to the GOV-HUB-3 architecture. All models live in `ietf_data_viewer_simple.py` (Flask + SQLAlchemy).
 
@@ -107,13 +107,13 @@ This section maps the current codebase to the GOV-HUB-3 architecture. All models
 
 | GOV-HUB-3 Concept | Required | Priority |
 |---|---|---|
-| **EventLog** | Append-only governance event table | Phase 0 — blocks everything |
+| **EventLog** | Append-only governance event table | Phase 0 – blocks everything |
 | **Artifact** base model | Central knowledge object; Submission as subtype | Phase 1 |
 | **ArtifactRelation** | Typed relationships (builds_on, references, opposes, etc.) | Phase 0/1 |
 | **Bridge** | Artifact ↔ external URL / monument | Phase 2+ |
-| **IdentityAnchor** | Abstraction over User for cross-layer identity | Phase 1 — or defer; User can serve initially |
+| **IdentityAnchor** | Abstraction over User for cross-layer identity | Phase 1 – or defer; User can serve initially |
 | **WalletBinding** | On-demand EVM/BTC Taproot; chain_type | Phase 1+ |
-| **Triad** | Role-anchored, max 3. Distinct from Guild. | Phase 1 — may map to Workgroup with type=triad |
+| **Triad** | Role-anchored, max 3. Distinct from Guild. | Phase 1 – may map to Workgroup with type=triad |
 | **Badge Keeper Role** | Predefined Role; configures review system | Phase 2 |
 | **PEARL** | Reflection artifact, 5 fields, badge overlay | Phase 3 |
 | **Quest** | Quest model, QuestSubmission artifact | Phase 2 |
@@ -126,22 +126,22 @@ This section maps the current codebase to the GOV-HUB-3 architecture. All models
 
 Given what exists, the **revised build order** is:
 
-1. **EventLog** — Add new table. Emit events from existing Vote, Claim, Badge, ProjectMember flows. No schema change to existing tables.
-2. **Modular extraction** — Split `ietf_data_viewer_simple.py` into domain modules (models/, services/, routes/). Preserve all behavior.
-3. **Artifact + ArtifactRelation** — Add Artifact model. Link Submission to Artifact (subtype or relation). Add ArtifactRelation for draft→draft links.
-4. **Vote.artifact_id** — Add artifact_id to Vote; keep submission_id for backward compat during transition; migrate votes to reference artifact.
-5. **Layer resolution** — Middleware: parse Host header, resolve layer from subdomain or path. Set request context.
-6. **UUID on new entities** — All new tables use UUID. Existing tables: add uuid column where needed, migrate incrementally.
-7. **Waitlists** — New model. Basic join/role/triad interest.
-8. **Activity feed** — New route + service. Query EventLog, return recent events for layer.
+1. **EventLog** – Add new table. Emit events from existing Vote, Claim, Badge, ProjectMember flows. No schema change to existing tables.
+2. **Modular extraction** – Split `ietf_data_viewer_simple.py` into domain modules (models/, services/, routes/). Preserve all behavior.
+3. **Artifact + ArtifactRelation** – Add Artifact model. Link Submission to Artifact (subtype or relation). Add ArtifactRelation for draft→draft links.
+4. **Vote.artifact_id** – Add artifact_id to Vote; keep submission_id for backward compat during transition; migrate votes to reference artifact.
+5. **Layer resolution** – Middleware: parse Host header, resolve layer from subdomain or path. Set request context.
+6. **UUID on new entities** – All new tables use UUID. Existing tables: add uuid column where needed, migrate incrementally.
+7. **Waitlists** – New model. Basic join/role/triad interest.
+8. **Activity feed** – New route + service. Query EventLog, return recent events for layer.
 
 Defer to later phases: IdentityAnchor (User suffices for now), Triad as distinct model (Claim + Role may suffice initially), Badge Keeper, PEARL, Quests, Monuments, Bridges.
 
 ---
 
-# UUID + Layer Migration Plan — Overview
+# UUID + Layer Migration Plan – Overview
 
-This section describes the approved migration: (1) transition all existing entities to UUID primary keys, and (2) rename Project to Layer throughout the codebase. Clean break — no backward compatibility.
+This section describes the approved migration: (1) transition all existing entities to UUID primary keys, and (2) rename Project to Layer throughout the codebase. Clean break – no backward compatibility.
 
 ## Scope
 
@@ -154,7 +154,7 @@ This section describes the approved migration: (1) transition all existing entit
 
 **Recommended sequence:** Project→Layer first (fewer FK cascades), then UUID.
 
-### Phase 1 — Project → Layer Rename
+### Phase 1 – Project → Layer Rename
 
 1. Create migration script: add `layer` table (copy of `project` schema), migrate data, update all FKs in child tables to point to `layer`, drop `project`.
 2. Rename model in code: `Project` → `Layer`, `ProjectMember` → `LayerMember`, `ProjectAdmin` → `LayerAdmin`.
@@ -163,16 +163,16 @@ This section describes the approved migration: (1) transition all existing entit
 5. Update frontend: all project references → layer.
 6. Verify dev, then prod.
 
-### Phase 2 — UUID Migration (by dependency order)
+### Phase 2 – UUID Migration (by dependency order)
 
 Tables must be migrated in topological order (parents before children):
 
-1. **User** — int → UUID. All tables with `user_id` FK must be updated.
-2. **Layer** (formerly Project) — string → UUID. All `layer_id` FKs.
-3. **Submission** — string → UUID. Vote, Comment, etc. reference it.
-4. **Role, Workgroup, Guild** — migrate PKs.
-5. **Vote, Claim, Badge, Ballot, VoteEligibilitySnapshot** — migrate PKs.
-6. **Remaining tables** — RoleImage, BadgeSkin, BadgeCycle, OneTimeBadge, Comment, StatusChange, etc.
+1. **User** – int → UUID. All tables with `user_id` FK must be updated.
+2. **Layer** (formerly Project) – string → UUID. All `layer_id` FKs.
+3. **Submission** – string → UUID. Vote, Comment, etc. reference it.
+4. **Role, Workgroup, Guild** – migrate PKs.
+5. **Vote, Claim, Badge, Ballot, VoteEligibilitySnapshot** – migrate PKs.
+6. **Remaining tables** – RoleImage, BadgeSkin, BadgeCycle, OneTimeBadge, Comment, StatusChange, etc.
 
 Per-table steps:
 - Add new column `id_new` (UUID, nullable).
@@ -182,7 +182,7 @@ Per-table steps:
 - Drop old PK, rename `id_new` → `id`.
 - Drop old FK columns, add new FKs.
 
-### Phase 3 — Cleanup
+### Phase 3 – Cleanup
 
 - Remove any legacy columns.
 - Update `public_id` usage where it overlapped with old ids.
@@ -200,13 +200,13 @@ Per-table steps:
 
 ---
 
-# Part I — Architectural Domains
+# Part I – Architectural Domains
 
 The system is organized into three non-overlapping domains. All models, services, and events belong to exactly one domain.
 
 ---
 
-## Domain 1 — Identity (Who)
+## Domain 1 – Identity (Who)
 
 Models representing persistent participants and their governance eligibility.
 
@@ -229,7 +229,7 @@ Identity objects persist across Layers and Artifacts. A participant's governance
 
 ---
 
-## Domain 2 — Artifact (What)
+## Domain 2 – Artifact (What)
 
 **Full specification:** `artifact_specification.md`
 
@@ -250,8 +250,8 @@ Examples:
 Entities:
 
 - Artifact
-- Submission (Artifact subtype — drafts, proposals)
-- Reflection (Artifact subtype — `reflection_type = pearl`; linked to a specific BadgeAward; has 5 structured fields; `pearl_complete` drives badge overlay)
+- Submission (Artifact subtype – drafts, proposals)
+- Reflection (Artifact subtype – `reflection_type = pearl`; linked to a specific BadgeAward; has 5 structured fields; `pearl_complete` drives badge overlay)
 - TriadReport (Artifact subtype)
 - QuestSubmission (Artifact subtype)
 - MonumentRecord (Artifact subtype)
@@ -274,7 +274,7 @@ Artifacts are not attachments. They are the evidence layer of governance.
 
 ---
 
-## Domain 3 — Coordination (How)
+## Domain 3 – Coordination (How)
 
 The coordination domain governs how people organize and make decisions.
 
@@ -300,19 +300,19 @@ Coordination structures organize governance but do not hold knowledge themselves
 
 ---
 
-# Part II — Architectural Rules
+# Part II – Architectural Rules
 
-## Rule 1 — Artifact-First Architecture
+## Rule 1 – Artifact-First Architecture
 
 Artifacts must exist independently of coordination structures.
 
 A draft Artifact must exist independently of a vote, a role, or a workgroup.
 
-Governance actions reference Artifacts — they do not embed them.
+Governance actions reference Artifacts – they do not embed them.
 
 ---
 
-## Rule 2 — Typed Relationship Graph
+## Rule 2 – Typed Relationship Graph
 
 All core objects must support typed relationships via the ArtifactRelation model.
 
@@ -332,7 +332,7 @@ Later phases will migrate bridge construction to Canopi and other Overweb-compat
 
 ---
 
-## Rule 3 — Event-Driven Governance History
+## Rule 3 – Event-Driven Governance History
 
 All governance actions must emit events to an append-only EventLog.
 
@@ -384,7 +384,7 @@ The system behaves like an append-only governance log.
 
 ---
 
-## Rule 4 — UUID Internal IDs + Short Public IDs
+## Rule 4 – UUID Internal IDs + Short Public IDs
 
 All core entities must use UUID primary keys internally.
 
@@ -415,7 +415,7 @@ Entities requiring UUID + public_id:
 
 ---
 
-## Rule 5 — Composable Feature Exposure
+## Rule 5 – Composable Feature Exposure
 
 The Gov Hub implements the full architecture but exposes capabilities in phases.
 
@@ -423,7 +423,7 @@ The full system spine is built early. User-facing surfaces are revealed graduall
 
 ---
 
-## Rule 6 — Bridges Are Universal Relationships
+## Rule 6 – Bridges Are Universal Relationships
 
 Bridges connect Artifacts and Monuments to:
 
@@ -437,7 +437,7 @@ Gov Hub bridges are temporary alpha infrastructure. Future bridge infrastructure
 
 ---
 
-## Rule 7 — Governance Is Artifact-Driven
+## Rule 7 – Governance Is Artifact-Driven
 
 Decisions must be based on Artifacts.
 
@@ -450,7 +450,7 @@ Artifacts are the evidence layer of governance.
 
 ---
 
-# Part III — Feature Map
+# Part III – Feature Map
 
 ---
 
@@ -458,7 +458,7 @@ Artifacts are the evidence layer of governance.
 
 **What it is**
 
-The primary governance container. Conceptually: Layer. Implementation: Project model (Layer semantics only — there will never be both Projects and Layers as distinct entities).
+The primary governance container. Conceptually: Layer. Implementation: Project model (Layer semantics only – there will never be both Projects and Layers as distinct entities).
 
 **Features**
 
@@ -485,7 +485,7 @@ A predefined Admin Role that allows a small number of participants to manage Lay
 
 **Design**
 
-- Admin is a predefined Role — not a special flag or superuser account
+- Admin is a predefined Role – not a special flag or superuser account
 - Minimum: 1 person may hold the Admin Role
 - Maximum: 3 people (a natural triad)
 - Admin authority is scoped to: Layer config, membership management, governance parameter changes
@@ -511,11 +511,11 @@ Persistent, pseudonymous identity that carries contribution and governance linea
 **Features**
 
 - Session-based auth (current)
-- Web3Auth wallet generation — **on demand only**:
+- Web3Auth wallet generation – **on demand only**:
   - EVM address: activated by the participant when they first choose to vote or opt in from their identity profile
   - Bitcoin Taproot address: generated when the participant claims or is issued their first Ordinal-based badge
   - Both live on `WalletBinding` with `chain_type = evm` or `chain_type = btc_taproot`
-  - Keys are generated at the moment of opt-in — not pre-generated with an activation flag
+  - Keys are generated at the moment of opt-in – not pre-generated with an activation flag
 - Multiple wallets per IA
 - Wallet rotation events (future)
 - Cross-layer identity continuity
@@ -562,12 +562,12 @@ Triads reuse the same underlying Group infrastructure as Guilds (shared membersh
 Triad creation must be accessible from the role claim flow. Most roles require a triad; role claimants can attach their role to a triad.
 
 - **During claim**: A claimant can create a triad by adding two more people in the role claim process.
-- **After claim**: Triad formation can also happen later — a claimant may form their triad after claiming.
+- **After claim**: Triad formation can also happen later – a claimant may form their triad after claiming.
 - **Provisional status**: When one person has claimed a role that requires a triad, they are **provisional** until the triad is in place. The triad does not officially exist until all three members have confirmed their participation.
 
 **Cultural Guardrail**
 
-New triads must articulate how their focus differs from existing triads for the same Role. Competition happens through proposals and artifacts — not redundant structures.
+New triads must articulate how their focus differs from existing triads for the same Role. Competition happens through proposals and artifacts – not redundant structures.
 
 **Who uses it**
 
@@ -586,7 +586,7 @@ Two distinct coordination structures sharing common Group infrastructure but wit
 | | Workgroup | Guild |
 |---|---|---|
 | **Scope** | Layer-scoped | Cross-layer |
-| **Decision authority** | May serve as judging or decision body for certain governance decisions within its Layer | Advisory and contributory — no Layer-level authority |
+| **Decision authority** | May serve as judging or decision body for certain governance decisions within its Layer | Advisory and contributory – no Layer-level authority |
 | **Membership** | Layer members + invited Guild participants | Cross-layer contributors |
 | **Participation rule** | Guilds may participate in Workgroups | Workgroups may NOT participate in Guilds |
 | **Lifespan** | Project-tied, may be time-bounded | Persistent, not time-bounded by default |
@@ -604,7 +604,7 @@ This preserves the Workgroup's Layer authority. A Guild contributes expertise an
 
 **Example use**
 
-A "Protocol Researchers Guild" (cross-layer) may participate in a "Standards Workgroup" (Layer-scoped) as contributors and reviewers. The Standards Workgroup may render a judgment on a draft proposal. The Guild has no authority over that judgment — it contributed to the process.
+A "Protocol Researchers Guild" (cross-layer) may participate in a "Standards Workgroup" (Layer-scoped) as contributors and reviewers. The Standards Workgroup may render a judgment on a draft proposal. The Guild has no authority over that judgment – it contributed to the process.
 
 **Features**
 
@@ -628,7 +628,7 @@ Multi-team Layers, protocol communities with multiple initiatives, topic-specifi
 
 Structured draft → RFC-style document evolution with transparent commentary and voting.
 
-RFC (Request for Comment) — a draft that has been opened for community review and comment before a formal vote.
+RFC (Request for Comment) – a draft that has been opened for community review and comment before a formal vote.
 
 **Features**
 
@@ -650,14 +650,14 @@ Standards bodies, protocol governance communities, research networks, charter an
 
 **What it is**
 
-A formal mechanism for documenting disagreement, alternatives, and forks — preventing governance by silence and giving minority views a legitimate path.
+A formal mechanism for documenting disagreement, alternatives, and forks – preventing governance by silence and giving minority views a legitimate path.
 
 **Features**
 
 - Any Artifact (proposal, draft) can receive a Support Artifact or Opposition Artifact
 - Alternative proposals may be forked from an existing draft
-- Support and opposition artifacts are first-class — they appear in the governance lineage
-- Opposition is not blocking — it is informational and participatory
+- Support and opposition artifacts are first-class – they appear in the governance lineage
+- Opposition is not blocking – it is informational and participatory
 - Voting results displayed alongside the opposition artifact count for context
 
 **Why it matters**
@@ -735,7 +735,7 @@ Durable recognition for structural contribution and stewardship.
 
 - Badge definitions and detail pages
 - Badge issuance (references an Artifact as justification)
-- Badge approval pathway (see below — not automatic)
+- Badge approval pathway (see below – not automatic)
 - Earner vs. holder distinction
 - Year overlay (issued year)
 - Founding wave markers
@@ -782,7 +782,7 @@ Stewardship-driven ecosystems, civic participation programs, open-source contrib
 
 **What it is**
 
-The Badge Keeper is a named Layer Role responsible for the integrity and lineage of all badges issued within that Layer. The Badge Keeper does not necessarily review every badge personally — their primary function is to establish and maintain the review system.
+The Badge Keeper is a named Layer Role responsible for the integrity and lineage of all badges issued within that Layer. The Badge Keeper does not necessarily review every badge personally – their primary function is to establish and maintain the review system.
 
 **Responsibilities**
 
@@ -801,7 +801,7 @@ The revolving triad model is the recommended pattern for active Layers with high
 
 1. Badge Keeper establishes a review triad for a defined term (e.g., 4–8 weeks)
 2. The triad reviews incoming badge nominations and PEARL submissions during their term
-3. At term end, a new triad is formed — members may not serve consecutive terms (anti-capture)
+3. At term end, a new triad is formed – members may not serve consecutive terms (anti-capture)
 4. Transition events are logged: `review_triad_formed`, `review_triad_term_ended`
 
 This distributes authority, prevents single-reviewer bottlenecks, and builds reviewer experience across the community.
@@ -809,9 +809,9 @@ This distributes authority, prevents single-reviewer bottlenecks, and builds rev
 **Data model additions**
 
 Badge definition:
-- `keeper_role_id` — the Badge Keeper Role that owns this badge definition
+- `keeper_role_id` – the Badge Keeper Role that owns this badge definition
 - `review_system` (`direct` | `triad` | `workgroup`)
-- `review_triad_id` (nullable — current active review triad if `review_system = triad`)
+- `review_triad_id` (nullable – current active review triad if `review_system = triad`)
 
 Badge award:
 - `status` (`nominated` | `under_review` | `approved` | `rejected`)
@@ -830,25 +830,25 @@ Every Layer that issues badges needs a Badge Keeper Role. In early-stage Layers,
 
 **What it is**
 
-PEARL is an optional upgrade layer that can be applied to certain badges. A standard badge recognizes what you did. A PEARL badge recognizes how you did it — with documented intention, engagement, impact, reflection, and forward leverage.
+PEARL is an optional upgrade layer that can be applied to certain badges. A standard badge recognizes what you did. A PEARL badge recognizes how you did it – with documented intention, engagement, impact, reflection, and forward leverage.
 
 PEARL stands for:
 
-- **P**repare — What was your intention or goal going into this contribution?
-- **E**ngage — What did you do? How did you participate?
-- **A**dd Value — What was the impact or outcome of your contribution?
-- **R**eflect — What did you learn? What would you do differently?
-- **L**everage — How will you apply or share this experience going forward?
+- **P**repare – What was your intention or goal going into this contribution?
+- **E**ngage – What did you do? How did you participate?
+- **A**dd Value – What was the impact or outcome of your contribution?
+- **R**eflect – What did you learn? What would you do differently?
+- **L**everage – How will you apply or share this experience going forward?
 
-The framework is adapted from the PEARL Project Framework for constructivist, experiential learning (University at Buffalo CATT). In governance, the same structure applies: participants don't passively observe — they prepare, act, contribute, and reflect.
+The framework is adapted from the PEARL Project Framework for constructivist, experiential learning (University at Buffalo CATT). In governance, the same structure applies: participants don't passively observe – they prepare, act, contribute, and reflect.
 
 **How it works**
 
 1. A badge definition is marked `pearl_eligible = true`
 2. The participant earns the base badge through normal contribution
 3. Optionally, the participant initiates the PEARL path for that badge
-4. They complete all 5 stages — each stage is a prompted text field (and optionally linked to supporting artifacts)
-5. When all 5 stages are submitted, the badge receives the **PEARL overlay** — a visual designation indicating the full reflective path was completed
+4. They complete all 5 stages – each stage is a prompted text field (and optionally linked to supporting artifacts)
+5. When all 5 stages are submitted, the badge receives the **PEARL overlay** – a visual designation indicating the full reflective path was completed
 6. The PEARL record is public and linkable as part of the participant's governance lineage
 
 A participant may hold the base badge without completing PEARL. PEARL is always optional. It is not required for badge issuance.
@@ -862,7 +862,7 @@ Flow:
 ```
 Participant completes all 5 stages → PEARL submitted for review
       ↓
-Review body evaluates (same body as badge approval — Badge Keeper, triad, or workgroup)
+Review body evaluates (same body as badge approval – Badge Keeper, triad, or workgroup)
       ↓
 Approved → pearl_complete = true, PEARL overlay applied to badge
 Rejected → feedback provided, participant may revise and resubmit
@@ -893,29 +893,29 @@ Fields:
 - `reviewed_by_type` (`role` | `triad` | `workgroup`)
 - `reviewed_by_id`
 - `reviewed_at`
-- `pearl_complete` (boolean — true only after approval)
+- `pearl_complete` (boolean – true only after approval)
 - `created_at`
 - `completed_at`
 
 Badge definition model adds:
 
-- `pearl_eligible` (boolean — whether this badge type supports the PEARL path)
+- `pearl_eligible` (boolean – whether this badge type supports the PEARL path)
 
 Badge award model adds:
 
-- `pearl_artifact_id` (nullable — linked PEARL reflection once approved)
-- `pearl_complete` (boolean — drives the visual overlay)
+- `pearl_artifact_id` (nullable – linked PEARL reflection once approved)
+- `pearl_complete` (boolean – drives the visual overlay)
 
 **Where it appears in the UI**
 
 - Badge detail page: PEARL overlay badge visual when `pearl_complete = true`
 - Participant identity profile: PEARL badges displayed distinctly in contribution history
-- Recognition nav section: `Recognition > PEARL` — a public feed of completed PEARL journeys
+- Recognition nav section: `Recognition > PEARL` – a public feed of completed PEARL journeys
 - Badge issuance flow: optional "Begin your PEARL path" prompt if badge is PEARL-eligible
 
 **What it is not**
 
-PEARL is not a scoring or ranking system. It does not gate badge issuance. It does not evaluate the quality of a contribution. It exists to transform governance experience into durable, searchable institutional knowledge — so that the how of governance is as visible as the what.
+PEARL is not a scoring or ranking system. It does not gate badge issuance. It does not evaluate the quality of a contribution. It exists to transform governance experience into durable, searchable institutional knowledge – so that the how of governance is as visible as the what.
 
 **Who uses it**
 
@@ -927,7 +927,7 @@ Badge earners who want to document and share their governance journey. Layers th
 
 **What it is**
 
-A structured way to turn "we need help" into clear, time-bounded missions that produce real Artifacts — with rewards.
+A structured way to turn "we need help" into clear, time-bounded missions that produce real Artifacts – with rewards.
 
 - **Quest** = a defined contribution path with acceptance criteria (can award a badge)
 - **Bounty** = a quest with an explicit reward (non-monetary, monetary, or both)
@@ -979,7 +979,7 @@ Youth engagement initiatives, long-horizon governance communities, civic experim
 
 **What it is**
 
-A way to register and steward durable public-facing "monuments" — digital places, artifacts, collections, or reference points that a Layer considers culturally or civically important.
+A way to register and steward durable public-facing "monuments" – digital places, artifacts, collections, or reference points that a Layer considers culturally or civically important.
 
 A monument can be: an Ordinal inscription (or set/collection), a document or corpus, a dataset, glossary, or canonical reference, a page, hub, or endpoint used as source-of-truth.
 
@@ -1034,7 +1034,7 @@ Structural safeguards that keep governance legible and resistant to concentratio
 - Reserved slug protections
 - Append-only governance mindset (EventLog)
 - Structured Opposition artifacts (see 5A)
-- Dispute and appeal workflows (lightweight v1 — dispute filed as Artifact; outcomes recorded as events)
+- Dispute and appeal workflows (lightweight v1 – dispute filed as Artifact; outcomes recorded as events)
 
 **Who uses it**
 
@@ -1067,7 +1067,7 @@ Youth communities, hackathon cohorts, growing ecosystems needing contributor inf
 
 **What it is**
 
-A system-wide display of open needs — turning latent capacity into visible, actionable opportunities. Prevents governance from stalling due to lack of visible entry points.
+A system-wide display of open needs – turning latent capacity into visible, actionable opportunities. Prevents governance from stalling due to lack of visible entry points.
 
 **Features**
 
@@ -1117,13 +1117,13 @@ An event-driven system keeping participants aware of governance activity.
 
 **Two-tier implementation:**
 
-**Tier 1 — Basic Activity Feed (Phase 1)**
+**Tier 1 – Basic Activity Feed (Phase 1)**
 - Layer-scoped feed
 - Reads directly from EventLog
 - No user preferences required
 - Examples: artifact submitted, role claimed, vote started, triad formed
 
-**Tier 2 — Full Notifications (Phase 4)**
+**Tier 2 – Full Notifications (Phase 4)**
 - User-configurable notification preferences per event type
 - Digest options (immediate / daily / weekly)
 - Cross-layer notification routing
@@ -1134,7 +1134,7 @@ All participants; Layer administrators monitoring governance health.
 
 ---
 
-# Part IV — Website Navigation IA
+# Part IV – Website Navigation IA
 
 ## Global Navigation (Phase 1)
 
@@ -1148,7 +1148,7 @@ Find Your Role / Quests & Challenges / Join a Triad / Submit Draft / Waitlists /
 Drafts / Votes / Roles / Roadmap & Goals / Milestones
 
 **Community**
-People / Triads / Guilds / Workgroups / Layers — Guilds page displays both Guilds and Triads with search and filters
+People / Triads / Guilds / Workgroups / Layers – Guilds page displays both Guilds and Triads with search and filters
 
 **Recognition**
 Badges / Civic Mason / PEARL / Monument Registry
@@ -1166,7 +1166,7 @@ Overview / Roles / Drafts / Votes / Workgroups / People / Monument
 
 ---
 
-# Part V — Implementation Strategy
+# Part V – Implementation Strategy
 
 ## Principle
 
@@ -1176,7 +1176,7 @@ Build order: Data primitives → Relationship model → Event model → Governan
 
 ---
 
-## Phase 0 — Foundations
+## Phase 0 – Foundations
 
 Establish stable infrastructure before any governance workflows.
 
@@ -1185,7 +1185,7 @@ Establish stable infrastructure before any governance workflows.
 - Short `public_id` for human-readable references and URLs
 - `io` presentation suffix optional at display layer only
 
-### 0.2 Domain separation — Modular Architecture
+### 0.2 Domain separation – Modular Architecture
 
 The system uses a **modular architecture** organized by domain and concern. No monolithic files. Each domain and layer of the stack has its own module.
 
@@ -1237,7 +1237,7 @@ Implement ArtifactRelation and Bridge base models before monuments, quests, or l
 
 ---
 
-## Phase 1 — Core Governance Spine
+## Phase 1 – Core Governance Spine
 
 Minimum usable governance system.
 
@@ -1266,7 +1266,7 @@ Layer-scoped feed reading from EventLog. No preferences. Tier 1 only.
 
 ---
 
-## Phase 2 — Contribution Engine
+## Phase 2 – Contribution Engine
 
 Makes the system meaningfully participatory.
 
@@ -1289,7 +1289,7 @@ Monument registration, stewardship fields, monument/artifact linkage.
 
 ---
 
-## Phase 3 — Recognition & Civic Memory
+## Phase 3 – Recognition & Civic Memory
 
 Turns contributions into visible historical memory.
 
@@ -1309,7 +1309,7 @@ Faint toggleable lines, artifact ancestry/descendants, governance impact display
 
 ---
 
-## Phase 4 — Knowledge & Governance Depth
+## Phase 4 – Knowledge & Governance Depth
 
 Deepens institutional intelligence.
 
@@ -1332,7 +1332,7 @@ Dispute filed as Artifact, mediation workflow, outcomes recorded as events.
 
 ---
 
-## Phase 5 — Overweb / Canopi Transition Layer
+## Phase 5 – Overweb / Canopi Transition Layer
 
 Moves alpha bridge concepts into their long-term home.
 
@@ -1349,7 +1349,7 @@ Cross-layer monument linkage, cross-layer artifact references, cross-layer gover
 
 ---
 
-# Part VI — Build Checklist (Immediate Next Tasks)
+# Part VI – Build Checklist (Immediate Next Tasks)
 
 **Note:** The generic checklist below assumes a greenfield build. Given the existing codebase, follow the **Revised Priorities** in the Gap Analysis section above. The first concrete steps are: EventLog → modular extraction → Artifact + ArtifactRelation → Vote.artifact_id → Layer resolution.
 
@@ -1357,7 +1357,7 @@ Execution order reflects actual dependency chain.
 
 ---
 
-## Task 1 — UUID Infrastructure
+## Task 1 – UUID Infrastructure
 
 Add UUID primary keys to all major entities. Add short `public_id` fields. Standardize route resolution to use `public_id` in URLs. `io` suffix is presentation-layer only.
 
@@ -1365,7 +1365,7 @@ Entities: Layer, IdentityAnchor, Artifact, Role, Triad, Vote, Ballot, Quest, Mon
 
 ---
 
-## Task 2 — EventLog System
+## Task 2 – EventLog System
 
 Implement append-only governance event log before any governance workflows are built.
 
@@ -1375,7 +1375,7 @@ This must exist before votes, roles, and artifacts are built. All later actions 
 
 ---
 
-## Task 3 — Identity Anchor Model
+## Task 3 – Identity Anchor Model
 
 Create IdentityAnchor (IA).
 
@@ -1383,11 +1383,11 @@ Fields: `id` (UUID), `public_id`, `display_name`, `profile_fields`.
 
 WalletBinding (separate table): `identity_anchor_id`, `chain_type` (`evm` | `btc_taproot`), `address`, `created_at`.
 
-Wallets are generated on demand — not pre-generated. EVM at first vote opt-in. BTC Taproot at first badge issuance.
+Wallets are generated on demand – not pre-generated. EVM at first vote opt-in. BTC Taproot at first badge issuance.
 
 ---
 
-## Task 4 — Membership System
+## Task 4 – Membership System
 
 Create LayerMembership model.
 
@@ -1397,7 +1397,7 @@ Membership with `status = active` determines voting eligibility.
 
 ---
 
-## Task 5 — Layer + Host Middleware
+## Task 5 – Layer + Host Middleware
 
 Implement host → Layer resolution middleware.
 
@@ -1409,7 +1409,7 @@ Middleware sets Layer context for all requests.
 
 ---
 
-## Task 6 — Roles & Triads
+## Task 6 – Roles & Triads
 
 Role model: `id`, `layer_id`, `name`, `cluster`, `guild_name`, `requires_triad` (bool).
 
@@ -1423,7 +1423,7 @@ Admin Role is a predefined Role at Layer creation. Min 1 holder, max 3 (triad). 
 
 ---
 
-## Task 7 — Artifact Base Model
+## Task 7 – Artifact Base Model
 
 **See `artifact_specification.md` for full field definitions, artifact types, and status lifecycle.**
 
@@ -1439,7 +1439,7 @@ Artifacts must exist independently of governance workflows.
 
 ---
 
-## Task 8 — ArtifactRelation Model
+## Task 8 – ArtifactRelation Model
 
 **See `artifact_specification.md` for full relationship taxonomy.**
 
@@ -1453,7 +1453,7 @@ This is the backbone of the artifact graph.
 
 ---
 
-## Task 9 — Bridge Model
+## Task 9 – Bridge Model
 
 Implement web-compatible linking.
 
@@ -1461,11 +1461,11 @@ Fields: `id`, `artifact_id`, `monument_id` (nullable), `target_type`, `target_ur
 
 Target types: `webpage`, `image`, `text_fragment`, `video_segment`.
 
-Alpha demonstration layer — will migrate to Canopi in Phase 5.
+Alpha demonstration layer – will migrate to Canopi in Phase 5.
 
 ---
 
-## Task 10 — Voting System (v1)
+## Task 10 – Voting System (v1)
 
 Vote model: `id`, `layer_id`, `artifact_id`, `start_at`, `end_at`, `quorum`, `threshold`, `status`.
 
@@ -1475,7 +1475,7 @@ VoteEligibility snapshot table: snapshot of eligible members at vote start.
 
 ---
 
-## Task 11 — Waitlists
+## Task 11 – Waitlists
 
 Allow participants to register interest in: joining a layer, claiming a role, joining a triad.
 
@@ -1483,7 +1483,7 @@ Waitlist entries emit events. EventLog feeds the basic activity feed when opport
 
 ---
 
-## Task 12 — Basic Activity Feed (Tier 1)
+## Task 12 – Basic Activity Feed (Tier 1)
 
 Layer-scoped event feed reading from EventLog.
 
@@ -1493,7 +1493,7 @@ No user preferences at this stage. Full notification preferences are Phase 4.
 
 ---
 
-## Task 13 — Initial UI Navigation
+## Task 13 – Initial UI Navigation
 
 Expose only the minimal Phase 1 navigation surface:
 
@@ -1503,7 +1503,7 @@ Each connects to Phase 1 features only.
 
 ---
 
-# Part VII — Success Criteria (Phase 0 + Phase 1)
+# Part VII – Success Criteria (Phase 0 + Phase 1)
 
 The system has its **governance spine** when it supports:
 
@@ -1525,8 +1525,8 @@ All architectural open items resolved. Document is complete for Phase 0 + Phase 
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | PEARL definition | **Resolved** — See Section 9. Artifact subtype with 5 structured fields. |
-| 2 | Workgroup vs. Guild | **Resolved** — See Section 4. Distinct entities: Workgroup is Layer-scoped with decision authority; Guild is cross-layer and participates in Workgroups (not vice versa). |
+| 1 | PEARL definition | **Resolved** – See Section 9. Artifact subtype with 5 structured fields. |
+| 2 | Workgroup vs. Guild | **Resolved** – See Section 4. Distinct entities: Workgroup is Layer-scoped with decision authority; Guild is cross-layer and participates in Workgroups (not vice versa). |
 
 ---
 

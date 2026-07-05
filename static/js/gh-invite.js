@@ -188,7 +188,7 @@
         '<ol class="small mb-0 ps-3">' +
         '<li class="mb-1">You will open the full document below.</li>' +
         '<li class="mb-1"><strong>Select</strong> the sentence(s) you want to change in the text.</li>' +
-        '<li class="mb-1">The <strong>Propose a patch</strong> panel opens — submit your patch.</li>' +
+        '<li class="mb-1">The <strong>Propose a patch</strong> panel opens – submit your patch.</li>' +
         '</ol>'
       );
     }
@@ -604,7 +604,7 @@
       '<div class="card-body py-3">' +
       '<p class="small fw-semibold mb-2"><i class="fas fa-link me-1"></i>Shareable invitation link</p>' +
       '<p class="small text-muted mb-2">Anyone with this link can open the invite after signing in. ' +
-      'Use the same link for every person — email is optional below.</p>' +
+      'Use the same link for every person – email is optional below.</p>' +
       '<div class="input-group input-group-sm">' +
       '<input type="text" class="form-control font-monospace" id="ghInviteShareableUrl" readonly>' +
       '<button type="button" class="btn btn-outline-primary" id="ghInviteShareableCopyBtn">' +
@@ -644,7 +644,7 @@
       });
   }
 
-  /** @handles left in the textarea (not picked as chips) — not valid emails. */
+  /** @handles left in the textarea (not picked as chips) – not valid emails. */
   function extractAtHandles(text) {
     var seen = {};
     var out = [];
@@ -739,7 +739,7 @@
     }
     if (stats.user_ids_requested > 0 && stats.user_ids_resolved === 0) {
       parts.push(
-        '— chips were not sent; refresh the page and try again'
+        '– chips were not sent; refresh the page and try again'
       );
     }
     if (failRows.length) {
@@ -748,7 +748,7 @@
           failRows
             .map(function (r) {
               var err = r.error ? String(r.error).replace(/\.+$/, '') : '';
-              return (r.email || 'unknown') + (err ? ' — ' + err : '');
+              return (r.email || 'unknown') + (err ? ' – ' + err : '');
             })
             .join('; ')
       );
@@ -795,7 +795,7 @@
       var val = textarea.value;
       var pos = textarea.selectionStart;
       var before = val.slice(0, pos);
-      // Only @-mentions at word boundaries — not the @ inside email addresses.
+      // Only @-mentions at word boundaries – not the @ inside email addresses.
       var match = before.match(/(?:^|[\s,;\n])@([a-zA-Z0-9_.-]*)$/);
       if (!match) return null;
       return match[1];
@@ -986,7 +986,7 @@
     } catch (_e) {
       msgEl.value = '';
     }
-    // Clear in place — do not reassign [] or @picker keeps writing to a stale array.
+    // Clear in place – do not reassign [] or @picker keeps writing to a stale array.
     invitePickedUsers.length = 0;
     renderPickedUsers(pickedContainer, invitePickedUsers);
     if (!recipientsEl.dataset.ghSuggestBound) {

@@ -941,7 +941,7 @@ def dashboard_dp_activity(limit: int = 100, mode: str = 'dp', program=None) -> L
 def _short_dp_title(title: str) -> str:
     """Strip leading 'DP11 - ' style prefix for a compact title column."""
     t = (title or '').strip()
-    m = re.match(r'^DP\s*\d+\s*[-–—:]\s*(.+)$', t, re.IGNORECASE)
+    m = re.match(r'^DP\s*\d+\s*[-––:]\s*(.+)$', t, re.IGNORECASE)
     if m:
         return m.group(1).strip()
     return t

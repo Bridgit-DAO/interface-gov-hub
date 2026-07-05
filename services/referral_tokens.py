@@ -1,4 +1,4 @@
-"""HMAC signed referral tokens — interoperable with canopi/utils/shareRefToken.js."""
+"""HMAC signed referral tokens – interoperable with canopi/utils/shareRefToken.js."""
 from __future__ import annotations
 
 import base64

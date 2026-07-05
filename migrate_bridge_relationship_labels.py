@@ -28,7 +28,7 @@ try:
 except ImportError:
     CONFIG_DB_PATH = os.path.join(SCRIPT_DIR, "instance_dev", "datatracker_dev.db")
 
-# (old_value, new_value) — one old string per UPDATE for clear reporting
+# (old_value, new_value) – one old string per UPDATE for clear reporting
 PAIR_UPDATES = (
     ("contradicts", "contradicted_by"),
     ("supports", "supported_by"),
@@ -64,7 +64,7 @@ def run_migration(db_path: str, dry_run: bool) -> bool:
             "SELECT name FROM sqlite_master WHERE type='table' AND name='bridge'"
         )
         if not cursor.fetchone():
-            print("❌ Table 'bridge' does not exist — nothing to migrate.")
+            print("❌ Table 'bridge' does not exist – nothing to migrate.")
             return False
 
         total_changes = 0

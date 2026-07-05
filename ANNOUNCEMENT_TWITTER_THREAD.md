@@ -12,7 +12,7 @@
 
 GovHub Early Access is now open.
 
-We're building the next level of the internet — where meaning, identity, and trust are formed. Your voice shapes the foundation.
+We're building the next level of the internet – where meaning, identity, and trust are formed. Your voice shapes the foundation.
 
 👇
 
@@ -26,7 +26,7 @@ rfc.themetalayer.org
 
 📋 ML-Draft-001: Foundational Governance Practices
 
-This is our constitutional document — it sets the rules for everything that follows.
+This is our constitutional document – it sets the rules for everything that follows.
 
 Your input on this draft shapes:
 • Governance frameworks
@@ -42,7 +42,7 @@ Read it: rfc.themetalayer.org/doc/draft/rbpa16we/
 
 🎯 Why This Matters
 
-The current internet works at the technical level. The next internet needs governance at the interface layer — where meaning, identity, and trust are formed.
+The current internet works at the technical level. The next internet needs governance at the interface layer – where meaning, identity, and trust are formed.
 
 We're building governance frameworks that are:
 ✅ Transparent
@@ -154,7 +154,7 @@ Early Access. Open participation. Your voice matters.
 ### Tweet 1/6
 🚀 Help build the next internet.
 
-GovHub Early Access is live! ML-Draft-001 sets the foundation — your input shapes everything.
+GovHub Early Access is live! ML-Draft-001 sets the foundation – your input shapes everything.
 
 Read it: rfc.themetalayer.org/doc/draft/rbpa16we/
 

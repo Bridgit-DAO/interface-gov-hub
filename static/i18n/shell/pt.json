@@ -57,7 +57,7 @@
   "theme": {
     "switchToLight": "Mudar para modo claro",
     "switchToDark": "Mudar para modo escuro",
-    "systemAuto": "Tema do sistema (auto) — clique para alternar",
+    "systemAuto": "Tema do sistema (auto) – clique para alternar",
     "toggle": "Alternar tema"
   },
   "prefix": {
@@ -81,6 +81,6 @@
     "confirmDeleteTitle": "Excluir prefixo",
     "confirmDeleteBody": "Excluir este prefixo? Os rascunhos já criados manterão seus identificadores.",
     "confirmDeleteDefaultBody": "Este é o prefixo padrão atual. Defina outro como padrão antes de excluir este.",
-    "manageNothing": "Nenhuma camada selecionada — abra uma página de camada primeiro."
+    "manageNothing": "Nenhuma camada selecionada – abra uma página de camada primeiro."
   }
 }

@@ -219,7 +219,7 @@ test.describe('past - desktop', () => {
           await expect(headerRow.locator('.agenda-table-cell-name')).toContainText(`${DateTime.fromISO(event.startDateTime).toFormat('cccc')} ${event.slotName}`)
         }
         // Timeslot
-        await expect(row.locator('.agenda-table-cell-ts')).toContainText('—')
+        await expect(row.locator('.agenda-table-cell-ts')).toContainText('–')
         // Group Acronym + Parent
         await expect(row.locator('.agenda-table-cell-group > .badge')).toContainText(event.groupParent.acronym)
         await expect(row.locator('.agenda-table-cell-group > .badge + a')).toContainText(event.acronym)

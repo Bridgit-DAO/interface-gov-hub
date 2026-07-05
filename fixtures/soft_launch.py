@@ -1,4 +1,4 @@
-"""Fake data for soft-launch flows — replace with DB/API when integrating."""
+"""Fake data for soft-launch flows – replace with DB/API when integrating."""
 import copy
 
 from services.soft_launch_lifecycle import ORDERED_STATUSES, STAGE_EXPLAINER, STATUS_UI_LABEL
@@ -86,7 +86,7 @@ ACTIVITY_CARDS = [
     },
 ]
 
-# Onboarding step 2 — pick a space (fixture only)
+# Onboarding step 2 – pick a space (fixture only)
 SPACES_FIXTURE = [
     {'id': 'space-ai', 'name': 'AI Governance'},
     {'id': 'space-climate', 'name': 'Climate'},

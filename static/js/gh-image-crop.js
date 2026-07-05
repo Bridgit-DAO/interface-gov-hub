@@ -1,5 +1,5 @@
 /**
- * GhImageCrop — image crop modal for Gov Hub.
+ * GhImageCrop – image crop modal for Gov Hub.
  *
  * Uses a locally vendored Cropper.js (window.Cropper). Produces a square (or
  * custom-aspect) cropped Blob whose MIME matches the input file's format
@@ -35,7 +35,7 @@
   let _imgLoadBound = false;
 
   // ---------------------------------------------------------------------------
-  // Vendor loaders — vendored Cropper is loaded via <head>, but if a page misses
+  // Vendor loaders – vendored Cropper is loaded via <head>, but if a page misses
   // the script tag we still lazy-load it as a fallback. CSS is loaded the same
   // way.
   // ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // MIME handling — preserve input format on output.
+  // MIME handling – preserve input format on output.
   // ---------------------------------------------------------------------------
   function guessMimeFromName(name) {
     if (!name) return '';

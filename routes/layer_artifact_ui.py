@@ -27,7 +27,7 @@ def render_layer_artifact_editor_and_collections(
                     <div id="la-collections-list" class="small mb-2">Loading…</div>
                     <button type="button" class="btn btn-outline-primary btn-sm w-100 mb-2" data-bs-toggle="modal" data-bs-target="#laNewCollectionModal">New collection</button>
                     <label class="form-label small mb-1">Add this artifact to</label>
-                    <select class="form-select form-select-sm mb-2" id="la-collection-pick"><option value="">— Choose —</option></select>
+                    <select class="form-select form-select-sm mb-2" id="la-collection-pick"><option value="">– Choose –</option></select>
                     <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="la-add-to-collection-btn">Add to collection</button>
                     <div id="la-collection-alert" class="alert alert-danger d-none small mt-2 mb-0 py-2"></div>
                 </div>
@@ -42,7 +42,7 @@ def render_layer_artifact_editor_and_collections(
                         <div class="modal-body">
                             <div id="la-artifact-alert" class="alert d-none mb-2"></div>
                             <div class="mb-2"><label class="form-label">Type</label>
-                                <select class="form-select" id="la-artifact-type"><option value="">—</option>{opts}</select></div>
+                                <select class="form-select" id="la-artifact-type"><option value="">–</option>{opts}</select></div>
                             <div class="mb-2"><label class="form-label">Subtype</label>
                                 <input type="text" class="form-control" id="la-artifact-subtype"></div>
                             <div class="mb-2"><label class="form-label">Title</label>
@@ -68,7 +68,7 @@ def render_layer_artifact_editor_and_collections(
                                 <input type="text" class="form-control" id="la-artifact-current-lang" placeholder="en"></div></div>
                             <div class="mb-2 border-top pt-2 mt-2" id="la-kl-contribution-wrap" style="display:none;">
                                 <label class="form-label">Contribution type <span class="text-muted">(optional)</span></label>
-                                <select class="form-select" id="la-kl-contribution-type"><option value="">— Not set</option></select>
+                                <select class="form-select" id="la-kl-contribution-type"><option value="">– Not set</option></select>
                                 <p class="small text-muted mb-0">Helps others understand how to engage with this contribution.</p>
                             </div>
                             <div class="mb-2" id="la-kl-scaffold-wrap" style="display:none;"></div>
@@ -147,7 +147,7 @@ def render_layer_artifact_editor_and_collections(
                     const at = (atEl.value || '').trim();
                     const spec = klSchema.artifact_types && klSchema.artifact_types[at];
                     const prev = sel.value;
-                    sel.innerHTML = '<option value="">— Not set</option>';
+                    sel.innerHTML = '<option value="">– Not set</option>';
                     if (spec && spec.allowed) {{
                         spec.allowed.forEach(function(v) {{ sel.add(new Option(v, v)); }});
                         if (prev && [...sel.options].some(function(o) {{ return o.value === prev; }})) sel.value = prev;
@@ -303,7 +303,7 @@ def render_layer_artifact_editor_and_collections(
                             }}).join('') + '</ul>';
                         }}
                         const cur = pick.value;
-                        pick.innerHTML = '<option value="">— Choose —</option>';
+                        pick.innerHTML = '<option value="">– Choose –</option>';
                         cols.forEach(function(c) {{
                             pick.add(new Option(c.title || c.id, c.id));
                         }});

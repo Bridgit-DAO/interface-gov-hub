@@ -173,7 +173,7 @@ def infer_draft_notification_level(user_id: str, draft_name: str) -> Optional[st
     sig = {'draft_revision_approved', 'draft_submission_approved', 'draft_published_as_rfc'}
     if types == sig:
         return 'significant'
-    # Partial/custom set — default UI to 'all' so user can reset
+    # Partial/custom set – default UI to 'all' so user can reset
     return 'all'
 
 

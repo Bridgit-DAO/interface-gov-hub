@@ -1,4 +1,4 @@
-"""DpProposal model — sentence-level patches on DP and non-DP documents."""
+"""DpProposal model – sentence-level patches on DP and non-DP documents."""
 from datetime import datetime
 from uuid import uuid4
 

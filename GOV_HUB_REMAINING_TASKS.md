@@ -1,4 +1,4 @@
-# Gov Hub — All Remaining Tasks & Progress
+# Gov Hub – All Remaining Tasks & Progress
 
 **Project:** gov-hub  
 **Date:** 2026-03-12  
@@ -45,7 +45,7 @@
 |------|--------|-------|
 | **Localization (i18n)** | PLANNING_FULL_PICTURE | Interface strings, date/number formatting, RTL. Planned last. |
 
-### Phase 3+ — Artifact & Governance
+### Phase 3+ – Artifact & Governance
 
 | Task | Status | Notes |
 |------|--------|-------|
@@ -55,7 +55,7 @@
 | Bridge | Not done | Artifact ↔ external URL / monument |
 | IdentityAnchor | Deferred | User suffices for now |
 | Badge Keeper Role | Not done | Phase 2 |
-| PEARL | Not done | Phase 3 — reflection artifact, 5 fields |
+| PEARL | Not done | Phase 3 – reflection artifact, 5 fields |
 | Triad (distinct) | Deferred | May map to Workgroup with type=triad |
 
 ### Migration (Deferred)
@@ -79,7 +79,7 @@
 
 ## References
 
-- **MODULARIZATION_SPEC.md** — File-by-file extraction plan (models, routes, services, phased execution)
+- **MODULARIZATION_SPEC.md** – File-by-file extraction plan (models, routes, services, phased execution)
 - PLANNING_FULL_PICTURE.md
 - GOV-HUB-3.md
 - GOV-HUB-2.md

@@ -66,7 +66,7 @@ def test_apply_knowledge_patch_clears_scaffold_when_form_cleared():
     with app.app_context():
         layer = Layer.query.first()
         if not layer:
-            print('⚠️  No layer — skip patch test')
+            print('⚠️  No layer – skip patch test')
             return
         art = Artifact(
             layer_id=layer.id,
@@ -81,14 +81,14 @@ def test_apply_knowledge_patch_clears_scaffold_when_form_cleared():
         aid = art.id
 
     with app.test_client() as c:
-        # Login may be required — skip if 401
+        # Login may be required – skip if 401
         r = c.patch(
             f'/api/artifacts/{aid}/',
             json={'knowledge_form': None},
             headers={'Content-Type': 'application/json'},
         )
         if r.status_code in (401, 302):
-            print('⚠️  PATCH requires auth — skip')
+            print('⚠️  PATCH requires auth – skip')
             with app.app_context():
                 db.session.delete(Artifact.query.get(aid))
                 db.session.commit()
@@ -110,7 +110,7 @@ def test_contribution_type_filter_analytics():
     with app.app_context():
         layer = Layer.query.first()
         if not layer:
-            print('⚠️  No layer — skip filter analytics test')
+            print('⚠️  No layer – skip filter analytics test')
             return
 
     with app.test_client() as c:

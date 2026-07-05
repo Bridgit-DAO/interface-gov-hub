@@ -1,4 +1,4 @@
-# Civic Mason — client-side i18n
+# Civic Mason – client-side i18n
 
 ## Locales
 

@@ -241,7 +241,7 @@ def campaign_endorsements_admin(slug):
     table = ''.join(rows) or '<tr><td colspan="4" class="text-muted">No pending endorsements.</td></tr>'
     html = f'''<!DOCTYPE html><html><head><title>Moderate endorsements</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head>
-    <body class="p-4"><h1>Endorsements — {html_mod.escape(cfg.title)}</h1>
+    <body class="p-4"><h1>Endorsements – {html_mod.escape(cfg.title)}</h1>
     <table class="table"><thead><tr><th>Name</th><th>Type</th><th>Comment</th><th></th></tr></thead><tbody>{table}</tbody></table>
     <p><a href="{html_mod.escape(campaign_href(slug, "/docs/statement"))}">Back to statement</a></p></body></html>'''
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}

@@ -1,4 +1,4 @@
-# OAuth redirect URIs (linked social accounts — not Web3Auth sign-in)
+# OAuth redirect URIs (linked social accounts – not Web3Auth sign-in)
 
 **Sign-in for Gov Hub uses [Web3Auth](https://web3auth.io/)** (`@web3auth/modal` on the client, `POST /api/auth/web3auth` in `routes/auth.py`). You configure **Web3Auth** in the [Web3Auth Dashboard](https://dashboard.web3auth.io/) (Client ID, allowed origins, etc.). That flow does **not** use the `/auth/<provider>/authorized` URLs below.
 
@@ -21,7 +21,7 @@ After DNS and nginx are live for **Gov Hub**, register the same paths on **`http
 | **Discord** | `https://govhub.live/auth/discord/authorized` | `https://dev.govhub.live/auth/discord/authorized` |
 | **Twitter/X** | `https://govhub.live/auth/twitter/authorized` | `https://dev.govhub.live/auth/twitter/authorized` |
 
-**Google — Authorized JavaScript origins:** `https://govhub.live` and `https://dev.govhub.live`
+**Google – Authorized JavaScript origins:** `https://govhub.live` and `https://dev.govhub.live`
 
 ## Redirect URIs to Add (RFC / themetalayer)
 
@@ -66,7 +66,7 @@ Some providers require the origin (without path):
 4. Set **App permissions** to at least Read (for `tweet.read`, `users.read`)
 5. Add **Callback URI / Redirect URI**: `https://dev.rfc.themetalayer.org/auth/twitter/authorized` (must match exactly)
 6. Ensure app type is **Web App** (not Native) for confidential client
-7. **Website URL**: Set to `https://dev.rfc.themetalayer.org` when testing on dev — X may validate that redirect_uri matches the Website URL domain
+7. **Website URL**: Set to `https://dev.rfc.themetalayer.org` when testing on dev – X may validate that redirect_uri matches the Website URL domain
 
 ## Debug logging
 

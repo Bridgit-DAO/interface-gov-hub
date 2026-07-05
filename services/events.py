@@ -18,7 +18,7 @@ def emit_event(event_type, actor_type='user', actor_id=None, subject_type=None, 
                 try:
                     from flask import current_app
                     current_app.logger.debug(
-                        "[EventLog] Unregistered event_type %r — add to services/event_registry.py", event_type
+                        "[EventLog] Unregistered event_type %r – add to services/event_registry.py", event_type
                     )
                 except RuntimeError:
                     pass

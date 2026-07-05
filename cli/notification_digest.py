@@ -45,7 +45,7 @@ def register_notification_digest_cli(app):
             lines = []
             for n in pending:
                 link = n.link_url or base
-                lines.append(f"<li><strong>{n.title}</strong> — <a href=\"{link}\">open</a><br/><span style=\"color:#666\">{n.body or ''}</span></li>")
+                lines.append(f"<li><strong>{n.title}</strong> – <a href=\"{link}\">open</a><br/><span style=\"color:#666\">{n.body or ''}</span></li>")
             tok = user.notification_unsubscribe_token or ''
             unsub = f"{base}/notifications/email/unsubscribe/{tok}" if tok else base
             html = f"""<p>Your Gov Hub notification digest ({user.email_digest_mode}):</p>

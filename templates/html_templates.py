@@ -105,7 +105,7 @@ BASE_TEMPLATE = """
         }}
 
         [data-theme="dark"] {{
-            /* Gov Hub brand — deep navy civic-tech palette */
+            /* Gov Hub brand – deep navy civic-tech palette */
             --bg-color: #050b1a;
             --bg-secondary: #0a1224;
             --bg-tertiary: #101a30;
@@ -163,7 +163,7 @@ BASE_TEMPLATE = """
                 var(--bg-color);
         }}
 
-        /* Modern navbar similar to X — min-height only; fixed height caused overlap with main content on small screens */
+        /* Modern navbar similar to X – min-height only; fixed height caused overlap with main content on small screens */
         .navbar {{
             background-color: var(--navbar-bg) !important;
             border-bottom: 1px solid var(--navbar-border);
@@ -279,7 +279,7 @@ BASE_TEMPLATE = """
             object-fit: contain;
         }}
 
-        /* White logo for dark mode — only for default GovHub logo, not layer logos */
+        /* White logo for dark mode – only for default GovHub logo, not layer logos */
         [data-theme="dark"] .navbar-brand img.navbar-brand-logo-invert {{
             filter: brightness(0) invert(1);
         }}
@@ -460,7 +460,7 @@ BASE_TEMPLATE = """
             border-color: var(--input-border) !important;
         }}
 
-        /* Text fields only — do not restyle .form-check-input (breaks switches/checkboxes). */
+        /* Text fields only – do not restyle .form-check-input (breaks switches/checkboxes). */
         [data-theme="dark"] input:not(.form-check-input),
         [data-theme="dark"] textarea,
         [data-theme="dark"] select,
@@ -740,7 +740,7 @@ BASE_TEMPLATE = """
             object-fit: cover;
         }}
 
-        /* Centered content — moderate width for readability */
+        /* Centered content – moderate width for readability */
         .container {{
             max-width: 960px;
             margin: 0 auto;
@@ -1393,7 +1393,7 @@ BASE_TEMPLATE = """
                 if (socialOnly) {{
                     hint.textContent = 'Sign in with Google or email using the same address as your invitation.';
                 }} else {{
-                    hint.textContent = 'Web3Auth — Google, email, or wallet';
+                    hint.textContent = 'Web3Auth – Google, email, or wallet';
                 }}
             }}
         }}
@@ -1406,7 +1406,7 @@ BASE_TEMPLATE = """
             }});
             if (!declarationOk) {{
                 await fetch('/api/auth/logout', {{ method: 'POST', credentials: 'include' }});
-                await GhDialog.alert({{ title: 'Notice', message: ('Sign in cancelled — account declaration is required to participate.'), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Notice', message: ('Sign in cancelled – account declaration is required to participate.'), variant: 'info' }});
                 return false;
             }}
             let dest = consumePostLoginReturnPath();
@@ -1546,7 +1546,7 @@ BASE_TEMPLATE = """
                     // Not critical for social logins
                 }}
 
-                // Identity token — required for server-side verification (after connect only).
+                // Identity token – required for server-side verification (after connect only).
                 let idToken = '';
                 for (let attempt = 0; attempt < 3 && !idToken; attempt++) {{
                     try {{
@@ -2149,14 +2149,14 @@ SUBMIT_TEMPLATE = """
                                     <div class="mb-3">
                                         <label for="inscribeFeeRateSlider" class="form-label">Fee Rate (sat/vB)</label>
                                         <div class="d-flex justify-content-between align-items-center mb-1">
-                                            <span id="inscribeFeeRateLabel" class="fw-bold">—</span>
-                                            <span class="text-muted small">Current network: <span id="inscribeNetworkFee">—</span> sat/vB</span>
+                                            <span id="inscribeFeeRateLabel" class="fw-bold">–</span>
+                                            <span class="text-muted small">Current network: <span id="inscribeNetworkFee">–</span> sat/vB</span>
                                         </div>
                                         <div class="mb-2">
                                             <input type="range" class="form-range" id="inscribeFeeRateSlider" min="0" max="100" value="67" step="1" title="Log scale: 0.1 to 100 sat/vB" style="width: 100%; accent-color: var(--accent-color, #0d6efd);">
                                         </div>
                                         <div id="inscribeFeeCalculator" class="small text-muted mb-2">
-                                            <span id="inscribeFeeSats">—</span> sats · <span id="inscribeFeeBtc">—</span> BTC · <span id="inscribeFeeUsd">—</span> USD
+                                            <span id="inscribeFeeSats">–</span> sats · <span id="inscribeFeeBtc">–</span> BTC · <span id="inscribeFeeUsd">–</span> USD
                                         </div>
                                         <div id="inscribeLowRateWarning" class="mt-2" style="display: none;">
                                             <div class="form-check">
@@ -2257,7 +2257,7 @@ SUBMIT_TEMPLATE = """
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p class="text-muted small">Draft placeholder — final legal text to be provided.</p>
+                <p class="text-muted small">Draft placeholder – final legal text to be provided.</p>
                 <h6>1. Grant of submission</h6>
                 <p>By submitting a draft to the Interface Governance Hub, you represent that you have the right to submit the work and that it does not infringe the rights of others.</p>
                 <h6>2. Review process</h6>
@@ -2826,7 +2826,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (feeSatsEl) feeSatsEl.textContent = estSats.toLocaleString();
         if (feeBtcEl) feeBtcEl.textContent = (estSats / 1e8).toFixed(8);
         if (feeUsdEl && btcPriceUsd > 0) feeUsdEl.textContent = '$' + (estSats / 1e8 * btcPriceUsd).toFixed(2);
-        else if (feeUsdEl) feeUsdEl.textContent = '—';
+        else if (feeUsdEl) feeUsdEl.textContent = '–';
         updateCreateBtnState();
     }
     function updateCreateBtnState() {

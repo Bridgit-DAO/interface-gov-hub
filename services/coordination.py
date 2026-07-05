@@ -61,7 +61,7 @@ def activate_vote(vote):
                payload={'title': vote.title, 'eligible_count': len(members)})
     db.session.commit()
 
-    print(f"[VOTE] Activated vote {vote.id} ({vote.title}) — {len(members)} eligible voters")
+    print(f"[VOTE] Activated vote {vote.id} ({vote.title}) – {len(members)} eligible voters")
     return True, f"Activated with {len(members)} eligible voters"
 
 

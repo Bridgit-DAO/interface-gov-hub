@@ -72,7 +72,7 @@ def people():
     )
     content = f"""
     {gh_page_open()}
-    {gh_page_header('People', 'Discover who is active — roles, layers, workgroups, and contributions.', 'fa-user-friends')}
+    {gh_page_header('People', 'Discover who is active – roles, layers, workgroups, and contributions.', 'fa-user-friends')}
     {gh_filter_row(
         gh_filter_col('Search', '<input type="search" id="people-search" class="form-control" placeholder="Name or username…" autocomplete="off">', 'col-md-5')
         + gh_filter_col('Workgroup', f'<select id="people-workgroup" class="form-select"><option value="">All workgroups</option>{wg_options}</select>', 'col-md-4')
@@ -159,7 +159,7 @@ def meetings():
 
     content = f"""
     {gh_page_open()}
-    {gh_page_header('Meetings', 'Upcoming GovHub meetings and sessions — coming soon', 'fa-calendar', actions_html='<a href="/" class="btn btn-outline-secondary btn-sm">Home</a>')}
+    {gh_page_header('Meetings', 'Upcoming GovHub meetings and sessions – coming soon', 'fa-calendar', actions_html='<a href="/" class="btn btn-outline-secondary btn-sm">Home</a>')}
     <div class="living-module">
         <div class="living-module-body text-center py-5">
             <i class="fas fa-calendar fa-3x text-muted mb-3"></i>
@@ -187,7 +187,7 @@ def projects_directory():
     content = f"""
     {gh_page_open()}
     {render_page_hero_html('layers')}
-    {gh_page_header('Layers Map', 'Discover layers — status, activity, and community at a glance', 'fa-layer-group', create_btn)}
+    {gh_page_header('Layers Map', 'Discover layers – status, activity, and community at a glance', 'fa-layer-group', create_btn)}
     {gh_filter_row(
         gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadProjects()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="proposed">Proposed</option><option value="stabilizing">Stabilizing</option><option value="maintaining">Maintaining</option><option value="dormant">Dormant</option><option value="concluded">Concluded</option><option value="archived">Archived</option></select>')
         + gh_filter_col('Approval', '<select id="approval-filter" class="form-select" onchange="loadProjects()"><option value="active" selected>Active</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>')

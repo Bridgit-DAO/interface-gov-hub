@@ -205,7 +205,7 @@ def test_update_prefix_rename_recheck_uniqueness(app):
         add_prefix(a['layer_id'], tag_a, a['user_id'])
         body, status = add_prefix(b['layer_id'], tag_b, b['user_id'])
         assert status == 201, body
-        # Try to rename B's prefix to A's prefix — should fail with 409.
+        # Try to rename B's prefix to A's prefix – should fail with 409.
         body2, status2 = update_prefix(
             b['layer_id'], body['prefix']['id'], tag_a,
         )
@@ -268,7 +268,7 @@ def test_set_default_clears_others(app):
         is_default = {r.prefix: bool(r.is_default) for r in rows}
         assert is_default[tag_c] is True
         assert is_default[tag_b] is False
-        # Promotion is one-way — re-set first to default
+        # Promotion is one-way – re-set first to default
         set_default_prefix(ids['layer_id'], first['prefix']['id'])
         rows = list_prefixes(ids['layer_id'])
         is_default = {r.prefix: bool(r.is_default) for r in rows}

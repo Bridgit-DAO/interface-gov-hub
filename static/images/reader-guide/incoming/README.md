@@ -1,6 +1,6 @@
 # Reader guide GIFs (How to participate modal)
 
-**Do not paste GIFs into Cursor chat** — attachments are saved as a single JPEG frame and will not animate.
+**Do not paste GIFs into Cursor chat** – attachments are saved as a single JPEG frame and will not animate.
 
 ## Deploy real `.gif` files
 

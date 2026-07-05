@@ -1,4 +1,4 @@
-# Gov Hub — Protocol Canvas Updates
+# Gov Hub – Protocol Canvas Updates
 
 This document captures the **additional protocol-level clarifications** that should be incorporated so the system does not drift as design and implementation continue.
 
@@ -250,9 +250,9 @@ Use `civicmason-mural.png` as the full-page background for the Civic Mason page.
 
 The mural has three horizontal bands:
 
-1. **Bottom** — Silhouetted workers/masons (hard hats, bricks, trowels); sepia-toned, faded fresco style; represents human effort and foundation.
-2. **Middle** — Solid brick wall; earthy reds, oranges, browns; mortar lines; bridge between workers and vision.
-3. **Top** — City skyline in golden glow; hemispherical network/grid above; digital connectivity / civic infrastructure.
+1. **Bottom** – Silhouetted workers/masons (hard hats, bricks, trowels); sepia-toned, faded fresco style; represents human effort and foundation.
+2. **Middle** – Solid brick wall; earthy reds, oranges, browns; mortar lines; bridge between workers and vision.
+3. **Top** – City skyline in golden glow; hemispherical network/grid above; digital connectivity / civic infrastructure.
 
 **Style:** Vertical (portrait), warm earthy palette, weathered texture, central light source drawing eye upward.
 
@@ -295,7 +295,7 @@ Per spec: mural must NOT constrain placement. Z-order:
 
 ### 6. Protocol Alignment
 
-- Mural is **symbolic only** — does not define grid, slots, or placement rules.
+- Mural is **symbolic only** – does not define grid, slots, or placement rules.
 - Grid rules (bottom-up, 50% overlap, base row) remain protocol-defined.
 - Mural reinforces meaning; bricks are placed by users and grow over the mural.
 

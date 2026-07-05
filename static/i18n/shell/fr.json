@@ -57,7 +57,7 @@
   "theme": {
     "switchToLight": "Passer en mode clair",
     "switchToDark": "Passer en mode sombre",
-    "systemAuto": "Thème système (auto) — cliquer pour changer",
+    "systemAuto": "Thème système (auto) – cliquer pour changer",
     "toggle": "Changer de thème"
   },
   "prefix": {
@@ -81,6 +81,6 @@
     "confirmDeleteTitle": "Supprimer le préfixe",
     "confirmDeleteBody": "Supprimer ce préfixe ? Les brouillons existants garderont leur identifiant.",
     "confirmDeleteDefaultBody": "Ce préfixe est celui par défaut. Définissez-en un autre par défaut avant de supprimer celui-ci.",
-    "manageNothing": "Aucune couche sélectionnée — ouvrez d'abord une page de couche."
+    "manageNothing": "Aucune couche sélectionnée – ouvrez d'abord une page de couche."
   }
 }

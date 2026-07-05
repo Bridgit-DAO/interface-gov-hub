@@ -581,7 +581,7 @@ META_LAYER_ECOSYSTEM_SLUGS = frozenset({'the-metaweb', 'the-overweb', 'canopi'})
 
 
 def _canonical_parent_for_picker(submission):
-    """One picker row per document family — always the parent submission."""
+    """One picker row per document family – always the parent submission."""
     from services.ml_numbering import is_parent_submission
 
     if is_parent_submission(submission):
@@ -597,7 +597,7 @@ def _canonical_parent_for_picker(submission):
 def _draft_picker_row(submission, *, version_count: Optional[int] = None) -> dict[str, Any]:
     label = format_draft_display_name(submission)
     if version_count and version_count > 1:
-        label = f'{label} — {version_count} versions'
+        label = f'{label} – {version_count} versions'
     return {
         'id': submission.id,
         'title': submission.title or submission.ml_number or submission.id,
@@ -780,7 +780,7 @@ def resolve_document_workgroup_meta(
 def list_assigned_documents_for_workgroup(workgroup) -> list[dict[str, Any]]:
     """
     Drafts assigned to this workgroup via submission.group at submit time.
-    Excludes the workgroup's primary document (document_draft_name) — that is shown separately.
+    Excludes the workgroup's primary document (document_draft_name) – that is shown separately.
     """
     from models import Submission
     from services.ml_numbering import is_parent_submission

@@ -29,11 +29,11 @@ def _cover_crop_to_bounds(img, max_width, max_height):
     target_ratio = max_width / max_height
     src_ratio = w / h
     if src_ratio > target_ratio:
-        # source is wider than target — crop sides
+        # source is wider than target – crop sides
         new_w = int(round(h * target_ratio))
         left = (w - new_w) // 2
         return img.crop((left, 0, left + new_w, h))
-    # source is taller than target — crop top/bottom
+    # source is taller than target – crop top/bottom
     new_h = int(round(w / target_ratio))
     top = (h - new_h) // 2
     return img.crop((0, top, w, top + new_h))
@@ -85,7 +85,7 @@ def _save_with_format(img, ext, file_path):
             img = img.convert('P', palette=Image.ADAPTIVE)
         save_kwargs = {'optimize': True}
     else:
-        # Unknown / unsupported — fall back to PNG.
+        # Unknown / unsupported – fall back to PNG.
         target_format = 'PNG'
         save_kwargs = {'optimize': True}
         if img.mode not in ('RGB', 'RGBA', 'P', 'L', 'LA'):
@@ -163,7 +163,7 @@ def upload_image(file_storage, upload_folder, url_prefix, filename_prefix='img',
 
 
 def upload_image_600x600(file_storage, upload_folder, url_prefix, filename_prefix='img'):
-    """Square 600×600 output — accepts any size, cover-crops and downscales."""
+    """Square 600×600 output – accepts any size, cover-crops and downscales."""
     return upload_image(file_storage, upload_folder, url_prefix,
                         filename_prefix=filename_prefix, max_dimension=IMAGE_MAX_DIMENSION)
 

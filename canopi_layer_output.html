@@ -1005,11 +1005,11 @@
                             <label class="form-label">Vote type *</label>
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="vote-type" id="vote-type-approval" value="approval" checked onchange="toggleVoteTypeFields()">
-                                <label class="form-check-label" for="vote-type-approval">Approval — Vote on a draft (yes/no)</label>
+                                <label class="form-check-label" for="vote-type-approval">Approval – Vote on a draft (yes/no)</label>
                             </div>
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="vote-type" id="vote-type-election" value="election" onchange="toggleVoteTypeFields()">
-                                <label class="form-check-label" for="vote-type-election">Election — Vote for a role (choose among candidates)</label>
+                                <label class="form-check-label" for="vote-type-election">Election – Vote for a role (choose among candidates)</label>
                             </div>
                         </div>
                         <div class="mb-3">
@@ -1409,7 +1409,7 @@
     function loadOverview() {
         const statusEsc = escapeHtml(String(project.status || ''));
         const approvalEsc = escapeHtml(String(project.approval_status || ''));
-        const createdStr = project.created_at ? new Date(project.created_at).toLocaleDateString() : '—';
+        const createdStr = project.created_at ? new Date(project.created_at).toLocaleDateString() : '–';
         const lastActivityStr = project.last_activity_at ? new Date(project.last_activity_at).toLocaleDateString() : 'Never';
         const wgCount = project.workgroups_count || 0;
         document.getElementById('overview-content').innerHTML =
@@ -2190,7 +2190,7 @@
             
             const ownerUserEsc = escapeHtmlBasic(data.owner.username || '');
             const ownerNameEsc = escapeHtml(data.owner.display_name || '');
-            let html = '<div class="d-flex justify-content-between align-items-center mb-3"><h4>Layer admins</h4><button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button></div><p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p><div class="list-group"><div class="list-group-item d-flex justify-content-between align-items-center"><div><a href="/profile/' + ownerUserEsc + '/" class="fw-bold text-decoration-none">' + ownerNameEsc + '</a><span class="badge bg-primary ms-2">Owner</span></div><span class="text-muted">—</span></div>';
+            let html = '<div class="d-flex justify-content-between align-items-center mb-3"><h4>Layer admins</h4><button class="btn btn-primary btn-sm" onclick="showAddAdminModal()"><i class="fas fa-plus me-2"></i>Add admin</button></div><p class="text-muted">Admins can manage workgroups, roles, claims, and other admins. The owner cannot be removed.</p><div class="list-group"><div class="list-group-item d-flex justify-content-between align-items-center"><div><a href="/profile/' + ownerUserEsc + '/" class="fw-bold text-decoration-none">' + ownerNameEsc + '</a><span class="badge bg-primary ms-2">Owner</span></div><span class="text-muted">–</span></div>';
             (data.admins || []).forEach(a => {
                 html += '<div class="list-group-item d-flex justify-content-between align-items-center"><a href="/profile/' + escapeHtmlBasic(a.username || '') + '/" class="text-decoration-none">' + escapeHtml(a.display_name || '') + '</a><button class="btn btn-outline-danger btn-sm" onclick="removeAdmin(\'' + (a.user_id || '') + '\', this)">Remove</button></div>';
             });
@@ -2518,7 +2518,7 @@ Write your layer description in markdown...">' + aboutEsc + '</textarea>';
                     const rolesHtml = roles.length
                         ? '<ul class="list-unstyled mb-0 mt-2 small">' + roles.map(r => '<li><a href="/roles/' + escapeHtmlBasic(r.role_slug || r.slug || '') + '/">' + escapeHtml(r.title_guild || r.title_operational || 'Role') + '</a></li>').join('') + '</ul>'
                         : '<p class="text-muted small mb-0 mt-2">No roles in this cluster</p>';
-                    const orderStr = cluster.order != null ? cluster.order : '—';
+                    const orderStr = cluster.order != null ? cluster.order : '–';
                     const adminBtns = isProjectAdmin ? '<div class="btn-group btn-group-sm"><button class="btn btn-outline-secondary" onclick="editCluster(\'' + (cluster.id || '') + '\')"><i class="fas fa-edit"></i></button><button class="btn btn-outline-danger" onclick="deleteCluster(\'' + (cluster.id || '') + '\', \'' + cNameEsc + '\')"><i class="fas fa-trash"></i></button></div>' : '';
                     html += '<div class="col-md-6 mb-3"><div class="card"><div class="card-body"><div class="d-flex justify-content-between align-items-start"><div><h5 class="card-title">' + escapeHtml(cName) + '</h5><p class="card-text text-muted">' + cDescEsc + '</p><small class="text-muted">Order: ' + orderStr + '</small><div class="mt-2"><strong>Roles:</strong> ' + rolesHtml + '</div></div>' + adminBtns + '</div></div></div></div>';
                 });
@@ -2589,7 +2589,7 @@ Write your layer description in markdown...">' + aboutEsc + '</textarea>';
                     const claimNameEsc = escapeHtml(claimName);
                     const roleNameEsc = escapeHtml(roleName);
                     const userNameEsc = escapeHtml(userName);
-                    const statusEsc = escapeHtml(claim.status || '—');
+                    const statusEsc = escapeHtml(claim.status || '–');
                     const tdRole = claim.role_slug ? '<a href="' + roleLink + '">' + roleNameEsc + '</a>' : roleNameEsc;
                     const tdUser = claim.claimant_username ? '<a href="' + userLink + '">' + userNameEsc + '</a>' : userNameEsc;
                     html += '<tr class="project-claim-row" data-claim-index="' + idx + '" tabindex="0" title="Hover for claim details"><td>' + claimNameEsc + '</td><td><span class="badge bg-' + statusClass + '">' + statusEsc + '</span></td><td>' + tdRole + '</td><td>' + tdUser + '</td></tr>';

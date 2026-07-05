@@ -22,7 +22,7 @@
     return out;
   }
 
-  /** Core changed sentences only (no ellipsis) — for in-document highlight anchoring. */
+  /** Core changed sentences only (no ellipsis) – for in-document highlight anchoring. */
   function focusedPassageCore(original, proposed) {
     var oS = segmentSentences(original || '');
     var pS = segmentSentences(proposed || '');

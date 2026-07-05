@@ -57,7 +57,7 @@
   "theme": {
     "switchToLight": "Switch to light mode",
     "switchToDark": "Switch to dark mode",
-    "systemAuto": "System theme (auto) — click to switch",
+    "systemAuto": "System theme (auto) – click to switch",
     "toggle": "Toggle theme"
   },
   "prefix": {
@@ -81,7 +81,7 @@
     "confirmDeleteTitle": "Delete prefix",
     "confirmDeleteBody": "Delete this prefix? Drafts already created will keep their existing identifier.",
     "confirmDeleteDefaultBody": "This is the current default prefix. Mark another prefix as default first, then delete this one.",
-    "manageNothing": "No layer selected — open a layer page first to manage that layer's prefixes."
+    "manageNothing": "No layer selected – open a layer page first to manage that layer's prefixes."
   },
   "api": {
     "errors": {

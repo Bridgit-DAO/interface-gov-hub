@@ -1,5 +1,5 @@
 /**
- * GovHub Living Layer Map — design tokens & layer UI components
+ * GovHub Living Layer Map – design tokens & layer UI components
  */
 
 :root {
@@ -57,7 +57,7 @@
   max-width: var(--gh-content-max-wide);
 }
 
-/* Docs directory — prod-like two-column cards with dev tokens */
+/* Docs directory – prod-like two-column cards with dev tokens */
 .doc-all-page .document-card {
   margin-bottom: 0;
 }
@@ -83,7 +83,7 @@
   padding-top: 0.75rem;
 }
 
-/* Documents directory — collapsible tag cloud + wrap chips */
+/* Documents directory – collapsible tag cloud + wrap chips */
 .doc-all-page .doc-active-filters {
   display: flex;
   flex-wrap: wrap;
@@ -228,7 +228,7 @@
   flex: 0 0 auto;
 }
 
-/* Documents directory — collapsible tag cloud + wrap chips */
+/* Documents directory – collapsible tag cloud + wrap chips */
 .doc-all-page .doc-active-filters {
   display: flex;
   flex-wrap: wrap;
@@ -389,6 +389,122 @@
   font-size: 0.9rem;
   color: var(--text-secondary);
   margin-bottom: 0.5rem;
+}
+
+/* Layer typeahead on /docs/ – single-select combobox that filters
+   layers as the user types and lets them pick one with mouse or keyboard. */
+.gh-typeahead {
+  position: relative;
+}
+
+.gh-typeahead-control {
+  position: relative;
+}
+
+.gh-typeahead-input {
+  padding-right: 2.25rem;
+}
+
+.gh-typeahead-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  line-height: 1;
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 0.25rem;
+}
+
+.gh-typeahead-clear:hover,
+.gh-typeahead-clear:focus-visible {
+  background: var(--gh-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary);
+}
+
+.gh-typeahead-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding: 0.25rem 0.55rem;
+  background: var(--accent-color);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  max-width: 100%;
+}
+
+.gh-typeahead-chip-label {
+  opacity: 0.85;
+  font-weight: 500;
+}
+
+.gh-typeahead-chip-value {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gh-typeahead-chip-remove {
+  background: transparent;
+  border: 0;
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+  cursor: pointer;
+  border-radius: 0.2rem;
+}
+
+.gh-typeahead-chip-remove:hover,
+.gh-typeahead-chip-remove:focus-visible {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.gh-typeahead-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 0.15rem);
+  left: 0;
+  right: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-color);
+  border-radius: var(--gh-radius-md, 0.5rem);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.gh-typeahead-menu[hidden] {
+  display: none;
+}
+
+.gh-typeahead-option {
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.gh-typeahead-option.gh-typeahead-option-active,
+.gh-typeahead-option:hover {
+  background: var(--gh-hover, rgba(102, 126, 234, 0.12));
+  color: var(--text-primary);
+}
+
+.gh-typeahead-empty {
+  padding: 0.5rem 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 [data-theme="dark"] {
@@ -683,7 +799,7 @@
   }
 }
 
-/* Stay at 2 columns max — avoids ultra-wide module rows */
+/* Stay at 2 columns max – avoids ultra-wide module rows */
 @media (min-width: 1200px) {
   .living-modules-grid--wide {
     grid-template-columns: repeat(2, 1fr);
@@ -1048,7 +1164,7 @@
   border-top: 1px solid var(--border-color);
 }
 
-/* Detail pages (guild, etc.) — lighter hero */
+/* Detail pages (guild, etc.) – lighter hero */
 .gh-detail-hero {
   border-radius: var(--gh-radius-lg);
   border: 1px solid var(--card-border);
@@ -1121,7 +1237,7 @@
   gap: var(--gh-space-md);
 }
 
-/* Workgroup charter & goals — sidebar teasers with expand */
+/* Workgroup charter & goals – sidebar teasers with expand */
 .wg-sidebar-section-title {
   font-size: 0.7rem;
   font-weight: 700;
@@ -1241,7 +1357,7 @@
   line-height: 1.55;
 }
 
-/* Home — single-row activity rotator (between tagline and hub cards) */
+/* Home – single-row activity rotator (between tagline and hub cards) */
 .gh-home-activity {
   display: flex;
   align-items: center;
@@ -1351,7 +1467,7 @@
   max-width: 36rem;
 }
 
-/* Page heroes — cycling copy over full-width art (Select_3 placeholder until per-page swap) */
+/* Page heroes – cycling copy over full-width art (Select_3 placeholder until per-page swap) */
 .gh-page-hero {
   margin-bottom: var(--gh-space-lg);
 }
@@ -1466,7 +1582,7 @@
   box-shadow: 0 0 18px var(--gh-glow-soft);
 }
 
-/* Shared entity thumbnails — layers, workgroups, roles, guilds */
+/* Shared entity thumbnails – layers, workgroups, roles, guilds */
 .gh-entity-thumb,
 .layer-hero-image,
 .layer-display-image,
@@ -1561,7 +1677,7 @@ img.gh-entity-thumb {
   margin: 0 0 var(--gh-space-md);
 }
 
-/* Badge directory tabs — match feature pills */
+/* Badge directory tabs – match feature pills */
 .gh-badge-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1801,7 +1917,7 @@ img.gh-entity-thumb {
   display: block;
 }
 
-/* Auth panel — hide duplicate module title inside living-module */
+/* Auth panel – hide duplicate module title inside living-module */
 .gh-auth-panel .living-module-header {
   display: none;
 }
@@ -2002,7 +2118,7 @@ a:hover {
   transform: translateY(-4px);
 }
 
-/* Comments page — passage pill links to read view anchor */
+/* Comments page – passage pill links to read view anchor */
 a.gh-passage-comment-link {
   display: inline-flex;
   align-items: center;
@@ -2019,7 +2135,7 @@ a.gh-passage-comment-link:focus {
   text-decoration: none;
 }
 
-/* Image-overlay heroes only — fixed light text (no light-mode art variants yet) */
+/* Image-overlay heroes only – fixed light text (no light-mode art variants yet) */
 .gh-page-hero-overlay .gh-page-hero-title {
   color: #eef2ff;
 }
@@ -2053,7 +2169,7 @@ a.gh-passage-comment-link:focus {
   background: transparent;
 }
 
-/* GhImageCrop toolbar — rotate/flip button group on the modal footer */
+/* GhImageCrop toolbar – rotate/flip button group on the modal footer */
 .gh-crop-toolbar {
   display: flex;
   align-items: center;

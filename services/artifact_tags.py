@@ -1,4 +1,4 @@
-"""Backward-compatible imports — use services.layer_tags for new code."""
+"""Backward-compatible imports – use services.layer_tags for new code."""
 from services.layer_tags import (  # noqa: F401
     MAX_TAGS_PER_SUBJECT as MAX_TAGS_PER_ARTIFACT,
     apply_tag_filter,

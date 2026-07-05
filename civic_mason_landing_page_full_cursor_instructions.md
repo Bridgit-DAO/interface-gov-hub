@@ -43,7 +43,7 @@ The deployable site lives **outside** `gov-hub-dev`, at:
 - **WebGL path:** Three.js (`0.160.0` via CDN import map) with placeholder geometry: stone/door, valley plane, distant point lights, scripted transition (door swing + camera dolly + torch dim + fog). Subtle **desktop parallax** on mouse move.
 - **Fallback path:** `prefers-reduced-motion: reduce` **or** no WebGL → static layers + CSS crossfade into “valley” overlay; **no** long transition animation.
 - **Threshold copy:** “You are early.” / “The door is open.” / primary control **Become a Civic Mason** / “Step through.”
-- **Guided copy (matches spec):** two paragraphs about building communities + internet; then **Continue** (extra beat vs. spec’s single “tap to walk” prompt—acceptable for clarity).
+- **Guided copy (matches spec):** two paragraphs about building communities + internet; then **Continue** (extra beat vs. spec’s single “tap to walk” prompt–acceptable for clarity).
 - **Walk:** two discrete advances (“Tap to walk forward”); **Enter/Space** supported on walk zone; then paths.
 - **Paths:** three options; **Strengthen your community** is visually primary (“Suggested” label); pulse then navigate with `intent` query.
 - **Accessibility:** `aria-live` region `#cm-live`; reduced-motion branch; `noscript` link to onboarding.
@@ -61,7 +61,7 @@ Everything in the experience should reinforce:
 - Responsibility
 - Forward movement
 
-*(Optional: surface this line once in copy or VO—sparingly—not as repeated wallpaper.)*
+*(Optional: surface this line once in copy or VO–sparingly–not as repeated wallpaper.)*
 
 ---
 
@@ -71,12 +71,12 @@ We are NOT using responsive cropping only. We use **different compositions per d
 
 ### Mobile (primary)
 
-- Vertical door image (tight framing)—**`hero-mobile.png`** (or **`hero-mobile-branded.png`** if type is baked into art; adjust CSS URL in `cm-initiation.css`).
+- Vertical door image (tight framing)–**`hero-mobile.png`** (or **`hero-mobile-branded.png`** if type is baked into art; adjust CSS URL in `cm-initiation.css`).
 - User feels standing at the threshold; door dominates; valley suggested, not fully revealed.
 
 ### Desktop / tablet
 
-- Wide composition—**`hero-desktop.png`**.
+- Wide composition–**`hero-desktop.png`**.
 - More cinematic; parallax-lite on fallback + Three camera.
 
 ### DO NOT
@@ -119,7 +119,7 @@ Sequence:
 
 **Spec timing:** 1.5–2.2 seconds, ease-in, no abrupt cuts.
 
-**Current scaffold:** ~**3.8s** in `three-scene.js` / `app.js`—tune to hit the spec band.
+**Current scaffold:** ~**3.8s** in `three-scene.js` / `app.js`–tune to hit the spec band.
 
 **Fallback:** image crossfade + valley overlay (`fallback-ui.js`); reduced motion = instant state advance.
 
@@ -132,7 +132,7 @@ User enters an **open** valley (not an enclosed box).
 ### Visual requirements
 
 - Warm light, horizon readable, subtle depth (fog / gradient).
-- Subtle signs of other builders (distant lights)—**partially** met in Three (point field); fallback is gradient-only until art pass.
+- Subtle signs of other builders (distant lights)–**partially** met in Three (point field); fallback is gradient-only until art pass.
 
 ### Do NOT
 
@@ -161,7 +161,7 @@ Display after entering valley:
 
 **Current**
 
-- Two taps/clicks (or Enter/Space) on walk zone; **scroll-to-advance not implemented**—add if you want parity.
+- Two taps/clicks (or Enter/Space) on walk zone; **scroll-to-advance not implemented**–add if you want parity.
 
 **Do NOT**
 
@@ -173,7 +173,7 @@ Display after entering valley:
 
 **Spec:** paths **emerge from terrain** (not obvious card UI), subtle glow, one path brighter.
 
-**Current:** three **button-style** path blocks in CSS—scaffold only. Replace with shader/terrain markers or canvas-aligned hotspots when art is ready.
+**Current:** three **button-style** path blocks in CSS–scaffold only. Replace with shader/terrain markers or canvas-aligned hotspots when art is ready.
 
 ### Path content (intent mapping)
 
@@ -197,11 +197,11 @@ Display after entering valley:
 
 ## Emotional design rules
 
-1. **Not a game** — no quest UI, RPG chrome, or scoring.
-2. **Not fantasy** — avoid secret-society mystique; stone/door = **metaphor**, not genre.
-3. **Grounded, civic** — real, human, buildable.
-4. **Ritual, not hype** — slow, minimal copy, intentional motion.
-5. **Identity first** — user feels they are *becoming* something.
+1. **Not a game** – no quest UI, RPG chrome, or scoring.
+2. **Not fantasy** – avoid secret-society mystique; stone/door = **metaphor**, not genre.
+3. **Grounded, civic** – real, human, buildable.
+4. **Ritual, not hype** – slow, minimal copy, intentional motion.
+5. **Identity first** – user feels they are *becoming* something.
 
 ---
 
@@ -216,7 +216,7 @@ Display after entering valley:
 
 | Item | Spec | Current |
 |------|------|---------|
-| Defer Three.js until first interaction | Yes | **Not yet**—module loads with page |
+| Defer Three.js until first interaction | Yes | **Not yet**–module loads with page |
 | Fallback for low-end / no WebGL | Yes | **Yes** |
 | Mobile frame budget | Smooth 60 where possible | **Profile** on mid-tier Android |
 
@@ -233,7 +233,7 @@ Within **~20s**: this is about **building**, applies to **me**, **clear next ste
 
 ## Final instruction
 
-This should feel like: **stepping through a real doorway into an unfinished world**—not browsing a product site or playing a game.
+This should feel like: **stepping through a real doorway into an unfinished world**–not browsing a product site or playing a game.
 
 ---
 

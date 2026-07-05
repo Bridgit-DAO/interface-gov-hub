@@ -168,7 +168,7 @@ def verify_environment(env):
 
 ### 5. Database Migration System
 
-**Migration Format** (example — app uses imperative migrations in `migrations/__init__.py`):
+**Migration Format** (example – app uses imperative migrations in `migrations/__init__.py`):
 ```python
 # Example: user_event_subscription replaces legacy user_follow (see migrate_user_follow_to_event_subscriptions)
 """

@@ -150,8 +150,8 @@ app.run(use_reloader=use_reloader)
 **Implementation** (current):
 - **`UserEventSubscription`** (`user_event_subscription`): one row per `(user_id, event_type, subject_type, subject_id)` with `deliver_in_app` / `deliver_email`. Draft follows use `subject_type='draft'`, `subject_id=<draft_name>`, and event types such as `draft_comment_added`, `draft_submission_approved`, `draft_revision_approved`, `draft_published_as_rfc`.
 - Legacy **`user_follow`** was migrated away (`migrate_user_follow_to_event_subscriptions`); preset **notification levels** expand to the right set of `event_type` rows via `services/event_subscriptions.py` (`replace_draft_subscriptions`, `LEVEL_TO_EVENT_TYPES`, `infer_draft_notification_level`).
-- **Dispatch**: `services/document_follow_notifications.py` — `dispatch_document_followers(..., event_type=...)` loads subscribers by exact `event_type` + draft subject; respects subscription channels and layer email unsubscribe.
-- **Routes**: `routes/documents.py` — follow / unfollow / update level call `replace_draft_subscriptions`; new comments/replies dispatch with `event_type='draft_comment_added'`; submission approvals / revisions / RFC publish use `services/submission_notifications.py` (`draft_submission_approved`, `draft_revision_approved`, `draft_published_as_rfc`).
+- **Dispatch**: `services/document_follow_notifications.py` – `dispatch_document_followers(..., event_type=...)` loads subscribers by exact `event_type` + draft subject; respects subscription channels and layer email unsubscribe.
+- **Routes**: `routes/documents.py` – follow / unfollow / update level call `replace_draft_subscriptions`; new comments/replies dispatch with `event_type='draft_comment_added'`; submission approvals / revisions / RFC publish use `services/submission_notifications.py` (`draft_submission_approved`, `draft_revision_approved`, `draft_published_as_rfc`).
 **UI note**: The draft page still uses a **single notification-level dropdown** (presets: all / significant / major / comments / none), not per-event toggles. The database stores **one subscription row per event type**; presets only control which rows are created. A per-event UI would match mental model to storage and allow arbitrary combinations, at the cost of more controls and implementation work; the preset keeps the draft page simple while dispatch stays exact-match on `event_type`.
 **Components**: `models/identity.py`, `services/event_subscriptions.py`, `services/document_follow_notifications.py`, `routes/documents.py`  
 **Patterns**: Event-sourced notifications (`EventLog`), explicit subscriptions  
@@ -249,7 +249,7 @@ app.run(use_reloader=use_reloader)
 
 **Recently completed**:
 - **Waitlist feature**: Waitlist/WaitlistEntry/WaitlistMilestone models; APIs (list/create/get/join/leave/entries/update/milestones); project detail Waitlists tab with flair, join/position/referral link/milestones; URL hash `#waitlist` and `#waitlist-<id>`; Create Waitlist modal for project admins. Referral URLs use `?ref=CODE#waitlist-<id>`.
-- **Waitlist model fix**: SQLAlchemy backref name clash—`Waitlist` has column `milestones` (bool) and relationship was also named `milestones`. Renamed relationship backref to `milestone_list`; all usages updated (`api_get_waitlist`, `api_list_waitlist_milestones`, `api_list_waitlists`). List API now exposes `d['milestones']` as array of milestone dicts for UI.
+- **Waitlist model fix**: SQLAlchemy backref name clash–`Waitlist` has column `milestones` (bool) and relationship was also named `milestones`. Renamed relationship backref to `milestone_list`; all usages updated (`api_get_waitlist`, `api_list_waitlist_milestones`, `api_list_waitlists`). List API now exposes `d['milestones']` as array of milestone dicts for UI.
 - **Service**: `datatracker-dev.service` was failing with exit-code; fixed by above; service runs on port 8001 (build 264).
 
 **Resolved issues (2026-02-12 & 2026-02-13)**:
@@ -289,7 +289,7 @@ app.run(use_reloader=use_reloader)
   - X-Frame-Options: ALLOWALL header for iframe embedding
   - Signups tracked with format: `source: 'embed:example.com'`, `source_url: 'https://example.com/page'`
 
-**Key file**: `ietf_data_viewer_simple.py` — route `@app.route('/projects/')` (projects_directory), function `loadProjects()` in same template, API `GET /api/projects/`.
+**Key file**: `ietf_data_viewer_simple.py` – route `@app.route('/projects/')` (projects_directory), function `loadProjects()` in same template, API `GET /api/projects/`.
 
 ---
 
@@ -306,7 +306,7 @@ app.run(use_reloader=use_reloader)
 - **Repo layout**: `gov-hub-dev` (branch `dev`, port 8001), `gov-hub-prod` (branch `main`). Latest `dev` pushed to **interface-gov-hub**.
 - **In place**: `project_id` on Submission; project detail **Votes** tab with Create Vote button; Create Vote modal (submission dropdown, start/end times with timezone, quorum, threshold); submissions API filtered by `project_id`, `status=approved`, `doc_type=draft`; layer selector on submit form; default vote times (next hour + 7 days).
 - **Open issue**: Create Vote POST can return 500; client may show "body disturbed"; server `api_create_vote` may need debugging.
-- **Plan**: **PLANNING_SUMMARY.md** — Projects/Workgroups/Guilds RFC is in planning phase (branch `feature/projects-workgroups-guilds`); implementation not started. Current active work is **Votes** and project-detail flows on dev.
+- **Plan**: **PLANNING_SUMMARY.md** – Projects/Workgroups/Guilds RFC is in planning phase (branch `feature/projects-workgroups-guilds`); implementation not started. Current active work is **Votes** and project-detail flows on dev.
 
 ---
 
@@ -351,7 +351,7 @@ app.run(use_reloader=use_reloader)
 
 **Purpose**: Consolidated list of planned work for Gov Hub. Logged to JAUmemory (project: gov-hub). Memory ID: `1c1c290d-474c-49bd-a120-1c4884a61da6`
 
-**Full list**: See `GOV_HUB_REMAINING_TASKS.md` — complete DONE vs REMAINING with progress.
+**Full list**: See `GOV_HUB_REMAINING_TASKS.md` – complete DONE vs REMAINING with progress.
 
 ### Architecture & Refactor
 

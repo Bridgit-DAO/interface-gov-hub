@@ -1,4 +1,4 @@
-# Gov Hub — Feature Map
+# Gov Hub – Feature Map
 
 This document clusters all contemplated features for the Governance Hub, identifies which kinds of projects would use them, and organizes them as a potential website menu structure.
 
@@ -83,7 +83,7 @@ This allows code reuse without sacrificing governance clarity.
 - Visibility into multiple triads per role (competition on proposals, not duplication of artifacts)
 
 **Cultural Guardrail**
-New triads must articulate how their focus differs from existing triads for the same Role. Competition happens through proposals and artifacts—not redundant structures.
+New triads must articulate how their focus differs from existing triads for the same Role. Competition happens through proposals and artifacts–not redundant structures.
 
 **Who uses it**
 
@@ -245,7 +245,7 @@ Privileges can be configured as:
 # 7A) Quests & Bounties
 
 **What it is**
-A structured way to turn “we need help” into clear, time-bounded missions that produce real artifacts — with rewards.
+A structured way to turn “we need help” into clear, time-bounded missions that produce real artifacts – with rewards.
 
 - **Quest** = a defined contribution path with acceptance criteria (can award a badge).
 - **Bounty** = a quest with an explicit reward (can be non-monetary, monetary, or both).
@@ -304,7 +304,7 @@ A symbolic, public memory structure where contributors place bricks representing
 # 8A) Digital Monuments Registry
 
 **What it is**
-A way to register and steward durable public-facing “monuments” — digital places, artifacts, collections, or reference points that a Layer considers culturally or civically important.
+A way to register and steward durable public-facing “monuments” – digital places, artifacts, collections, or reference points that a Layer considers culturally or civically important.
 
 A monument can be:
 - An Ordinal inscription (or set/collection)
@@ -537,7 +537,7 @@ This keeps the global system simple while allowing each Layer to function as its
 
 ---
 
-# Implementation Strategy — Full System, Phased Exposure
+# Implementation Strategy – Full System, Phased Exposure
 
 The Governance Hub should be **implemented with the full feature set in the architecture**, but **exposed to users in phases through the navigation system**. This ensures the system can grow without repeated refactoring while keeping the user experience simple during early adoption.
 
@@ -553,7 +553,7 @@ This means:
 
 ---
 
-# Phase 1 — Initial Public Navigation
+# Phase 1 – Initial Public Navigation
 
 Navigation exposed to users:
 
@@ -588,7 +588,7 @@ These may exist in the system but are not primary navigation items yet.
 
 ---
 
-# Phase 2 — Contribution Expansion
+# Phase 2 – Contribution Expansion
 
 Navigation additions likely appear under **Contribute** and **Governance**.
 
@@ -607,7 +607,7 @@ Encourage structured participation, make contributions legible as durable artifa
 
 ---
 
-# Phase 3 — Knowledge & Governance Depth
+# Phase 3 – Knowledge & Governance Depth
 
 Navigation additions likely appear under **Learn** and **Governance**.
 
@@ -624,7 +624,7 @@ Deepen institutional memory and governance literacy.
 
 ---
 
-# Phase 4 — Overweb / Canopi Integration
+# Phase 4 – Overweb / Canopi Integration
 
 Advanced functionality tied to the broader meta-layer ecosystem.
 

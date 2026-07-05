@@ -126,7 +126,7 @@ def gh_living_module(
 
 
 def gh_breadcrumb(items: list) -> str:
-    """items: sequence of (label, href) — href None for active crumb."""
+    """items: sequence of (label, href) – href None for active crumb."""
     parts = ['<nav aria-label="breadcrumb" class="gh-detail-breadcrumb mb-3"><ol class="breadcrumb">']
     for i, item in enumerate(items):
         label, href = item[0], item[1] if len(item) > 1 else None

@@ -17,7 +17,7 @@ _ML_DRAFT_RE = re.compile(r'^ML-Draft-(\d+)$', re.IGNORECASE)
 def normalize_title(title: str) -> str:
     """Case-insensitive trimmed title for duplicate comparison."""
     t = re.sub(r'\s+', ' ', (title or '').strip()).casefold()
-    t = re.sub(r'[–—−]', '-', t)
+    t = re.sub(r'[––−]', '-', t)
     return t
 
 

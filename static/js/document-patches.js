@@ -1,5 +1,5 @@
 /**
- * Document patches page — merge/decline via API (passage-anchored patches only).
+ * Document patches page – merge/decline via API (passage-anchored patches only).
  */
 (function () {
   'use strict';

@@ -19,7 +19,7 @@
   },
   "dev": {
     "label": "仅开发：Civic Mason 规则",
-    "demoSwitch": "演示模式 — 无需徽章，可无限放置"
+    "demoSwitch": "演示模式 – 无需徽章，可无限放置"
   },
   "a11y": {
     "demoMode": "演示模式",
@@ -41,14 +41,14 @@
   },
   "config": {
     "title": "配置砖块",
-    "hint": "选择颜色 — 双击以确认并关闭。",
+    "hint": "选择颜色 – 双击以确认并关闭。",
     "message": "留言",
     "optional": "（可选）",
     "placeholder": "留下留言…"
   },
   "edit": {
     "title": "编辑砖块",
-    "hint": "更新颜色或留言后点击接受 — 或取消本次放置。",
+    "hint": "更新颜色或留言后点击接受 – 或取消本次放置。",
     "cancelPlacement": "取消放置",
     "accept": "接受"
   },

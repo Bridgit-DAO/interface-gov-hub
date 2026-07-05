@@ -36,7 +36,7 @@ The MLTF (Meta-Layer Task Force) Datatracker is a participatory governance platf
 ## Vision & Mission
 
 ### Vision
-To build the governance layer for the next internet — a transparent, participatory, and regenerative framework that ensures the interface layer (where meaning, identity, and trust are formed) serves humanity's best interests.
+To build the governance layer for the next internet – a transparent, participatory, and regenerative framework that ensures the interface layer (where meaning, identity, and trust are formed) serves humanity's best interests.
 
 ### Mission
 Create a platform where anyone can contribute to developing the foundational practices, terminology, and standards that will govern the meta-layer, ensuring that the next level of the internet is built with open participation, rough consensus, and permanent transparency.
@@ -282,7 +282,7 @@ The MLTF Datatracker is a web-based platform that enables:
 
 **For General Public:**
 - "Your voice matters in shaping the next internet"
-- "Open to everyone — no technical expertise required"
+- "Open to everyone – no technical expertise required"
 - "Transparent process you can trust"
 
 ### Key Messages
@@ -480,7 +480,7 @@ Only platform building governance for the interface layer from the ground up, st
 ### Technical Risks
 
 **Risk:** Platform instability or downtime  
-**Impact:** High — damages credibility  
+**Impact:** High – damages credibility  
 **Mitigation:** 
 - Comprehensive testing before launch
 - Monitoring and alerting
@@ -488,7 +488,7 @@ Only platform building governance for the interface layer from the ground up, st
 - Backup infrastructure
 
 **Risk:** Security vulnerabilities  
-**Impact:** High — user data at risk  
+**Impact:** High – user data at risk  
 **Mitigation:**
 - Security audits
 - Regular updates
@@ -498,7 +498,7 @@ Only platform building governance for the interface layer from the ground up, st
 ### Community Risks
 
 **Risk:** Low engagement  
-**Impact:** Medium — launch fails to gain traction  
+**Impact:** Medium – launch fails to gain traction  
 **Mitigation:**
 - Direct outreach to target audiences
 - Clear value proposition
@@ -506,7 +506,7 @@ Only platform building governance for the interface layer from the ground up, st
 - Active community management
 
 **Risk:** Low-quality comments  
-**Impact:** Medium — dilutes value of platform  
+**Impact:** Medium – dilutes value of platform  
 **Mitigation:**
 - Emphasize quality over quantity
 - Community guidelines
@@ -516,7 +516,7 @@ Only platform building governance for the interface layer from the ground up, st
 ### Strategic Risks
 
 **Risk:** Misalignment with community needs  
-**Impact:** High — platform doesn't serve purpose  
+**Impact:** High – platform doesn't serve purpose  
 **Mitigation:**
 - Regular feedback collection
 - Iterative improvement
@@ -524,7 +524,7 @@ Only platform building governance for the interface layer from the ground up, st
 - Transparent decision-making
 
 **Risk:** Competition or alternative solutions  
-**Impact:** Medium — reduces relevance  
+**Impact:** Medium – reduces relevance  
 **Mitigation:**
 - Focus on unique value proposition
 - Build strong community

@@ -40,7 +40,7 @@ def nomination_respond_page(token):
             <div class="alert alert-danger">This nomination link is invalid or has expired.</div>
         </div>
         """
-        return render_page('Nomination — Gov Hub', content, theme=current_theme, user_menu=generate_user_menu())
+        return render_page('Nomination – Gov Hub', content, theme=current_theme, user_menu=generate_user_menu())
 
     expired = (
         nomination.nominee_token_expires_at
@@ -152,7 +152,7 @@ def nomination_respond_page(token):
     }}
     </script>
     """
-    return render_page('Review nomination — Gov Hub', content, theme=current_theme, user_menu=generate_user_menu())
+    return render_page('Review nomination – Gov Hub', content, theme=current_theme, user_menu=generate_user_menu())
 
 
 @bp.route('/api/nomination/respond/<token>/', methods=['POST'])

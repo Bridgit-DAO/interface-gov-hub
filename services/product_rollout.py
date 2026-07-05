@@ -16,7 +16,7 @@ from models import SiteConfig
 PRODUCT_ROLLOUT_SITE_CONFIG_KEY = 'product_rollout'
 
 # Known toggles: merge order, DB JSON overrides, then per-key future extension.
-# This order is also used when two flags block the same request — the first listed here wins
+# This order is also used when two flags block the same request – the first listed here wins
 # in `should_block_path_request` (returned in API/body as `feature`).
 FEATURE_KEYS: List[str] = [
     'layers',
@@ -236,7 +236,7 @@ def _path_needs_badges_api(path: str) -> bool:
 
 
 def _path_needs_roles_api(path: str) -> bool:
-    """Role/cluster/claim APIs (badge grant routes also hit /claims/…/badges/ — they add `badges` via path match)."""
+    """Role/cluster/claim APIs (badge grant routes also hit /claims/…/badges/ – they add `badges` via path match)."""
     if not path.startswith('/api/'):
         return False
     if path.startswith('/api/roles/'):

@@ -6,8 +6,8 @@ Requires: Flask app context (run from gov-hub-dev root):
   python scripts/import_auth_communities_from_canopi.py
 
 Env:
-  CANOPI_INTERNAL_API_URL — Canopi API base (for optional post-import provision)
-  GOV_HUB_API_KEY — shared secret for Canopi internal routes
+  CANOPI_INTERNAL_API_URL – Canopi API base (for optional post-import provision)
+  GOV_HUB_API_KEY – shared secret for Canopi internal routes
 """
 from __future__ import annotations
 

@@ -19,7 +19,7 @@ Maps existing product flows to the scoped attribution contract in [contract.json
 
 | Stage | Storage | Contract mapping |
 |-------|---------|------------------|
-| Share | — | Legacy UUID in query |
+| Share | – | Legacy UUID in query |
 | Conversion | `AppUser.referred_by_user_id` | `conversion_type=user_signup`, `scope_type=platform`, `scope_id=canopi` |
 | Denorm | User row FK | Same referrer |
 
@@ -74,7 +74,7 @@ Maps existing product flows to the scoped attribution contract in [contract.json
 
 **Handlers:** `gov-hub-prod/routes/waitlists.py` → `join_waitlist()`
 
-**Gap:** Embed email join (`join-email`) has `source`/`source_url` only — no referrer yet (Phase 3).
+**Gap:** Embed email join (`join-email`) has `source`/`source_url` only – no referrer yet (Phase 3).
 
 ### 6. Layer invitation accept
 
@@ -95,7 +95,7 @@ Gov Hub `User.id` and Canopi `AppUser.id` are **not assumed equal**. Scoped toke
 
 ## Resolution order (Gov Hub join endpoints)
 
-1. `ref_token` — verify HMAC, use `referrerUserId` from payload  
+1. `ref_token` – verify HMAC, use `referrerUserId` from payload  
 2. Self-referral blocked; existing `referred_by_id` preserved on rejoin (layer only)
 
 Legacy `?ref=CODE` user codes are **not** accepted. Layer invitations set `invite:{token}` server-side on accept (separate path).

@@ -35,7 +35,7 @@ def _headers() -> Dict[str, str]:
 
 
 def _absolute_image_url(image_url: Optional[str]) -> Optional[str]:
-    """Gov Hub serves /uploads/entity_images/* on this site — Canopi needs absolute URLs."""
+    """Gov Hub serves /uploads/entity_images/* on this site – Canopi needs absolute URLs."""
     if not image_url:
         return None
     s = str(image_url).strip()

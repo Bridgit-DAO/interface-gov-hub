@@ -2,7 +2,7 @@
 
 **Project:** gov-hub-dev  
 **Date:** 2026-04-13  
-**Status:** Planned — not yet started  
+**Status:** Planned – not yet started  
 
 ---
 
@@ -13,12 +13,12 @@
 - **Paths**: `m-draft/**` (working drafts) and `ml-rfc/**` (formal RFCs).
 - **User experience**: Single Save button in Gov Hub; no GitHub UI interaction required.
 - **Drafts are public**: everything committed to the repo is publicly visible.
-- **Conflict policy**: 409 → reject B's save, surface "refresh" message — no silent overwrite.
+- **Conflict policy**: 409 → reject B's save, surface "refresh" message – no silent overwrite.
 - **Future**: IPFS CID and Ordinal inscription IDs written into Markdown frontmatter; GitHub = index of record across all three content-addressed copies.
 
 ---
 
-## Phase 0 — Foundation (pre-code decisions)
+## Phase 0 – Foundation (pre-code decisions)
 
 ### 0.1 GitHub Repo
 - Confirm target repo (existing `Bridgit-DAO/interface-gov-hub` or new `Bridgit-DAO/ml-documents`).
@@ -34,7 +34,7 @@
 - Create GitHub App under Bridgit org.
 - Permissions: `Contents: Read & Write`, `Metadata: Read`.
 - Install on **target repo only** (least privilege).
-- Store private key (`.pem`) as env var / secrets manager — never committed.
+- Store private key (`.pem`) as env var / secrets manager – never committed.
 
 ### 0.3 Repo Ruleset (Branch Protection)
 - `main` blocked for all direct pushes **except** the GitHub App.
@@ -56,9 +56,9 @@ Feature flag: if `GITHUB_APP_ID` is absent, skip GitHub sync silently.
 
 ---
 
-## Phase 1 — GitHub Service Layer
+## Phase 1 – GitHub Service Layer
 
-New module: `services/github_sync.py` — pure API calls, no Flask dependency.
+New module: `services/github_sync.py` – pure API calls, no Flask dependency.
 
 ### 1.1 Authentication
 - GitHub App JWT flow: sign short-lived JWT with private key + app ID.
@@ -87,15 +87,15 @@ New module: `services/github_sync.py` — pure API calls, no Flask dependency.
 
 ### 1.5 Commit Message Format
 ```
-draft(m-draft): update {slug} — {user.username}
-rfc(ml-rfc): publish {slug} v{version} — {user.username}
-promote: m-draft/{slug} → ml-rfc/{slug} — {user.username}
-archive(ml-rfc): withdraw {slug} — {user.username}
+draft(m-draft): update {slug} – {user.username}
+rfc(ml-rfc): publish {slug} v{version} – {user.username}
+promote: m-draft/{slug} → ml-rfc/{slug} – {user.username}
+archive(ml-rfc): withdraw {slug} – {user.username}
 ```
 
 ---
 
-## Phase 2 — Document Model Extensions
+## Phase 2 – Document Model Extensions
 
 New migration: `migrate_github_sync_v1`
 
@@ -114,7 +114,7 @@ New migration: `migrate_github_sync_v1`
 
 ---
 
-## Phase 3 — Route Integration
+## Phase 3 – Route Integration
 
 ### 3.1 Save / Update Draft (`m-draft/**`)
 1. Existing save handler runs (DB upsert).
@@ -140,7 +140,7 @@ New migration: `migrate_github_sync_v1`
 
 ---
 
-## Phase 4 — Conflict UX
+## Phase 4 – Conflict UX
 
 ### 4.1 Hidden SHA in Editor
 - On open: server confirms current `github_sha`; injects into editor page as hidden input.
@@ -159,7 +159,7 @@ New migration: `migrate_github_sync_v1`
 
 ---
 
-## Phase 5 — IPFS and Ordinals (Future-Ready Hooks)
+## Phase 5 – IPFS and Ordinals (Future-Ready Hooks)
 
 ### 5.1 Model Fields (add now or confirm existing)
 | Field | Type | Purpose |
@@ -183,7 +183,7 @@ GitHub becomes the **index of record** across all three content-addressed copies
 
 ---
 
-## Phase 6 — Operations and Observability
+## Phase 6 – Operations and Observability
 
 ### 6.1 Sync Queue
 - Phase 1: synchronous call on save (no queue; acceptable for low traffic).
@@ -201,7 +201,7 @@ New `cli/github_resync.py`:
 
 ---
 
-## Save Draft — Full Sequence
+## Save Draft – Full Sequence
 
 ```
 User clicks "Save"

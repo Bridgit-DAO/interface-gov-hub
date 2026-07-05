@@ -1,4 +1,4 @@
-# Signal Artifact — Architecture (consolidated)
+# Signal Artifact – Architecture (consolidated)
 
 **Status:** Design / pre-implementation  
 **Related:** `signal_artifact_cursor_briefing.md`, `artifact_specification.md`  
@@ -9,7 +9,7 @@
 
 ## Purpose
 
-Signal is a **Metaweb primitive**: a living, versioned stream of short civic reflections — not a quote widget or social feed. The homepage card under Quick stats is a **view** into one configured stream instance, not a special-case feature.
+Signal is a **Metaweb primitive**: a living, versioned stream of short civic reflections – not a quote widget or social feed. The homepage card under Quick stats is a **view** into one configured stream instance, not a special-case feature.
 
 Design goals: calm, dignified, traceable, stewarded civic memory.
 
@@ -45,7 +45,7 @@ Extend `artifact_specification.md` with:
 ### Signal item (not a full governance artifact)
 
 - Lightweight, high-churn content
-- Mandatory version history — never silent overwrite
+- Mandatory version history – never silent overwrite
 - Editorial status: `draft → scheduled → published → archived`
 - Slot metadata: `expected_publish_date`, `actual_publish_at`, `slot_status`
 
@@ -59,7 +59,7 @@ Extend `artifact_specification.md` with:
 
 See `signal_artifact_cursor_briefing.md` for full TypeScript-style schema (`SignalArtifact`, `SignalItem`, `SignalContentPattern`, `SignalFrequency`, `SignalVersion`, etc.).
 
-### Reliability config (new — on stream scaffold)
+### Reliability config (new – on stream scaffold)
 
 ```yaml
 reliability:
@@ -73,16 +73,16 @@ reliability:
 
 ### Stream reliability states
 
-- `active` — normal operation
-- `degraded` — miss or failed publish; recovery in progress or fallback used
-- `paused` — intentional halt (blocked if queue below minimum depth)
+- `active` – normal operation
+- `degraded` – miss or failed publish; recovery in progress or fallback used
+- `paused` – intentional halt (blocked if queue below minimum depth)
 
 ### Slot status (per item / slot)
 
-- `on_time` — published within grace window
-- `late` — published after grace, before miss deadline
-- `missed` — no live signal by miss deadline
-- `recovered` — published after miss via fallback ladder
+- `on_time` – published within grace window
+- `late` – published after grace, before miss deadline
+- `missed` – no live signal by miss deadline
+- `recovered` – published after miss via fallback ladder
 
 ---
 
@@ -111,7 +111,7 @@ Record which case occurred in EventLog and slot metadata.
 ### Publish worker (required)
 
 - Dedicated job (systemd timer or equivalent), every 1–5 minutes
-- Idempotent `publish_due_signals()` — never rely on homepage load
+- Idempotent `publish_due_signals()` – never rely on homepage load
 - Separate health check: "Is today's slot satisfied?"
 
 ### Fallback ladder (on publish failure)
@@ -120,7 +120,7 @@ Record which case occurred in EventLog and slot metadata.
 2. Promote next approved item from queue
 3. Pull from **fallback pool** (`fallback_eligible` items, steward-curated, not yesterday's repeat)
 4. Escalate: steward + site-admin alert; stream → `degraded`
-5. Last resort: honest **degraded UI** ("Signal paused — steward notified") — **not** silence, **not** yesterday's text posing as today
+5. Last resort: honest **degraded UI** ("Signal paused – steward notified") – **not** silence, **not** yesterday's text posing as today
 
 ### Proactive alerts
 
@@ -171,7 +171,7 @@ Attach to **signal item**, not only stream.
 |------------|----------|
 | Comments / replies | Extend `Comment` with `signal_item_id`; reuse threading patterns from artifact comments |
 | Follow stream | `UserEventSubscription`: `subject_type='signal_stream'`, `event_type='signal_published'` |
-| Like / bookmark | New `signal_engagement(user_id, signal_item_id, kind)` — counts derived from rows, not JSON |
+| Like / bookmark | New `signal_engagement(user_id, signal_item_id, kind)` – counts derived from rows, not JSON |
 | Share | Link to item page + optional Open Graph |
 | References | `ArtifactRelation` or draft metadata → `signal_item_id` |
 
@@ -189,10 +189,10 @@ Stream scaffold: `contentPattern`, `frequency`, `generationMode`, `cognitiveEnvi
 
 ### 2. Content operations (day-to-day)
 
-- **Queue** — drafts, scheduled, LLM proposals awaiting approval
-- **Published** — archive with edit / retire
-- **Import** — JSON batch (seed file)
-- **Generate** — "Request N drafts" with optional context override
+- **Queue** – drafts, scheduled, LLM proposals awaiting approval
+- **Published** – archive with edit / retire
+- **Import** – JSON batch (seed file)
+- **Generate** – "Request N drafts" with optional context override
 
 **Rule:** LLM output always `draft`. Human steward approves → schedule → publish. Never auto-publish.
 
@@ -234,7 +234,7 @@ Every protocol shapes behavior.
 
 ## Phasing
 
-### Phase 1 — Primitive + homepage (MVP)
+### Phase 1 – Primitive + homepage (MVP)
 
 1. Spec `signal` in artifact docs
 2. Stream artifact + item + version tables
@@ -243,13 +243,13 @@ Every protocol shapes behavior.
 5. Manual steward create/edit with version history
 6. Archive page
 
-### Phase 2 — Engagement
+### Phase 2 – Engagement
 
 7. Like, bookmark, share
 8. Comments on item
 9. Follow stream
 
-### Phase 3 — LLM
+### Phase 3 – LLM
 
 10. Generate drafts + steward approval UI
 11. Scheduling automation + proactive queue alerts
@@ -268,7 +268,7 @@ Every protocol shapes behavior.
 
 - Restraint, dignity, clarity, traceability, continuity, human stewardship
 - Not a quote wall, social feed, or motivational wallpaper
-- A quiet observatory — living civic intelligence
+- A quiet observatory – living civic intelligence
 - Misses are visible to stewards, not hidden from the public via stale content
 
 ---
@@ -285,8 +285,8 @@ Every protocol shapes behavior.
 
 ## References
 
-- `signal_artifact_cursor_briefing.md` — schema, UI mockups, LLM prompt, MVP acceptance criteria
-- `artifact_specification.md` — base artifact model
-- `routes/pages.py` — Quick stats column placement
-- `models/artifact.py` — `Artifact`, `Comment`, `knowledge_scaffold`
-- `models/notifications.py` — `UserEventSubscription` for follow
+- `signal_artifact_cursor_briefing.md` – schema, UI mockups, LLM prompt, MVP acceptance criteria
+- `artifact_specification.md` – base artifact model
+- `routes/pages.py` – Quick stats column placement
+- `models/artifact.py` – `Artifact`, `Comment`, `knowledge_scaffold`
+- `models/notifications.py` – `UserEventSubscription` for follow

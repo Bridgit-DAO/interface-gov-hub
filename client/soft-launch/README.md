@@ -1,10 +1,10 @@
-# Soft launch — future Vue entry (optional)
+# Soft launch – future Vue entry (optional)
 
 Scaffold pages today live under Flask:
 
-- `/soft-launch/` — homepage
-- `/soft-launch/onboarding/` — five-step wizard
-- `/soft-launch/artifact/` — demo contribution (`?scenario=…`)
+- `/soft-launch/` – homepage
+- `/soft-launch/onboarding/` – five-step wizard
+- `/soft-launch/artifact/` – demo contribution (`?scenario=…`)
 
 JSON: `GET /api/soft-launch/fixtures/`, `GET /api/soft-launch/lifecycle/`
 

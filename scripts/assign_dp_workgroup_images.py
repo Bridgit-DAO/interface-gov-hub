@@ -51,7 +51,7 @@ if __name__ == '__main__':
     force = '--force' in sys.argv
     source = Path(sys.argv[sys.argv.index('--source') + 1]) if '--source' in sys.argv else DEFAULT_SOURCE
     if dry:
-        print('Dry run — no database changes will be saved.')
+        print('Dry run – no database changes will be saved.')
     if force:
-        print('Force — overwriting existing image_url values.')
+        print('Force – overwriting existing image_url values.')
     raise SystemExit(main(dry_run=dry, force=force, source_dir=source))

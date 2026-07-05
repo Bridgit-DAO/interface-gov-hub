@@ -1,5 +1,5 @@
 """
-International tier pricing by phone country — best practice for global communities.
+International tier pricing by phone country – best practice for global communities.
 
 This module provides country-based tier pricing for inscription services.
 Communities can opt into offering tier pricing to provide equitable access

@@ -1,4 +1,4 @@
-# International Tier Pricing — Best Practice for Overweb Communities
+# International Tier Pricing – Best Practice for Overweb Communities
 
 Tier pricing by phone country provides equitable access to inscription and other paid services for participants from different economic regions. This document describes how it works and how to adopt it in your Overweb application.
 
@@ -28,14 +28,14 @@ In gov-hub, projects (layers/communities) can opt in:
 ## Adopting in Other Apps
 
 1. **Copy the tier pricing module** (`tier_pricing.py`):
-   - `PHONE_TIER_MAP` — country prefix to tier
-   - `get_tier_for_phone(phone)` — returns 1, 2, or 3
-   - `get_inscribe_price(page_count, image_count, tier, ...)` — returns price breakdown
+   - `PHONE_TIER_MAP` – country prefix to tier
+   - `get_tier_for_phone(phone)` – returns 1, 2, or 3
+   - `get_inscribe_price(page_count, image_count, tier, ...)` – returns price breakdown
 
 2. **API shape** (for consistency across Overweb apps):
-   - `POST /api/inscribe/calculate/` — `{page_count, image_count, tier}` → price breakdown
-   - `POST /api/inscribe/send-otp/` — `{phone}` → sends OTP
-   - `POST /api/inscribe/verify-otp/` — `{phone, code, page_count, image_count}` → tier + final price
+   - `POST /api/inscribe/calculate/` – `{page_count, image_count, tier}` → price breakdown
+   - `POST /api/inscribe/send-otp/` – `{phone}` → sends OTP
+   - `POST /api/inscribe/verify-otp/` – `{phone, code, page_count, image_count}` → tier + final price
 
 3. **Config** (SiteConfig or equivalent):
    - `inscribe_price_per_page`, `inscribe_price_per_image`
@@ -61,6 +61,6 @@ When payment succeeds, a `Submission` is created immediately with:
 
 ## References
 
-- `tier_pricing.py` — reusable module
-- `InscriptionOrder` model — stores tier, price, acknowledgment flags
-- `Project.offer_tier_pricing` — community opt-in
+- `tier_pricing.py` – reusable module
+- `InscriptionOrder` model – stores tier, price, acknowledgment flags
+- `Project.offer_tier_pricing` – community opt-in

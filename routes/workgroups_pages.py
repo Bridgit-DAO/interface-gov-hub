@@ -907,7 +907,7 @@ def workgroup_detail(workgroup_slug):
                                 <div class="mb-3">
                                     <label for="edit-wg-document-ref" class="form-label">Document (optional)</label>
                                     <select class="form-select" id="edit-wg-document-ref">
-                                        <option value="">— None —</option>
+                                        <option value="">– None –</option>
                                     </select>
                                     <div class="form-text">Link this workgroup to a specific draft document.</div>
                                 </div>
@@ -1011,7 +1011,7 @@ def workgroup_detail(workgroup_slug):
                 throw new Error(data.error || ('Could not load documents (' + resp.status + ')'));
             }}
             const docs = data.documents || [];
-            let html = '<option value="">— None —</option>';
+            let html = '<option value="">– None –</option>';
             docs.forEach(function(d) {{
                 const label = d.label || d.title || d.id;
                 const selected = selectedId && d.id === selectedId ? ' selected' : '';
@@ -1023,11 +1023,11 @@ def workgroup_detail(workgroup_slug):
             }}
         }} catch (e) {{
             console.warn('Workgroup document picker:', e);
-            sel.innerHTML = '<option value="">— None —</option>';
+            sel.innerHTML = '<option value="">– None –</option>';
             if (selectedId) {{
                 sel.innerHTML += '<option value="' + String(selectedId).replace(/"/g, '&quot;') + '" selected>Linked document (' + selectedId + ')</option>';
             }}
-            sel.innerHTML += '<option value="" disabled>Could not load draft list — refresh and try again</option>';
+            sel.innerHTML += '<option value="" disabled>Could not load draft list – refresh and try again</option>';
         }}
         sel.disabled = false;
     }}

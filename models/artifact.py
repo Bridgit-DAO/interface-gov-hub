@@ -116,7 +116,7 @@ class Artifact(db.Model):
     status = db.Column(db.String(20), default='draft', nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)
-    # Knowledge layer (contribution type + optional scaffold) — see services/knowledge_layer.py
+    # Knowledge layer (contribution type + optional scaffold) – see services/knowledge_layer.py
     knowledge_form = db.Column(db.String(30), nullable=True, index=True)
     knowledge_scaffold = db.Column(db.JSON, nullable=True)
 

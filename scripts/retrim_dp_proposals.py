@@ -31,7 +31,7 @@ def main() -> None:
             for item in stats['errors']:
                 print(f"  {item['id']}: {item['error']}")
         if args.dry_run:
-            print('\nDry run — no changes saved.')
+            print('\nDry run – no changes saved.')
         else:
             print('\nCommitted.')
 

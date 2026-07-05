@@ -76,7 +76,7 @@ def profile_security():
                     <ol class="small text-muted mb-3">
                         <li>Scan the QR code or enter the secret key manually.</li>
                         <li>Enter the 6-digit code from your app to confirm.</li>
-                        <li>Save your backup codes when shown — they are shown only once.</li>
+                        <li>Save your backup codes when shown – they are shown only once.</li>
                     </ol>
                     <div class="text-center mb-3">
                         <div id="gh-mfa-qr" class="d-inline-block p-2 bg-white rounded"></div>

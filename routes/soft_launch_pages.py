@@ -578,8 +578,8 @@ def _build_artifact_demo_html(
               <button type="button" class="btn btn-warning btn-sm sl-vote-btn" data-choice="abstain"><span data-gh-i18n="softLaunch.artifact.voteAbstain"></span></button>
             </div>
             <div id="sl-vote-details">
-              <p class="small mb-1"><strong><span data-gh-i18n="softLaunch.artifact.voteClosesIn"></span></strong> {_esc(v.get('closes_in_label', '—'))}</p>
-              <p class="small mb-3"><strong><span data-gh-i18n="softLaunch.artifact.voteOpenedOn"></span></strong> {_esc(v.get('opened_on_label', '—'))}</p>
+              <p class="small mb-1"><strong><span data-gh-i18n="softLaunch.artifact.voteClosesIn"></span></strong> {_esc(v.get('closes_in_label', '–'))}</p>
+              <p class="small mb-3"><strong><span data-gh-i18n="softLaunch.artifact.voteOpenedOn"></span></strong> {_esc(v.get('opened_on_label', '–'))}</p>
               <p class="small mb-0"><span data-gh-i18n-interp="softLaunch.artifact.voteTallyLine" data-i18n-supports="{_esc(v.get('supports', 0))}" data-i18n-opposes="{_esc(v.get('opposes', 0))}" data-i18n-abstains="{_esc(v.get('abstains', 0))}"></span></p>
             </div>
           </div>
@@ -1062,9 +1062,9 @@ def _build_artifact_demo_html(
                           hoursLeft.toFixed(1) + ' ' + t('softLaunch.js.hoursSuffix') + '</p>';
                   html += '<p class="small mb-3"><strong>' + t('softLaunch.artifact.voteOpenedOn') + '</strong> ' +
                           new Date(data.start_at).toLocaleString() + '</p>';
-                  html += '<p class="small mb-1"><strong>' + t('softLaunch.votePanel.statusLine') + '</strong> ' + (data.status || '—') + '</p>';
-                  html += '<p class="small mb-0">' + t('softLaunch.votePanel.ballotsCast') + ' ' + (data.ballot_count != null ? data.ballot_count : '—') +
-                          ' · ' + t('softLaunch.votePanel.eligible') + ' ' + (data.eligible_count != null ? data.eligible_count : '—') + '</p>';
+                  html += '<p class="small mb-1"><strong>' + t('softLaunch.votePanel.statusLine') + '</strong> ' + (data.status || '–') + '</p>';
+                  html += '<p class="small mb-0">' + t('softLaunch.votePanel.ballotsCast') + ' ' + (data.ballot_count != null ? data.ballot_count : '–') +
+                          ' · ' + t('softLaunch.votePanel.eligible') + ' ' + (data.eligible_count != null ? data.eligible_count : '–') + '</p>';
                   html += '<p class="small text-muted mt-2 mb-0">' + t('softLaunch.votePanel.tallyNote') + '</p>';
                   voteDetails.innerHTML = html;
                 }}
@@ -1213,7 +1213,7 @@ def soft_launch_home():
     user_menu = generate_user_menu()
     theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     return render_page(
-        'Soft Launch — Gov-Hub',
+        'Soft Launch – Gov-Hub',
         _build_homepage_html(),
         theme=theme,
         user_menu=user_menu,
@@ -1230,7 +1230,7 @@ def soft_launch_onboarding():
     user_menu = generate_user_menu()
     theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     return render_page(
-        'Onboarding — Soft Launch',
+        'Onboarding – Soft Launch',
         _build_onboarding_html(),
         theme=theme,
         user_menu=user_menu,
@@ -1256,7 +1256,7 @@ def soft_launch_artifact_demo():
     theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
     wired = SOFT_LAUNCH_WIRED_ARTIFACT_ID or None
     return render_page(
-        f"Demo — {_esc(artifact.get('title') or 'Soft launch')}",
+        f"Demo – {_esc(artifact.get('title') or 'Soft launch')}",
         _build_artifact_demo_html(
             artifact,
             show_dev_hints=current_app.debug,

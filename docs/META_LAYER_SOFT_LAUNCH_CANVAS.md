@@ -2,7 +2,7 @@
 
 **Canonical for implementation.** This document merges the original soft-launch narrative with **Directive §15** (status, artifact vs bridge wording, API rules). Where earlier copy differed, **this file wins.**
 
-**Stack note (gov-hub-dev):** Flask + SQLAlchemy + Vue 3 + Vite — not React/Next; same “components first, fixtures first” build order applies.
+**Stack note (gov-hub-dev):** Flask + SQLAlchemy + Vue 3 + Vite – not React/Next; same “components first, fixtures first” build order applies.
 
 **Scaffold (implemented):**
 
@@ -32,9 +32,9 @@ Code: `fixtures/soft_launch.py`, `services/soft_launch_lifecycle.py`, `routes/so
 
 ## 2. How it works
 
-1. **Contribute** — Share an idea or insight  
-2. **Review** — Others **support**, **oppose**, or expand it *(artifact actions use **Oppose**; API relation type remains `opposes`)*  
-3. **Decide** — Contributions move toward decision and implementation  
+1. **Contribute** – Share an idea or insight  
+2. **Review** – Others **support**, **oppose**, or expand it *(artifact actions use **Oppose**; API relation type remains `opposes`)*  
+3. **Decide** – Contributions move toward decision and implementation  
 
 ---
 
@@ -42,16 +42,16 @@ Code: `fixtures/soft_launch.py`, `services/soft_launch_lifecycle.py`, `routes/so
 
 Use types/statuses consistent with the **six-stage model** (§7). Example:
 
-- **Consent-based agent boundaries** — Type: Insight · Status: **In Review** · Space: AI Governance · Activity: 5 comments  
-- **Carbon credit verification model** — Type: Proposal · Status: **Draft** · Space: Climate · Activity: 2 supports  
+- **Consent-based agent boundaries** – Type: Insight · Status: **In Review** · Space: AI Governance · Activity: 5 comments  
+- **Carbon credit verification model** – Type: Proposal · Status: **Draft** · Space: Climate · Activity: 2 supports  
 
 ---
 
 ## 4. Choose your role
 
-- **Share ideas** — Start a contribution or proposal  
-- **Review contributions** — Comment, **support**, **oppose**, add evidence  
-- **Build & implement** — Turn **approved** ideas into action  
+- **Share ideas** – Start a contribution or proposal  
+- **Review contributions** – Comment, **support**, **oppose**, add evidence  
+- **Build & implement** – Turn **approved** ideas into action  
 
 ---
 
@@ -75,7 +75,7 @@ Title · **Status** (UI label from §7) · Type · Space
 ### Relationships section (structural, artifact ↔ artifact)
 
 - **Supports:** …  
-- **Opposition:** … *(or “Opposes” — list uses `opposes` edges)*  
+- **Opposition:** … *(or “Opposes” – list uses `opposes` edges)*  
 - **Builds on:** …  
 
 ### Activity, next-step prompts, review → voting
@@ -90,7 +90,7 @@ As in the original canvas (readiness panel, transition callouts, modal, voting p
 
 **Draft → In Review → Vote Scheduled → Voting → Approved → Implemented**
 
-### Stored values (`Artifact.status`) — fixed set for this surface
+### Stored values (`Artifact.status`) – fixed set for this surface
 
 | UI label          | Stored value      |
 |-------------------|-------------------|
@@ -119,7 +119,7 @@ Contribution · Space/Project · simple verbs · **Decision** as a concept.
 
 ### System (core)
 
-**Layer** · **Artifact** · **Bridge** — use consistently after the first meaningful action.
+**Layer** · **Artifact** · **Bridge** – use consistently after the first meaningful action.
 
 ### Artifact vs bridge (do not mix)
 

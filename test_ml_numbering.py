@@ -80,4 +80,4 @@ def test_sealed_blocks_renumber_check():
         if is_ml_numbering_sealed():
             assert needs_ml_renumber() is False
             return
-        # Do not seal in test — prod uses seal explicitly
+        # Do not seal in test – prod uses seal explicitly

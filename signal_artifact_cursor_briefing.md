@@ -1,6 +1,6 @@
 # Cursor Briefing: Signal Artifact Design
 
-> **Architecture (consolidated):** see [`docs/signal_artifact_architecture.md`](docs/signal_artifact_architecture.md) — artifact type, publish SLA, lifecycle/shorties, engagement, phasing. This file remains the implementation briefing (schema, UI, LLM prompt, MVP).
+> **Architecture (consolidated):** see [`docs/signal_artifact_architecture.md`](docs/signal_artifact_architecture.md) – artifact type, publish SLA, lifecycle/shorties, engagement, phasing. This file remains the implementation briefing (schema, UI, LLM prompt, MVP).
 
 ## Purpose
 

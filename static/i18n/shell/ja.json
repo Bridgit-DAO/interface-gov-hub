@@ -57,7 +57,7 @@
   "theme": {
     "switchToLight": "ライトモードに切り替え",
     "switchToDark": "ダークモードに切り替え",
-    "systemAuto": "システムテーマ（自動）— クリックで切り替え",
+    "systemAuto": "システムテーマ（自動）– クリックで切り替え",
     "toggle": "テーマを切り替え"
   },
   "prefix": {
@@ -81,6 +81,6 @@
     "confirmDeleteTitle": "プレフィックスを削除",
     "confirmDeleteBody": "このプレフィックスを削除しますか？既存のドラフトの識別子はそのまま残ります。",
     "confirmDeleteDefaultBody": "これは現在のデフォルトプレフィックスです。先に別のプレフィックスをデフォルトに設定してください。",
-    "manageNothing": "レイヤーが選択されていません — まずレイヤーページを開いてください。"
+    "manageNothing": "レイヤーが選択されていません – まずレイヤーページを開いてください。"
   }
 }

@@ -257,17 +257,17 @@ def _render(layer_slug: str, standalone: bool = False):
         )
         type_admin_rows = ''.join(
             f'<li class="mb-2"><strong>{html_mod.escape(t.title)}</strong>'
-            f' — {"approval required" if t.requires_approval else "auto-approve"}'
-            f' — {"open" if t.is_open else "closed"}</li>'
+            f' – {"approval required" if t.requires_approval else "auto-approve"}'
+            f' – {"open" if t.is_open else "closed"}</li>'
             for t in types
         )
         admin_section = f'''
         <div class="living-module mt-4">
-          <div class="living-module-header"><h2 class="h5 mb-0">Admin — pending applications</h2></div>
+          <div class="living-module-header"><h2 class="h5 mb-0">Admin – pending applications</h2></div>
           <div class="living-module-body">{pending_table}</div>
         </div>
         <div class="living-module mt-4">
-          <div class="living-module-header"><h2 class="h5 mb-0">Admin — connection types</h2></div>
+          <div class="living-module-header"><h2 class="h5 mb-0">Admin – connection types</h2></div>
           <div class="living-module-body">
             <ul class="mb-3">{type_admin_rows or '<li class="text-muted">No types yet.</li>'}</ul>
             <form id="newConnectionTypeForm" class="row g-2">
@@ -321,7 +321,7 @@ def _render(layer_slug: str, standalone: bool = False):
     content = f'''
     <div class="gh-page container mt-4">
       {gh_page_header(
-          f'Connections — {layer_name}',
+          f'Connections – {layer_name}',
           'Organizational partners, endorsers, and representatives.',
           'fa-handshake',
           actions_html=f'<a href="{back_href}" class="btn btn-outline-secondary btn-sm">Layer</a>',
@@ -337,7 +337,7 @@ def _render(layer_slug: str, standalone: bool = False):
     </div>
     '''
 
-    title = f'Connections — {layer.name or slug} - GovHub'
+    title = f'Connections – {layer.name or slug} - GovHub'
     user_menu = generate_user_menu()
     theme = session.get('theme', 'dark')
     if standalone:

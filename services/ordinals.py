@@ -67,7 +67,7 @@ def process_ordinal_markdown(markdown_text):
 def looks_like_html_inscription(raw_content: str, ordinal_content_type: str = '') -> bool:
     """
     True when inscription body is an HTML document (e.g. DVN Viewer).
-    Must be detected before markdown heuristics — embedded markdown lines like ## Purpose
+    Must be detected before markdown heuristics – embedded markdown lines like ## Purpose
     otherwise match markdown patterns inside raw HTML source.
     """
     ct = (ordinal_content_type or '').lower()

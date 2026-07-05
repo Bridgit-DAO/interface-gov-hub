@@ -13,7 +13,7 @@ def test_layer_guild_links_list_ok():
     with app.app_context():
         layer = Layer.query.first()
         if not layer:
-            print('⚠️  No layer — skip')
+            print('⚠️  No layer – skip')
             return
         lid = layer.id
 
@@ -39,7 +39,7 @@ def test_guild_layers_list_ok():
     with app.app_context():
         g = Guild.query.first()
         if not g:
-            print('⚠️  No guild — skip')
+            print('⚠️  No guild – skip')
             return
         gid = g.id
 

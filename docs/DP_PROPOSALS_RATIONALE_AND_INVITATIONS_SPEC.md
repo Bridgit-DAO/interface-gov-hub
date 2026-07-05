@@ -20,7 +20,7 @@ This spec implements decisions from planning (May 2026). It extends [DP_PROPOSAL
 
 ---
 
-## 2. Phase 1 — Proposal rationale & reference
+## 2. Phase 1 – Proposal rationale & reference
 
 ### 2.1 Database (`dp_proposal`)
 
@@ -54,9 +54,9 @@ Extend `DpProposal.to_dict()` → include `rationale`, `reference_url`.
 
 ### 2.3 API
 
-`POST /api/doc/draft/<ref>/proposals/` — accept optional `rationale`, `reference_url` in JSON (no change to route shape).
+`POST /api/doc/draft/<ref>/proposals/` – accept optional `rationale`, `reference_url` in JSON (no change to route shape).
 
-`GET` list — returns new fields on each proposal.
+`GET` list – returns new fields on each proposal.
 
 ### 2.4 Compose modal (`services/dp_proposal_reader.py` + `reader.js`)
 
@@ -97,7 +97,7 @@ Accept/decline controls unchanged; reviewers see rationale + link.
 
 **Row structure** (`renderHoverPanelBody` in `reader.js`):
 
-One `<li>` per proposal — single clickable row:
+One `<li>` per proposal – single clickable row:
 
 ```
 [icon] Author · Status · +N −M · "Rationale excerpt…"
@@ -136,7 +136,7 @@ Stack or side-by-side `btn-sm` on narrow panel; full width stack under 20rem.
 
 ---
 
-## 3. Phase 2 — Unified invitations
+## 3. Phase 2 – Unified invitations
 
 ### 3.1 Model `platform_invitation` (new table)
 
@@ -358,17 +358,17 @@ Use existing `check_rate_limit` helper from `services/utils` if compatible, or d
 
 ## 4. Implementation order (coding checklist)
 
-### Sprint A — Rationale (ship first)
+### Sprint A – Rationale (ship first)
 
 - [x] Migration + model columns
 - [x] `validate_reference_url`, `validate_create_payload`, `create_dp_proposal`, `to_dict`
 - [x] Compose modal HTML + `submitProposal` payload
 - [x] List/detail modal: rationale + reference link
 - [x] Hover: double width CSS + one-line rows with rationale excerpt
-- [x] Tests: `test_dp_proposals.py` — create with rationale/url, reject `javascript:`
+- [x] Tests: `test_dp_proposals.py` – create with rationale/url, reject `javascript:`
 - [x] Cache-bust reader CSS/JS query params
 
-### Sprint B — Invitation core
+### Sprint B – Invitation core
 
 - [x] Model `PlatformInvitation` + migration
 - [x] `services/platform_invitations.py` (create/preview/accept/decline/rate limit)
@@ -377,7 +377,7 @@ Use existing `check_rate_limit` helper from `services/utils` if compatible, or d
 - [x] `test_platform_invitations.py`
 - [x] `static/js/gh-invite.js` (banner + modal) in base template
 
-### Sprint C — Wire surfaces
+### Sprint C – Wire surfaces
 
 - [x] Hover + read toolbar invite → API
 - [x] Workgroup page Invite button (members)
@@ -385,7 +385,7 @@ Use existing `check_rate_limit` helper from `services/utils` if compatible, or d
 - [x] `WorkgroupMemberRequest` invited_by columns + accept path
 - [x] Read-page banner via `?invite=` + Accept
 
-### Sprint D — Polish
+### Sprint D – Polish
 
 - [ ] Admin list/revoke invitations (optional)
 - [ ] Product rollout docs update

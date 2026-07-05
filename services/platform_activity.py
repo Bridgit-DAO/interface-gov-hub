@@ -235,12 +235,12 @@ def format_platform_activity_event(
         html = f'{who} created draft {_link(href, display)}'
     elif et == 'draft_submission_approved':
         href, label = _draft_link(p, submissions)
-        html = f'{who} — draft approved: {_link(href, label)}'
+        html = f'{who} – draft approved: {_link(href, label)}'
     elif et == 'draft_revision_approved':
         href, label = _draft_link(p, submissions)
         rev = p.get('revision_number')
         if rev:
-            html = f'{who} — revision approved (rev {rev}): {_link(href, label)}'
+            html = f'{who} – revision approved (rev {rev}): {_link(href, label)}'
         else:
             who = _submitter_who(ev, submissions, users) or who
             ml = (p.get('ml_number') or '').strip() or label
@@ -344,7 +344,7 @@ def format_platform_activity_event(
         html = f'{who} placed a brick on Civic Mason'
     else:
         label = et.replace('_', ' ')
-        html = f'{who} — {escape(label)}'
+        html = f'{who} – {escape(label)}'
 
     created = ev.created_at
     if created and created.tzinfo is None:
@@ -413,7 +413,7 @@ def build_home_activity_rotator_html(initial_items: List[Dict[str, Any]]) -> str
     import json as _json
 
     items_json = _json.dumps(initial_items).replace('</', '<\\/')
-    empty_msg = 'Nothing recent yet — comments, proposals, and layer activity will show here.'
+    empty_msg = 'Nothing recent yet – comments, proposals, and layer activity will show here.'
     return f"""
         <div class="gh-home-activity" id="gh-home-activity" aria-label="Recent platform activity">
             <button type="button" class="gh-home-activity-nav gh-home-activity-prev" aria-label="Previous activity" title="Previous">

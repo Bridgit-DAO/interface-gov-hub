@@ -128,7 +128,7 @@ def _send_waitlist_verification_email(signup, waitlist, confirm_url):
 <p><a href="{html_mod.escape(confirm_url, quote=True)}" style="background:#1d9bf0;color:#fff;padding:8px 16px;text-decoration:none;border-radius:6px;display:inline-block;">Confirm my place</a></p>
 <p>Or copy this link: {html_mod.escape(confirm_url)}</p>
 <p>If you didn't request this, you can ignore this email.</p>
-<p>— Gov Hub</p>"""
+<p>– Gov Hub</p>"""
     return send_resend_email(
         to=[signup.email],
         subject=f'Confirm your place on {waitlist.name}',
@@ -1308,8 +1308,8 @@ def waitlist_detail(waitlist_id):
                 }} else {{
                     html += '<td><a href="/profile/' + esc(e.username) + '/">' + esc(e.display_name || e.username) + '</a></td>';
                 }}
-                html += '<td>' + (e.referred_by ? esc(e.referred_by) : '—') + '</td>';
-                html += '<td>' + (e.joined_at ? new Date(e.joined_at).toLocaleDateString() : '—') + '</td>';
+                html += '<td>' + (e.referred_by ? esc(e.referred_by) : '–') + '</td>';
+                html += '<td>' + (e.joined_at ? new Date(e.joined_at).toLocaleDateString() : '–') + '</td>';
                 html += '</tr>';
             }});
             html += '</tbody></table></div>';
