@@ -115,26 +115,17 @@ def _escape_text(value):
 
 @bp.route('/workgroups/join/')
 def workgroups_join_landing():
-    """Public landing page: explains workgroups, lists roles, CTAs, workgroup cards, FAQ."""
+    """Public landing page: FAQ accordion, "Ready to contribute?" CTA, and a
+    server-side-rendered grid of every approved workgroup across all approved
+    layers (Metaweb first)."""
     render_page, generate_user_menu = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
 
-    # Roles from the canonical config (server-side rendered, no HTTP needed)
-    WORKGROUP_POSITIONS = _get_workgroup_positions()
-    positions = [
-        {
-            'key': key,
-            'label': meta['label'],
-            'description': meta['description'],
-            'icon': meta.get('icon', 'fa-user'),
-        }
-        for key, meta in WORKGROUP_POSITIONS.items()
-    ]
-
     # Live workgroup cards, grouped by approved layer. Metaweb first when
-    # available. Falls back to Metaweb-only on total API failure.
+    # available. Falls back to Metaweb-only on total API failure. Server-side
+    # rendered so the listing shows up immediately without depending on JS.
     grouped_workgroups = _fetch_workgroups_grouped_by_layer()
     if grouped_workgroups is None:
         fallback_cards = _fetch_approved_workgroups_for_layer(METAWEB_LAYER_ID)
@@ -145,51 +136,56 @@ def workgroups_join_landing():
             else []
         )
 
-    flat_cards = [wg for group in grouped_workgroups for wg in group['workgroups']]
-    first_card_slug = flat_cards[0]['slug'] if flat_cards else NOMINATE_FALLBACK_WG_SLUG
-
-    # FAQ items
+    # FAQ items – fixed copy from the design brief.
     faq = [
         {
             'q': 'How do I know which workgroup is right for me?',
-            'a': "Read each DP's short description and pick the one whose purpose resonates with your interests and skills. You can always join a different workgroup later.",
+            'a': 'Browse the listing below and read each workgroup\u2019s description. Match by topic, layer, and the level of commitment you\u2019re ready to give \u2013 you can always step back later.',
         },
         {
-            'q': "What if I don't have time for ongoing commitments?",
-            'a': "Some roles are flexible and low-touch. Roles like Recorder or Liaison can be episodic – contribute when you have capacity.",
+            'q': 'What if I don\u2019t have time for ongoing commitments?',
+            'a': 'You can join as a member and contribute when you have time \u2013 there is no required minimum. Watch the workgroup\u2019s updates and jump in when something fits.',
         },
         {
             'q': 'Can I be a member of more than one workgroup?',
-            'a': "Yes. Many community members participate across multiple workgroups. Each workgroup runs independently and you can join as many as your time allows.",
+            'a': 'Yes. Many contributors are members of several workgroups across different layers. Each workgroup is independent \u2013 joining one does not lock you out of others.',
         },
         {
             'q': 'How are Coordinators chosen?',
-            'a': "Coordinators can be nominated by anyone in the community, or you can nominate yourself. The layer admin reviews and approves each nomination. Nominations go through a transparent review process.",
+            'a': 'Coordinators nominate themselves; nominations are reviewed by the layer admin and the wider community. The path from member to coordinator is open to everyone who wants to lead.',
         },
     ]
 
-    # Build the content
-    role_cards_html = ''.join(
-        '<div class="col-md-6 col-lg-4">'
-        '<div class="card h-100 living-module">'
-        '<div class="card-body">'
-        f'<div class="living-module-icon mb-2"><i class="fas {_escape_text(pos["icon"])} fa-2x text-primary" aria-hidden="true"></i></div>'
-        f'<h5 class="card-title mb-1">{_escape_text(pos["label"])}</h5>'
-        f'<p class="card-text text-muted mb-0">{_escape_text(pos["description"])}</p>'
-        '</div>'
-        '</div>'
-        '</div>'
-        for pos in positions
+    # FAQ accordion (Bootstrap). First item open by default.
+    faq_html = ''.join(
+        f'<div class="accordion-item">'
+        f'<h2 class="accordion-header" id="wg-join-faq-h-{i}">'
+        f'<button class="accordion-button{" collapsed" if i else ""}" type="button" '
+        f'data-bs-toggle="collapse" data-bs-target="#wg-join-faq-c-{i}" '
+        f'aria-expanded="{"true" if i == 0 else "false"}" aria-controls="wg-join-faq-c-{i}">'
+        f'{_escape_text(item["q"])}'
+        f'</button>'
+        f'</h2>'
+        f'<div id="wg-join-faq-c-{i}" class="accordion-collapse collapse{" show" if i == 0 else ""}" '
+        f'aria-labelledby="wg-join-faq-h-{i}" data-bs-parent="#wg-join-faq">'
+        f'<div class="accordion-body">{_escape_text(item["a"])}</div>'
+        f'</div>'
+        f'</div>'
+        for i, item in enumerate(faq)
     )
 
+    # All-workgroups grid, grouped by layer (Metaweb first when present).
+    # Each card uses theme tokens (living-module) for dark-mode parity.
     if grouped_workgroups:
         cards_html_parts = []
         for group in grouped_workgroups:
             layer_name_esc = _escape_text(group['layer'].get('name') or 'Layer')
             cards_html_parts.append(
-                f'<div class="col-12"><h3 class="h5 mb-2 mt-2">'
+                f'<div class="col-12 mt-3">'
+                f'<h3 class="wg-join-section-title mb-2">'
                 f'<i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>'
-                f'{layer_name_esc}</h3></div>'
+                f'{layer_name_esc}</h3>'
+                f'</div>'
             )
             for wg in group['workgroups']:
                 slug_esc = _escape_text(wg['slug'])
@@ -199,10 +195,10 @@ def workgroups_join_landing():
                 status_class = 'success' if wg['status'] == 'active' else 'secondary'
                 cards_html_parts.append(
                     '<div class="col-md-6 col-lg-4">'
-                    '<div class="card h-100">'
-                    '<div class="card-body d-flex flex-column">'
-                    f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
-                    f'<p class="card-text text-muted small mb-2 flex-grow-1">{desc_esc}</p>'
+                    '<div class="living-module h-100">'
+                    '<div class="living-module-body d-flex flex-column">'
+                    f'<h4 class="living-module-title h6 mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h4>'
+                    f'<p class="wg-join-card-desc small mb-2 flex-grow-1">{desc_esc}</p>'
                     '<div class="d-flex justify-content-between align-items-center">'
                     f'<span class="badge bg-{status_class}">{status_esc}</span>'
                     f'<a href="/workgroups/{slug_esc}/" class="btn btn-sm btn-primary">View workgroup</a>'
@@ -215,115 +211,47 @@ def workgroups_join_landing():
     else:
         cards_html = '<div class="col-12"><div class="alert alert-info mb-0">No approved workgroups yet. Check back soon.</div></div>'
 
-    faq_html = ''.join(
-        f'<div class="accordion-item">'
-        f'<h2 class="accordion-header">'
-        f'<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq-{i}" aria-expanded="false" aria-controls="faq-{i}">'
-        f'{_escape_text(item["q"])}'
-        f'</button>'
-        f'</h2>'
-        f'<div id="faq-{i}" class="accordion-collapse collapse" data-bs-parent="#workgroup-faq">'
-        f'<div class="accordion-body">{_escape_text(item["a"])}</div>'
-        f'</div>'
-        f'</div>'
-        for i, item in enumerate(faq)
-    )
-
-    first_card_slug_esc = _escape_text(first_card_slug)
-
     content = f"""
     <div class="gh-page container mt-4">
         <section class="gh-hero mb-5">
-            <h1 class="display-5 mb-3"><i class="fas fa-users-cog me-2 text-primary" aria-hidden="true"></i>Join a Workgroup</h1>
-            <p class="lead text-muted mb-0">
-                Workgroups are the heart of how The Metaweb coordinates contributions.
-                Each workgroup advances one Design Principle (DP) – pick yours and join an active community of contributors.
+            <h1 class="display-5 mb-3"><i class="fas fa-user-plus me-2 text-primary" aria-hidden="true"></i>Join a Workgroup</h1>
+            <p class="lead mb-0">
+                Find your fit across every layer \u2013 join as a member, contribute at the level that works for you, and step up to coordinator when you\u2019re ready to lead.
             </p>
         </section>
 
-        <section class="mb-5">
-            <h2 class="h3 mb-3"><i class="fas fa-info-circle me-2 text-info" aria-hidden="true"></i>What are workgroups?</h2>
-            <p class="mb-0">
-                Workgroups are small, focused teams that move a single Design Principle (DP) from concept to working draft.
-                Each workgroup has a charter, a coordinator, and a flexible roster of members who contribute as their time allows.
-                There is no requirement to attend every meeting or write every line – workgroups run on async collaboration, with synchronous time reserved for moments that need it.
-            </p>
-        </section>
-
-        <section class="mb-5">
-            <h2 class="h3 mb-3"><i class="fas fa-user-tag me-2 text-success" aria-hidden="true"></i>Workgroup roles</h2>
-            <p class="text-muted mb-3">
-                Every workgroup has seven named positions. Pick the role that fits the contribution you want to make.
-            </p>
-            <div class="row g-3">
-                {role_cards_html}
-            </div>
-        </section>
-
-        <section class="mb-5">
-            <h2 class="h3 mb-3"><i class="fas fa-bullhorn me-2 text-warning" aria-hidden="true"></i>Join or nominate</h2>
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h3 class="h5 mb-2"><i class="fas fa-user-plus me-1 text-primary" aria-hidden="true"></i>Join as a member</h3>
-                            <p class="text-muted mb-3">
-                                Already a GovHub member? Pick a workgroup below and click "View workgroup," then use the Join button on the workgroup page.
-                                You can join as many workgroups as you have time for.
-                            </p>
-                            <a href="/workgroups/" class="btn btn-primary">
-                                <i class="fas fa-list me-2" aria-hidden="true"></i>Browse workgroups
-                            </a>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h3 class="h5 mb-2"><i class="fas fa-hand-pointer me-1 text-success" aria-hidden="true"></i>Nominate someone (or yourself)</h3>
-                            <p class="text-muted mb-3">
-                                Want to step into a Coordinator, Editor, or other leadership role?
-                                Open any workgroup below and use the Nominate button – you can nominate yourself or someone else, and the nominee reviews the nomination before it goes to layer admins.
-                            </p>
-                            <a href="/workgroups/{first_card_slug_esc}/" class="btn btn-success">
-                                <i class="fas fa-arrow-right me-2" aria-hidden="true"></i>Open a workgroup to nominate
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section class="mb-5">
-            <h2 class="h3 mb-3"><i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>Active workgroups</h2>
-            <p class="text-muted mb-3">
-                Approved workgroups from every active layer, with The Metaweb listed first.
-                Click any card to view details, members, and the Join button.
-            </p>
-            <div class="row g-3">
-                {cards_html}
-            </div>
-        </section>
-
-        <section class="mb-5">
-            <h2 class="h3 mb-3"><i class="fas fa-question-circle me-2 text-secondary" aria-hidden="true"></i>Frequently asked questions</h2>
-            <div class="accordion" id="workgroup-faq">
+        <section class="wg-join-faq mb-5" aria-label="Frequently asked questions">
+            <h2 class="wg-join-section-title"><i class="fas fa-question-circle me-2 text-secondary" aria-hidden="true"></i>Frequently asked questions</h2>
+            <div class="accordion" id="wg-join-faq">
                 {faq_html}
             </div>
         </section>
 
-        <section class="mb-5">
-            <div class="card border-0 living-module">
-                <div class="card-body py-4 px-4">
-                    <h2 class="h4 mb-2"><i class="fas fa-rocket me-2 text-primary" aria-hidden="true"></i>Ready to contribute?</h2>
-                    <p class="mb-3">
-                        Pick a workgroup, click Join, and start contributing at the level that fits your time.
-                        If you want to lead, nominate yourself – the path from member to coordinator is open to everyone.
+        <section class="wg-join-cta mb-5" aria-label="Ready to contribute">
+            <div class="wg-join-cta-inner">
+                <div class="wg-join-cta-body">
+                    <h2 class="wg-join-cta-title"><i class="fas fa-rocket me-2 text-primary" aria-hidden="true"></i>Ready to contribute?</h2>
+                    <p class="wg-join-cta-text">
+                        Pick a workgroup, click join, and start contributing at the level that fits your time.
+                        If you want to lead, nominate yourself \u2013 the path from member to coordinator is open to everyone.
                     </p>
-                    <a href="/workgroups/" class="btn btn-primary">
+                </div>
+                <div class="wg-join-cta-actions">
+                    <a href="/workgroups/" class="btn btn-primary wg-join-cta-btn">
                         <i class="fas fa-arrow-right me-2" aria-hidden="true"></i>Browse all workgroups
                     </a>
                 </div>
+            </div>
+        </section>
+
+        <section class="wg-join-listing mb-4" aria-label="All workgroups">
+            <h2 class="wg-join-section-title"><i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>All workgroups</h2>
+            <p class="wg-join-listing-hint">
+                Every approved workgroup across all approved layers \u2013 with The Metaweb listed first.
+                Click a card to view details and join.
+            </p>
+            <div class="row g-3">
+                {cards_html}
             </div>
         </section>
     </div>
