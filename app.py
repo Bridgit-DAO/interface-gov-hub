@@ -169,6 +169,7 @@ def create_app():
     from routes.layers import bp as layers_bp
     from routes.layers_pages import bp as layers_pages_bp
     from routes.workgroups import bp as workgroups_bp
+    from routes.workgroups_api import bp as workgroups_api_bp
     from routes.workgroups_pages import bp as workgroups_pages_bp
     from routes.nominations_pages import bp as nominations_pages_bp
     from routes.guilds import bp as guilds_bp
@@ -235,6 +236,7 @@ def create_app():
     app.register_blueprint(layers_bp)
     app.register_blueprint(layers_pages_bp)
     app.register_blueprint(workgroups_bp)
+    app.register_blueprint(workgroups_api_bp)
     app.register_blueprint(workgroups_pages_bp)
     app.register_blueprint(nominations_pages_bp)
     app.register_blueprint(guilds_bp)

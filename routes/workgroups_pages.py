@@ -585,10 +585,10 @@ def workgroup_detail(workgroup_slug):
         }}
     }}
 
-    function inviteWorkgroupMember() {{
+    async function inviteWorkgroupMember() {{
         if (!window.GhInvite) {{
             if (window.GhDialog) {{
-                GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Invite unavailable', message: 'Please refresh the page and try again.', variant: 'warning' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Invite unavailable', message: 'Please refresh the page and try again.', variant: 'warning' }});
             }}
             return;
         }}
@@ -602,7 +602,7 @@ def workgroup_detail(workgroup_slug):
 
     async function joinWorkgroup() {{
         if (!isAuthenticated) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Sign in required', message: 'Please sign in to join this workgroup.', variant: 'info' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Sign in required', message: 'Please sign in to join this workgroup.', variant: 'info' }});
             return;
         }}
 
@@ -631,11 +631,11 @@ def workgroup_detail(workgroup_slug):
                 }});
                 loadMembers();
             }} else {{
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Could not join', message: data.error || 'Failed to join workgroup', variant: 'danger' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Could not join', message: data.error || 'Failed to join workgroup', variant: 'danger' }});
             }}
         }} catch (error) {{
             console.error('Error joining workgroup:', error);
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: 'Failed to join workgroup.', variant: 'danger' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Error', message: 'Failed to join workgroup.', variant: 'danger' }});
         }}
     }}
 
@@ -734,9 +734,9 @@ def workgroup_detail(workgroup_slug):
         }}
     }}
 
-    function nominateForChair() {{
+    async function nominateForChair() {{
         if (!isAuthenticated) {{
-            GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Sign in required', message: 'Please sign in to submit a nomination.', variant: 'info' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Sign in required', message: 'Please sign in to submit a nomination.', variant: 'info' }});
             return;
         }}
 
@@ -760,19 +760,19 @@ def workgroup_detail(workgroup_slug):
         const target = document.querySelector('input[name="nomination-target"]:checked')?.value || 'self';
 
         if (!nomineeName) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Missing name', message: 'Please enter the nominee name.', variant: 'warning' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Missing name', message: 'Please enter the nominee name.', variant: 'warning' }});
             return;
         }}
         if (!nomineeEmail) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Missing email', message: 'Please enter the nominee email.', variant: 'warning' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Missing email', message: 'Please enter the nominee email.', variant: 'warning' }});
             return;
         }}
         if (!nomineeProfileUrl) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Missing profile link', message: 'Please enter a CV or LinkedIn URL.', variant: 'warning' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Missing profile link', message: 'Please enter a CV or LinkedIn URL.', variant: 'warning' }});
             return;
         }}
         if (!statement) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Missing statement', message: 'Please provide a statement for this nomination.', variant: 'warning' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Missing statement', message: 'Please provide a statement for this nomination.', variant: 'warning' }});
             return;
         }}
 
@@ -809,11 +809,11 @@ def workgroup_detail(workgroup_slug):
                 }});
                 loadChairs();
             }} else {{
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Submission failed', message: data.error || 'Failed to submit nomination', variant: 'danger' }}), variant: 'info' }});
+                await GhDialog.alert({{ title: 'Submission failed', message: data.error || 'Failed to submit nomination', variant: 'danger' }});
             }}
         }} catch (error) {{
             console.error('Error nominating for chair:', error);
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: 'Failed to submit nomination.', variant: 'danger' }}), variant: 'info' }});
+            await GhDialog.alert({{ title: 'Error', message: 'Failed to submit nomination.', variant: 'danger' }});
         }}
     }}
 
