@@ -1,7 +1,8 @@
 """Workgroup page routes: /workgroups/<workgroup_slug>/ and /workgroups/join/."""
-import html as html_mod
+import html
 import json
 
+import requests
 from flask import Blueprint, session
 
 from services.identity import get_current_user
@@ -9,171 +10,142 @@ from services.identity import get_current_user
 bp = Blueprint('workgroups_pages', __name__, url_prefix='')
 
 
-# Hard-coded list of the 22 Desirable Properties (DP) workgroups.
-# Mirrors the canonical slugs in gov-hub-prod (`working_group.slug`) so the
-# "View workgroup" and "Nominate" links resolve to real workgroups via
-# `/workgroups/<slug>/`. This is intentionally a static list (not derived from
-# the DB) so the page is predictable on the dev mirror even when dummy data
-# is in play, and so it stays in sync with the matching page on
-# `desirableproperties.org/workgroups/join/` (which uses the same slug map).
-# Update this list if/when a DP's canonical slug or description changes on
-# Gov Hub.
-WORKGROUP_JOIN_DPS = [
-    {
-        'dp_id': 'DP1',
-        'slug': 'dp1-federated-auth',
-        'title': 'DP1 - Federated Authentication & Accountability',
-        'description': 'Developing standards for federated authentication systems that enable cross-platform identity verification while maintaining accountability and audit trails.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP2',
-        'slug': 'dp2-participant-agency',
-        'title': 'DP2 - Participant Agency and Empowerment',
-        'description': 'Creating frameworks that empower participants with full control over their digital presence, decision-making authority, and ability to shape their environment.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP3',
-        'slug': 'dp3-adaptive-governance',
-        'title': 'DP3 - Adaptive Governance Supporting an Exponentially Growing Community',
-        'description': 'Designing governance systems that can scale with exponential community growth while maintaining fairness, participation, and adaptability to emerging challenges.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP4',
-        'slug': 'dp4-data-sovereignty',
-        'title': 'DP4 - Data Sovereignty and Privacy',
-        'description': 'Establishing protocols for complete data ownership, privacy by design, and user-controlled data portability across the Meta-Layer ecosystem.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP5',
-        'slug': 'dp5-decentralized-namespace',
-        'title': 'DP5 - Decentralized Namespace',
-        'description': 'Developing decentralized naming systems that provide persistent, user-controlled identifiers and namespaces independent of centralized authorities.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP6',
-        'slug': 'dp6-commerce',
-        'title': 'DP6 - Commerce',
-        'description': 'Creating secure, transparent commerce protocols that enable value exchange, micropayments, and economic interactions within the Meta-Layer.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP7',
-        'slug': 'dp7-simplicity-interoperability',
-        'title': 'DP7 - Simplicity and Interoperability',
-        'description': 'Designing systems that reduce complexity while ensuring seamless interoperability between different platforms, tools, and communities.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP8',
-        'slug': 'dp8-collaborative-environment',
-        'title': 'DP8 - Collaborative Environment and Meta-Communities',
-        'description': 'Building frameworks for meta-communities that span multiple platforms and enable fluid collaboration across organizational boundaries.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP9',
-        'slug': 'dp9-developer-incentives',
-        'title': 'DP9 - Developer and Community Incentives',
-        'description': 'Creating incentive structures that reward developers and communities for contributing to the ecosystem while aligning with long-term sustainability.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP10',
-        'slug': 'dp10-education',
-        'title': 'DP10 - Education',
-        'description': 'Developing educational frameworks and tools that help participants understand and effectively use the Meta-Layer capabilities.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP11',
-        'slug': 'dp11-safe-ethical-ai',
-        'title': 'DP11 - Safe and Ethical AI',
-        'description': 'Establishing ethical frameworks and safety protocols for AI systems operating within the Meta-Layer to ensure alignment with human values.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP12',
-        'slug': 'dp12-community-ai-governance',
-        'title': 'DP12 - Community-Based AI Governance',
-        'description': 'Creating community-driven governance models for AI systems that ensure transparency, accountability, and collective oversight.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP13',
-        'slug': 'dp13-ai-containment',
-        'title': 'DP13 - AI Containment',
-        'description': 'Developing containment strategies and technical measures to prevent AI systems from exceeding intended boundaries or causing unintended consequences.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP14',
-        'slug': 'dp14-trust-transparency',
-        'title': 'DP14 - Trust and Transparency',
-        'description': 'Building trust through transparent decision-making, auditable processes, and verifiable system behaviors throughout the Meta-Layer.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP15',
-        'slug': 'dp15-security-provenance',
-        'title': 'DP15 - Security and Provenance',
-        'description': 'Ensuring security through comprehensive provenance tracking, secure infrastructure, and verifiable data lineage across all interactions.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP16',
-        'slug': 'dp16-roadmap-milestones',
-        'title': 'DP16 - Roadmap and Milestones',
-        'description': 'Developing structured roadmaps with clear milestones that guide the evolution of the Meta-Layer while maintaining community alignment.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP17',
-        'slug': 'dp17-financial-sustainability',
-        'title': 'DP17 - Financial Sustainability',
-        'description': 'Creating financial models and incentive structures that ensure the long-term sustainability and equitable growth of the Meta-Layer ecosystem.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP18',
-        'slug': 'dp18-feedback-reputation',
-        'title': 'DP18 - Feedback Loops and Reputation',
-        'description': 'Implementing feedback mechanisms and reputation systems that reward positive contributions and maintain community standards.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP19',
-        'slug': 'dp19-community-engagement',
-        'title': 'DP19 - Amplifying Presence and Community Engagement',
-        'description': 'Developing systems that amplify community participation, enhance visibility of contributions, and strengthen community bonds.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP20',
-        'slug': 'dp20-community-ownership',
-        'title': 'DP20 - Community Ownership',
-        'description': 'Ensuring community ownership through decentralized governance, shared decision-making, and equitable distribution of value and control.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP21',
-        'slug': 'dp21-multi-modal',
-        'title': 'DP21 - Multi-modal',
-        'description': 'Enabling seamless interaction across multiple communication modalities including text, voice, video, AR/VR, and emerging interaction paradigms.',
-        'status': 'active',
-    },
-    {
-        'dp_id': 'DP22',
-        'slug': 'dp22---epistemic-continuity-digital-artifacts',
-        'title': 'DP22 - Civic Memory & Epistemic Continuity',
-        'description': 'Exploring how the Meta-Layer can preserve the continuity of civic meaning across artifacts, evidence, interpretation, AI transformation, governance, and feedback over time. The group focuses on building the conceptual, governance, and technical foundations for durable, navigable, and plural collective memory systems that support civilization-scale collective intelligence without collapsing into surveillance, narrative capture, or synthetic consensus.',
-        'status': 'active',
-    },
-]
+# The Metaweb layer is the canonical home of the public-facing DP workgroups.
+METAWEB_LAYER_ID = '22d90c89-2783-4726-a8b6-220dca505402'
+
+# Hardcoded fallback if the local API is unreachable (e.g. during tests).
+NOMINATE_FALLBACK_WG_SLUG = 'dp1-federated-auth'
+
+# Per-layer fetch timeout. Short so the public landing stays fast even when one
+# layer's API is slow; total wait stays bounded across many layers.
+_LAYER_FETCH_TIMEOUT = 3
+
+
+# Mirror of gov-hub-prod's `127.0.0.1:8000` hardcoded fetch base. Port comes
+# from config so this branch talks to the *dev* server (8001) while the prod
+# branch (hard-coded :8000) talks to the prod server.
+def _local_api_base() -> str:
+    try:
+        from config import PORT
+        return f'http://127.0.0.1:{int(PORT)}'
+    except Exception:
+        return 'http://127.0.0.1:8000'
+
+
+def _fetch_approved_workgroups_for_layer(layer_id):
+    """Fetch approved workgroups for a layer. Returns a list of dicts.
+
+    Returns the full approved set (no per-layer cap) so the public landing can
+    surface every workgroup visible in the layer. Dedup across layers happens
+    in the view, not here.
+    """
+    try:
+        resp = requests.get(
+            f'{_local_api_base()}/api/layers/{layer_id}/workgroups/',
+            timeout=_LAYER_FETCH_TIMEOUT,
+        )
+        if not resp.ok:
+            return []
+        workgroups = resp.json().get('workgroups', []) or []
+        return [
+            {
+                'id': w.get('id') or w.get('slug', ''),
+                'slug': w.get('slug', ''),
+                'name': w.get('name', ''),
+                'description': w.get('description', '') or '',
+                'status': w.get('status', 'active'),
+                'state': w.get('state'),
+                'approval_status': w.get('approval_status'),
+                'image_url': w.get('image_url'),
+            }
+            for w in workgroups
+            if w.get('approval_status') == 'approved' and w.get('slug')
+        ]
+    except Exception:
+        return []
+
+
+def _fetch_approved_layers():
+    """Fetch all approved layers. Returns a list of dicts (id, name, slug)."""
+    try:
+        resp = requests.get(
+            f'{_local_api_base()}/api/layers/?approval_status=approved',
+            timeout=_LAYER_FETCH_TIMEOUT,
+        )
+        if not resp.ok:
+            return []
+        layers = resp.json().get('layers', []) or []
+        return [
+            {'id': layer.get('id'), 'name': layer.get('name', ''), 'slug': layer.get('slug', '')}
+            for layer in layers
+            if layer.get('id')
+        ]
+    except Exception:
+        return []
+
+
+def _fetch_workgroups_grouped_by_layer():
+    """Fetch approved workgroups grouped by approved layer.
+
+    Metaweb is always first; remaining layers follow in the order returned by
+    the API. Layers with no approved workgroups are skipped entirely.
+
+    A single workgroup may be linked to multiple layers (primary `layer_id`
+    plus secondary links in `working_group_secondary_layer`), so the same
+    workgroup can appear in more than one layer's response. The caller is
+    responsible for deduping by `id` after flattening — keeping the first
+    occurrence ensures the canonical (Metaweb-first) layer wins.
+
+    Returns a list of {'layer': {...}, 'workgroups': [...]} dicts, or None on
+    total failure so callers can fall back to Metaweb-only behavior.
+    """
+    layers = _fetch_approved_layers()
+    if not layers:
+        return None
+
+    # Re-order so Metaweb is first when present, followed by the rest in their
+    # original order.
+    metaweb = [layer for layer in layers if layer.get('id') == METAWEB_LAYER_ID]
+    others = [layer for layer in layers if layer.get('id') != METAWEB_LAYER_ID]
+    ordered_layers = metaweb + others
+
+    groups = []
+    for layer in ordered_layers:
+        workgroups = _fetch_approved_workgroups_for_layer(layer['id'])
+        if workgroups:
+            groups.append({'layer': layer, 'workgroups': workgroups})
+    return groups
+
+
+def _dedupe_flat_cards_by_id(flat_cards):
+    """Drop duplicate workgroups from the flat list, keeping the first occurrence.
+
+    The natural order is already "Metaweb first then Overweb then others", so
+    the first-seen layer is the one we want to keep on each card. Returns
+    (deduped_cards, seen_count) — the seen count is useful for logging when
+    duplicates are dropped.
+    """
+    seen = set()
+    deduped = []
+    for wg in flat_cards:
+        wg_id = wg.get('id')
+        if not wg_id:
+            continue
+        if wg_id in seen:
+            continue
+        seen.add(wg_id)
+        deduped.append(wg)
+    return deduped, len(seen)
+
+
+def _escape_text(value):
+    return html.escape(str(value or ''), quote=True)
+
+
+def _get_workgroup_positions():
+    """Late import to avoid circular imports."""
+    from services.workgroup_positions import WORKGROUP_POSITIONS
+    return WORKGROUP_POSITIONS
 
 
 def _get_imports():
@@ -200,213 +172,342 @@ def _get_imports():
 
 
 @bp.route('/workgroups/join/')
-def workgroups_join():
-    """Public DP-specific landing page: every Desirable Property workgroup.
-
-    Mirrors the page on `desirableproperties.org/workgroups/join/`. The 22
-    cards are hard-coded in `WORKGROUP_JOIN_DPS` (top of this module) so the
-    listing stays stable even when the dev DB has dummy data.
-    """
-    (
-        render_page,
-        generate_user_menu,
-        (
-            gh_page_open,
-            gh_page_close,
-            gh_page_header,
-            _gh_filter_row,
-            _gh_filter_col,
-            _gh_directory_grid,
-            _gh_directory_toolbar,
-        ),
-    ) = _get_imports()
+def workgroups_join_landing():
+    """Public landing page: explains workgroups, lists roles, CTAs, workgroup cards, FAQ."""
+    # NOTE: dev's `_get_imports` returns a 3-tuple (prod returns 2). Slicing
+    # `[:2]` keeps this function byte-for-byte identical to gov-hub-prod's
+    # `/workgroups/join/` route.
+    render_page, generate_user_menu = _get_imports()[:2]
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
     current_user = get_current_user()
-    is_authenticated = bool(current_user)
-    next_path = '/workgroups/join/'
 
-    # Sign-in CTA shown when the visitor is anonymous. We still let them
-    # browse the listing; only the per-card Nominate button prompts sign-in.
-    sign_in_cta = (
-        '<a href="/login/?next=' + next_path + '" class="btn btn-primary">'
-        '<i class="fas fa-sign-in-alt me-2"></i>Sign in to nominate</a>'
-        if not is_authenticated
-        else ''
+    # Roles from the canonical config (server-side rendered, no HTTP needed)
+    WORKGROUP_POSITIONS = _get_workgroup_positions()
+    positions = [
+        {
+            'key': key,
+            'label': meta['label'],
+            'description': meta['description'],
+            'icon': meta.get('icon', 'fa-user'),
+        }
+        for key, meta in WORKGROUP_POSITIONS.items()
+    ]
+
+    # Live workgroup cards, grouped by approved layer. Metaweb first when
+    # available. Falls back to Metaweb-only on total API failure.
+    grouped_workgroups = _fetch_workgroups_grouped_by_layer()
+    if grouped_workgroups is None:
+        fallback_cards = _fetch_approved_workgroups_for_layer(METAWEB_LAYER_ID)
+        grouped_workgroups = (
+            [{'layer': {'id': METAWEB_LAYER_ID, 'name': 'The Metaweb', 'slug': 'metaweb'},
+              'workgroups': fallback_cards}]
+            if fallback_cards
+            else []
+        )
+
+    # Flatten all grouped workgroups into one list. Each card is annotated
+    # with its primary `layer_id`/`layer_name` so the template can render the
+    # `data-layer` attribute for the layer filter.
+    annotated_cards = []
+    for group in grouped_workgroups:
+        layer = group.get('layer') or {}
+        layer_id_val = layer.get('id') or ''
+        layer_name = layer.get('name') or 'Layer'
+        for wg in group['workgroups']:
+            annotated = dict(wg)
+            if not annotated.get('id'):
+                annotated['id'] = annotated.get('slug', '')
+            annotated['layer_id'] = layer_id_val
+            annotated['layer_name'] = layer_name
+            annotated_cards.append(annotated)
+
+    # Dedupe across layers — same workgroup can be linked to multiple layers,
+    # so we keep only the first occurrence (Metaweb-first order means the
+    # canonical layer wins).
+    flat_cards, _seen_count = _dedupe_flat_cards_by_id(annotated_cards)
+    first_card_slug = flat_cards[0]['slug'] if flat_cards else NOMINATE_FALLBACK_WG_SLUG
+
+    # Build a workgroup_id -> set(layer_ids) map by walking the raw
+    # grouped_workgroups (before dedup). Each workgroup can appear in multiple
+    # layers (primary + secondary links); we want every layer it shows up in so
+    # the filter can match a workgroup from any of its layers. The deduped
+    # `flat_cards` only carries the primary layer — not enough to surface
+    # every layer that has at least one approved workgroup.
+    workgroup_layer_ids = {}
+    for group in grouped_workgroups:
+        layer = group.get('layer') or {}
+        layer_id_val = layer.get('id') or ''
+        if not layer_id_val:
+            continue
+        for wg in group['workgroups']:
+            wg_id = wg.get('id') or wg.get('slug', '')
+            if not wg_id:
+                continue
+            workgroup_layer_ids.setdefault(wg_id, set()).add(layer_id_val)
+
+    # FAQ items
+    faq = [
+        {
+            'q': 'How do I know which workgroup is right for me?',
+            'a': "Read each DP's short description and pick the one whose purpose resonates with your interests and skills. You can always join a different workgroup later.",
+        },
+        {
+            'q': "What if I don't have time for ongoing commitments?",
+            'a': "Some roles are flexible and low-touch. Roles like Recorder or Liaison can be episodic – contribute when you have capacity.",
+        },
+        {
+            'q': 'Can I be a member of more than one workgroup?',
+            'a': "Yes. Many community members participate across multiple workgroups. Each workgroup runs independently and you can join as many as your time allows.",
+        },
+        {
+            'q': 'How are Coordinators chosen?',
+            'a': "Coordinators can be nominated by anyone in the community, or you can nominate yourself. The layer admin reviews and approves each nomination. Nominations go through a transparent review process.",
+        },
+    ]
+
+    # Build the content
+    role_cards_html = ''.join(
+        '<div class="col-md-6 col-lg-4">'
+        '<div class="card h-100 living-module">'
+        '<div class="card-body">'
+        f'<div class="living-module-icon mb-2"><i class="fas {_escape_text(pos["icon"])} fa-2x text-primary" aria-hidden="true"></i></div>'
+        f'<h5 class="card-title mb-1">{_escape_text(pos["label"])}</h5>'
+        f'<p class="card-text text-muted mb-0">{_escape_text(pos["description"])}</p>'
+        '</div>'
+        '</div>'
+        '</div>'
+        for pos in positions
     )
 
-    # Header for the DP-specific landing. The lead explicitly calls out that
-    # this is the DP-specific list of all 22 workgroups.
-    wg_join_header = gh_page_header(
-        'Join a DP Workgroup',
-        'Each of the 22 Desirable Properties is stewarded by a dedicated workgroup. '
-        'Pick the property whose purpose resonates with you \u2013 join as a member, '
-        'or nominate yourself (or someone else) for a coordinator or contributor role.',
-        'fa-users-cog',
-        actions_html=sign_in_cta,
-    )
+    # Build the layer filter options from the per-layer fetch (before dedup),
+    # so every layer that has at least one approved workgroup shows up in the
+    # dropdown — even if all of its workgroups are duplicates of an earlier
+    # layer's workgroups. Layer order matches the per-layer fetch order
+    # (Metaweb first when present). Use the layer's stable `id` as both the
+    # <option value> and the card's `data-layers` token so vanilla JS can
+    # show/hide without needing a layer-name slug translation.
+    layer_filter_options = []
+    seen_layer_ids = set()
+    for group in grouped_workgroups:
+        layer = group.get('layer') or {}
+        lid = layer.get('id')
+        if lid and lid not in seen_layer_ids and group.get('workgroups'):
+            seen_layer_ids.add(lid)
+            layer_filter_options.append((lid, layer.get('name') or 'Layer'))
 
-    # Status badge color (matches the conventions used elsewhere on Gov Hub).
-    def _status_class(status: str) -> str:
-        return {
-            'active': 'success',
-            'forming': 'info',
-            'inactive': 'secondary',
-            'archived': 'secondary',
-            'completed': 'primary',
-        }.get((status or '').lower(), 'secondary')
-
-    def _truncate(text: str, max_len: int = 220) -> str:
-        text = (text or '').strip()
-        if len(text) <= max_len:
-            return text
-        return text[: max_len - 1].rstrip() + '\u2026'
-
-    # Build the 22-card grid. Each card links to the workgroup detail page
-    # and exposes a Nominate link that opens the nomination modal on the
-    # detail page via the `?action=nominate` query string.
-    dp_cards_html = ''.join(
-        (
-            '<div class="col-md-6 col-lg-4 dp-join-card-col" data-dp-id="'
-            + html_mod.escape(dp['dp_id'], quote=True) + '">'
-            '<div class="card h-100 living-module">'
-            '<div class="card-body d-flex flex-column">'
-            '<div class="d-flex justify-content-between align-items-start mb-2 gap-2">'
-            '<span class="badge bg-secondary dp-join-card-id">'
-            + html_mod.escape(dp['dp_id'], quote=True) + '</span>'
-            '<span class="badge bg-' + _status_class(dp['status']) + '">'
-            + html_mod.escape((dp['status'] or 'active').title(), quote=True) + '</span>'
-            '</div>'
-            '<h3 class="h6 card-title mb-2">'
-            '<a href="/workgroups/' + html_mod.escape(dp['slug'], quote=True) + '/" '
-            'class="text-decoration-none">'
-            + html_mod.escape(dp['title'], quote=True) + '</a></h3>'
-            '<p class="card-text text-muted small mb-3 flex-grow-1">'
-            + html_mod.escape(_truncate(dp['description']), quote=True) + '</p>'
-            '<div class="d-flex flex-wrap gap-2 mt-auto">'
-            '<a href="/workgroups/' + html_mod.escape(dp['slug'], quote=True) + '/" '
-            'class="btn btn-sm btn-primary dp-join-view-btn">'
-            '<i class="fas fa-arrow-right me-1" aria-hidden="true"></i>View workgroup</a>'
-            '<a href="/workgroups/' + html_mod.escape(dp['slug'], quote=True)
-            + '/?action=nominate" class="btn btn-sm btn-outline-success dp-join-nominate-btn">'
-            '<i class="fas fa-user-plus me-1" aria-hidden="true"></i>Nominate</a>'
-            '</div>'
-            '</div>'
-            '</div>'
+    layer_filter_html = ''
+    if layer_filter_options:
+        options_html = ''.join(
+            f'<option value="{_escape_text(lid)}">{_escape_text(lname)}</option>'
+            for lid, lname in layer_filter_options
+        )
+        layer_filter_html = (
+            '<div class="wg-join-layer-filter-wrap mb-3 d-flex align-items-center gap-2 flex-wrap">'
+            '<label for="wg-join-layer-filter" class="gh-filter-label mb-0">Filter by layer</label>'
+            '<select id="wg-join-layer-filter" class="form-select form-select-sm w-auto" aria-label="Filter workgroups by layer">'
+            '<option value="all" selected>All layers</option>'
+            f'{options_html}'
+            '</select>'
+            '<span id="wg-join-layer-count" class="small text-muted ms-1"></span>'
             '</div>'
         )
-        for dp in WORKGROUP_JOIN_DPS
+
+    if flat_cards:
+        cards_html_parts = []
+        for wg in flat_cards:
+            slug_esc = _escape_text(wg['slug'])
+            name_esc = _escape_text(wg['name'])
+            desc_esc = _escape_text(wg['description']) or 'No description provided.'
+            status_esc = _escape_text(wg['status'])
+            status_class = 'success' if wg['status'] == 'active' else 'secondary'
+            primary_layer_id = wg.get('layer_id') or ''
+            # Build the full set of layer ids this workgroup appears in
+            # (primary + any secondary layer links). Primary first so the
+            # canonical Metaweb layer is the first token in `data-layers`.
+            all_layer_ids = list(workgroup_layer_ids.get(wg.get('id') or wg.get('slug', ''), set()))
+            if primary_layer_id and primary_layer_id in all_layer_ids:
+                all_layer_ids.remove(primary_layer_id)
+                all_layer_ids.insert(0, primary_layer_id)
+            elif primary_layer_id:
+                all_layer_ids.insert(0, primary_layer_id)
+            layers_attr = _escape_text(' '.join(all_layer_ids))
+            primary_attr = _escape_text(primary_layer_id)
+            cards_html_parts.append(
+                '<div class="col-md-6 col-lg-4 wg-join-card-col"'
+                f' data-layer="{primary_attr}"'
+                f' data-layers="{layers_attr}">'
+                '<div class="card h-100 living-module">'
+                '<div class="card-body d-flex flex-column">'
+                f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
+                f'<p class="card-text text-muted small mb-2 flex-grow-1" data-gh-clamp-10>{desc_esc}</p>'
+                f'<a class="gh-card-more mb-2" href="/workgroups/{slug_esc}/" data-gh-more hidden>More</a>'
+                '<div class="d-flex justify-content-between align-items-center">'
+                f'<span class="badge bg-{status_class}">{status_esc}</span>'
+                f'<a href="/workgroups/{slug_esc}/" class="btn btn-sm btn-primary">View workgroup</a>'
+                '</div>'
+                '</div>'
+                '</div>'
+                '</div>'
+            )
+        cards_html = ''.join(cards_html_parts)
+    elif grouped_workgroups:
+        # grouped_workgroups had cards before dedupe but all were duplicates —
+        # show an honest empty state.
+        cards_html = '<div class="col-12"><div class="alert alert-info mb-0">No approved workgroups yet. Check back soon.</div></div>'
+    else:
+        cards_html = '<div class="col-12"><div class="alert alert-info mb-0">No approved workgroups yet. Check back soon.</div></div>'
+
+    faq_html = ''.join(
+        f'<div class="accordion-item">'
+        f'<h2 class="accordion-header">'
+        f'<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq-{i}" aria-expanded="false" aria-controls="faq-{i}">'
+        f'{_escape_text(item["q"])}'
+        f'</button>'
+        f'</h2>'
+        f'<div id="faq-{i}" class="accordion-collapse collapse" data-bs-parent="#workgroup-faq">'
+        f'<div class="accordion-body">{_escape_text(item["a"])}</div>'
+        f'</div>'
+        f'</div>'
+        for i, item in enumerate(faq)
     )
 
-    # FAQ items – focused on a "pick a DP" experience.
-    faq_items = (
-        (
-            'How do I know which workgroup is right for me?',
-            'Read each DP\u2019s short description and pick the one whose purpose '
-            'resonates with your interests and skills. You can always join a different '
-            'workgroup later.',
-        ),
-        (
-            'What if I don\u2019t have time for ongoing commitments?',
-            'Some roles are flexible and low-touch. Roles like Recorder or Liaison '
-            'can be episodic \u2013 contribute when you have capacity.',
-        ),
-        (
-            'Can I be a member of more than one workgroup?',
-            'Yes. Many community members participate across multiple workgroups.',
-        ),
-        (
-            'How are Coordinators chosen?',
-            'Coordinators can be nominated by anyone in the community, or you can '
-            'nominate yourself. The layer admin reviews and approves each nomination.',
-        ),
-    )
-    faq_id = 'wg-join-faq'
-    faq_buttons = ''.join(
-        (
-            '<div class="accordion-item">'
-            '<h2 class="accordion-header" id="' + faq_id + '-h-' + str(i) + '">'
-            '<button class="accordion-button' + (' collapsed' if i else '')
-            + '" type="button" data-bs-toggle="collapse" '
-            'data-bs-target="#' + faq_id + '-c-' + str(i) + '" '
-            'aria-expanded="' + ('true' if i == 0 else 'false') + '" '
-            'aria-controls="' + faq_id + '-c-' + str(i) + '">'
-            + html_mod.escape(q) + '</button></h2>'
-            '<div id="' + faq_id + '-c-' + str(i) + '" '
-            'class="accordion-collapse collapse' + (' show' if i == 0 else '') + '" '
-            'aria-labelledby="' + faq_id + '-h-' + str(i) + '" data-bs-parent="#' + faq_id + '">'
-            '<div class="accordion-body">' + html_mod.escape(a) + '</div></div>'
-            '</div>'
-        )
-        for i, (q, a) in enumerate(faq_items)
-    )
-
-    dp_count = len(WORKGROUP_JOIN_DPS)
+    first_card_slug_esc = _escape_text(first_card_slug)
 
     content = f"""
-    {gh_page_open('wg-join-page dp-join-page')}
-    {wg_join_header}
+    <div class="gh-page container mt-4">
+        <section class="gh-hero mb-5">
+            <h1 class="display-5 mb-3"><i class="fas fa-users-cog me-2 text-primary" aria-hidden="true"></i>Join a Workgroup</h1>
+            <p class="lead text-muted mb-0">
+                Workgroups are the heart of how The Metaweb coordinates contributions.
+                Each workgroup advances one Design Principle (DP) – pick yours and join an active community of contributors.
+            </p>
+        </section>
 
-    <section class="wg-join-cta mb-4" aria-label="Ready to contribute">
-        <div class="wg-join-cta-inner">
-            <div class="wg-join-cta-body">
-                <h2 class="wg-join-cta-title">Ready to participate?</h2>
-                <p class="wg-join-cta-text">
-                    Pick a workgroup below, or go straight to The Metaweb layer on Gov Hub
-                    to discover drafts and discussions across all 22 properties.
-                </p>
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-info-circle me-2 text-info" aria-hidden="true"></i>What are workgroups?</h2>
+            <p class="mb-0">
+                Workgroups are small, focused teams that move a single Design Principle (DP) from concept to working draft.
+                Each workgroup has a charter, a coordinator, and a flexible roster of members who contribute as their time allows.
+                There is no requirement to attend every meeting or write every line – workgroups run on async collaboration, with synchronous time reserved for moments that need it.
+            </p>
+        </section>
+
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-user-tag me-2 text-success" aria-hidden="true"></i>Workgroup roles</h2>
+            <p class="text-muted mb-3">
+                Every workgroup has seven named positions. Pick the role that fits the contribution you want to make.
+            </p>
+            <div class="row g-3">
+                {role_cards_html}
             </div>
-            <div class="wg-join-cta-actions">
-                <a href="#wg-join-listing" class="btn btn-primary wg-join-cta-btn">
-                    <i class="fas fa-arrow-down me-2"></i>Browse the {dp_count} workgroups
-                </a>
-                <a href="/layers/the-metaweb/" class="btn btn-outline-primary wg-join-cta-btn">
-                    <i class="fas fa-layer-group me-2"></i>Open the Metaweb layer
-                </a>
+        </section>
+
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-bullhorn me-2 text-warning" aria-hidden="true"></i>Join or nominate</h2>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h3 class="h5 mb-2"><i class="fas fa-user-plus me-1 text-primary" aria-hidden="true"></i>Join as a member</h3>
+                            <p class="text-muted mb-3">
+                                Already a GovHub member? Pick a workgroup below and click "View workgroup," then use the Join button on the workgroup page.
+                                You can join as many workgroups as you have time for.
+                            </p>
+                            <a href="/workgroups/" class="btn btn-primary">
+                                <i class="fas fa-list me-2" aria-hidden="true"></i>Browse workgroups
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h3 class="h5 mb-2"><i class="fas fa-hand-pointer me-1 text-success" aria-hidden="true"></i>Nominate someone (or yourself)</h3>
+                            <p class="text-muted mb-3">
+                                Want to step into a Coordinator, Editor, or other leadership role?
+                                Open any workgroup below and use the Nominate button – you can nominate yourself or someone else, and the nominee reviews the nomination before it goes to layer admins.
+                            </p>
+                            <a href="/workgroups/{first_card_slug_esc}/" class="btn btn-success">
+                                <i class="fas fa-arrow-right me-2" aria-hidden="true"></i>Open a workgroup to nominate
+                            </a>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <section id="wg-join-listing" class="wg-join-listing mb-5" aria-label="The 22 DP workgroups">
-        <h2 class="wg-join-section-title">The {dp_count} Desirable Properties workgroups</h2>
-        <p class="text-muted mb-3">
-            Each workgroup stewards one Desirable Property &ndash; drafting the canonical
-            text, reviewing contributions, and proposing updates. Click through to Gov Hub
-            to view details or nominate a coordinator.
-        </p>
-        <div class="row g-3">
-            {dp_cards_html}
-        </div>
-    </section>
-
-    <section class="wg-join-faq mb-5" aria-label="Frequently asked questions">
-        <h2 class="wg-join-section-title">Frequently asked questions</h2>
-        <div class="accordion" id="{faq_id}">
-            {faq_buttons}
-        </div>
-    </section>
-
-    <section class="mb-5">
-        <div class="card border-0 living-module">
-            <div class="card-body py-4 px-4">
-                <h2 class="h4 mb-2"><i class="fas fa-rocket me-2 text-primary" aria-hidden="true"></i>Ready to contribute?</h2>
-                <p class="mb-3">
-                    Pick a workgroup above and start contributing at the level that fits your time.
-                    If you want to lead, nominate yourself &ndash; the path from member to coordinator
-                    is open to everyone.
-                </p>
-                <a href="#wg-join-listing" class="btn btn-primary">
-                    <i class="fas fa-arrow-up me-2"></i>Back to the {dp_count} workgroups
-                </a>
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-layer-group me-2 text-primary" aria-hidden="true"></i>Active workgroups</h2>
+            <p class="text-muted mb-3">
+                Approved workgroups from every active layer, with The Metaweb listed first.
+                Click any card to view details, members, and the Join button.
+            </p>
+            {layer_filter_html}
+            <div class="row g-3" id="wg-join-grid">
+                {cards_html}
             </div>
-        </div>
-    </section>
-    {gh_page_close()}
+        </section>
+
+        <section class="mb-5">
+            <h2 class="h3 mb-3"><i class="fas fa-question-circle me-2 text-secondary" aria-hidden="true"></i>Frequently asked questions</h2>
+            <div class="accordion" id="workgroup-faq">
+                {faq_html}
+            </div>
+        </section>
+
+        <section class="mb-5">
+            <div class="card border-0 living-module">
+                <div class="card-body py-4 px-4">
+                    <h2 class="h4 mb-2"><i class="fas fa-rocket me-2 text-primary" aria-hidden="true"></i>Ready to contribute?</h2>
+                    <p class="mb-3">
+                        Pick a workgroup, click Join, and start contributing at the level that fits your time.
+                        If you want to lead, nominate yourself – the path from member to coordinator is open to everyone.
+                    </p>
+                    <a href="/workgroups/" class="btn btn-primary">
+                        <i class="fas fa-arrow-right me-2" aria-hidden="true"></i>Browse all workgroups
+                    </a>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script>
+    (function () {{
+        const sel = document.getElementById('wg-join-layer-filter');
+        const grid = document.getElementById('wg-join-grid');
+        const counter = document.getElementById('wg-join-layer-count');
+        if (!sel || !grid) return;
+
+        const cards = grid.querySelectorAll('.wg-join-card-col');
+        const total = cards.length;
+
+        function applyFilter(value) {{
+            let visible = 0;
+            cards.forEach(function (card) {{
+                const layersAttr = card.getAttribute('data-layers') || '';
+                const layerIds = layersAttr ? layersAttr.split(/\s+/).filter(Boolean) : [];
+                const match = value === 'all' || layerIds.indexOf(value) !== -1;
+                card.style.display = match ? '' : 'none';
+                if (match) visible += 1;
+            }});
+            if (counter) {{
+                counter.textContent = value === 'all'
+                    ? 'Showing all ' + total + ' workgroup' + (total === 1 ? '' : 's')
+                    : 'Showing ' + visible + ' of ' + total;
+            }}
+        }}
+
+        sel.addEventListener('change', function () {{
+            applyFilter(sel.value);
+        }});
+        applyFilter(sel.value);
+    }})();
+    </script>
     """
 
     return render_page(
-        'Join a DP Workgroup \u2013 GovHub',
-        content,
+        title='Join a Workgroup – GovHub',
+        content=content,
         theme=current_theme,
         user_menu=user_menu,
     )
