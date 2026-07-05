@@ -391,6 +391,122 @@
   margin-bottom: 0.5rem;
 }
 
+/* Layer typeahead on /docs/ – single-select combobox that filters
+   layers as the user types and lets them pick one with mouse or keyboard. */
+.gh-typeahead {
+  position: relative;
+}
+
+.gh-typeahead-control {
+  position: relative;
+}
+
+.gh-typeahead-input {
+  padding-right: 2.25rem;
+}
+
+.gh-typeahead-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  line-height: 1;
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 0.25rem;
+}
+
+.gh-typeahead-clear:hover,
+.gh-typeahead-clear:focus-visible {
+  background: var(--gh-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary);
+}
+
+.gh-typeahead-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding: 0.25rem 0.55rem;
+  background: var(--accent-color);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  max-width: 100%;
+}
+
+.gh-typeahead-chip-label {
+  opacity: 0.85;
+  font-weight: 500;
+}
+
+.gh-typeahead-chip-value {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gh-typeahead-chip-remove {
+  background: transparent;
+  border: 0;
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+  cursor: pointer;
+  border-radius: 0.2rem;
+}
+
+.gh-typeahead-chip-remove:hover,
+.gh-typeahead-chip-remove:focus-visible {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.gh-typeahead-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 0.15rem);
+  left: 0;
+  right: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-color);
+  border-radius: var(--gh-radius-md, 0.5rem);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.gh-typeahead-menu[hidden] {
+  display: none;
+}
+
+.gh-typeahead-option {
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.gh-typeahead-option.gh-typeahead-option-active,
+.gh-typeahead-option:hover {
+  background: var(--gh-hover, rgba(102, 126, 234, 0.12));
+  color: var(--text-primary);
+}
+
+.gh-typeahead-empty {
+  padding: 0.5rem 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 [data-theme="dark"] {
   --gh-glow: rgba(102, 126, 234, 0.45);
   --gh-glow-soft: rgba(102, 126, 234, 0.18);
