@@ -4,7 +4,7 @@ from datetime import datetime, date
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, redirect, request
 from sqlalchemy import text, or_, func
 
 from extensions import db
@@ -154,6 +154,17 @@ def get_workgroup(workgroup_id):
 @bp.route('/workgroups/by-slug/<workgroup_slug>/', methods=['GET'])
 def get_workgroup_by_slug(workgroup_slug):
     """Direct workgroup lookup by slug – used by the /workgroups/<slug>/ page bootstrap."""
+    # Historical slug renames: redirect API consumers to the canonical slug.
+    _WORKGROUP_SLUG_REDIRECTS = {
+        'dp22---epistemic-continuity-digital-artifacts':
+            'dp22-civic-memory-epistemic-continuity',
+    }
+    if workgroup_slug in _WORKGROUP_SLUG_REDIRECTS:
+        return redirect(
+            f"/api/workgroups/by-slug/{_WORKGROUP_SLUG_REDIRECTS[workgroup_slug]}/",
+            code=301,
+        )
+
     wg = (
         db.session.query(Workgroup)
         .join(Layer, Layer.id == Workgroup.layer_id)

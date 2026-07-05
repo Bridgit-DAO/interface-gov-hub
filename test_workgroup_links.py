@@ -6,7 +6,7 @@ from services.workgroup_links import extract_dp_number_from_title, workgroup_dis
 def test_extract_dp_number():
     assert extract_dp_number('dp1-federated-auth') == 1
     assert extract_dp_number('dp21-multi-modal') == 21
-    assert extract_dp_number('dp22---epistemic-continuity-digital-artifacts') == 22
+    assert extract_dp_number('dp22-civic-memory-epistemic-continuity') == 22
 
 
 def test_dp_image_url():
@@ -24,12 +24,12 @@ def test_workgroup_display_sort_key():
     items = [
         _Wg('dp10-education', 'DP10 - Education'),
         _Wg('dp2-agency', 'DP2 - Participant Agency'),
-        _Wg('dp22---epistemic', 'DP22 - Civic Memory'),
+        _Wg('dp22-civic-memory', 'DP22 - Civic Memory'),
         _Wg('ml-governance', 'ML Governance'),
     ]
     ordered = [wg.acronym for wg in sorted(items, key=workgroup_display_sort_key)]
     assert ordered.index('dp2-agency') < ordered.index('dp10-education')
-    assert ordered.index('dp10-education') < ordered.index('dp22---epistemic')
+    assert ordered.index('dp10-education') < ordered.index('dp22-civic-memory')
     assert ordered[-1] == 'ml-governance'
 
 

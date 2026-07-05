@@ -3,7 +3,7 @@ import html
 import json
 
 import requests
-from flask import Blueprint, session
+from flask import Blueprint, redirect, session
 
 from services.identity import get_current_user
 
@@ -516,6 +516,16 @@ def workgroups_join_landing():
 @bp.route('/workgroups/<workgroup_slug>/')
 def workgroup_detail(workgroup_slug):
     """Workgroup detail page"""
+    # Historical slug renames: redirect to the canonical slug so external links
+    # (and bookmarks) keep working. Add new entries here when a workgroup slug
+    # changes.
+    _WORKGROUP_SLUG_REDIRECTS = {
+        'dp22---epistemic-continuity-digital-artifacts':
+            'dp22-civic-memory-epistemic-continuity',
+    }
+    if workgroup_slug in _WORKGROUP_SLUG_REDIRECTS:
+        return redirect(f"/workgroups/{_WORKGROUP_SLUG_REDIRECTS[workgroup_slug]}/", code=301)
+
     render_page, generate_user_menu, _directory_helpers = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
