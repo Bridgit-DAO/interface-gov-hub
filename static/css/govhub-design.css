@@ -2545,3 +2545,86 @@ a.gh-passage-comment-link:focus {
   color: var(--gh-link-hover, #6eb3ff);
   text-decoration: underline;
 }
+
+/* -------------------------------------------------------------------------
+ * Nominate-for-a-position modal (#nominateChairModal) — dark-mode polish.
+ * Scoped to the modal so light mode keeps Bootstrap defaults. Targets:
+ *   - Workgroup label + chip ("DP13 – AI Containment")
+ *   - Helper text (.form-text)
+ *   - Form controls / selects / placeholders
+ *   - "Myself" / "Someone else" toggle (radio + .btn-outline-primary)
+ *   - Modal header / title / close button
+ * ----------------------------------------------------------------------- */
+[data-theme="dark"] #nominateChairModal .modal-content {
+  background-color: var(--bg-secondary, #0a1224);
+  color: var(--text-primary, #eef2ff);
+}
+
+[data-theme="dark"] #nominateChairModal .modal-title {
+  color: var(--text-primary, #eef2ff);
+}
+
+[data-theme="dark"] #nominateChairModal .form-label {
+  color: var(--text-primary, #eef2ff);
+}
+
+/* Workgroup chip — give the plaintext workgroup name a visible chip so it
+ * reads as a clickable/tappable badge rather than orphan blue text. */
+[data-theme="dark"] #nominateChairModal #modal-workgroup-name {
+  display: inline-block;
+  padding: 0.4rem 0.75rem;
+  margin-bottom: 0;
+  color: var(--accent-color, #4d9fff);
+  background: rgba(77, 159, 255, 0.16);
+  border: 1px solid rgba(77, 159, 255, 0.35);
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+/* Helper text under Position / Statement fields — use the secondary token
+ * (vs. muted) so it stays legible on the dark card. */
+[data-theme="dark"] #nominateChairModal .form-text {
+  color: var(--text-secondary, #94a3c4);
+}
+
+/* Form controls — match the rest of the dark forms (input bg, accent border
+ * on focus, readable placeholders). */
+[data-theme="dark"] #nominateChairModal .form-control,
+[data-theme="dark"] #nominateChairModal .form-select {
+  background-color: var(--input-bg, rgba(10, 18, 36, 0.92));
+  border-color: var(--input-border, rgba(77, 159, 255, 0.22));
+  color: var(--text-primary, #eef2ff);
+}
+
+[data-theme="dark"] #nominateChairModal .form-control::placeholder {
+  color: var(--text-secondary, #94a3c4);
+  opacity: 1;
+}
+
+/* "Myself" / "Someone else" radio + outline-primary button group.
+ * Inactive: slightly raised chip so it separates from the form bg.
+ * Active: filled accent chip with white label. */
+[data-theme="dark"] #nominateChairModal .btn-check + .btn-outline-primary {
+  background-color: var(--bg-tertiary, #101a30);
+  border-color: var(--border-color, rgba(77, 159, 255, 0.22));
+  color: var(--text-primary, #eef2ff);
+}
+
+[data-theme="dark"] #nominateChairModal .btn-check + .btn-outline-primary:hover {
+  background-color: rgba(77, 159, 255, 0.10);
+  border-color: var(--border-hover, rgba(77, 159, 255, 0.28));
+  color: var(--text-primary, #eef2ff);
+}
+
+[data-theme="dark"] #nominateChairModal .btn-check:checked + .btn-outline-primary,
+[data-theme="dark"] #nominateChairModal .btn-check:active + .btn-outline-primary {
+  background-color: var(--accent-color, #4d9fff);
+  border-color: var(--accent-color, #4d9fff);
+  color: #ffffff;
+  box-shadow: 0 0 0 0.2rem rgba(77, 159, 255, 0.25);
+}
+
+/* Bootstrap default close button SVG is dark — invert it on dark cards. */
+[data-theme="dark"] #nominateChairModal .btn-close {
+  filter: invert(1) grayscale(100%) brightness(200%);
+}
