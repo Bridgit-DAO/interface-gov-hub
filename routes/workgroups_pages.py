@@ -457,8 +457,7 @@ def workgroup_detail(workgroup_slug):
             const sel = document.getElementById('nomination-position');
             if (!sel) return;
             sel.innerHTML = workgroupPositions.map(function(p) {{
-                const tag = p.placeholder ? ' (preview)' : '';
-                return '<option value="' + p.key + '">' + p.label + tag + '</option>';
+                return '<option value="' + p.key + '">' + p.label + '</option>';
             }}).join('');
             sel.addEventListener('change', updatePositionDescription);
             updatePositionDescription();
