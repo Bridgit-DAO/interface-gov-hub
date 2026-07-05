@@ -128,7 +128,7 @@ DP_DESCRIPTIONS = {
         'title': 'Community Ownership',
         'desc': 'Ensuring community ownership through decentralized governance, shared decision-making, and equitable distribution of value and control.'
     },
-    'dp22---epistemic-continuity-digital-artifacts': {
+    'dp22-civic-memory-epistemic-continuity': {
         'title': 'Epistemic Continuity & Digital Artifacts',
         'desc': 'Preserving epistemic continuity through durable digital artifacts, provenance, and long-lived knowledge across the Meta-Layer.'
     },

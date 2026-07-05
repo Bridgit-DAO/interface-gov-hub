@@ -3,7 +3,7 @@ import html
 import json
 
 import requests
-from flask import Blueprint, session
+from flask import Blueprint, redirect, session
 
 from services.identity import get_current_user
 
@@ -485,6 +485,16 @@ def workgroups_join_landing():
 @bp.route('/workgroups/<workgroup_slug>/')
 def workgroup_detail(workgroup_slug):
     """Workgroup detail page"""
+    # Historical slug renames: redirect to the canonical slug so external links
+    # (and bookmarks) keep working. Add new entries here when a workgroup slug
+    # changes.
+    _WORKGROUP_SLUG_REDIRECTS = {
+        'dp22---epistemic-continuity-digital-artifacts':
+            'dp22-civic-memory-epistemic-continuity',
+    }
+    if workgroup_slug in _WORKGROUP_SLUG_REDIRECTS:
+        return redirect(f"/workgroups/{_WORKGROUP_SLUG_REDIRECTS[workgroup_slug]}/", code=301)
+
     render_page, generate_user_menu = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
@@ -664,6 +674,12 @@ def workgroup_detail(workgroup_slug):
     let selectedNomineeUserId = null;
     let nominationSearchResults = [];
     let workgroupPositions = [];
+    // Read ?action= once so we can auto-open the nominate / join modal
+    // after the page finishes loading. Stripped after firing so a refresh
+    // doesn't re-trigger the modal.
+    const _urlParams = new URLSearchParams(window.location.search);
+    const autoAction = _urlParams.get('action');
+    let autoActionConsumed = false;
 
     async function loadWorkgroupPositions() {{
         try {{
@@ -753,6 +769,23 @@ def workgroup_detail(workgroup_slug):
             loadChairs();
             loadMembers();
             loadAssignedDocuments();
+
+            // Auto-open the nominate / join modal when the user arrived here
+            // via a "?action=nominate" or "?action=join" link (e.g. from the
+            // Next.js /workgroups/join page). Only fires for approved,
+            // authenticated users — `nominateForChair()` / `joinWorkgroup()`
+            // already show a GhDialog if not. Cleanup the URL once so a
+            // refresh does not re-trigger the modal.
+            if (!autoActionConsumed && autoAction) {{
+                autoActionConsumed = true;
+                const approved = workgroup && workgroup.approval_status === 'approved';
+                window.history.replaceState({{}}, '', window.location.pathname);
+                if (autoAction === 'nominate' && approved) {{
+                    nominateForChair();
+                }} else if (autoAction === 'join' && approved) {{
+                    joinWorkgroup();
+                }}
+            }}
         }} catch (error) {{
             console.error('Error loading workgroup:', error);
             document.getElementById('workgroup-header').innerHTML =
