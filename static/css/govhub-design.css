@@ -2468,3 +2468,28 @@ a.gh-passage-comment-link:focus {
   grid-column: 1 / -1;
   color: var(--text-muted);
 }
+
+/* Workgroup card description clamping (site-wide) */
+.gh-clamp-10 {
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  line-clamp: 10;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gh-card-more {
+  display: inline-block;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--gh-accent-blue, var(--accent-color));
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.gh-card-more:hover,
+.gh-card-more:focus-visible {
+  color: var(--gh-link-hover, #6eb3ff);
+  text-decoration: underline;
+}

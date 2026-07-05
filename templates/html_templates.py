@@ -875,11 +875,12 @@ BASE_TEMPLATE = """
             }}
         }}
     </style>
-    <link href="/static/css/govhub-design.css?v=20260705typeahead-dark" rel="stylesheet">
+    <link href="/static/css/govhub-design.css?v=20260705card-clamp" rel="stylesheet">
     <link href="/static/css/gh-nav-pills.css?v=1" rel="stylesheet">
     <script src="/static/js/gh-nav-pills.js?v=1" defer></script>
     <script src="/static/js/gh-nav-user-name.js?v=3" defer></script>
     <script src="/static/js/gh-directory.js"></script>
+    <script src="/static/js/gh-clamp.js?v=1" defer></script>
 </head>
 <body data-build-number="{build_number}" {body_attrs}>
     <script>

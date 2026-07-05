@@ -43,6 +43,7 @@ datatracker.sublime-workspace
 !/static/js/gh-nav-pills.js
 !/static/js/document-patches.js
 !/static/js/gh-theme.js
+!/static/js/gh-clamp.js
 !/static/js/dp-proposals/
 !/static/js/dp-proposals/**
 !/static/vendor/
