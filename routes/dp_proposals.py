@@ -126,6 +126,7 @@ def create_proposal(draft_ref):
         rationale=payload.get('rationale'),
         reference_url=payload.get('reference_url'),
     )
+    db.session.flush()  # ensure row.id is populated before emit_event reads it
     from services.events import emit_event
     from services.document_follow_notifications import draft_key_for_submission
 
