@@ -1976,7 +1976,7 @@ def admin_workgroups():
     }
 
     async function rejectWorkgroup(workgroupId) {
-        const note = (await GhDialog.prompt({{ title: 'Enter value', message: 'Reason for rejection (optional):', variant: 'info' }}));
+        const note = (await GhDialog.prompt({ title: 'Enter value', message: 'Reason for rejection (optional):', variant: 'info' }));
         if (note === null) return;
 
         try {
@@ -2349,7 +2349,7 @@ def admin_chair_nominations():
     }
 
     async function approveNomination(nominationId) {
-        if (!await GhDialog.confirm({{ title: 'Confirm', message: ('Approve this chair nomination?'), variant: 'warning', confirmLabel: 'Confirm' }})) return;
+        if (!await GhDialog.confirm({ title: 'Confirm', message: ('Approve this chair nomination?'), variant: 'warning', confirmLabel: 'Confirm' })) return;
 
         try {
             const response = await fetch(`/api/admin/chair-nominations/${nominationId}/approve/`, {
@@ -2359,19 +2359,19 @@ def admin_chair_nominations():
 
             const data = await response.json();
             if (response.ok) {
-                await GhDialog.alert({{ title: 'Notice', message: ('Nomination approved!'), variant: 'info' }});
+                await GhDialog.alert({ title: 'Notice', message: ('Nomination approved!'), variant: 'info' });
                 loadNominations();
             } else {
-                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to approve nomination'), variant: 'info' }});
+                await GhDialog.alert({ title: 'Notice', message: (data.error || 'Failed to approve nomination'), variant: 'info' });
             }
         } catch (error) {
             console.error('Error:', error);
-            await GhDialog.alert({{ title: 'Notice', message: ('Failed to approve nomination'), variant: 'info' }});
+            await GhDialog.alert({ title: 'Notice', message: ('Failed to approve nomination'), variant: 'info' });
         }
     }
 
     async function rejectNomination(nominationId) {
-        const reason = (await GhDialog.prompt({{ title: 'Enter value', message: 'Reason for rejection (optional):', variant: 'info' }}));
+        const reason = (await GhDialog.prompt({ title: 'Enter value', message: 'Reason for rejection (optional):', variant: 'info' }));
         if (reason === null) return; // User cancelled
 
         try {
@@ -2383,14 +2383,14 @@ def admin_chair_nominations():
 
             const data = await response.json();
             if (response.ok) {
-                await GhDialog.alert({{ title: 'Notice', message: ('Nomination rejected'), variant: 'info' }});
+                await GhDialog.alert({ title: 'Notice', message: ('Nomination rejected'), variant: 'info' });
                 loadNominations();
             } else {
-                await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Failed to reject nomination'), variant: 'info' }});
+                await GhDialog.alert({ title: 'Notice', message: (data.error || 'Failed to reject nomination'), variant: 'info' });
             }
         } catch (error) {
             console.error('Error:', error);
-            await GhDialog.alert({{ title: 'Notice', message: ('Failed to reject nomination'), variant: 'info' }});
+            await GhDialog.alert({ title: 'Notice', message: ('Failed to reject nomination'), variant: 'info' });
         }
     }
 
