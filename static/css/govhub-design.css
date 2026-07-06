@@ -2628,3 +2628,23 @@ a.gh-passage-comment-link:focus {
 [data-theme="dark"] #nominateChairModal .btn-close {
   filter: invert(1) grayscale(100%) brightness(200%);
 }
+
+/* Admin notification banners on the dashboard (e.g. "1 position
+ * nomination(s) ready for approval · Review nominations") use Bootstrap's
+ * default `.alert-link` color, which is a dark cyan (#084c61) hardcoded
+ * for light backgrounds. On dark theme that renders as dim, low-contrast
+ * text on the dim info/warning/primary banner background and the link
+ * looks unclickable. Re-skin `.alert-link` in dark mode to a bright cyan
+ * with a clear hover underline so the CTA inside any admin banner is
+ * unmistakably clickable on the dark navy cards. */
+[data-theme="dark"] .alert .alert-link {
+  color: #7ec8ff;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .alert .alert-link:hover,
+[data-theme="dark"] .alert .alert-link:focus {
+  color: #cfe6ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
