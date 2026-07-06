@@ -6,7 +6,7 @@ import secrets
 from datetime import datetime
 
 from dateutil import parser as date_parser
-from flask import Blueprint, jsonify, request, current_app, abort, session
+from flask import Blueprint, jsonify, request, current_app, abort, session, after_this_request, make_response
 
 from extensions import db
 from models import (
@@ -331,9 +331,38 @@ def list_waitlist_entries(waitlist_id):
     return jsonify({'entries': entries}), 200
 
 
+_WAITLIST_EMAIL_CORS_ORIGINS = {
+    'https://book.desirableproperties.org',
+    'https://desirableproperties.org',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+}
+
+
+def _apply_waitlist_email_cors(response):
+    origin = request.headers.get('Origin')
+    if origin in _WAITLIST_EMAIL_CORS_ORIGINS:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Vary'] = 'Origin'
+        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Access-Control-Max-Age'] = '600'
+    return response
+
+
+@bp.route('/api/waitlists/<waitlist_id>/join-email/', methods=['OPTIONS'])
+def join_waitlist_email_options(waitlist_id):
+    """CORS preflight for the email join endpoint."""
+    return _apply_waitlist_email_cors(make_response(''))
+
+
 @bp.route('/api/waitlists/<waitlist_id>/join-email/', methods=['POST'])
 def join_waitlist_email(waitlist_id):
     """Join waitlist via email (no auth). Sends verification link. For embed widget."""
+    @after_this_request
+    def _add_cors(resp):
+        return _apply_waitlist_email_cors(resp)
+
     waitlist = Waitlist.query.get_or_404(waitlist_id)
     Layer.query.get_or_404(waitlist.layer_id)
 
