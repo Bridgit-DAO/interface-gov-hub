@@ -1779,36 +1779,130 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }};
         let text = '';
         let tabId = null;
+        let href = null;
+        const subj = ev.subject_id ? String(ev.subject_id) : '';
         switch (ev.event_type) {{
-            case 'member_joined': text = who + ' joined as ' + (p.role || 'contributor'); break;
-            case 'member_removed': text = who + ' left the layer'; break;
-            case 'role_claimed': text = who + ' claimed a role'; tabId = 'claims'; break;
-            case 'badge_nominated': text = who + ' was nominated for a badge'; tabId = 'claims'; break;
-            case 'badge_approved': text = who + ' received a badge'; tabId = 'claims'; break;
-            case 'badge_rejected': text = 'A badge request was rejected'; break;
-            case 'vote_started': text = 'Vote started: ' + (p.title || 'Vote'); tabId = 'votes'; break;
-            case 'vote_closed': text = 'Vote closed' + (p.result ? ' (' + p.result + ')' : ''); tabId = 'votes'; break;
-            case 'ballot_cast': text = who + ' cast a ballot'; break;
-            case 'layer_config_changed': text = who + ' updated layer settings'; break;
-            case 'waitlist_joined': text = (ev.actor_type === 'email' ? 'Someone' : who) + ' joined waitlist' + (p.waitlist_name ? ': ' + p.waitlist_name : ''); break;
-            case 'waitlist_left': text = who + ' left waitlist' + (p.waitlist_name ? ': ' + p.waitlist_name : ''); break;
-            case 'artifact_created': text = p.artifact_type === 'submission' ? 'A draft was submitted' : p.artifact_type === 'support' ? who + ' added support' : p.artifact_type === 'opposition' ? who + ' added opposition' : 'New artifact created'; tabId = 'artifacts'; break;
-            case 'artifact_updated': text = who + ' updated an artifact'; tabId = 'artifacts'; break;
-            case 'artifact_status_changed': text = who + ' changed artifact status: ' + (p.old_status || '') + ' → ' + (p.new_status || ''); tabId = 'artifacts'; break;
-            case 'artifact_linked': text = who + ' linked artifacts' + (p.relation_type ? ' (' + p.relation_type + ')' : ''); tabId = 'artifacts'; break;
-            case 'contribution_type_set': text = (p.source === 'moderation' ? who + ' set contribution type (moderation): ' : who + ' set contribution type: ') + (p.knowledge_form || ''); tabId = 'artifacts'; break;
-            case 'contribution_type_cleared': text = (p.source === 'moderation' ? who + ' cleared contribution type (moderation)' : who + ' cleared contribution type'); tabId = 'artifacts'; break;
-            case 'contribution_type_filter_applied': text = who + ' filtered artifacts by contribution' + (p.knowledge_form ? ': ' + p.knowledge_form : ' (all)'); tabId = 'artifacts'; break;
-            case 'guild_layer_linked': text = who + ' linked guild' + (p.guild_name ? ' "' + p.guild_name + '"' : '') + ' to this layer'; break;
-            case 'guild_layer_unlinked': text = who + ' unlinked guild' + (p.guild_name ? ' "' + p.guild_name + '"' : '') + ' from this layer'; break;
-            case 'guild_artifact_linked': text = who + ' linked a guild to an artifact as ' + (p.link_type || 'link'); tabId = 'artifacts'; break;
-            case 'guild_artifact_unlinked': text = who + ' removed a guild ' + (p.link_type || '') + ' link from an artifact'; tabId = 'artifacts'; break;
-            case 'guild_quest_linked': text = who + ' linked a guild to a quest as ' + (p.link_type || 'link'); tabId = 'opportunities'; break;
-            case 'guild_quest_unlinked': text = who + ' removed a guild quest link (' + (p.link_type || '') + ')'; tabId = 'opportunities'; break;
-            case 'brick_placed': text = who + ' placed a brick on Civic Mason'; break;
-            default: text = ev.event_type.replace(/_/g, ' ');
+            case 'member_joined':
+                text = who + ' joined as ' + (p.role || 'contributor');
+                break;
+            case 'member_removed':
+                text = who + ' left the layer';
+                break;
+            case 'role_claimed':
+                text = who + ' claimed a role'; tabId = 'claims';
+                if (subj) href = '/layers/' + projectSlug + '/claims/#claim-' + encodeURIComponent(subj);
+                break;
+            case 'badge_nominated':
+                text = who + ' was nominated for a badge'; tabId = 'claims';
+                if (subj) href = '/layers/' + projectSlug + '/claims/#badge-' + encodeURIComponent(subj);
+                break;
+            case 'badge_approved':
+                text = who + ' received a badge'; tabId = 'claims';
+                if (subj) href = '/layers/' + projectSlug + '/claims/#badge-' + encodeURIComponent(subj);
+                break;
+            case 'badge_rejected':
+                text = 'A badge request was rejected';
+                break;
+            case 'vote_started':
+                text = 'Vote started: ' + (p.title || 'Vote'); tabId = 'votes';
+                if (p.public_id || subj) href = '/votes/' + encodeURIComponent(p.public_id || subj) + '/';
+                break;
+            case 'vote_closed':
+                text = 'Vote closed' + (p.result ? ' (' + p.result + ')' : ''); tabId = 'votes';
+                if (p.public_id || subj) href = '/votes/' + encodeURIComponent(p.public_id || subj) + '/';
+                break;
+            case 'ballot_cast':
+                // Privacy: do not link to the ballot.
+                text = who + ' cast a ballot';
+                break;
+            case 'layer_config_changed':
+                text = who + ' updated layer settings';
+                break;
+            case 'waitlist_joined':
+                text = (ev.actor_type === 'email' ? 'Someone' : who) + ' joined waitlist' + (p.waitlist_name ? ': ' + p.waitlist_name : '');
+                if (p.waitlist_id) href = '/waitlists/' + encodeURIComponent(String(p.waitlist_id)) + '/';
+                break;
+            case 'waitlist_left':
+                text = who + ' left waitlist' + (p.waitlist_name ? ': ' + p.waitlist_name : '');
+                if (p.waitlist_id) href = '/waitlists/' + encodeURIComponent(String(p.waitlist_id)) + '/';
+                break;
+            case 'artifact_created':
+                text = p.artifact_type === 'submission' ? 'A draft was submitted' : p.artifact_type === 'support' ? who + ' added support' : p.artifact_type === 'opposition' ? who + ' added opposition' : 'New artifact created';
+                tabId = 'artifacts';
+                if (subj) href = '/layers/' + projectSlug + '/artifacts/' + encodeURIComponent(subj) + '/';
+                break;
+            case 'artifact_updated': case 'artifact_status_changed': case 'artifact_linked':
+            case 'contribution_type_set': case 'contribution_type_cleared': case 'contribution_type_filter_applied':
+                text = (function() {{
+                    if (ev.event_type === 'artifact_updated') return who + ' updated an artifact';
+                    if (ev.event_type === 'artifact_status_changed') return who + ' changed artifact status: ' + (p.old_status || '') + ' → ' + (p.new_status || '');
+                    if (ev.event_type === 'artifact_linked') return who + ' linked artifacts' + (p.relation_type ? ' (' + p.relation_type + ')' : '');
+                    if (ev.event_type === 'contribution_type_set') return (p.source === 'moderation' ? who + ' set contribution type (moderation): ' : who + ' set contribution type: ') + (p.knowledge_form || '');
+                    if (ev.event_type === 'contribution_type_cleared') return (p.source === 'moderation' ? who + ' cleared contribution type (moderation)' : who + ' cleared contribution type');
+                    return who + ' filtered artifacts by contribution' + (p.knowledge_form ? ': ' + p.knowledge_form : ' (all)');
+                }})();
+                tabId = 'artifacts';
+                if (subj) href = '/layers/' + projectSlug + '/artifacts/' + encodeURIComponent(subj) + '/';
+                break;
+            case 'guild_layer_linked': case 'guild_layer_unlinked':
+                text = (ev.event_type === 'guild_layer_linked' ? who + ' linked guild' : who + ' unlinked guild') + (p.guild_name ? ' "' + p.guild_name + '"' : '') + ' to this layer';
+                if (p.guild_slug) href = '/guilds/' + encodeURIComponent(p.guild_slug) + '/';
+                break;
+            case 'guild_artifact_linked': case 'guild_artifact_unlinked':
+                text = (ev.event_type === 'guild_artifact_linked' ? who + ' linked a guild to an artifact as ' : who + ' removed a guild ' + (p.link_type || '') + ' link from an artifact');
+                tabId = 'artifacts';
+                if (subj) href = '/layers/' + projectSlug + '/artifacts/' + encodeURIComponent(subj) + '/';
+                break;
+            case 'guild_quest_linked': case 'guild_quest_unlinked':
+                text = (ev.event_type === 'guild_quest_linked' ? who + ' linked a guild to a quest as ' : who + ' removed a guild quest link (') + (p.link_type || 'link') + (ev.event_type === 'guild_quest_unlinked' ? ')' : '');
+                tabId = 'opportunities';
+                break;
+            case 'draft_comment_added': case 'draft_comment_liked':
+                text = (ev.event_type === 'draft_comment_added' ? who + ' commented on a draft' : who + ' liked a draft comment');
+                if (p.draft_name) href = '/doc/draft/' + encodeURIComponent(p.ml_number || p.draft_name) + '/#comment-' + encodeURIComponent(subj || '');
+                break;
+            case 'draft_created': case 'draft_submission_approved':
+            case 'draft_revision_approved': case 'draft_published_as_rfc':
+                text = (function() {{
+                    if (ev.event_type === 'draft_created') return who + ' created a draft' + (p.ml_number ? ' ' + p.ml_number : '');
+                    if (ev.event_type === 'draft_submission_approved') return who + ' approved a draft' + (p.ml_number ? ' ' + p.ml_number : '');
+                    if (ev.event_type === 'draft_revision_approved') return who + ' approved a revision' + (p.ml_number ? ' of ' + p.ml_number : '');
+                    return who + ' published' + (p.rfc_number ? ' RFC ' + p.rfc_number : ' a draft') + (p.ml_number ? ' (' + p.ml_number + ')' : '');
+                }})();
+                if (p.draft_name) href = '/doc/draft/' + encodeURIComponent(p.ml_number || p.draft_name) + '/';
+                break;
+            case 'dp_proposal_submitted': case 'dp_proposal_accepted': case 'dp_proposal_declined':
+                text = (function() {{
+                    if (ev.event_type === 'dp_proposal_submitted') return who + ' submitted a DP proposal on ' + (p.ml_number || 'a draft');
+                    if (ev.event_type === 'dp_proposal_accepted') return who + ' accepted a DP proposal on ' + (p.ml_number || 'a draft');
+                    return who + ' declined a DP proposal on ' + (p.ml_number || 'a draft');
+                }})();
+                if (p.draft_name) href = '/doc/draft/' + encodeURIComponent(p.ml_number || p.draft_name) + '/#proposal-' + encodeURIComponent(subj || '');
+                break;
+            case 'layer_connection_type_created':
+                text = who + ' created connection type "' + (p.title || 'Untitled') + '"';
+                if (subj) href = '/layers/' + projectSlug + '/#connection-type-' + encodeURIComponent(subj);
+                break;
+            case 'layer_connection_submitted':
+            case 'layer_connection_approved':
+            case 'layer_connection_rejected':
+            case 'layer_connection_revoked':
+                text = (function() {{
+                    const name = p.display_name || 'a connection';
+                    if (ev.event_type === 'layer_connection_submitted') return who + ' submitted a connection: ' + name;
+                    if (ev.event_type === 'layer_connection_approved') return who + ' approved a connection: ' + name;
+                    if (ev.event_type === 'layer_connection_rejected') return who + ' rejected a connection: ' + name;
+                    return who + ' revoked a connection: ' + name;
+                }})();
+                if (subj) href = '/layers/' + projectSlug + '/#connection-' + encodeURIComponent(subj);
+                break;
+            case 'brick_placed':
+                text = who + ' placed a brick on Civic Mason';
+                break;
+            default:
+                text = ev.event_type.replace(/_/g, ' ');
         }}
-        return {{ text, tabId, timeAgo: timeAgo(ev.created_at) }};
+        return {{ text, tabId, timeAgo: timeAgo(ev.created_at), href }};
     }}
     
     async function loadActivityFeed() {{
@@ -1828,9 +1922,17 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }}
             let html = '<ul class="list-unstyled mb-0">';
             events.forEach(ev => {{
-                const {{ text, tabId, timeAgo }} = formatActivityEvent(ev);
+                const {{ text, tabId, timeAgo, href }} = formatActivityEvent(ev);
+                let body = escapeHtmlBasic(text);
+                if (href) {{
+                    // Real link — opens in same tab so the activity feed feels actionable.
+                    body = '<a href="' + href + '" class="link-primary text-decoration-none">' + body + '</a>';
+                }} else if (tabId) {{
+                    // Fall back to in-page tab switch when no href is known.
+                    body = '<span class="activity-tab-link link-primary" style="cursor:pointer" data-tab="' + tabId + '">' + body + '</span>';
+                }}
                 html += '<li class="d-flex justify-content-between align-items-start py-2 border-bottom border-light">';
-                html += '<span class="small">' + (tabId ? '<span class="text-decoration-none activity-tab-link link-primary" style="cursor:pointer" data-tab="' + tabId + '">' + escapeHtmlBasic(text) + '</span>' : escapeHtmlBasic(text)) + '</span>';
+                html += '<span class="small">' + body + '</span>';
                 html += '<span class="text-muted small ms-2">' + timeAgo + '</span>';
                 html += '</li>';
             }});

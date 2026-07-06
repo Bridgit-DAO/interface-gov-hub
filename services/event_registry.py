@@ -74,6 +74,12 @@ REGISTERED_EVENT_TYPES: Dict[str, EventTypeDef] = {
     'badge_nominated': EventTypeDef('Badge nominated', True, None),
     'badge_approved': EventTypeDef('Badge approved', True, None),
     'badge_rejected': EventTypeDef('Badge rejected', True, None),
+    # –– Layer connections ––
+    'layer_connection_type_created': EventTypeDef('Connection type created', True, None),
+    'layer_connection_submitted': EventTypeDef('Connection submitted', True, None),
+    'layer_connection_approved': EventTypeDef('Connection approved', True, None),
+    'layer_connection_rejected': EventTypeDef('Connection rejected', True, None),
+    'layer_connection_revoked': EventTypeDef('Connection revoked', True, None),
 }
 
 

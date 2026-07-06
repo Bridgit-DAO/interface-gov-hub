@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, abort, current_app
-from sqlalchemy import func, or_, not_
+from sqlalchemy import func, or_, not_, select
 
 from extensions import db
 from models import (
@@ -725,7 +725,26 @@ def layer_activity(layer_id):
         query = query.filter(EventLog.event_type.in_(event_types))
     else:
         query = query.filter(not_(EventLog.event_type.in_(ACTIVITY_FEED_EXCLUDED_EVENT_TYPES)))
-    events = query.order_by(EventLog.created_at.desc()).offset(offset).limit(limit).all()
+    # Read-time dedup: collapse rows that share (event_type, subject_type, subject_id,
+    # first 200 chars of payload_json), keeping the most-recently-created row.
+    # Applied AFTER exclusion filter so excluded types are filtered first.
+    pj_hash = func.substr(func.coalesce(EventLog.payload_json, ''), 1, 200)
+    dedup_subq = (
+        query.with_entities(func.max(EventLog.id).label('keep_id'))
+        .group_by(EventLog.event_type, EventLog.subject_type, EventLog.subject_id, pj_hash)
+        .subquery()
+    )
+    keep_ids = [r.keep_id for r in db.session.execute(
+        select(dedup_subq.c.keep_id)
+    ).all()]
+    if not keep_ids:
+        events = []
+    else:
+        events = (
+            EventLog.query.filter(EventLog.id.in_(keep_ids))
+            .order_by(EventLog.created_at.desc())
+            .offset(offset).limit(limit).all()
+        )
     actor_ids = {e.actor_id for e in events if e.actor_type == 'user' and e.actor_id}
     users = {}
     ids_list = [str(x) for x in actor_ids if x and (len(str(x)) == 36 and '-' in str(x) or str(x).isdigit())]
