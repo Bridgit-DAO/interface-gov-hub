@@ -2172,17 +2172,26 @@ def admin_chair_nominations():
 
     <script>
     async function loadNominations() {
+        let loadError = '';
         try {
             const response = await fetch('/api/admin/chair-nominations/');
+            if (!response.ok) throw new Error('HTTP ' + response.status + ' loading chair nominations');
+            // .json() can itself throw on a malformed body — let that propagate
+            // to the catch so the panel never silently stays empty.
             const data = await response.json();
+            if (!data || !Array.isArray(data.nominations)) {
+                throw new Error('Chair nominations response missing `nominations` array');
+            }
 
             // Count nominations by status
             const pendingNoms = data.nominations.filter(n => n.status === 'nominee_accepted' && !n.approved);
             const approvedNoms = data.nominations.filter(n => n.approved || n.status === 'approved');
             const awaitingNominee = data.nominations.filter(n => n.status === 'pending_nominee');
 
-            document.getElementById('pending-count').textContent = pendingNoms.length;
-            document.getElementById('approved-count').textContent = approvedNoms.length;
+            const pendingCountEl = document.getElementById('pending-count');
+            const approvedCountEl = document.getElementById('approved-count');
+            if (pendingCountEl) pendingCountEl.textContent = pendingNoms.length;
+            if (approvedCountEl) approvedCountEl.textContent = approvedNoms.length;
 
             // Render pending nominations
             let pendingHtml = '';
@@ -2202,7 +2211,8 @@ def admin_chair_nominations():
                 });
                 pendingHtml += '</div>';
             }
-            document.getElementById('pending-nominations').innerHTML = pendingHtml;
+            const pendingEl = document.getElementById('pending-nominations');
+            if (pendingEl) pendingEl.innerHTML = pendingHtml;
 
             // Render approved nominations
             let approvedHtml = '';
@@ -2215,84 +2225,119 @@ def admin_chair_nominations():
             } else {
                 approvedHtml = '<div class="alert alert-info">No approved chair nominations</div>';
             }
-            document.getElementById('approved-nominations').innerHTML = approvedHtml;
+            const approvedEl = document.getElementById('approved-nominations');
+            if (approvedEl) approvedEl.innerHTML = approvedHtml;
 
         } catch (error) {
+            loadError = error && error.message ? error.message : String(error);
             console.error('Error loading nominations:', error);
-            document.getElementById('pending-nominations').innerHTML = '<div class="alert alert-danger">Error loading nominations</div>';
         }
+        // Surface diagnostic info inside the panel area so an empty queue
+        // is never silently empty.
+        if (loadError) {
+            const pe = document.getElementById('pending-nominations');
+            if (pe) {
+                pe.innerHTML = '<div class="alert alert-warning">Failed to load chair nominations: ' + loadError + '</div>';
+            }
+            const ae = document.getElementById('approved-nominations');
+            if (ae) {
+                ae.innerHTML = '<div class="alert alert-warning">Failed to load chair nominations: ' + loadError + '</div>';
+            }
+        }
+    }
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        }[c]));
     }
 
     function renderNominationCard(nom, status) {
         const selfNomBadge = nom.is_self_nomination ? '<span class="badge bg-info ms-2">Self</span>' : '';
-        const statusBadge = nom.approved ? '<span class="badge bg-success">Approved</span>' : `<span class="badge bg-secondary">${nom.status_label || 'Pending'}</span>`;
-        const posBadge = `<span class="badge bg-primary me-2">${nom.position_label || 'Chair'}</span>`;
+        const statusBadge = nom.approved ? '<span class="badge bg-success">Approved</span>' : `<span class="badge bg-secondary">${escapeHtml(nom.status_label || 'Pending')}</span>`;
+        const posBadge = `<span class="badge bg-primary me-2">${escapeHtml(nom.position_label || 'Chair')}</span>`;
+        const wgName = escapeHtml(nom.workgroup_name);
+        const chairName = escapeHtml(nom.chair_name);
+        const layerName = escapeHtml(nom.layer_name);
+        const nominatorName = escapeHtml(nom.nominator_name);
+        const nomineeEmail = escapeHtml(nom.nominee_email);
+        const statement = escapeHtml(nom.statement || 'No statement provided');
+        const nomineeUsername = escapeHtml(nom.nominee_username);
+        const nominatorUsername = escapeHtml(nom.nominator_username);
+        const wgSlug = encodeURIComponent(nom.workgroup_slug || '');
+        const layerSlug = encodeURIComponent(nom.layer_slug || '');
+        const nomineeProfileImage = escapeHtml(nom.nominee_profile_image || '');
+        const nomineeProfileUrl = escapeHtml(nom.nominee_profile_url || '');
+        const nomId = escapeHtml(nom.id);
+        let setAtLabel = '';
+        try { setAtLabel = new Date(nom.set_at).toLocaleDateString(); }
+        catch (_e) { setAtLabel = escapeHtml(nom.set_at || ''); }
 
         return `
             <div class="col-md-6 mb-4">
                 <div class="card">
                     <div class="card-header">
                         <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">${posBadge}${nom.workgroup_name}</h5>
+                            <h5 class="mb-0">${posBadge}${wgName}</h5>
                             ${statusBadge}
                         </div>
                     </div>
                     <div class="card-body">
                         <div class="d-flex align-items-center mb-3">
                             <img
-                                src="${nom.nominee_profile_image || '/static/images/default-avatar.png'}"
+                                src="${nomineeProfileImage || '/static/images/default-avatar.png'}"
                                 class="rounded-circle me-3"
                                 style="width: 60px; height: 60px; object-fit: cover;"
                                 onerror="this.src='/static/images/default-avatar.png'"
                             >
                             <div>
                                 <h6 class="mb-0">
-                                    ${nom.nominee_username ? `<a href="/profile/${nom.nominee_username}/" target="_blank">${nom.chair_name}</a>` : nom.chair_name}
+                                    ${nomineeUsername ? `<a href="/profile/${nomineeUsername}/" target="_blank">${chairName}</a>` : chairName}
                                     ${selfNomBadge}
                                 </h6>
-                                <small class="text-muted">Nominated ${new Date(nom.set_at).toLocaleDateString()}</small>
+                                <small class="text-muted">Nominated ${setAtLabel}</small>
                             </div>
                         </div>
 
-                        ${nom.nominator_name && !nom.is_self_nomination ? `
+                        ${nominatorName && !nom.is_self_nomination ? `
                             <p class="mb-2"><small><strong>Nominated by:</strong>
-                                <a href="/profile/${nom.nominator_username}/" target="_blank">${nom.nominator_name}</a>
+                                <a href="/profile/${nominatorUsername}/" target="_blank">${nominatorName}</a>
                             </small></p>
                         ` : ''}
 
-                        ${nom.nominee_email ? `
+                        ${nomineeEmail ? `
                             <p class="mb-2"><small><strong>Email:</strong>
-                                <a href="mailto:${nom.nominee_email}">${nom.nominee_email}</a>
+                                <a href="mailto:${nomineeEmail}">${nomineeEmail}</a>
                             </small></p>
                         ` : ''}
 
-                        ${nom.nominee_profile_url ? `
+                        ${nomineeProfileUrl ? `
                             <p class="mb-2"><small><strong>CV / LinkedIn:</strong>
-                                <a href="${nom.nominee_profile_url}" target="_blank" rel="noopener noreferrer">View profile</a>
+                                <a href="${nomineeProfileUrl}" target="_blank" rel="noopener noreferrer">View profile</a>
                             </small></p>
                         ` : ''}
 
                         <div class="mb-3">
                             <strong>Statement:</strong>
-                            <p class="mt-1">${nom.statement || 'No statement provided'}</p>
+                            <p class="mt-1">${statement}</p>
                         </div>
 
                         <div class="mb-2">
                             <strong>Workgroup:</strong>
-                            <a href="/workgroups/${nom.workgroup_slug}/" target="_blank">${nom.workgroup_name}</a>
+                            <a href="/workgroups/${wgSlug}/" target="_blank">${wgName}</a>
                         </div>
 
                         <div class="mb-3">
                             <strong>Layer:</strong>
-                            <a href="/layers/${nom.layer_slug}/" target="_blank">${nom.layer_name}</a>
+                            <a href="/layers/${layerSlug}/" target="_blank">${layerName}</a>
                         </div>
 
                         ${status === 'pending' ? `
                             <div class="d-flex gap-2">
-                                <button class="btn btn-success flex-fill" onclick="approveNomination('${nom.id}')">
+                                <button class="btn btn-success flex-fill" onclick="approveNomination('${nomId}')">
                                     <i class="fas fa-check me-2"></i>Approve
                                 </button>
-                                <button class="btn btn-danger flex-fill" onclick="rejectNomination('${nom.id}')">
+                                <button class="btn btn-danger flex-fill" onclick="rejectNomination('${nomId}')">
                                     <i class="fas fa-times me-2"></i>Reject
                                 </button>
                             </div>
