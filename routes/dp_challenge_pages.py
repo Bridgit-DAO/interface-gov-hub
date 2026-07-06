@@ -213,13 +213,31 @@ def _render_prelaunch_hub_page(
             breadcrumb_html=gh_breadcrumb([('Participate', None), (mode_cfg['breadcrumb'], None)]),
         )}
 
-        <div class="alert alert-secondary py-2 px-3 mb-4">
-            <span class="small mb-0">
+        <div class="alert alert-secondary py-3 px-3 mb-4">
+            <p class="small mb-2">
                 <i class="fas fa-layer-group me-1"></i>
-                <strong>{program_name}</strong> is a program on
+                <strong>The {html_mod.escape(mode_cfg['page_title'])}</strong> is a program on
                 <a href="/layers/{layer_slug}/" class="alert-link">{layer_name}</a>.
                 Opens <strong>{launch_label}</strong>.
-            </span>
+            </p>
+            <p class="small mb-2">
+                Learn more at the
+                <a href="https://desirableproperties.org/challenge" target="_blank" rel="noopener" class="alert-link">Desirable Properties site</a>.
+                Here are things you can do now:
+            </p>
+            <ul class="small mb-0">
+                <li>
+                    Familiarize yourself with the
+                    <a href="https://desirableproperties.org/#dps" target="_blank" rel="noopener" class="alert-link">desirable properties</a>.
+                </li>
+                <li>
+                    <a href="https://desirableproperties.org/workgroups/join" target="_blank" rel="noopener" class="alert-link">Join or nominate someone to a DP workgroup</a>.
+                </li>
+                <li>
+                    Review and comment on the
+                    <a href="https://book.desirableproperties.org" target="_blank" rel="noopener" class="alert-link">0.77 Desirable Properties book</a>.
+                </li>
+            </ul>
         </div>
 
         {status_alert}

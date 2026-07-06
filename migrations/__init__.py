@@ -2459,7 +2459,7 @@ def migrate_layer_programs_v1(app):
 
 
 def migrate_dp_challenge_notify_waitlist_v1(app):
-    """DP Challenge notify waitlist + July 16 2026 9:00 AM PT launch schedule."""
+    """DP Challenge notify waitlist + July 21 2026 9:00 AM PT launch schedule."""
     try:
         from zoneinfo import ZoneInfo
 
@@ -2481,7 +2481,7 @@ def migrate_dp_challenge_notify_waitlist_v1(app):
             conn.commit()
             print('✅ Added metadata_json to waitlist_entry')
 
-        launch_local = datetime(2026, 7, 16, 9, 0, 0, tzinfo=ZoneInfo('America/Los_Angeles'))
+        launch_local = datetime(2026, 7, 21, 9, 0, 0, tzinfo=ZoneInfo('America/Los_Angeles'))
         launch_utc = launch_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
         launch_utc_str = launch_utc.isoformat(sep=' ', timespec='seconds')
 
@@ -2554,6 +2554,69 @@ def migrate_dp_challenge_notify_waitlist_v1(app):
         conn.close()
     except Exception as e:
         print(f'⚠️  Error in migrate_dp_challenge_notify_waitlist_v1: {e}')
+
+
+def migrate_dp_challenge_launch_date_v2(app):
+    """Reschedule DP Challenge launch from July 16 → July 21, 2026 (9:00 AM PT).
+
+    Updates the existing DP Challenge program row and matching waitlist closing_date
+    so the public prelaunch banner reflects the new launch date. Idempotent: only
+    rewrites rows that still hold the previous July 16 schedule.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        previous_launch_utc = datetime(2026, 7, 16, 16, 0, 0, tzinfo=ZoneInfo('UTC')).replace(tzinfo=None)
+        new_launch_local = datetime(2026, 7, 21, 9, 0, 0, tzinfo=ZoneInfo('America/Los_Angeles'))
+        new_launch_utc = new_launch_local.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+        new_launch_utc_str = new_launch_utc.isoformat(sep=' ', timespec='seconds')
+        now_iso = datetime.utcnow().isoformat(sep=' ', timespec='seconds')
+
+        cursor.execute(
+            "SELECT id, layer_id, waitlist_id FROM layer_program "
+            "WHERE slug = 'dp-challenge' "
+            "AND launch_at IS NOT NULL "
+            "AND datetime(launch_at) = datetime(?) "
+            "LIMIT 1",
+            (previous_launch_utc.isoformat(sep=' ', timespec='seconds'),),
+        )
+        prog_row = cursor.fetchone()
+        if prog_row:
+            prog_id, layer_id, waitlist_id = prog_row
+            cursor.execute(
+                """
+                UPDATE layer_program
+                SET launch_at = ?,
+                    launched_at = NULL,
+                    description = 'Propose patches on the Desirable Property drafts. Opens July 21, 2026 at 9:00 AM Pacific.',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (new_launch_utc_str, now_iso, prog_id),
+            )
+            if waitlist_id:
+                cursor.execute(
+                    """
+                    UPDATE waitlist
+                    SET closing_date = ?,
+                        description = 'Get notified when the DP Challenge opens on July 21, 2026 at 9:00 AM Pacific. Select the DPs you want to patch.',
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (new_launch_utc_str, now_iso, waitlist_id),
+                )
+            print('✅ DP Challenge launch rescheduled to July 21, 2026 9:00 AM PT')
+        else:
+            print('ℹ️  DP Challenge launch date already at July 21 or later; no change')
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_dp_challenge_launch_date_v2: {e}')
 
 
 def migrate_scoped_email_v1(app):

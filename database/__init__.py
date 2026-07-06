@@ -64,6 +64,7 @@ def init_db(app):
             migrate_referral_landing_v1,
             migrate_layer_programs_v1,
             migrate_dp_challenge_notify_waitlist_v1,
+            migrate_dp_challenge_launch_date_v2,
             migrate_scoped_email_v1,
             migrate_user_mfa_v1,
             migrate_layer_prefix_v1,
@@ -133,6 +134,7 @@ def init_db(app):
         migrate_referral_landing_v1(app)
         migrate_layer_programs_v1(app)
         migrate_dp_challenge_notify_waitlist_v1(app)
+        migrate_dp_challenge_launch_date_v2(app)
         migrate_scoped_email_v1(app)
         migrate_user_mfa_v1(app)
         migrate_layer_prefix_v1(app)
