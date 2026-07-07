@@ -2924,6 +2924,30 @@ def migrate_layer_prefix_v1(app):
         print(f'⚠️  Error in migrate_layer_prefix_v1: {e}')
 
 
+def migrate_submission_submitter_user_id_v1(app):
+    """Add submitter_user_id FK on submission for Metaweb govhub_action draft_submit checks."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(submission)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'submitter_user_id' not in cols:
+            cursor.execute(
+                'ALTER TABLE submission ADD COLUMN submitter_user_id VARCHAR(36) '
+                'REFERENCES user(id)'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_submission_submitter_user '
+                'ON submission(submitter_user_id)'
+            )
+            conn.commit()
+            print('✅ Added submitter_user_id column to submission table')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_submission_submitter_user_id_v1: {e}')
+
+
 def migrate_submission_prefix_code_v1(app):
     """Add per-draft prefix_code column to submission table.
 

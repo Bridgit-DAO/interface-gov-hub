@@ -68,6 +68,7 @@ def init_db(app):
             migrate_scoped_email_v1,
             migrate_user_mfa_v1,
             migrate_layer_prefix_v1,
+            migrate_submission_submitter_user_id_v1,
             migrate_hardcoded_users,
             migrate_submission_prefix_code_v1,
             migrate_layer_unique_v1,
@@ -138,6 +139,7 @@ def init_db(app):
         migrate_scoped_email_v1(app)
         migrate_user_mfa_v1(app)
         migrate_layer_prefix_v1(app)
+        migrate_submission_submitter_user_id_v1(app)
         migrate_submission_prefix_code_v1(app)
         migrate_layer_unique_v1(app)
         migrate_layer_display_status_v1(app)

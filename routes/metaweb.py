@@ -71,6 +71,41 @@ def ensure_badge_wallet():
         return jsonify({'error': 'Internal error', 'detail': str(exc)}), 500
 
 
+@bp.route('/api/metaweb/action-status', methods=['POST'])
+def action_status():
+    """
+    Batch read-only checks for Metaweb Book `awardType: govhub_action` blueberries.
+
+    Auth: METAWEB_GOVHUB_INTERNAL_SECRET via X-Metaweb-Govhub-Secret or Authorization: Bearer.
+    """
+    if not _metaweb_internal_allowed():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json(silent=True) or {}
+    govhub_user_id = (data.get('govhubUserId') or '').strip() or None
+    web3auth_verifier_id = (data.get('web3authVerifierId') or '').strip() or None
+    checks = data.get('checks')
+
+    if not govhub_user_id and not web3auth_verifier_id:
+        return jsonify({'error': 'govhubUserId or web3authVerifierId required'}), 400
+    if not isinstance(checks, list):
+        return jsonify({'error': 'checks array required'}), 400
+    if len(checks) > 20:
+        return jsonify({'error': 'too_many_checks'}), 400
+
+    from services.metaweb_action_status import evaluate_action_checks, resolve_govhub_user
+
+    user = resolve_govhub_user(
+        govhub_user_id=govhub_user_id,
+        web3auth_verifier_id=web3auth_verifier_id,
+    )
+    if not user:
+        return jsonify({'error': 'user_not_found'}), 404
+
+    results = evaluate_action_checks(user, checks)
+    return jsonify({'ok': True, 'govhubUserId': str(user.id), 'results': results})
+
+
 @bp.route('/api/internal/custodial-btc/sign-provenance', methods=['POST'])
 def sign_custodial_btc_provenance():
     """

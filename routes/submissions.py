@@ -33,6 +33,14 @@ def _submission_is_revision(submission) -> bool:
     return coerce_storage_bool(getattr(submission, 'is_revision', False), default=False)
 
 
+def _submitter_user_id_from_session() -> Optional[str]:
+    user = get_current_user()
+    if not user:
+        return None
+    uid = user.get('id')
+    return str(uid).strip() if uid else None
+
+
 def _strip_immortalize_from_submit_template(template: str) -> str:
     """Remove Immortalize tab nav and pane when product rollout has immortalize off."""
     template = re.sub(
@@ -1184,6 +1192,7 @@ def submit_draft():
                 group=group,
                 layer_id=layer_id,
                 submitted_by=current_user_info['name'],
+                submitter_user_id=_submitter_user_id_from_session(),
                 sourceType='ordinal',
                 doc_type=doc_type,
                 ordinalId=ordinal_id,
@@ -1240,6 +1249,7 @@ def submit_draft():
                 filename=filename,
                 file_path=file_path,
                 submitted_by=get_current_user()['name'],
+                submitter_user_id=_submitter_user_id_from_session(),
                 sourceType='file',
                 pages=pages,
                 words=words,
@@ -1463,6 +1473,7 @@ def submit_revision(draft_name):
                 group=group,
                 layer_id=revision_layer_id,
                 submitted_by=get_current_user()['name'],
+                submitter_user_id=_submitter_user_id_from_session(),
                 sourceType='ordinal',
                 doc_type='draft',
                 ordinalId=ordinal_id,
@@ -1522,6 +1533,7 @@ def submit_revision(draft_name):
                 filename=filename,
                 file_path=file_path,
                 submitted_by=get_current_user()['name'],
+                submitter_user_id=_submitter_user_id_from_session(),
                 sourceType='file',
                 pages=pages,
                 words=words,
