@@ -187,6 +187,7 @@ class Submission(db.Model):
     status = db.Column(db.String(20), default='submitted')
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
     submitted_by = db.Column(db.String(100), default='Anonymous User')
+    submitter_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     approved_at = db.Column(db.DateTime, nullable=True)
     rejected_at = db.Column(db.DateTime, nullable=True)
     ml_number = db.Column(db.String(20), nullable=True)
@@ -227,3 +228,4 @@ class Submission(db.Model):
     displaySwitchedBy = db.Column(db.String(100), nullable=True)
 
     artifact = db.relationship('Artifact', backref=db.backref('submissions', lazy='dynamic'), foreign_keys=[artifact_id])
+    submitter = db.relationship('User', foreign_keys=[submitter_user_id], backref='authored_submissions')
