@@ -32,12 +32,15 @@
   align-items: center;
 }
 
-/* Gray info cards use Bootstrap's light alert-secondary surface; override the
-   global bright alert-link color so links stay readable on that background. */
+/* Gray info cards keep Bootstrap's light alert-secondary surface even in dark
+   theme. Do not use --accent-hover here: dark theme sets it to pale cyan
+   (#6eb3ff), which fails on the gray card. Fixed navy blues for contrast. */
 .dp-challenge-page .alert-secondary a.alert-link,
-.dp-challenge-page .alert-secondary a:not(.btn):not(.badge) {
-  color: var(--accent-hover, #1d4ed8);
-  font-weight: 600;
+.dp-challenge-page .alert-secondary a:not(.btn):not(.badge),
+[data-theme="dark"] .dp-challenge-page .alert-secondary a.alert-link,
+[data-theme="dark"] .dp-challenge-page .alert-secondary a:not(.btn):not(.badge) {
+  color: #1e3a8a;
+  font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -45,8 +48,12 @@
 .dp-challenge-page .alert-secondary a.alert-link:hover,
 .dp-challenge-page .alert-secondary a.alert-link:focus,
 .dp-challenge-page .alert-secondary a:not(.btn):not(.badge):hover,
-.dp-challenge-page .alert-secondary a:not(.btn):not(.badge):focus {
-  color: #1e40af;
+.dp-challenge-page .alert-secondary a:not(.btn):not(.badge):focus,
+[data-theme="dark"] .dp-challenge-page .alert-secondary a.alert-link:hover,
+[data-theme="dark"] .dp-challenge-page .alert-secondary a.alert-link:focus,
+[data-theme="dark"] .dp-challenge-page .alert-secondary a:not(.btn):not(.badge):hover,
+[data-theme="dark"] .dp-challenge-page .alert-secondary a:not(.btn):not(.badge):focus {
+  color: #1d4ed8;
 }
 
 .dp-challenge-picker {
