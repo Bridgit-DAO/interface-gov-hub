@@ -50,6 +50,8 @@ def ensure_badge_wallet():
     evm_address = (data.get('evmAddress') or '').strip() or None
     type_of_login = (data.get('typeOfLogin') or '').strip() or None
 
+    profile_image = (data.get('profileImage') or data.get('avatarUrl') or data.get('avatar_url') or '').strip() or None
+
     try:
         from services.metaweb_badge_wallet import ensure_metaweb_badge_wallet
 
@@ -60,6 +62,7 @@ def ensure_badge_wallet():
             canopi_user_id=canopi_user_id,
             evm_address=evm_address,
             type_of_login=type_of_login,
+            profile_image=profile_image,
         )
         return jsonify(result)
     except ValueError as exc:
