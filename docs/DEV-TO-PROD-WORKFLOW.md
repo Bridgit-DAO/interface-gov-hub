@@ -45,7 +45,7 @@ After merging on `gov-hub-prod`, `gov-hub-dev` should `git pull origin developme
 
 ```bash
 # Dev API should exist (401 without auth is OK; 404 means wrong code/deploy)
-curl -s -o /dev/null -w "%{http_code}\n" https://dev.govhub.live/api/...  # use your action-status path
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://dev.govhub.live/api/metaweb/action-status -H 'Content-Type: application/json' -d '{"checks":[]}'
 ```
 
 ## Git worktrees note
