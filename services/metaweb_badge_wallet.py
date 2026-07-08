@@ -100,6 +100,22 @@ def ensure_metaweb_pioneers_membership(user, *, verifier_id: str = '') -> dict:
     }
 
 
+def _fetch_canopi_avatar(canopi_user_id: Optional[str]) -> Optional[str]:
+    from services.canopi_profile import fetch_canopi_avatar_by_id
+    return fetch_canopi_avatar_by_id(canopi_user_id)
+
+
+def _apply_profile_image(user: User, profile_image: Optional[str]) -> None:
+    from services.avatar import is_user_uploaded_profile_image
+
+    url = (profile_image or '').strip()
+    if not url:
+        return
+    if is_user_uploaded_profile_image(user.profileImage):
+        return
+    user.profileImage = url
+
+
 def ensure_metaweb_badge_wallet(
     *,
     web3auth_verifier_id: str = '',
@@ -108,6 +124,7 @@ def ensure_metaweb_badge_wallet(
     canopi_user_id: Optional[str] = None,
     evm_address: Optional[str] = None,
     type_of_login: Optional[str] = None,
+    profile_image: Optional[str] = None,
 ) -> dict:
     """
     Find or create a Gov Hub user and ensure custodial BIP86 Taproot in custodial_wallet.
@@ -121,6 +138,7 @@ def ensure_metaweb_badge_wallet(
     verifier_id = (web3auth_verifier_id or '').strip()
     normalized_email = normalize_user_email(email) if email else None
     login_type = (type_of_login or 'metaweb').strip() or 'metaweb'
+    photo = (profile_image or '').strip() or _fetch_canopi_avatar(canopi_user_id)
 
     if not verifier_id and not normalized_email:
         raise ValueError('web3authVerifierId or email is required')
@@ -142,6 +160,7 @@ def ensure_metaweb_badge_wallet(
             user.displayName = name.strip()
             user.displayNameSetAt = datetime.utcnow()
             user.oauthName = name.strip()
+        _apply_profile_image(user, photo)
         user.last_login = datetime.utcnow()
         had_addr = bool((getattr(user, 'bitcoinAddress', None) or '').strip())
         ensure_user_wallet_addresses(user, evm_address=evm_address)
@@ -162,6 +181,7 @@ def ensure_metaweb_badge_wallet(
             displayNameSetAt=datetime.utcnow() if name else None,
             oauthName=name.strip() if name else None,
             email=normalized_email,
+            profileImage=photo or None,
             username=handle,
             handle=handle,
             role='user',

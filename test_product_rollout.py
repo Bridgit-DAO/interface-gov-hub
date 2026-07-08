@@ -202,6 +202,24 @@ def test_badges_directory_blocked_when_badges_disabled(client, monkeypatch):
     assert r.status_code == 403
 
 
+def test_role_images_api_requires_badges_not_roles():
+    cfg = {k: (k == 'badges') for k in FEATURE_KEYS}
+    path = '/api/role-images/roles-with-stats/'
+    need = path_requires_feature_flags(path)
+    assert 'badges' in need
+    assert 'roles' not in need
+    assert should_block_path_request(path, cfg) is None
+
+
+def test_role_images_gallery_page_requires_badges_not_roles():
+    cfg = {k: (k == 'badges') for k in FEATURE_KEYS}
+    path = '/roles/agent-architect/images/'
+    need = path_requires_feature_flags(path)
+    assert 'badges' in need
+    assert 'roles' not in need
+    assert should_block_path_request(path, cfg) is None
+
+
 def test_votes_directory_no_trailing_slash_requires_votes():
     assert 'votes' in path_requires_feature_flags('/votes')
 

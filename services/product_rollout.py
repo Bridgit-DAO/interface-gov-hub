@@ -221,6 +221,13 @@ def _path_needs_guilds(path: str) -> bool:
     return False
 
 
+def _path_is_role_images_gallery_page(path: str) -> bool:
+    """Badge design gallery pages live under /roles/<slug>/images/."""
+    p = (path or '').split('?', 1)[0].rstrip('/')
+    parts = p.strip('/').split('/')
+    return len(parts) == 3 and parts[0] == 'roles' and parts[2] == 'images'
+
+
 def _path_needs_badges_api(path: str) -> bool:
     if not path.startswith('/api/'):
         return False
@@ -229,6 +236,10 @@ def _path_needs_badges_api(path: str) -> bool:
     if path.startswith('/api/one-time-badges'):
         return True
     if path.startswith('/api/badge-skins'):
+        return True
+    if path.startswith('/api/role-images'):
+        return True
+    if path.startswith('/api/roles/') and '/images/' in path:
         return True
     if '/badges/' in path:
         return True
@@ -240,10 +251,10 @@ def _path_needs_roles_api(path: str) -> bool:
     if not path.startswith('/api/'):
         return False
     if path.startswith('/api/roles/'):
+        if '/images/' in path:
+            return False
         return True
     if path.startswith('/api/clusters/'):
-        return True
-    if path.startswith('/api/role-images'):
         return True
     if path.startswith('/api/claims/'):
         return True
@@ -458,9 +469,9 @@ def path_requires_feature_flags(path: str) -> set:
         need.add('workgroups')
     if _path_needs_guilds(p):
         need.add('guilds')
-    if p.startswith('/badges/') or p.startswith('/admin/badges'):
+    if p.startswith('/badges/') or p.startswith('/admin/badges') or _path_is_role_images_gallery_page(p):
         need.add('badges')
-    if p.startswith('/roles/') or _path_needs_roles_api(p):
+    if (p.startswith('/roles/') and not _path_is_role_images_gallery_page(p)) or _path_needs_roles_api(p):
         need.add('roles')
     if _path_needs_badges_api(p):
         need.add('badges')

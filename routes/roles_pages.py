@@ -433,7 +433,7 @@ def role_images_directory():
         document.getElementById('addUrlField').style.display = t === 'url' ? 'block' : 'none';
     }}
 
-    function openRoleImageCrop(input) {{
+    async function openRoleImageCrop(input) {{
         const file = input.files && input.files[0];
         if (!file) return;
         if (typeof window.GhImageCrop !== 'object') {{
