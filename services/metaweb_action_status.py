@@ -84,48 +84,63 @@ def _resolve_layer(*, layer_id: Optional[str] = None, layer_slug: Optional[str] 
 
 
 def _resolve_workgroup_acronym(check: dict) -> Optional[str]:
+    acronyms = _resolve_workgroup_acronyms(check)
+    return acronyms[0] if acronyms else None
+
+
+def _resolve_workgroup_acronyms(check: dict) -> List[str]:
+    """Resolve one or more workgroup acronyms from multi- or legacy single-target checks."""
+    acronyms: List[str] = []
+
+    raw_acronyms = check.get('groupAcronyms')
+    if isinstance(raw_acronyms, list):
+        for raw in raw_acronyms:
+            acronym = str(raw or '').strip()
+            if acronym:
+                acronyms.append(acronym)
+
+    raw_workgroups = check.get('workgroups')
+    if isinstance(raw_workgroups, list):
+        for row in raw_workgroups:
+            if not isinstance(row, dict):
+                continue
+            acronym = str(row.get('groupAcronym') or '').strip()
+            if acronym:
+                acronyms.append(acronym)
+                continue
+            wg_id = str(row.get('workgroupId') or '').strip()
+            if wg_id:
+                wg = Workgroup.query.get(wg_id)
+                if wg and wg.acronym:
+                    acronyms.append(wg.acronym)
+
     wg_id = (check.get('workgroupId') or '').strip()
     if wg_id:
         wg = Workgroup.query.get(wg_id)
         if wg and wg.acronym:
-            return wg.acronym
+            acronyms.append(wg.acronym)
     slug = (check.get('workgroupSlug') or '').strip()
     if slug:
         wg = Workgroup.query.filter(
             or_(Workgroup.slug == slug, Workgroup.acronym == slug)
         ).first()
         if wg and wg.acronym:
-            return wg.acronym
+            acronyms.append(wg.acronym)
     acronym = (check.get('groupAcronym') or '').strip()
-    return acronym or None
+    if acronym:
+        acronyms.append(acronym)
+
+    deduped: List[str] = []
+    seen = set()
+    for item in acronyms:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
 
 
-def check_layer_join(user_id: str, check: dict) -> Dict[str, Any]:
-    layer = _resolve_layer(layer_id=check.get('layerId'), layer_slug=check.get('layerSlug'))
-    if not layer:
-        return _incomplete()
-    member = (
-        LayerMember.query.filter_by(layer_id=layer.id, user_id=user_id, status='active')
-        .filter(LayerMember.left_at.is_(None))
-        .first()
-    )
-    if not member:
-        return _incomplete()
-    return _complete(
-        member.joined_at,
-        {
-            'actionKind': 'layer_join',
-            'layerId': layer.id,
-            'layerSlug': layer.slug,
-            'joinedAt': _iso_z(member.joined_at),
-        },
-    )
-
-
-def check_workgroup_join(user_id: str, check: dict) -> Dict[str, Any]:
-    acronym = _resolve_workgroup_acronym(check)
-    if not acronym:
-        return _incomplete()
+def _check_workgroup_membership(user_id: str, acronym: str) -> Optional[Dict[str, Any]]:
     member = WorkingGroupMember.query.filter_by(group_acronym=acronym, user_id=user_id).first()
     if member:
         return _complete(
@@ -156,14 +171,16 @@ def check_workgroup_join(user_id: str, check: dict) -> Dict[str, Any]:
                 'via': 'approved_request',
             },
         )
-    return _incomplete()
+    return None
 
 
-def check_workgroup_nominate(user_id: str, check: dict, *, self_nomination: bool) -> Dict[str, Any]:
-    acronym = _resolve_workgroup_acronym(check)
-    if not acronym:
-        return _incomplete()
-    position_key = (check.get('positionKey') or 'chair').strip() or 'chair'
+def _check_workgroup_nomination(
+    user_id: str,
+    acronym: str,
+    *,
+    self_nomination: bool,
+    position_key: str,
+) -> Optional[Dict[str, Any]]:
     row = (
         WorkingGroupChair.query.filter_by(
             group_acronym=acronym,
@@ -175,7 +192,7 @@ def check_workgroup_nominate(user_id: str, check: dict, *, self_nomination: bool
         .first()
     )
     if not row:
-        return _incomplete()
+        return None
     kind = 'workgroup_nominate_self' if self_nomination else 'workgroup_nominate_other'
     return _complete(
         row.set_at,
@@ -186,6 +203,56 @@ def check_workgroup_nominate(user_id: str, check: dict, *, self_nomination: bool
             'nominatedAt': _iso_z(row.set_at),
         },
     )
+
+
+def check_layer_join(user_id: str, check: dict) -> Dict[str, Any]:
+    layer = _resolve_layer(layer_id=check.get('layerId'), layer_slug=check.get('layerSlug'))
+    if not layer:
+        return _incomplete()
+    member = (
+        LayerMember.query.filter_by(layer_id=layer.id, user_id=user_id, status='active')
+        .filter(LayerMember.left_at.is_(None))
+        .first()
+    )
+    if not member:
+        return _incomplete()
+    return _complete(
+        member.joined_at,
+        {
+            'actionKind': 'layer_join',
+            'layerId': layer.id,
+            'layerSlug': layer.slug,
+            'joinedAt': _iso_z(member.joined_at),
+        },
+    )
+
+
+def check_workgroup_join(user_id: str, check: dict) -> Dict[str, Any]:
+    acronyms = _resolve_workgroup_acronyms(check)
+    if not acronyms:
+        return _incomplete()
+    for acronym in acronyms:
+        result = _check_workgroup_membership(user_id, acronym)
+        if result:
+            return result
+    return _incomplete()
+
+
+def check_workgroup_nominate(user_id: str, check: dict, *, self_nomination: bool) -> Dict[str, Any]:
+    acronyms = _resolve_workgroup_acronyms(check)
+    if not acronyms:
+        return _incomplete()
+    position_key = (check.get('positionKey') or 'chair').strip() or 'chair'
+    for acronym in acronyms:
+        result = _check_workgroup_nomination(
+            user_id,
+            acronym,
+            self_nomination=self_nomination,
+            position_key=position_key,
+        )
+        if result:
+            return result
+    return _incomplete()
 
 
 def check_waitlist_join(user_id: str, check: dict) -> Dict[str, Any]:

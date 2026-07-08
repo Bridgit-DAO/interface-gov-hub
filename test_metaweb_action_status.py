@@ -153,3 +153,92 @@ def test_action_status_draft_submit_submitted_mode():
 
         db.session.delete(sub)
         db.session.commit()
+
+
+def test_metaweb_catalog_requires_secret():
+    from app import app
+
+    with app.test_client() as client:
+        res = client.get('/api/metaweb/catalog?kind=layers')
+        assert res.status_code == 401
+
+
+def test_metaweb_catalog_search_layers():
+    from app import app
+    from models import Layer
+
+    secret = 'test-metaweb-secret-catalog'
+    os.environ['METAWEB_GOVHUB_INTERNAL_SECRET'] = secret
+
+    with app.app_context():
+        layer = Layer.query.filter(
+            Layer.approval_status == 'approved',
+            Layer.display_status == 'active',
+        ).first()
+        if not layer:
+            pytest.skip('Need active approved layer')
+
+        with app.test_client() as client:
+            res = client.get(
+                f'/api/metaweb/catalog?kind=layers&q={layer.slug[:4]}&limit=5',
+                headers={'X-Metaweb-Govhub-Secret': secret},
+            )
+            assert res.status_code == 200
+            payload = res.get_json()
+            assert payload['ok'] is True
+            ids = {item['id'] for item in payload['items']}
+            assert layer.id in ids
+
+
+def test_action_status_workgroup_join_any_of_acronyms():
+    from app import app
+    from extensions import db
+    from models import User, WorkingGroupMember, Workgroup
+    from services.metaweb_action_status import evaluate_action_checks
+
+    with app.app_context():
+        user = User.query.first()
+        wg = Workgroup.query.filter(
+            Workgroup.approval_status == 'approved',
+            Workgroup.status == 'active',
+            Workgroup.acronym.isnot(None),
+        ).first()
+        if not user or not wg or not wg.acronym:
+            pytest.skip('Need seeded user and approved workgroup')
+
+        WorkingGroupMember.query.filter_by(
+            group_acronym=wg.acronym,
+            user_id=user.id,
+        ).delete()
+        db.session.add(
+            WorkingGroupMember(
+                id=str(uuid4()),
+                group_acronym=wg.acronym,
+                user_id=user.id,
+                joined_at=datetime.utcnow(),
+            )
+        )
+        db.session.commit()
+
+        results = evaluate_action_checks(
+            user,
+            [
+                {
+                    'key': 'bb_wg_multi',
+                    'actionKind': 'workgroup_join',
+                    'groupAcronyms': ['missing-acronym', wg.acronym],
+                    'workgroups': [
+                        {'workgroupId': '00000000-0000-0000-0000-000000000099', 'groupAcronym': 'also-missing'},
+                        {'workgroupId': wg.id, 'label': wg.name},
+                    ],
+                }
+            ],
+        )
+        assert results['bb_wg_multi']['complete'] is True
+        assert results['bb_wg_multi']['evidence']['groupAcronym'] == wg.acronym
+
+        WorkingGroupMember.query.filter_by(
+            group_acronym=wg.acronym,
+            user_id=user.id,
+        ).delete()
+        db.session.commit()

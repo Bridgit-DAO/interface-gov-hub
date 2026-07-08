@@ -71,6 +71,33 @@ def ensure_badge_wallet():
         return jsonify({'error': 'Internal error', 'detail': str(exc)}), 500
 
 
+@bp.route('/api/metaweb/catalog', methods=['GET'])
+def catalog():
+    """
+    Search Gov Hub entities for Metaweb Book admin blueberry pickers.
+
+    Query: kind=workgroups|layers|waitlists, q=, limit=30
+    Auth: METAWEB_GOVHUB_INTERNAL_SECRET via X-Metaweb-Govhub-Secret or Authorization: Bearer.
+    """
+    if not _metaweb_internal_allowed():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    kind = (request.args.get('kind') or '').strip().lower()
+    q = (request.args.get('q') or '').strip()
+    try:
+        limit = int(request.args.get('limit') or 30)
+    except (TypeError, ValueError):
+        limit = 30
+
+    from services.metaweb_catalog import VALID_KINDS, search_metaweb_catalog
+
+    if kind not in VALID_KINDS:
+        return jsonify({'error': 'invalid_kind', 'allowed': sorted(VALID_KINDS)}), 400
+
+    items = search_metaweb_catalog(kind=kind, q=q, limit=limit)
+    return jsonify({'ok': True, 'items': items})
+
+
 @bp.route('/api/metaweb/action-status', methods=['POST'])
 def action_status():
     """
