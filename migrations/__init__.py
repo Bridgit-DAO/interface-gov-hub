@@ -1688,10 +1688,14 @@ def migrate_dp_proposals(app):
                         cfg = json.loads(row.value)
                     except json.JSONDecodeError:
                         cfg = {}
-                if 'patches' not in cfg and 'dp_proposals' not in cfg and 'document_edits' not in cfg:
+                # Dev should always mirror prod for DP Challenge / Suggest Edit (patches rollout).
+                needs_patches = not cfg.get('patches', False)
+                legacy_keys = ('dp_proposals', 'document_edits')
+                has_legacy = any(k in cfg for k in legacy_keys)
+                if needs_patches or has_legacy:
                     cfg['patches'] = True
-                    cfg.pop('dp_proposals', None)
-                    cfg.pop('document_edits', None)
+                    for legacy_key in legacy_keys:
+                        cfg.pop(legacy_key, None)
                     payload = json.dumps(cfg, sort_keys=True)
                     if row:
                         row.value = payload
