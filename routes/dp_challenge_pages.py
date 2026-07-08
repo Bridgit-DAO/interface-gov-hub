@@ -204,7 +204,7 @@ def _render_prelaunch_hub_page(
         )
 
     content = f'''
-    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=7">
+    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=8">
     <div class="gh-page container mt-4 dp-challenge-page dp-challenge-page--prelaunch">
         {gh_page_header(
             mode_cfg['page_title'],
@@ -447,7 +447,7 @@ def _render_proposal_hub_page(mode: ProposalMode):
     program_banner = _program_context_banner(program)
 
     content = f'''
-    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=6">
+    <link rel="stylesheet" href="/static/css/dp-challenge.css?v=8">
     <div class="gh-page container mt-4 dp-challenge-page">
         {gh_page_header(
             mode_cfg['page_title'],

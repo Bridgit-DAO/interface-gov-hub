@@ -25,10 +25,28 @@
   border-color: var(--border-color, rgba(255, 255, 255, 0.15));
 }
 
+.dp-challenge-cta-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
   align-items: center;
+}
+
+/* Gray info cards use Bootstrap's light alert-secondary surface; override the
+   global bright alert-link color so links stay readable on that background. */
+.dp-challenge-page .alert-secondary a.alert-link,
+.dp-challenge-page .alert-secondary a:not(.btn):not(.badge) {
+  color: var(--accent-hover, #1d4ed8);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dp-challenge-page .alert-secondary a.alert-link:hover,
+.dp-challenge-page .alert-secondary a.alert-link:focus,
+.dp-challenge-page .alert-secondary a:not(.btn):not(.badge):hover,
+.dp-challenge-page .alert-secondary a:not(.btn):not(.badge):focus {
+  color: #1e40af;
 }
 
 .dp-challenge-picker {
