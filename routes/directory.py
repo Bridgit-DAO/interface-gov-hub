@@ -300,7 +300,6 @@ def workgroups_directory():
             sort_default='name-asc',
             extra_cols=(
                 gh_filter_col('Layer', '<select id="project-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Layers</option></select>')
-                + gh_filter_col('Status', '<select id="status-filter" class="form-select" onchange="loadWorkgroups()"><option value="">All Statuses</option><option value="active" selected>Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option><option value="archived">Archived</option></select>', 'col-md-2')
             ),
         )
     )}
@@ -329,28 +328,26 @@ def workgroups_directory():
         }}
     }}
     
+    function workgroupsApiUrl(layerId) {{
+        // Public directory: only active workgroups; no status toggle in UI.
+        return `/api/layers/${{layerId}}/workgroups/?status=active`;
+    }}
+
     async function loadWorkgroups() {{
         const projectFilter = document.getElementById('project-filter').value;
-        const statusFilter = document.getElementById('status-filter').value;
         
         try {{
             allWorkgroups = [];
             
             if (projectFilter) {{
                 // Load workgroups for specific project
-                let url = `/api/layers/${{projectFilter}}/workgroups/`;
-                if (statusFilter) url += `?status=${{statusFilter}}`;
-                
-                const response = await fetch(url);
+                const response = await fetch(workgroupsApiUrl(projectFilter));
                 const data = await response.json();
                 allWorkgroups = (response.ok && data.workgroups) ? data.workgroups.map(wg => ({{...wg, layer_name: (allProjects.find(p => p.id === wg.layer_id) || {{}}).name || ''}})) : [];
             }} else {{
                 // Load workgroups from all projects
                 for (const project of allProjects) {{
-                    let url = `/api/layers/${{project.id}}/workgroups/`;
-                    if (statusFilter) url += `?status=${{statusFilter}}`;
-                    
-                    const response = await fetch(url);
+                    const response = await fetch(workgroupsApiUrl(project.id));
                     const data = await response.json();
                     const wgs = (response.ok && Array.isArray(data.workgroups)) ? data.workgroups : [];
                     allWorkgroups = allWorkgroups.concat(wgs.map(wg => ({{...wg, layer_name: project.name}})));
