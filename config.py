@@ -49,7 +49,7 @@ ARTIFACT_TAG_FILTERS_ENABLED = LAYER_TAG_FILTERS_ENABLED
 
 # Host → Layer middleware (GOV-HUB-3)
 RESERVED_SUBDOMAINS = {
-    "www", "dev", "api", "docs", "rfc", "app", "admin", "status",
+    "www", "dev", "api", "docs", "rfc", "app", "admin", "status", "hub",
     "static", "assets", "staging", "beta"
 }
 BASE_DOMAIN = "themetalayer.org"
