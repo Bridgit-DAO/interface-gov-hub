@@ -9,6 +9,7 @@ from services.dp_proposals import (
     accept_proposal,
     can_accept_amendments,
     can_manage_amendments,
+    consider_proposal,
     create_dp_proposal,
     dashboard_dp_activity,
     decline_proposal,
@@ -22,6 +23,7 @@ from services.dp_proposals import (
     expected_proposal_scope,
     workgroup_for_submission,
 )
+from services.api_auth import get_api_user, require_api_auth
 from services.identity import get_current_user, require_auth, require_role
 from services.rendering import generate_user_menu, render_page
 from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
@@ -75,9 +77,9 @@ def list_proposals(draft_ref):
 
 
 @bp.route('/<path:draft_ref>/proposals/', methods=['POST'])
-@require_auth
+@require_api_auth
 def create_proposal(draft_ref):
-    current_user = get_current_user()
+    current_user = get_api_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     user = user_from_session(current_user)
@@ -180,6 +182,40 @@ def accept_proposal_route(draft_ref, proposal_id):
         'proposal': proposal.to_dict(),
         'status_label': proposal.status_label(),
         'message': 'Patch merged',
+    })
+
+
+@bp.route('/<path:draft_ref>/proposals/<proposal_id>/consider/', methods=['POST'])
+@require_auth
+def consider_proposal_route(draft_ref, proposal_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    submission, err = resolve_submission_for_proposals(draft_ref)
+    if err:
+        return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
+
+    wg = workgroup_for_submission(submission)
+    if not can_manage_amendments(current_user, wg):
+        return jsonify({'error': 'Not authorized to review proposals for this DP'}), 403
+
+    proposal = DpProposal.query.filter_by(id=proposal_id, submission_id=submission.id).first()
+    if not proposal:
+        return jsonify({'error': 'Proposal not found'}), 404
+    if proposal.status != 'pending':
+        return jsonify({'error': f'Cannot mark proposal as considered in status {proposal.status}'}), 400
+
+    user = user_from_session(current_user)
+    consider_proposal(proposal, user.id if user else current_user.get('id'))
+    db.session.commit()
+    return jsonify({
+        'proposal': proposal.to_dict(),
+        'status_label': proposal.status_label(),
+        'message': 'Marked as considered',
     })
 
 
@@ -308,11 +344,11 @@ def assist_generate_route(draft_ref):
 
 
 @bp.route('/<path:draft_ref>/reader-comments/', methods=['POST'])
-@require_auth
+@require_api_auth
 def create_reader_comment_route(draft_ref):
     from services.document_reader_comments import create_reader_comment_for_draft
 
-    current_user = get_current_user()
+    current_user = get_api_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     body = request.get_json(silent=True) or {}

@@ -702,6 +702,24 @@ def accept_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
         reviewer_user_id=reviewer_user_id,
         event_type='dp_proposal_accepted',
     )
+    from services.dp_contribution_badges import on_dp_contribution_outcome
+
+    on_dp_contribution_outcome(proposal, 'accepted')
+    return proposal
+
+
+def consider_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
+    proposal.status = 'considered'
+    proposal.reviewed_by_user_id = reviewer_user_id
+    proposal.reviewed_at = datetime.utcnow()
+    _emit_dp_proposal_review_event(
+        proposal,
+        reviewer_user_id=reviewer_user_id,
+        event_type='dp_proposal_considered',
+    )
+    from services.dp_contribution_badges import on_dp_contribution_outcome
+
+    on_dp_contribution_outcome(proposal, 'considered')
     return proposal
 
 

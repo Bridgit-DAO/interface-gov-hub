@@ -7,6 +7,7 @@ from extensions import db
 DP_PROPOSAL_STATUSES = frozenset({
     'pending',
     'accepted',
+    'considered',
     'declined',
     'incorporated',
     'orphaned',
@@ -53,6 +54,7 @@ class DpProposal(db.Model):
         labels = {
             'pending': 'Patch',
             'accepted': 'Merged',
+            'considered': 'Considered',
             'declined': 'Declined',
             'incorporated': 'Published in revision',
             'orphaned': 'Original text not found',
