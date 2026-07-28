@@ -532,7 +532,7 @@ def workgroup_detail(workgroup_slug):
                     <div class="living-module-header">
                         <div class="living-module-icon"><i class="fas fa-star"></i></div>
                         <h5 class="living-module-title">Positions & Nominations</h5>
-                        {'<button class="btn btn-sm btn-success ms-auto" onclick="nominateForChair()" id="nominate-btn" style="display:none;"><i class="fas fa-user-plus me-1"></i>Nominate</button>' if current_user else ''}
+                        <button class="btn btn-sm btn-success ms-auto" onclick="nominateForChair()" id="nominate-btn" style="display:none;"><i class="fas fa-user-plus me-1"></i>Nominate</button>
                     </div>
                     <div class="living-module-body" id="workgroup-chairs">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
@@ -543,12 +543,8 @@ def workgroup_detail(workgroup_slug):
                     <div class="living-module-header">
                         <div class="living-module-icon"><i class="fas fa-users"></i></div>
                         <h5 class="living-module-title">Members</h5>
-                        {(
-                            '<button class="btn btn-sm btn-outline-secondary ms-auto me-2" onclick="inviteWorkgroupMember()" '
-                            'id="invite-member-btn" style="display:none;"><i class="fas fa-envelope me-1"></i>Invite</button>'
-                            '<button class="btn btn-sm btn-primary" onclick="joinWorkgroup()" id="join-btn" style="display:none;">'
-                            '<i class="fas fa-user-plus me-1"></i>Join</button>'
-                        ) if current_user else ''}
+                        <button class="btn btn-sm btn-outline-secondary ms-auto me-2" onclick="inviteWorkgroupMember()" id="invite-member-btn" style="display:none;"><i class="fas fa-envelope me-1"></i>Invite</button>
+                        <button class="btn btn-sm btn-primary" onclick="joinWorkgroup()" id="join-btn" style="display:none;"><i class="fas fa-user-plus me-1"></i>Join</button>
                     </div>
                     <div class="living-module-body" id="workgroup-members">
                         <div class="spinner-border spinner-border-sm text-primary"></div>
@@ -789,10 +785,9 @@ def workgroup_detail(workgroup_slug):
 
             // Auto-open the nominate / join modal when the user arrived here
             // via a "?action=nominate" or "?action=join" link (e.g. from the
-            // Next.js /workgroups/join page). Only fires for approved,
-            // authenticated users — `nominateForChair()` / `joinWorkgroup()`
-            // already show a GhDialog if not. Cleanup the URL once so a
-            // refresh does not re-trigger the modal.
+            // Next.js /workgroups/join page). Fires for approved workgroups;
+            // `nominateForChair()` / `joinWorkgroup()` prompt sign-in when
+            // needed. Cleanup the URL once so a refresh does not re-trigger.
             //
             // Implemented in `maybeAutoOpenAction()` so it can never reference
             // `workgroup` (or any other variable populated by this function)
@@ -996,14 +991,10 @@ def workgroup_detail(workgroup_slug):
             const response = await fetch(`/api/workgroups/${{workgroup.id}}/chairs/?_=${{Date.now()}}`);
             const data = await response.json();
 
-            // Show nominate button for any signed-in user on approved workgroups
+            // Show nominate button on approved workgroups (auth checked on click)
             const nominateBtn = document.getElementById('nominate-btn');
             if (nominateBtn) {{
-                if (isAuthenticated && workgroup.approval_status === 'approved') {{
-                    nominateBtn.style.display = 'block';
-                }} else {{
-                    nominateBtn.style.display = 'none';
-                }}
+                nominateBtn.style.display = workgroup.approval_status === 'approved' ? 'block' : 'none';
             }}
 
             let html = '';
@@ -1053,11 +1044,9 @@ def workgroup_detail(workgroup_slug):
             const joinBtn = document.getElementById('join-btn');
             const inviteBtn = document.getElementById('invite-member-btn');
             if (joinBtn) {{
-                if (isAuthenticated && !isCurrentUserMember && workgroup.approval_status === 'approved') {{
-                    joinBtn.style.display = 'block';
-                }} else {{
-                    joinBtn.style.display = 'none';
-                }}
+                joinBtn.style.display = (!isCurrentUserMember && workgroup.approval_status === 'approved')
+                    ? 'block'
+                    : 'none';
             }}
             if (inviteBtn) {{
                 var canInvite = workgroup && workgroup.can_invite_members === true;
@@ -1139,9 +1128,27 @@ def workgroup_detail(workgroup_slug):
         }});
     }}
 
+    function loginNextUrl() {{
+        return window.location.pathname + window.location.search + window.location.hash;
+    }}
+
+    function redirectToLogin() {{
+        window.location.href = '/login/?next=' + encodeURIComponent(loginNextUrl());
+    }}
+
+    async function requireSignIn(message) {{
+        await GhDialog.alert({{
+            title: 'Sign in required',
+            message: message,
+            variant: 'info',
+            confirmLabel: 'Sign in',
+        }});
+        redirectToLogin();
+    }}
+
     async function joinWorkgroup() {{
         if (!isAuthenticated) {{
-            await GhDialog.alert({{ title: 'Sign in required', message: 'Please sign in to join this workgroup.', variant: 'info' }});
+            await requireSignIn('Please sign in to join this workgroup.');
             return;
         }}
 
@@ -1276,7 +1283,7 @@ def workgroup_detail(workgroup_slug):
 
     async function nominateForChair() {{
         if (!isAuthenticated) {{
-            await GhDialog.alert({{ title: 'Sign in required', message: 'Please sign in to submit a nomination.', variant: 'info' }});
+            await requireSignIn('Please sign in to submit a nomination.');
             return;
         }}
 
