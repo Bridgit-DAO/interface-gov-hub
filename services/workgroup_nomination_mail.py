@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from extensions import db
-from models import Layer, User, UserNotification, Workgroup, WorkingGroupChair
+from models import Layer, LayerAdmin, User, UserNotification, Workgroup, WorkingGroupChair
 from services.resend_mail import send_resend_email
 from services.workgroup_positions import position_label
 
@@ -49,6 +49,25 @@ def _workgroup_context(nomination: WorkingGroupChair):
     wg = Workgroup.query.filter_by(acronym=nomination.group_acronym).first()
     layer = Layer.query.get(wg.layer_id) if wg and wg.layer_id else None
     return wg, layer
+
+
+def _layer_admin_users(layer: Optional[Layer]) -> list[User]:
+    """Layer owner plus assigned layer admins (deduped by user id)."""
+    if not layer:
+        return []
+    seen: set[str] = set()
+    admins: list[User] = []
+    if layer.initiator_id and layer.initiator_id not in seen:
+        owner = layer.initiator or User.query.get(layer.initiator_id)
+        if owner:
+            seen.add(owner.id)
+            admins.append(owner)
+    for row in LayerAdmin.query.filter_by(layer_id=layer.id).all():
+        if not row.user or row.user_id in seen:
+            continue
+        seen.add(row.user_id)
+        admins.append(row.user)
+    return admins
 
 
 def _notify_in_app(user_id: str, title: str, body: str, link_url: str):
@@ -133,6 +152,44 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
         )
 
 
+def send_admin_nomination_accepted(nomination: WorkingGroupChair):
+    """Email layer administrators that a nominee accepted and needs review."""
+    wg, layer = _workgroup_context(nomination)
+    if not layer:
+        return
+
+    pos_label = position_label(nomination.position_key or 'chair')
+    wg_name = wg.name if wg else nomination.group_acronym
+    layer_name = layer.name or 'Gov Hub'
+    nominee_name = nomination.chair_name or 'The nominee'
+    review_url = f"{_public_base_url()}/admin/chair-nominations/"
+
+    body = f"""
+<p><strong>{html.escape(nominee_name)}</strong> accepted a nomination for <strong>{html.escape(pos_label)}</strong> in the workgroup <strong>{html.escape(wg_name)}</strong> on <strong>{html.escape(layer_name)}</strong>.</p>
+<p>The nomination is ready for your review and approval.</p>
+<p style="margin:24px 0;">
+  <a href="{html.escape(review_url)}" style="background:#667eea;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Review nominations</a>
+</p>
+"""
+    subject = f'Nomination accepted – {pos_label} in {wg_name} ({layer_name})'
+    html_content = _email_shell('Nomination ready for review', body)
+
+    for admin in _layer_admin_users(layer):
+        if not admin.email:
+            continue
+        send_resend_email(
+            to=[admin.email.strip()],
+            subject=subject,
+            html=html_content,
+        )
+        _notify_in_app(
+            admin.id,
+            f'{nominee_name} accepted nomination',
+            f'Review {pos_label} nomination in {wg_name} ({layer_name}).',
+            review_url,
+        )
+
+
 def send_nominee_accepted(nomination: WorkingGroupChair):
     wg, _ = _workgroup_context(nomination)
     nominator = User.query.get(nomination.nominated_by_user_id) if nomination.nominated_by_user_id else None
@@ -157,6 +214,8 @@ def send_nominee_accepted(nomination: WorkingGroupChair):
             f'They accepted your {pos_label} nomination in {wg_name}. Pending admin approval.',
             f"{_public_base_url()}/workgroups/{wg.slug}/" if wg else '/',
         )
+
+    send_admin_nomination_accepted(nomination)
 
 
 def send_nominee_declined(nomination: WorkingGroupChair):
