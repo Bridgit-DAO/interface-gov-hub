@@ -1181,7 +1181,8 @@ def workgroup_detail(workgroup_slug):
     function setNominationTarget(target) {{
         const isSelf = target === 'self';
         document.getElementById('nomination-other-search-wrap').style.display = isSelf ? 'none' : 'block';
-        document.getElementById('nomination-name').readOnly = false;
+        document.getElementById('nomination-name').readOnly = isSelf;
+        document.getElementById('nomination-email').readOnly = isSelf;
         selectedNomineeUserId = null;
         document.getElementById('nomination-user-id').value = '';
         document.getElementById('nomination-user-search').value = '';
@@ -1322,10 +1323,23 @@ def workgroup_detail(workgroup_slug):
             nominee_profile_url: nomineeProfileUrl,
             statement: statement,
         }};
-        if (target === 'other' && nomineeUserId) {{
-            payload.nominee_user_id = nomineeUserId;
-        }} else if (target === 'self' && currentUserProfile?.id) {{
-            payload.nominee_user_id = currentUserProfile.id;
+        if (target === 'self') {{
+            if (!currentUserProfile?.id) {{
+                await GhDialog.alert({{ title: 'Not signed in', message: 'Please sign in to nominate yourself.', variant: 'warning' }});
+                return;
+            }}
+            const selfEmail = (currentUserProfile.email || '').trim().toLowerCase();
+            if (selfEmail && nomineeEmail.trim().toLowerCase() !== selfEmail) {{
+                await GhDialog.alert({{
+                    title: 'Switch to "Someone else"',
+                    message: 'You chose "Myself" but entered a different person\\'s email. Select "Someone else" to nominate them.',
+                    variant: 'warning',
+                }});
+                return;
+            }}
+            payload.nominee_user_id = String(currentUserProfile.id);
+        }} else if (nomineeUserId) {{
+            payload.nominee_user_id = String(nomineeUserId);
         }}
 
         try {{
@@ -1340,9 +1354,13 @@ def workgroup_detail(workgroup_slug):
             if (response.ok) {{
                 const modal = bootstrap.Modal.getInstance(document.getElementById('nominateChairModal'));
                 modal.hide();
+                let successMessage = data.message || 'Your nomination was submitted.';
+                if (target === 'other') {{
+                    successMessage += '\\n\\nThe nominee must accept before administrators can approve. You will receive email updates.';
+                }}
                 await GhDialog.alert({{
                     title: 'Nomination submitted',
-                    message: (data.message || 'Your nomination was submitted.') + '\\n\\nNominees must accept before administrators can approve. You will receive email updates.',
+                    message: successMessage,
                     variant: 'success',
                     confirmLabel: 'Got it',
                 }});

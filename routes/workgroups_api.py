@@ -40,6 +40,8 @@ from services.workgroup_positions import (
     NOMINATION_STATUS_APPROVED,
     NOMINATION_STATUS_NOMINEE_ACCEPTED,
     NOMINATION_STATUS_PENDING_NOMINEE,
+    detect_self_nomination,
+    initial_nomination_status,
     position_label,
     positions_for_api,
     status_label,
@@ -247,9 +249,12 @@ def api_workgroup_nominate(workgroup_id):
         if not nominee_email and nominee_user.email:
             nominee_email = _normalize_email(nominee_user.email)
 
-    is_self_nomination = nominee_user_id == current_user['id'] if nominee_user_id else False
-    if not nominee_user_id and nominee_email and current_user.get('email'):
-        is_self_nomination = nominee_email == _normalize_email(current_user['email'])
+    is_self_nomination = detect_self_nomination(
+        nominee_user_id=nominee_user_id,
+        nominee_email=nominee_email,
+        current_user_id=current_user.get('id'),
+        current_user_email=current_user.get('email'),
+    )
 
     duplicate_filters = [func.lower(WorkingGroupChair.nominee_email) == nominee_email]
     if nominee_user_id:
@@ -263,9 +268,7 @@ def api_workgroup_nominate(workgroup_id):
     if existing:
         return jsonify({'error': 'This person already has an active nomination for this position'}), 400
 
-    initial_status = (
-        NOMINATION_STATUS_NOMINEE_ACCEPTED if is_self_nomination else NOMINATION_STATUS_PENDING_NOMINEE
-    )
+    initial_status = initial_nomination_status(is_self_nomination)
 
     chair = WorkingGroupChair(
         group_acronym=workgroup.acronym,

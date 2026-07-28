@@ -1383,6 +1383,66 @@ def migrate_workgroup_nomination_flow(app):
         print(f"⚠️  Error in migrate_workgroup_nomination_flow: {e}")
 
 
+def migrate_self_nomination_status_backfill(app):
+    """Move legacy self-nominations out of pending_nominee (they skip nominee acceptance)."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE working_group_chair
+            SET status = 'nominee_accepted'
+            WHERE status = 'pending_nominee'
+              AND is_self_nomination IN ('1', 1, 'true', 'TRUE')
+        """)
+        updated = cursor.rowcount
+        conn.commit()
+        conn.close()
+        if updated:
+            print(f"✅ Backfilled {updated} self-nomination(s) to nominee_accepted")
+    except Exception as e:
+        print(f"⚠️  Error in migrate_self_nomination_status_backfill: {e}")
+
+
+def migrate_repair_misclassified_self_nominations(app):
+    """Clear is_self_nomination when nominator and nominee are different people."""
+    try:
+        import sqlite3
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE working_group_chair
+            SET is_self_nomination = '0'
+            WHERE is_self_nomination IN ('1', 1, 'true', 'TRUE')
+              AND nominated_by_user_id IS NOT NULL AND TRIM(nominated_by_user_id) != ''
+              AND user_id IS NOT NULL AND TRIM(user_id) != ''
+              AND nominated_by_user_id != user_id
+        """)
+        cleared = cursor.rowcount
+        cursor.execute("""
+            UPDATE working_group_chair
+            SET status = 'pending_nominee', approved = '0'
+            WHERE is_self_nomination = '0'
+              AND nominated_by_user_id IS NOT NULL AND TRIM(nominated_by_user_id) != ''
+              AND user_id IS NOT NULL AND TRIM(user_id) != ''
+              AND nominated_by_user_id != user_id
+              AND status = 'nominee_accepted'
+              AND (nominee_responded_at IS NULL OR TRIM(CAST(nominee_responded_at AS TEXT)) = '')
+        """)
+        status_fixed = cursor.rowcount
+        conn.commit()
+        conn.close()
+        if cleared or status_fixed:
+            print(
+                f"✅ Repaired misclassified nominations: "
+                f"is_self cleared={cleared}, status reset={status_fixed}"
+            )
+    except Exception as e:
+        print(f"⚠️  Error in migrate_repair_misclassified_self_nominations: {e}")
+
+
 def migrate_workgroup_charter_goals(app):
     """Add charter and goals text columns to working_group."""
     try:
