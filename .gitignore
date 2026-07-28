@@ -12,7 +12,9 @@ datatracker.sublime-workspace
 /.tmp
 /.vite
 /client/dist
-/data
+/data/*
+!/data/support-runbooks.json
+!/data/support-hermes-agent.md
 /dist
 /docker/docker-compose.extend-custom.yml
 /env
@@ -44,6 +46,7 @@ datatracker.sublime-workspace
 !/static/js/document-patches.js
 !/static/js/gh-theme.js
 !/static/js/gh-clamp.js
+!/static/js/gh-support.js
 !/static/js/dp-proposals/
 !/static/js/dp-proposals/**
 !/static/vendor/

@@ -627,6 +627,7 @@ def generate_user_menu(layer_slug=None, view_in_mlgh_slug=None):
                 <li><a class="dropdown-item" href="/notifications/"><i class="fas fa-bell me-1"></i>Notifications</a></li>
                 <li><a class="dropdown-item" href="/my-layers/" data-gh-i18n="user.myLayers">My Layers</a></li>
                 <li><a class="dropdown-item" href="/submit/status/" data-gh-i18n="user.mySubmissions">My Submissions</a></li>
+                <li><a class="dropdown-item" href="/support/">Support</a></li>
                 {view_standalone_link}
                 {view_in_mlgh_link}
                 {admin_link}

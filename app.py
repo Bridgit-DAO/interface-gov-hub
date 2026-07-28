@@ -208,6 +208,8 @@ def create_app():
     from routes.scope_email import bp as scope_email_bp
     from routes.layer_connections import bp as layer_connections_bp
     from routes.layer_connections_pages import bp as layer_connections_pages_bp
+    from routes.support_api import bp as support_api_bp
+    from routes.support_pages import bp as support_pages_bp
     from routes.referral_links import bp as referral_links_bp
     from routes.layer_programs import bp as layer_programs_bp
     try:
@@ -282,6 +284,8 @@ def create_app():
     app.register_blueprint(scope_email_bp)
     app.register_blueprint(layer_connections_bp)
     app.register_blueprint(layer_connections_pages_bp)
+    app.register_blueprint(support_api_bp)
+    app.register_blueprint(support_pages_bp)
 
     # CLI
     from cli import register_cli
