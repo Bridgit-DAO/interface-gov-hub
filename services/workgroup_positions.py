@@ -1,4 +1,5 @@
 """Workgroup position types for member nominations."""
+from typing import Optional
 
 WORKGROUP_POSITIONS = {
     'chair': {
@@ -81,3 +82,30 @@ def status_label(status: str) -> str:
         NOMINATION_STATUS_REJECTED: 'Rejected',
     }
     return labels.get(status or '', status or 'Unknown')
+
+
+def detect_self_nomination(
+    *,
+    nominee_user_id: Optional[str],
+    nominee_email: Optional[str],
+    current_user_id: Optional[str],
+    current_user_email: Optional[str],
+) -> bool:
+    """True when the nominee is the same person as the nominator."""
+    if nominee_user_id and current_user_id:
+        if str(nominee_user_id).strip() == str(current_user_id).strip():
+            return True
+    nominee = (nominee_email or '').strip().lower()
+    current = (current_user_email or '').strip().lower()
+    if nominee and current and nominee == current:
+        return True
+    return False
+
+
+def initial_nomination_status(is_self_nomination: bool) -> str:
+    """Self-nominations skip nominee acceptance and go straight to admin review."""
+    return (
+        NOMINATION_STATUS_NOMINEE_ACCEPTED
+        if is_self_nomination
+        else NOMINATION_STATUS_PENDING_NOMINEE
+    )

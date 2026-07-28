@@ -39,6 +39,8 @@ def init_db(app):
             migrate_coordinator_and_member_requests,
             migrate_chair_nomination_fields,
             migrate_workgroup_nomination_flow,
+            migrate_self_nomination_status_backfill,
+            migrate_repair_misclassified_self_nominations,
             migrate_workgroup_charter_goals,
             sync_dp_workgroup_documents,
             sync_sequential_ml_draft_numbers,
@@ -110,6 +112,8 @@ def init_db(app):
         migrate_coordinator_and_member_requests(app)
         migrate_chair_nomination_fields(app)
         migrate_workgroup_nomination_flow(app)
+        migrate_self_nomination_status_backfill(app)
+        migrate_repair_misclassified_self_nominations(app)
         migrate_workgroup_charter_goals(app)
         sync_dp_workgroup_documents(app)
         sync_sequential_ml_draft_numbers(app)
