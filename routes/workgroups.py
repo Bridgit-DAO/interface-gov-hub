@@ -41,7 +41,11 @@ from services.workgroup_positions import (
     position_label,
     status_label,
 )
-from services.workgroup_nomination_mail import send_nomination_submitted
+from services.workgroup_nomination_mail import (
+    send_nomination_submitted,
+    send_nominee_accepted,
+    send_nominee_declined,
+)
 
 bp = Blueprint('workgroups', __name__, url_prefix='/api')
 
@@ -548,6 +552,12 @@ def _respond_to_nomination(nomination_id, accept: bool):
         NOMINATION_STATUS_NOMINEE_ACCEPTED if accept else NOMINATION_STATUS_NOMINEE_DECLINED
     )
     row.nominee_responded_at = datetime.utcnow()
+    db.session.commit()
+
+    if accept:
+        send_nominee_accepted(row)
+    else:
+        send_nominee_declined(row)
     db.session.commit()
 
     new_label = status_label(row.status)
