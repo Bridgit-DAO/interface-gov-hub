@@ -87,11 +87,11 @@ def dispatch_document_followers(
     """After caller's transaction commit: notify subscribers matching event_type + draft subject."""
     from flask import current_app
 
-    from config import PUBLIC_BASE_URL
+    from config import PUBLIC_BASE_URL, resolved_public_base_url
     from services.resend_mail import send_resend_email
 
     layer_id = resolve_layer_id_for_draft(draft_name)
-    base = (current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL).rstrip('/')
+    base = resolved_public_base_url(current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL)
     full_link = f"{base}{link_path}" if link_path.startswith('/') else f"{base}/{link_path}"
     ev_id = event_log.id if event_log else None
 

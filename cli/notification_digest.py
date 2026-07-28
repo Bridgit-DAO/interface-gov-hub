@@ -11,7 +11,7 @@ def register_notification_digest_cli(app):
         from extensions import db
         from models import User, UserNotification
         from services.resend_mail import send_resend_email
-        from config import PUBLIC_BASE_URL
+        from config import PUBLIC_BASE_URL, resolved_public_base_url
 
         now = datetime.utcnow()
         daily_cutoff = now - timedelta(days=1)
@@ -22,7 +22,7 @@ def register_notification_digest_cli(app):
             or_(User.email_digest_mode == 'daily', User.email_digest_mode == 'weekly'),
         ).all()
 
-        base = PUBLIC_BASE_URL.rstrip('/')
+        base = resolved_public_base_url(PUBLIC_BASE_URL)
         sent = 0
         from services.document_follow_notifications import ensure_notification_unsubscribe_token
 

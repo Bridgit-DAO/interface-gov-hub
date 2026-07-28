@@ -14,8 +14,8 @@ from services.workgroup_positions import position_label
 
 def _public_base_url() -> str:
     from flask import current_app
-    from config import PUBLIC_BASE_URL
-    return (current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL).rstrip('/')
+    from config import PUBLIC_BASE_URL, resolved_public_base_url
+    return resolved_public_base_url(current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL)
 
 
 def _user_display(user: Optional[User], fallback: str = 'Someone') -> str:
