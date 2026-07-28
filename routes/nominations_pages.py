@@ -83,10 +83,10 @@ def nomination_respond_page(token):
             <textarea id="decline-reason" class="form-control" rows="2" placeholder="Reason for declining (optional)"></textarea>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <button type="button" class="btn btn-success" onclick="respondNomination('accept')">
+            <button type="button" id="nomination-accept-btn" class="btn btn-success">
                 <i class="fas fa-check me-2"></i>Accept nomination
             </button>
-            <button type="button" class="btn btn-outline-danger" onclick="respondNomination('decline')">
+            <button type="button" id="nomination-decline-btn" class="btn btn-outline-danger">
                 <i class="fas fa-times me-2"></i>Decline
             </button>
         </div>
@@ -117,39 +117,53 @@ def nomination_respond_page(token):
         </div>
     </div>
     <script>
-    const nominationToken = {token_json};
-    async function respondNomination(action) {{
-        const payload = {{ action: action }};
-        if (action === 'decline') {{
-            payload.reason = (document.getElementById('decline-reason')?.value || '').trim();
+    (function () {{
+        const nominationToken = {token_json};
+
+        async function respondNomination(action) {{
+            const payload = {{ action: action }};
+            if (action === 'decline') {{
+                payload.reason = (document.getElementById('decline-reason')?.value || '').trim();
+            }}
+            try {{
+                const resp = await fetch('/api/nomination/respond/' + encodeURIComponent(nominationToken) + '/', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(payload),
+                }});
+                const data = await resp.json();
+                if (resp.ok) {{
+                    await GhDialog.alert({{
+                        title: data.title || 'Done',
+                        message: data.message,
+                        variant: data.variant || 'success',
+                    }});
+                    location.reload();
+                }} else {{
+                    await GhDialog.alert({{
+                        title: 'Error',
+                        message: data.error || 'Could not save response',
+                        variant: 'danger',
+                    }});
+                }}
+            }} catch (e) {{
+                await GhDialog.alert({{
+                    title: 'Error',
+                    message: 'Network error.',
+                    variant: 'danger',
+                }});
+            }}
         }}
-        try {{
-            const resp = await fetch('/api/nomination/respond/' + encodeURIComponent(nominationToken) + '/', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify(payload),
+
+        document.addEventListener('DOMContentLoaded', function () {{
+            document.getElementById('nomination-accept-btn')?.addEventListener('click', function () {{
+                respondNomination('accept');
             }});
-            const data = await resp.json();
-            if (resp.ok) {{
-                if (typeof GhDialog !== 'undefined') {{
-                    await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: data.title || 'Done', message: data.message, variant: data.variant || 'success' }}), variant: 'info' }});
-                }} else {{
-                    await GhDialog.alert({{ title: 'Notice', message: (data.message), variant: 'info' }});
-                }}
-                location.reload();
-            }} else {{
-                if (typeof GhDialog !== 'undefined') {{
-                    await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: data.error || 'Could not save response', variant: 'danger' }}), variant: 'info' }});
-                }} else {{
-                    await GhDialog.alert({{ title: 'Notice', message: (data.error || 'Could not save response'), variant: 'info' }});
-                }}
-            }}
-        }} catch (e) {{
-            if (typeof GhDialog !== 'undefined') {{
-                await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Error', message: 'Network error.', variant: 'danger' }}), variant: 'info' }});
-            }}
-        }}
-    }}
+            document.getElementById('nomination-decline-btn')?.addEventListener('click', function () {{
+                respondNomination('decline');
+            }});
+        }});
+    }})();
     </script>
     """
     return render_page('Review nomination – Gov Hub', content, theme=current_theme, user_menu=generate_user_menu())
