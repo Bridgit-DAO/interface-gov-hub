@@ -62,10 +62,26 @@ def test_layer_resolution():
             resolve_layer_from_host()
             assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.dev.govhub.live"
         print(f"   ✅ Host {slug}.dev.govhub.live resolves layer")
+        with app.test_request_context('/', headers={'Host': f'{slug}.hub.themetalayer.org'}):
+            resolve_layer_from_host()
+            assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.hub.themetalayer.org"
+        print(f"   ✅ Host {slug}.hub.themetalayer.org resolves layer")
+        with app.test_request_context('/', headers={'Host': f'{slug}.dev.hub.themetalayer.org'}):
+            resolve_layer_from_host()
+            assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.dev.hub.themetalayer.org"
+        print(f"   ✅ Host {slug}.dev.hub.themetalayer.org resolves layer")
         with app.test_request_context('/', headers={'Host': 'dev.govhub.live'}):
             resolve_layer_from_host()
             assert getattr(g, 'layer', None) is None, "dev.govhub.live must not map to a layer slug"
         print("   ✅ dev.govhub.live has no layer from host (reserved apex)")
+        with app.test_request_context('/', headers={'Host': 'hub.themetalayer.org'}):
+            resolve_layer_from_host()
+            assert getattr(g, 'layer', None) is None, "hub.themetalayer.org must not map to a layer slug"
+        print("   ✅ hub.themetalayer.org has no layer from host (reserved apex)")
+        with app.test_request_context('/', headers={'Host': 'dev.hub.themetalayer.org'}):
+            resolve_layer_from_host()
+            assert getattr(g, 'layer', None) is None, "dev.hub.themetalayer.org must not map to a layer slug"
+        print("   ✅ dev.hub.themetalayer.org has no layer from host (reserved apex)")
         
         # 6. Layers API
         r = client.get('/api/layers/')
