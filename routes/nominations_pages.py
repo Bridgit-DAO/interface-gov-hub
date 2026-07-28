@@ -111,7 +111,7 @@ def nomination_respond_page(token):
                 </dl>
                 <h6>Statement</h6>
                 <blockquote class="border-start border-3 ps-3 text-muted mb-4">{statement}</blockquote>
-                <p class="small text-muted">Accepting means you are willing to serve if administrators approve. It does not appoint you immediately.</p>
+                <p class="small text-muted">Accepting means you are willing to serve if the administrators approve.</p>
                 {action_html}
             </div>
         </div>
