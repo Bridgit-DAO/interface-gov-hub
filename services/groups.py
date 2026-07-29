@@ -132,13 +132,17 @@ DP_DESCRIPTIONS = {
         'title': 'Epistemic Continuity & Digital Artifacts',
         'desc': 'Preserving epistemic continuity through durable digital artifacts, provenance, and long-lived knowledge across the Meta-Layer.'
     },
+    'dp23-universal-participation-linguistic-interoperability': {
+        'title': 'Universal Participation & Linguistic Interoperability',
+        'desc': 'Establishing universal participation and linguistic interoperability as foundational conditions for shared global sensemaking across languages and cultures.'
+    },
 }
 
 # Two-letter abbreviations from the Noospheric Design Principles infographic.
 DP_ABBREVIATIONS = {
     1: 'Au', 2: 'Ae', 3: 'Go', 4: 'So', 5: 'Ns', 6: 'Co',
     7: 'Si', 8: 'Cm', 9: 'In', 10: 'Ed', 21: 'Mm',
-    11: 'Ai', 12: 'Cg', 13: 'Ac', 14: 'Tt', 15: 'Sp', 16: 'Rm', 17: 'Fs', 22: 'Ep',
+    11: 'Ai', 12: 'Cg', 13: 'Ac', 14: 'Tt', 15: 'Sp', 16: 'Rm', 17: 'Fs', 22: 'Ep', 23: 'Up',
     18: 'Fr', 19: 'Ap', 20: 'Ow',
 }
 

@@ -27,6 +27,9 @@ from services.workgroup_links import (
 )
 from services.workgroup_authority import can_invite_workgroup_member, can_manage_workgroup
 from services.workgroup_membership import join_or_request_workgroup_membership
+from services.workgroup_links import is_dp_workgroup
+from services.dp_welcome import deliver_dp_welcome, list_dp_welcome_notifications, require_nominee_email
+from services.api_auth import get_api_user, require_api_auth
 from services.workgroup_positions import (
     WORKGROUP_POSITIONS,
     ACTIVE_NOMINATION_STATUSES,
@@ -439,13 +442,36 @@ def join_workgroup(workgroup_id):
         return jsonify({'error': 'Membership request already pending'}), 400
     db.session.commit()
 
+    welcome_url = None
+    if result.get('joined') and is_dp_workgroup(workgroup):
+        welcome_url = deliver_dp_welcome(
+            user_id=user.id,
+            workgroup=workgroup,
+            variant='member',
+        )
+        db.session.commit()
+
     if result.get('pending_approval'):
         return jsonify({
             'success': True,
             'pending_approval': True,
             'message': 'Membership requested; pending approval',
         })
-    return jsonify({'success': True, 'message': 'Successfully joined workgroup'})
+    payload = {'success': True, 'message': 'Successfully joined workgroup'}
+    if welcome_url:
+        payload['welcome_url'] = welcome_url
+    return jsonify(payload)
+
+
+@bp.route('/me/dp-welcome/', methods=['GET'])
+@require_api_auth
+def api_me_dp_welcome():
+    """DP welcome links for the signed-in user (Gov Hub session or Bearer idToken)."""
+    current_user = get_api_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    welcomes = list_dp_welcome_notifications(current_user['id'])
+    return jsonify({'welcomes': welcomes, 'count': len(welcomes)})
 
 
 @bp.route('/workgroups/<workgroup_id>/nominate-chair/', methods=['POST'])
@@ -547,6 +573,11 @@ def _respond_to_nomination(nomination_id, accept: bool):
         return jsonify({
             'error': f'Nomination is not pending nominee action (current status: {row.status})'
         }), 400
+
+    if accept:
+        email_error = require_nominee_email(row)
+        if email_error:
+            return jsonify({'error': email_error}), 400
 
     row.status = (
         NOMINATION_STATUS_NOMINEE_ACCEPTED if accept else NOMINATION_STATUS_NOMINEE_DECLINED

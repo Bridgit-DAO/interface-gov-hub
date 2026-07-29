@@ -18,6 +18,7 @@ from services.workgroup_nomination_mail import (
     send_nominee_accepted,
     send_nominee_declined,
 )
+from services.dp_welcome import require_nominee_email
 
 bp = Blueprint('nominations_pages', __name__, url_prefix='')
 
@@ -189,6 +190,9 @@ def api_nomination_respond(token):
 
     nomination.nominee_responded_at = datetime.utcnow()
     if action == 'accept':
+        email_error = require_nominee_email(nomination)
+        if email_error:
+            return jsonify({'error': email_error}), 400
         nomination.status = NOMINATION_STATUS_NOMINEE_ACCEPTED
         db.session.commit()
         send_nominee_accepted(nomination)

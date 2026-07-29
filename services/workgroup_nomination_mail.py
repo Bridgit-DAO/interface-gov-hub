@@ -246,7 +246,7 @@ def send_nominee_declined(nomination: WorkingGroupChair):
         )
 
 
-def send_admin_decision(nomination: WorkingGroupChair, approved: bool):
+def send_admin_decision(nomination: WorkingGroupChair, approved: bool, welcome_url: Optional[str] = None):
     wg, _ = _workgroup_context(nomination)
     nominator = User.query.get(nomination.nominated_by_user_id) if nomination.nominated_by_user_id else None
     pos_label = position_label(nomination.position_key or 'chair')
@@ -255,7 +255,21 @@ def send_admin_decision(nomination: WorkingGroupChair, approved: bool):
 
     if approved:
         subject = f'Nomination approved – {pos_label} in {wg_name}'
-        body_nominee = f'<p>Your nomination for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was approved.</p><p><a href="{html.escape(wg_url)}">View workgroup</a></p>'
+        welcome_block = ''
+        if welcome_url:
+            welcome_block = (
+                f'<p style="margin:24px 0;">'
+                f'<a href="{html.escape(welcome_url)}" style="background:#667eea;color:#fff;'
+                f'padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">'
+                f'Open your welcome guide</a></p>'
+            )
+        body_nominee = (
+            f'<p>Your nomination for <strong>{html.escape(pos_label)}</strong> in '
+            f'<strong>{html.escape(wg_name)}</strong> was approved.</p>'
+            f'<p>You\'re approved as workgroup {html.escape(pos_label.lower())}.</p>'
+            f'{welcome_block}'
+            f'<p><a href="{html.escape(wg_url)}">View workgroup</a></p>'
+        )
         body_nominator = f'<p>The nomination of <strong>{html.escape(nomination.chair_name or "")}</strong> for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was approved.</p>'
     else:
         subject = f'Nomination not approved – {pos_label} in {wg_name}'

@@ -34,6 +34,8 @@ from services.workgroup_links import (
     list_assigned_documents_for_workgroup,
 )
 from services.workgroup_membership import join_or_request_workgroup_membership
+from services.workgroup_links import is_dp_workgroup
+from services.dp_welcome import deliver_dp_welcome
 from services.workgroup_positions import (
     WORKGROUP_POSITIONS,
     ACTIVE_NOMINATION_STATUSES,
@@ -199,6 +201,14 @@ def api_workgroup_join(workgroup_id):
         return jsonify({'error': 'You are already a member of this workgroup'}), 400
     if result.get('status') == 'already_pending':
         return jsonify({'error': 'Membership request already pending'}), 400
+
+    welcome_url = None
+    if result.get('joined') and is_dp_workgroup(workgroup):
+        welcome_url = deliver_dp_welcome(
+            user_id=user.id,
+            workgroup=workgroup,
+            variant='member',
+        )
     db.session.commit()
 
     if result.get('pending_approval'):
@@ -207,7 +217,10 @@ def api_workgroup_join(workgroup_id):
             'pending_approval': True,
             'message': 'Membership requested; pending approval',
         })
-    return jsonify({'success': True, 'message': 'Successfully joined workgroup'})
+    payload = {'success': True, 'message': 'Successfully joined workgroup'}
+    if welcome_url:
+        payload['welcome_url'] = welcome_url
+    return jsonify(payload)
 
 
 @bp.route('/<string:workgroup_id>/nominate/', methods=['POST'])

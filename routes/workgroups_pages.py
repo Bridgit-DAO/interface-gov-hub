@@ -1170,11 +1170,21 @@ def workgroup_detail(workgroup_slug):
 
             if (response.ok) {{
                 const pending = data.pending_approval === true;
+                const welcomeUrl = data.welcome_url || '';
+                let message = pending
+                    ? 'Your membership request is pending approval.'
+                    : (welcomeUrl
+                        ? 'You joined this workgroup. Open your welcome guide for next steps.'
+                        : 'You joined this workgroup.');
                 await GhDialog.alert({{
                     title: pending ? 'Request submitted' : 'Welcome',
-                    message: pending ? 'Your membership request is pending approval.' : 'You joined this workgroup.',
+                    message: message,
                     variant: pending ? 'info' : 'success',
+                    confirmLabel: welcomeUrl ? 'Open welcome guide' : 'Close',
                 }});
+                if (welcomeUrl) {{
+                    window.open(welcomeUrl, '_blank', 'noopener');
+                }}
                 loadMembers();
             }} else {{
                 await GhDialog.alert({{ title: 'Could not join', message: data.error || 'Failed to join workgroup', variant: 'danger' }});

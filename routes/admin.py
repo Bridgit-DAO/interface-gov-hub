@@ -25,6 +25,12 @@ from services.workgroup_positions import (
     status_label,
 )
 from services.workgroup_nomination_mail import send_admin_decision
+from services.dp_welcome import (
+    deliver_dp_welcome,
+    ensure_nomination_membership,
+    nomination_welcome_variant,
+    require_nominee_email,
+)
 from services.events import emit_event
 from services.dp_badges import dp_contributor_badge_status
 from services.workgroup_links import is_dp_workgroup
@@ -2103,13 +2109,33 @@ def api_admin_approve_chair_nomination(nomination_id):
     if nomination.status != NOMINATION_STATUS_NOMINEE_ACCEPTED:
         return jsonify({'error': 'Nominee must accept before admin approval'}), 400
 
+    email_error = require_nominee_email(nomination)
+    if email_error:
+        return jsonify({'error': email_error}), 400
+
     nomination.approved = True
     nomination.status = NOMINATION_STATUS_APPROVED
+    ensure_nomination_membership(nomination)
+
+    wg = Workgroup.query.filter_by(acronym=nomination.group_acronym).first()
+    welcome_url = None
+    if wg and nomination.user_id and is_dp_workgroup(wg):
+        variant = nomination_welcome_variant(nomination.position_key)
+        welcome_url = deliver_dp_welcome(
+            user_id=nomination.user_id,
+            workgroup=wg,
+            variant=variant,
+            position_key=nomination.position_key,
+        )
+
     db.session.commit()
-    send_admin_decision(nomination, approved=True)
+    send_admin_decision(nomination, approved=True, welcome_url=welcome_url)
     db.session.commit()
 
-    return jsonify({'success': True, 'message': 'Nomination approved'})
+    payload = {'success': True, 'message': 'Nomination approved'}
+    if welcome_url:
+        payload['welcome_url'] = welcome_url
+    return jsonify(payload)
 
 
 @bp.route('/api/admin/chair-nominations/<nomination_id>/reject/', methods=['POST'])
