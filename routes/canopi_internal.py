@@ -104,7 +104,7 @@ def layer_admin_check():
     layer = Layer.query.get(layer_ref)
     if not layer:
         layer = Layer.query.filter(
-            (Layer.slug == layer_ref) | (Layer.acronym == layer_ref)
+            (Layer.slug == layer_ref) | (Layer.name == layer_ref)
         ).first()
     if not layer:
         return jsonify({'isAdmin': False, 'reason': 'layer_not_found'})
