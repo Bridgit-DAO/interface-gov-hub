@@ -496,23 +496,6 @@ def api_me_dp_welcome():
     })
 
 
-@bp.route('/me/layer-admin/<layer_slug>/', methods=['GET'])
-@require_api_auth
-def api_me_layer_admin(layer_slug):
-    """Whether the signed-in user is admin for a layer (by slug)."""
-    current_user = get_api_user()
-    if not current_user:
-        return jsonify({'error': 'Authentication required'}), 401
-    layer = Layer.query.filter_by(slug=layer_slug).first()
-    if not layer:
-        return jsonify({'error': 'Layer not found'}), 404
-    return jsonify({
-        'isLayerAdmin': bool(is_layer_admin(layer, current_user)),
-        'layerSlug': layer.slug,
-        'layerId': layer.id,
-    })
-
-
 @bp.route('/workgroups/<workgroup_id>/nominate-chair/', methods=['POST'])
 @bp.route('/workgroups/<workgroup_id>/nominate/', methods=['POST'])
 @require_auth
