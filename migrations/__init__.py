@@ -3269,6 +3269,110 @@ def migrate_layer_unique_v1(app):
         print(f'⚠️  Error in migrate_layer_unique_v1: {e}')
 
 
+def migrate_workgroup_member_unique_v1(app):
+    """Dedupe ``working_group_member`` then enforce UNIQUE(group_acronym, user_id).
+
+    Membership was created from several code paths (self-service join, admin
+    approval of a member request, nomination approval) with only a read-then-
+    write duplicate check, so concurrent requests could insert two rows for the
+    same person in the same workgroup. This migration:
+
+    1. Collapses each ``(group_acronym, user_id)`` duplicate group down to the
+       oldest row (minimum rowid = first join). Rows with a NULL ``user_id``
+       are legacy display-name-only rows and are left untouched; no table
+       references ``working_group_member.id``, so deleting the newer copies is
+       safe and loses nothing but a redundant ``joined_at``.
+    2. Creates the ``uq_wgm_group_user`` UNIQUE index when missing.
+
+    Idempotent: a second run finds no duplicates and no missing index.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT group_acronym, user_id, COUNT(*) AS n, MIN(rowid) AS survivor_rowid
+            FROM working_group_member
+            WHERE user_id IS NOT NULL AND group_acronym IS NOT NULL
+            GROUP BY group_acronym, user_id
+            HAVING n > 1
+            """
+        )
+        dup_groups = cursor.fetchall()
+        total_deleted = 0
+        for acronym, user_id, _count, survivor_rowid in dup_groups:
+            cursor.execute(
+                """
+                DELETE FROM working_group_member
+                WHERE group_acronym = ? AND user_id = ? AND rowid != ?
+                """,
+                (acronym, user_id, survivor_rowid),
+            )
+            total_deleted += cursor.rowcount
+            print(
+                f'  working_group_member {acronym}/{str(user_id)[:8]}…: '
+                f'kept oldest row, removed {cursor.rowcount} duplicate(s)'
+            )
+        if dup_groups:
+            conn.commit()
+            print(
+                '✅ migrate_workgroup_member_unique_v1: removed '
+                f'{total_deleted} duplicate membership row(s)'
+            )
+        else:
+            print('✅ migrate_workgroup_member_unique_v1: no duplicate memberships')
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND tbl_name='working_group_member'"
+        )
+        existing_indexes = {row[0] for row in cursor.fetchall()}
+        if 'uq_wgm_group_user' not in existing_indexes:
+            cursor.execute(
+                'CREATE UNIQUE INDEX uq_wgm_group_user '
+                'ON working_group_member(group_acronym, user_id)'
+            )
+            print(
+                '✅ migrate_workgroup_member_unique_v1: created UNIQUE index '
+                'uq_wgm_group_user'
+            )
+        else:
+            print(
+                '✅ migrate_workgroup_member_unique_v1: uq_wgm_group_user '
+                'already present'
+            )
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_workgroup_member_unique_v1: {e}')
+
+
+def migrate_user_notification_archived_at_v1(app):
+    """Add ``user_notification.archived_at`` for invalidated notifications.
+
+    A notification can outlive the thing it announces: a DP workgroup welcome
+    stays in the feed (and in the email digest) after the person leaves the
+    workgroup. Archiving is recorded on the row instead of deleting it, so
+    history survives and rejoining can revive the same notification.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(user_notification)')
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'archived_at' not in cols:
+            cursor.execute('ALTER TABLE user_notification ADD COLUMN archived_at DATETIME')
+            conn.commit()
+            print('✅ Added archived_at to user_notification')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_user_notification_archived_at_v1: {e}')
+
+
 def _stub_unused_marker():  # pragma: no cover - keep at end
     pass
 

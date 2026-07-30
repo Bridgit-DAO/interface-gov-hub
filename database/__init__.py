@@ -74,6 +74,8 @@ def init_db(app):
             migrate_hardcoded_users,
             migrate_submission_prefix_code_v1,
             migrate_layer_unique_v1,
+            migrate_workgroup_member_unique_v1,
+            migrate_user_notification_archived_at_v1,
             migrate_layer_display_status_v1,
             migrate_delete_test_layers_v1,
             migrate_hide_auth_layers_v1,
@@ -146,6 +148,8 @@ def init_db(app):
         migrate_submission_submitter_user_id_v1(app)
         migrate_submission_prefix_code_v1(app)
         migrate_layer_unique_v1(app)
+        migrate_workgroup_member_unique_v1(app)
+        migrate_user_notification_archived_at_v1(app)
         migrate_layer_display_status_v1(app)
         migrate_delete_test_layers_v1(app)
         migrate_hide_auth_layers_v1(app)

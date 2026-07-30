@@ -39,8 +39,13 @@ from config import (
 os.makedirs(INSTANCE_DIR, exist_ok=True)
 
 
-def create_app():
-    """Create and configure the Flask application."""
+def create_app(database_uri=None, *, testing=False):
+    """Create and configure the Flask application.
+
+    ``database_uri`` overrides the configured SQLite database. Tests use it
+    (with ``testing=True``) to run against a disposable database instead of
+    the deployed one; production always leaves both arguments unset.
+    """
     app = Flask(__name__, instance_path=INSTANCE_DIR, instance_relative_config=True)
     secret_key = (os.environ.get('SECRET_KEY') or '').strip()
     if not secret_key:
@@ -59,7 +64,8 @@ def create_app():
         pass
 
     # Database
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_uri or f'sqlite:///{DB_PATH}'
+    app.config['TESTING'] = bool(testing)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_pre_ping': True,
@@ -71,7 +77,7 @@ def create_app():
     app.config['IS_DEVELOPMENT'] = IS_DEVELOPMENT
     app.config['ENV'] = ENV
     app.config['PORT'] = PORT
-    app.config['DB_PATH'] = DB_PATH
+    app.config['DB_PATH'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
     app.config['RESERVED_SUBDOMAINS'] = RESERVED_SUBDOMAINS
     app.config['KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED'] = KNOWLEDGE_CONTRIBUTION_TYPE_ENABLED
     app.config['KNOWLEDGE_SCAFFOLD_ENABLED'] = KNOWLEDGE_SCAFFOLD_ENABLED
@@ -86,7 +92,7 @@ def create_app():
     app.config['CANOPI_INTERNAL_API_URL'] = CANOPI_INTERNAL_API_URL
 
     # Session security
-    app.config['SESSION_COOKIE_SECURE'] = not IS_DEVELOPMENT
+    app.config['SESSION_COOKIE_SECURE'] = not (IS_DEVELOPMENT or testing)
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -117,7 +123,8 @@ def create_app():
         # Periodic best-effort WAL checkpoint so the file stays small even when
         # nothing is writing (default autocheckpoint only fires on writes).
         # Without this the WAL can grow to MB on dev where the long-running
-        # Flask process only does a handful of writes.
+        # Flask process only does a handful of writes. Disposable test apps
+        # are short-lived, so they skip the background thread.
         import threading
         import time as _time
 
@@ -136,11 +143,12 @@ def create_app():
                     except Exception:
                         pass
 
-        threading.Thread(
-            target=_sqlite_wal_periodic_checkpoint,
-            name='sqlite-wal-checkpoint',
-            daemon=True,
-        ).start()
+        if not testing:
+            threading.Thread(
+                target=_sqlite_wal_periodic_checkpoint,
+                name='sqlite-wal-checkpoint',
+                daemon=True,
+            ).start()
 
     # Models (must be after db.init_app)
     from models import (
@@ -347,10 +355,11 @@ def create_app():
 
     _oauth_log = logging.getLogger('oauth_debug')
     _oauth_log.setLevel(logging.DEBUG)
-    _oauth_fh = logging.FileHandler(os.path.join(INSTANCE_DIR, 'oauth_debug.log'), encoding='utf-8')
-    _oauth_fh.setLevel(logging.DEBUG)
-    _oauth_fh.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-    _oauth_log.addHandler(_oauth_fh)
+    if not testing:
+        _oauth_fh = logging.FileHandler(os.path.join(INSTANCE_DIR, 'oauth_debug.log'), encoding='utf-8')
+        _oauth_fh.setLevel(logging.DEBUG)
+        _oauth_fh.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+        _oauth_log.addHandler(_oauth_fh)
 
     @app.errorhandler(Exception)
     def _log_oauth_exceptions(exc):

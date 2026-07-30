@@ -2,7 +2,7 @@
 import html
 import json
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, current_app, jsonify, request, session
 from datetime import datetime
 
 from extensions import db
@@ -19,6 +19,7 @@ from services.workgroup_nomination_mail import (
     send_nominee_declined,
 )
 from services.dp_welcome import require_nominee_email
+from services.workgroup_nomination_flow import record_nominee_response
 
 bp = Blueprint('nominations_pages', __name__, url_prefix='')
 
@@ -172,6 +173,12 @@ def nomination_respond_page(token):
 
 @bp.route('/api/nomination/respond/<token>/', methods=['POST'])
 def api_nomination_respond(token):
+    """Accept/decline via the single-use link emailed to the nominee.
+
+    Possession of the token is the identity proof here: it is only ever sent to
+    ``nominee_email``, which for account-linked nominations is the account's own
+    verified address (see ``services.workgroup_nomination_flow``).
+    """
     nomination = WorkingGroupChair.query.filter_by(nominee_response_token=token).first()
     if not nomination:
         return jsonify({'error': 'Invalid nomination link'}), 404
@@ -188,15 +195,13 @@ def api_nomination_respond(token):
     if action not in ('accept', 'decline'):
         return jsonify({'error': 'action must be accept or decline'}), 400
 
-    nomination.nominee_responded_at = datetime.utcnow()
     if action == 'accept':
         email_error = require_nominee_email(nomination)
         if email_error:
             return jsonify({'error': email_error}), 400
-        nomination.status = NOMINATION_STATUS_NOMINEE_ACCEPTED
+        record_nominee_response(nomination, accept=True)
         db.session.commit()
-        send_nominee_accepted(nomination)
-        db.session.commit()
+        _notify_response(nomination, accept=True)
         return jsonify({
             'success': True,
             'title': 'Nomination accepted',
@@ -204,14 +209,30 @@ def api_nomination_respond(token):
             'variant': 'success',
         })
 
-    nomination.status = NOMINATION_STATUS_NOMINEE_DECLINED
+    record_nominee_response(nomination, accept=False)
     nomination.nominee_decline_reason = (data.get('reason') or '').strip() or None
     db.session.commit()
-    send_nominee_declined(nomination)
-    db.session.commit()
+    _notify_response(nomination, accept=False)
     return jsonify({
         'success': True,
         'title': 'Nomination declined',
         'message': 'Your response was recorded. The person who nominated you has been notified.',
         'variant': 'info',
     })
+
+
+def _notify_response(nomination, *, accept: bool) -> bool:
+    """Send follow-up notifications without risking the recorded response.
+
+    The response is already committed. In-app notifications (nominator, and the
+    layer administrators who review the nomination) are written here and
+    committed even when email delivery fails, so nothing depends on the mail
+    provider being reachable.
+    """
+    email_ok = send_nominee_accepted(nomination) if accept else send_nominee_declined(nomination)
+    db.session.commit()
+    if not email_ok:
+        current_app.logger.warning(
+            'Response emails incomplete for nomination %s', nomination.id
+        )
+    return email_ok

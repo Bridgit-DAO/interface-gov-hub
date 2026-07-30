@@ -670,10 +670,12 @@ def workgroup_detail(workgroup_slug):
     let selectedNomineeUserId = null;
     let nominationSearchResults = [];
     let workgroupPositions = [];
-    // Read ?action= once so we can auto-open the nominate / join modal
-    // after the page finishes loading. Stripped after firing so a refresh
-    // doesn't re-trigger the modal.
-    const _urlParams = new URLSearchParams(window.location.search);
+    // Read ?action= once so we can auto-open the nominate / join modal after
+    // the page finishes loading. `initialSearch` is captured before any URL
+    // rewriting so a sign-in redirect still carries ?action= in ?next=, and the
+    // action resumes automatically once the user comes back authenticated.
+    const initialSearch = window.location.search;
+    const _urlParams = new URLSearchParams(initialSearch);
     const autoAction = _urlParams.get('action');
     let autoActionConsumed = false;
 
@@ -682,10 +684,15 @@ def workgroup_detail(workgroup_slug):
         const approved = !!(workgroup && workgroup.approval_status === 'approved');
         if (!approved) return;
         autoActionConsumed = true;
-        try {{
-            window.history.replaceState({{}}, '', window.location.pathname);
-        }} catch (e) {{
-            console.warn('Could not strip ?action from URL', e);
+        // Only drop ?action= once the action can actually run. An anonymous
+        // visitor is about to be sent to /login/?next=…&action=…, so the
+        // parameter has to survive this navigation.
+        if (isAuthenticated) {{
+            try {{
+                window.history.replaceState({{}}, '', window.location.pathname);
+            }} catch (e) {{
+                console.warn('Could not strip ?action from URL', e);
+            }}
         }}
         if (autoAction === 'nominate') {{
             nominateForChair();
@@ -1129,7 +1136,9 @@ def workgroup_detail(workgroup_slug):
     }}
 
     function loginNextUrl() {{
-        return window.location.pathname + window.location.search + window.location.hash;
+        // Use the search string captured at load: the pending ?action= must
+        // come back with the user after sign-in even if the URL was rewritten.
+        return window.location.pathname + (initialSearch || window.location.search) + window.location.hash;
     }}
 
     function redirectToLogin() {{

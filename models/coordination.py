@@ -63,6 +63,13 @@ class WorkingGroupMember(db.Model):
     user_name = db.Column(db.String(100), index=True)  # for display
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # One membership per (workgroup, account). SQLite/Postgres both treat NULL
+    # user_id rows as distinct, which keeps historical name-only rows valid.
+    # See migrations.migrate_workgroup_member_unique_v1 for the deployed index.
+    __table_args__ = (
+        db.UniqueConstraint('group_acronym', 'user_id', name='uq_wgm_group_user'),
+    )
+
 
 # ============================================================================
 # Badge System Models (BadgeSkin, BadgeCycle, OneTimeBadge)

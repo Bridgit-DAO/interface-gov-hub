@@ -1,7 +1,15 @@
-"""Email + in-app notifications for workgroup position nominations."""
+"""Email + in-app notifications for workgroup position nominations.
+
+In-app notifications are written to the caller's transaction before any email
+is attempted, and every send is individually isolated. A mail outage (or one
+bad address) therefore never loses the recorded nomination state or the in-app
+review notification that layer administrators act on; the send functions report
+whether delivery fully succeeded so callers can surface a retry.
+"""
 from __future__ import annotations
 
 import html
+import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
@@ -10,6 +18,18 @@ from extensions import db
 from models import Layer, LayerAdmin, User, UserNotification, Workgroup, WorkingGroupChair
 from services.resend_mail import send_resend_email
 from services.workgroup_positions import position_label
+
+logger = logging.getLogger(__name__)
+
+
+def _send_email(*, to: list, subject: str, body_html: str) -> bool:
+    """Send one nomination email. Returns False (logged) instead of raising."""
+    try:
+        send_resend_email(to=to, subject=subject, html=body_html)
+        return True
+    except Exception:  # noqa: BLE001 - delivery must not undo recorded state
+        logger.exception('Nomination email to %s failed (subject=%r)', to, subject)
+        return False
 
 
 def _public_base_url() -> str:
@@ -81,11 +101,14 @@ def _notify_in_app(user_id: str, title: str, body: str, link_url: str):
     )
 
 
-def send_nomination_submitted(nomination: WorkingGroupChair):
-    """Email nominee (if not self-nom) and always notify nominator."""
+def send_nomination_submitted(nomination: WorkingGroupChair) -> bool:
+    """Email nominee (if not self-nom) and always notify nominator.
+
+    Returns whether every email was delivered.
+    """
     wg, layer = _workgroup_context(nomination)
     if not wg:
-        return
+        return True
 
     nominator = User.query.get(nomination.nominated_by_user_id) if nomination.nominated_by_user_id else None
     nominee_user = User.query.get(nomination.user_id) if nomination.user_id else None
@@ -106,12 +129,12 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
 <p><a href="{html.escape(wg_url)}" style="color:#667eea;">View workgroup</a></p>
 """
         if nominator and nominator.email:
-            send_resend_email(
+            return _send_email(
                 to=[nominator.email.strip()],
                 subject=f'Your {pos_label} nomination was submitted – {wg_name}',
-                html=_email_shell('Nomination submitted', confirm_body),
+                body_html=_email_shell('Nomination submitted', confirm_body),
             )
-        return
+        return True
 
     nominee_body = f"""
 <p><strong>{html.escape(nominator_name)}</strong> nominated you for <strong>{html.escape(pos_label)}</strong> in the workgroup <strong>{html.escape(wg_name)}</strong> on {html.escape(layer_name)}.</p>
@@ -123,19 +146,22 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
 </p>
 <p style="font-size:13px;color:#666;">Accepting does not appoint you yet – layer administrators still review all nominations.</p>
 """
-    if nomination.nominee_email:
-        send_resend_email(
-            to=[nomination.nominee_email.strip()],
-            subject=f'You were nominated as {pos_label} – {wg_name}',
-            html=_email_shell('Workgroup nomination', nominee_body),
-        )
-
+    # In-app first: the nominee keeps a working "review nomination" entry even
+    # if the email never leaves the building.
     if nominee_user:
         _notify_in_app(
             nominee_user.id,
             f'Nominated as {pos_label}',
             f'{nominator_name} nominated you for {pos_label} in {wg_name}. Review and accept or decline.',
             respond_url,
+        )
+
+    delivered = True
+    if nomination.nominee_email:
+        delivered = _send_email(
+            to=[nomination.nominee_email.strip()],
+            subject=f'You were nominated as {pos_label} – {wg_name}',
+            body_html=_email_shell('Workgroup nomination', nominee_body),
         )
 
     nominator_body = f"""
@@ -145,18 +171,24 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
 <blockquote style="border-left:3px solid #667eea;margin:12px 0;padding:8px 16px;color:#444;">{statement}</blockquote>
 """
     if nominator and nominator.email:
-        send_resend_email(
+        delivered = _send_email(
             to=[nominator.email.strip()],
             subject=f'Nomination sent – {nomination.chair_name} for {pos_label}',
-            html=_email_shell('Nomination sent', nominator_body),
-        )
+            body_html=_email_shell('Nomination sent', nominator_body),
+        ) and delivered
+    return delivered
 
 
-def send_admin_nomination_accepted(nomination: WorkingGroupChair):
-    """Email layer administrators that a nominee accepted and needs review."""
+def send_admin_nomination_accepted(nomination: WorkingGroupChair) -> bool:
+    """Tell layer administrators a nominee accepted and needs review.
+
+    The in-app review notification is created for every administrator before
+    any email is attempted, so an email failure cannot leave a nomination
+    waiting with nobody notified. Returns whether every email was delivered.
+    """
     wg, layer = _workgroup_context(nomination)
     if not layer:
-        return
+        return True
 
     pos_label = position_label(nomination.position_key or 'chair')
     wg_name = wg.name if wg else nomination.group_acronym
@@ -174,14 +206,8 @@ def send_admin_nomination_accepted(nomination: WorkingGroupChair):
     subject = f'Nomination accepted – {pos_label} in {wg_name} ({layer_name})'
     html_content = _email_shell('Nomination ready for review', body)
 
-    for admin in _layer_admin_users(layer):
-        if not admin.email:
-            continue
-        send_resend_email(
-            to=[admin.email.strip()],
-            subject=subject,
-            html=html_content,
-        )
+    admins = _layer_admin_users(layer)
+    for admin in admins:
         _notify_in_app(
             admin.id,
             f'{nominee_name} accepted nomination',
@@ -189,8 +215,20 @@ def send_admin_nomination_accepted(nomination: WorkingGroupChair):
             review_url,
         )
 
+    delivered = True
+    for admin in admins:
+        if not admin.email:
+            continue
+        delivered = _send_email(
+            to=[admin.email.strip()],
+            subject=subject,
+            body_html=html_content,
+        ) and delivered
+    return delivered
 
-def send_nominee_accepted(nomination: WorkingGroupChair):
+
+def send_nominee_accepted(nomination: WorkingGroupChair) -> bool:
+    """Notify the nominator and the layer's reviewers. Returns delivery status."""
     wg, _ = _workgroup_context(nomination)
     nominator = User.query.get(nomination.nominated_by_user_id) if nomination.nominated_by_user_id else None
     pos_label = position_label(nomination.position_key or 'chair')
@@ -201,12 +239,6 @@ def send_nominee_accepted(nomination: WorkingGroupChair):
 <p><strong>{html.escape(nominee_name)}</strong> accepted your nomination for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong>.</p>
 <p>The nomination is now pending approval by layer administrators.</p>
 """
-    if nominator and nominator.email:
-        send_resend_email(
-            to=[nominator.email.strip()],
-            subject=f'{nominee_name} accepted your nomination',
-            html=_email_shell('Nominee accepted', body),
-        )
     if nominator:
         _notify_in_app(
             nominator.id,
@@ -215,10 +247,19 @@ def send_nominee_accepted(nomination: WorkingGroupChair):
             f"{_public_base_url()}/workgroups/{wg.slug}/" if wg else '/',
         )
 
-    send_admin_nomination_accepted(nomination)
+    delivered = True
+    if nominator and nominator.email:
+        delivered = _send_email(
+            to=[nominator.email.strip()],
+            subject=f'{nominee_name} accepted your nomination',
+            body_html=_email_shell('Nominee accepted', body),
+        )
+
+    return send_admin_nomination_accepted(nomination) and delivered
 
 
-def send_nominee_declined(nomination: WorkingGroupChair):
+def send_nominee_declined(nomination: WorkingGroupChair) -> bool:
+    """Notify the nominator that the nominee declined. Returns delivery status."""
     wg, _ = _workgroup_context(nomination)
     nominator = User.query.get(nomination.nominated_by_user_id) if nomination.nominated_by_user_id else None
     pos_label = position_label(nomination.position_key or 'chair')
@@ -231,12 +272,6 @@ def send_nominee_declined(nomination: WorkingGroupChair):
 <p><strong>Reason:</strong> {reason}</p>
 <p>You may nominate someone else for this position.</p>
 """
-    if nominator and nominator.email:
-        send_resend_email(
-            to=[nominator.email.strip()],
-            subject=f'{nominee_name} declined your nomination',
-            html=_email_shell('Nominee declined', body),
-        )
     if nominator:
         _notify_in_app(
             nominator.id,
@@ -245,8 +280,21 @@ def send_nominee_declined(nomination: WorkingGroupChair):
             f"{_public_base_url()}/workgroups/{wg.slug}/" if wg else '/',
         )
 
+    if nominator and nominator.email:
+        return _send_email(
+            to=[nominator.email.strip()],
+            subject=f'{nominee_name} declined your nomination',
+            body_html=_email_shell('Nominee declined', body),
+        )
+    return True
 
-def send_admin_decision(nomination: WorkingGroupChair, approved: bool, welcome_url: Optional[str] = None):
+
+def send_admin_decision(
+    nomination: WorkingGroupChair,
+    approved: bool,
+    welcome_url: Optional[str] = None,
+) -> bool:
+    """Tell the nominee and nominator the review outcome. Returns delivery status."""
     wg, _ = _workgroup_context(nomination)
     nominator = User.query.get(nomination.nominated_by_user_id) if nomination.nominated_by_user_id else None
     pos_label = position_label(nomination.position_key or 'chair')
@@ -276,7 +324,17 @@ def send_admin_decision(nomination: WorkingGroupChair, approved: bool, welcome_u
         body_nominee = f'<p>Your nomination for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was not approved by administrators.</p>'
         body_nominator = f'<p>The nomination of <strong>{html.escape(nomination.chair_name or "")}</strong> for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was not approved.</p>'
 
+    delivered = True
     if nomination.nominee_email:
-        send_resend_email(to=[nomination.nominee_email.strip()], subject=subject, html=_email_shell(subject, body_nominee))
+        delivered = _send_email(
+            to=[nomination.nominee_email.strip()],
+            subject=subject,
+            body_html=_email_shell(subject, body_nominee),
+        )
     if nominator and nominator.email:
-        send_resend_email(to=[nominator.email.strip()], subject=subject, html=_email_shell(subject, body_nominator))
+        delivered = _send_email(
+            to=[nominator.email.strip()],
+            subject=subject,
+            body_html=_email_shell(subject, body_nominator),
+        ) and delivered
+    return delivered

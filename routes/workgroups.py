@@ -4,7 +4,7 @@ from datetime import datetime, date
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from flask import Blueprint, jsonify, redirect, request
+from flask import Blueprint, current_app, jsonify, redirect, request
 from sqlalchemy import text, or_, func
 
 from extensions import db
@@ -28,13 +28,21 @@ from services.workgroup_links import (
 from services.workgroup_authority import can_invite_workgroup_member, can_manage_workgroup
 from services.workgroup_membership import join_or_request_workgroup_membership
 from services.workgroup_links import is_dp_workgroup
-from services.dp_welcome import deliver_dp_welcome, list_dp_welcome_notifications, require_nominee_email
+from services.dp_welcome import (
+    deliver_dp_welcome,
+    list_dp_welcome_notifications,
+    require_nominee_email,
+)
+from services.workgroup_nomination_flow import (
+    RESPONSE_FORBIDDEN_ERROR,
+    caller_matches_nomination,
+    record_nominee_response,
+    resolve_nominee_identity,
+)
 from services.api_auth import get_api_user, require_api_auth
 from services.workgroup_positions import (
     WORKGROUP_POSITIONS,
     ACTIVE_NOMINATION_STATUSES,
-    NOMINATION_STATUS_NOMINEE_ACCEPTED,
-    NOMINATION_STATUS_NOMINEE_DECLINED,
     NOMINATION_STATUS_PENDING_NOMINEE,
     NOMINATION_STATUS_APPROVED,
     NOMINATION_STATUS_REJECTED,
@@ -437,11 +445,13 @@ def join_workgroup(workgroup_id):
         user=user,
     )
     if result.get('duplicate'):
+        db.session.rollback()
         return jsonify({'error': 'You are already a member of this workgroup'}), 400
     if result.get('status') == 'already_pending':
         return jsonify({'error': 'Membership request already pending'}), 400
-    db.session.commit()
 
+    # Membership and the welcome notification commit together, so a failure
+    # never leaves a member without their welcome (or the reverse).
     welcome_url = None
     if result.get('joined') and is_dp_workgroup(workgroup):
         welcome_url = deliver_dp_welcome(
@@ -449,7 +459,7 @@ def join_workgroup(workgroup_id):
             workgroup=workgroup,
             variant='member',
         )
-        db.session.commit()
+    db.session.commit()
 
     if result.get('pending_approval'):
         return jsonify({
@@ -466,12 +476,41 @@ def join_workgroup(workgroup_id):
 @bp.route('/me/dp-welcome/', methods=['GET'])
 @require_api_auth
 def api_me_dp_welcome():
-    """DP welcome links for the signed-in user (Gov Hub session or Bearer idToken)."""
+    """DP welcome links for the signed-in user (Gov Hub session or Bearer idToken).
+
+    Always JSON so cross-origin callers can distinguish outcomes without
+    depending on proxy behaviour: 401 when the session cookie or Bearer token is
+    missing/invalid, 200 with an empty list when the user simply has no welcome.
+    """
+    current_user = get_api_user()
+    if not current_user:
+        return jsonify({
+            'error': 'Authentication required',
+            'code': 'authentication_required',
+        }), 401
+    welcomes = list_dp_welcome_notifications(current_user['id'])
+    return jsonify({
+        'welcomes': welcomes,
+        'count': len(welcomes),
+        'user_id': current_user['id'],
+    })
+
+
+@bp.route('/me/layer-admin/<layer_slug>/', methods=['GET'])
+@require_api_auth
+def api_me_layer_admin(layer_slug):
+    """Whether the signed-in user is admin for a layer (by slug)."""
     current_user = get_api_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
-    welcomes = list_dp_welcome_notifications(current_user['id'])
-    return jsonify({'welcomes': welcomes, 'count': len(welcomes)})
+    layer = Layer.query.filter_by(slug=layer_slug).first()
+    if not layer:
+        return jsonify({'error': 'Layer not found'}), 404
+    return jsonify({
+        'isLayerAdmin': bool(is_layer_admin(layer, current_user)),
+        'layerSlug': layer.slug,
+        'layerId': layer.id,
+    })
 
 
 @bp.route('/workgroups/<workgroup_id>/nominate-chair/', methods=['POST'])
@@ -496,8 +535,6 @@ def nominate_position(workgroup_id):
 
     if not nominee_name:
         return jsonify({'error': 'Nominee name is required'}), 400
-    if not _is_valid_email(nominee_email):
-        return jsonify({'error': 'A valid nominee email is required'}), 400
     if not _is_valid_profile_url(nominee_profile_url):
         return jsonify({'error': 'A valid CV or LinkedIn URL is required'}), 400
     if not statement:
@@ -507,12 +544,18 @@ def nominate_position(workgroup_id):
     if workgroup.approval_status != 'approved':
         return jsonify({'error': 'Workgroup must be approved before nominating'}), 400
 
-    if nominee_user_id:
-        nominee_user = User.query.get(nominee_user_id)
-        if not nominee_user:
-            return jsonify({'error': 'Selected GovHub user was not found'}), 400
-        if not nominee_email and nominee_user.email:
-            nominee_email = _normalize_email(nominee_user.email)
+    # When an account is named, its own email is authoritative: a nominator must
+    # not be able to attach an address they control to somebody else's account.
+    identity = resolve_nominee_identity(
+        nominee_user_id=nominee_user_id,
+        nominee_email=nominee_email,
+    )
+    if identity.error:
+        return jsonify({'error': identity.error}), 400
+    nominee_user_id = identity.user_id
+    nominee_email = identity.email
+    if not _is_valid_email(nominee_email):
+        return jsonify({'error': 'A valid nominee email is required'}), 400
 
     is_self_nomination = detect_self_nomination(
         nominee_user_id=nominee_user_id,
@@ -551,7 +594,9 @@ def nominate_position(workgroup_id):
     )
     db.session.add(chair)
     db.session.flush()
-    send_nomination_submitted(chair)
+    # The nomination, its response token and the in-app notifications commit
+    # together; email delivery is reported and never rolls the nomination back.
+    email_ok = send_nomination_submitted(chair)
     db.session.commit()
 
     pos_label = position_label(position_key)
@@ -559,7 +604,7 @@ def nominate_position(workgroup_id):
         message = f'Your {pos_label} nomination was submitted and is pending administrator approval.'
     else:
         message = f'Nomination sent. {nominee_name} will receive an email with your statement and a link to accept or decline.'
-    return jsonify({'success': True, 'message': message})
+    return jsonify({'success': True, 'message': message, 'notifications_sent': email_ok})
 
 
 def _respond_to_nomination(nomination_id, accept: bool):
@@ -569,6 +614,12 @@ def _respond_to_nomination(nomination_id, accept: bool):
         return jsonify({'error': 'Authentication required'}), 401
 
     row = WorkingGroupChair.query.get_or_404(nomination_id)
+
+    # Only the nominated person may answer: the linked account when the
+    # nomination names one, otherwise the account holding the nominee email.
+    if not caller_matches_nomination(row, current_user):
+        return jsonify({'error': RESPONSE_FORBIDDEN_ERROR}), 403
+
     if row.status != NOMINATION_STATUS_PENDING_NOMINEE:
         return jsonify({
             'error': f'Nomination is not pending nominee action (current status: {row.status})'
@@ -579,31 +630,36 @@ def _respond_to_nomination(nomination_id, accept: bool):
         if email_error:
             return jsonify({'error': email_error}), 400
 
-    row.status = (
-        NOMINATION_STATUS_NOMINEE_ACCEPTED if accept else NOMINATION_STATUS_NOMINEE_DECLINED
-    )
-    row.nominee_responded_at = datetime.utcnow()
+    record_nominee_response(row, accept=accept)
     db.session.commit()
 
-    if accept:
-        send_nominee_accepted(row)
-    else:
-        send_nominee_declined(row)
+    # Notifications must never undo a recorded response. In-app notifications
+    # (including the layer admins' review item) are part of this commit; email
+    # failures are logged and reported, not rolled back.
+    email_ok = send_nominee_accepted(row) if accept else send_nominee_declined(row)
     db.session.commit()
+    if not email_ok:
+        current_app.logger.warning(
+            'Response emails incomplete for nomination %s', row.id
+        )
 
-    new_label = status_label(row.status)
-    return jsonify({'ok': True, 'status': row.status, 'status_label': new_label})
+    return jsonify({
+        'ok': True,
+        'status': row.status,
+        'status_label': status_label(row.status),
+        'notifications_sent': email_ok,
+    })
 
 
 @bp.route('/workgroup-nominations/<nomination_id>/accept/', methods=['POST'])
 @require_auth
 def accept_workgroup_nomination(nomination_id):
-    """Nominee (or any signed-in user) accepts a pending nomination."""
+    """The nominee accepts their own pending nomination (willingness only)."""
     return _respond_to_nomination(nomination_id, accept=True)
 
 
 @bp.route('/workgroup-nominations/<nomination_id>/decline/', methods=['POST'])
 @require_auth
 def decline_workgroup_nomination(nomination_id):
-    """Nominee (or any signed-in user) declines a pending nomination."""
+    """The nominee declines their own pending nomination."""
     return _respond_to_nomination(nomination_id, accept=False)

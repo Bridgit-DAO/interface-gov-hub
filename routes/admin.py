@@ -20,17 +20,20 @@ from services.utils import coerce_storage_bool
 from services.workgroup_positions import (
     NOMINATION_STATUS_NOMINEE_ACCEPTED,
     NOMINATION_STATUS_APPROVED,
-    NOMINATION_STATUS_REJECTED,
     position_label,
     status_label,
 )
 from services.workgroup_nomination_mail import send_admin_decision
-from services.dp_welcome import (
-    deliver_dp_welcome,
-    ensure_nomination_membership,
-    nomination_welcome_variant,
-    require_nominee_email,
+from services.workgroup_nomination_flow import (
+    REVIEW_FORBIDDEN_ERROR,
+    administered_layer_ids,
+    approve_nomination,
+    can_review_any_nomination,
+    can_review_nomination,
+    reject_nomination,
 )
+from services.api_auth import get_api_user, require_api_auth
+from services.workgroup_authority import is_site_moderation_staff
 from services.events import emit_event
 from services.dp_badges import dp_contributor_badge_status
 from services.workgroup_links import is_dp_workgroup
@@ -2030,10 +2033,21 @@ def admin_workgroups():
 # ============================================================================
 
 @bp.route('/api/admin/chair-nominations/', methods=['GET'])
-@require_role('admin')
+@require_api_auth
 def api_admin_get_chair_nominations():
-    """Get all chair nominations with full details for admin dashboard"""
+    """Nominations the caller may review.
+
+    Gov Hub staff see every nomination; a layer owner or assigned LayerAdmin
+    sees only nominations for workgroups on the layers they administer, which is
+    exactly the set they are notified about and allowed to act on.
+    """
     from sqlalchemy import text
+
+    current_user = get_api_user()
+    if not can_review_any_nomination(current_user):
+        return jsonify({'error': REVIEW_FORBIDDEN_ERROR}), 403
+    is_staff = is_site_moderation_staff(current_user)
+    visible_layer_ids = set() if is_staff else administered_layer_ids(current_user)
 
     query = text("""
         SELECT
@@ -2057,7 +2071,8 @@ def api_admin_get_chair_nominations():
             u.profileImage as nominee_profile_image,
             nominator.id as nominator_id,
             nominator.username as nominator_username,
-            nominator.displayName as nominator_name
+            nominator.displayName as nominator_name,
+            p.id as layer_id
         FROM working_group_chair wgc
         LEFT JOIN working_group wg ON wgc.group_acronym = wg.acronym
         LEFT JOIN layer p ON wg.layer_id = p.id
@@ -2070,6 +2085,8 @@ def api_admin_get_chair_nominations():
 
     nominations = []
     for row in results:
+        if not is_staff and row[21] not in visible_layer_ids:
+            continue
         nominations.append({
             'id': row[0],
             'chair_name': row[1],
@@ -2099,66 +2116,98 @@ def api_admin_get_chair_nominations():
     return jsonify({'nominations': nominations, 'count': len(nominations)})
 
 
-@bp.route('/api/admin/chair-nominations/<nomination_id>/approve/', methods=['POST'])
-@require_role('admin')
-def api_admin_approve_chair_nomination(nomination_id):
-    """Approve a position nomination (nominee must have accepted first)."""
+def _load_reviewable_nomination(nomination_id):
+    """(nomination, error_response) for the caller's review permissions."""
     nomination = WorkingGroupChair.query.get(nomination_id)
     if not nomination:
-        return jsonify({'error': 'Nomination not found'}), 404
-    if nomination.status != NOMINATION_STATUS_NOMINEE_ACCEPTED:
-        return jsonify({'error': 'Nominee must accept before admin approval'}), 400
+        return None, (jsonify({'error': 'Nomination not found'}), 404)
+    if not can_review_nomination(nomination, get_api_user()):
+        return None, (jsonify({'error': REVIEW_FORBIDDEN_ERROR}), 403)
+    return nomination, None
 
-    email_error = require_nominee_email(nomination)
-    if email_error:
-        return jsonify({'error': email_error}), 400
 
-    nomination.approved = True
-    nomination.status = NOMINATION_STATUS_APPROVED
-    ensure_nomination_membership(nomination)
+@bp.route('/api/admin/chair-nominations/<nomination_id>/approve/', methods=['POST'])
+@require_api_auth
+def api_admin_approve_chair_nomination(nomination_id):
+    """Approve a position nomination (nominee must have accepted first).
 
-    wg = Workgroup.query.filter_by(acronym=nomination.group_acronym).first()
-    welcome_url = None
-    if wg and nomination.user_id and is_dp_workgroup(wg):
-        variant = nomination_welcome_variant(nomination.position_key)
-        welcome_url = deliver_dp_welcome(
-            user_id=nomination.user_id,
-            workgroup=wg,
-            variant=variant,
-            position_key=nomination.position_key,
+    Grants the role, links the nominee's Gov Hub account, creates membership and
+    the welcome notification in one transaction, then emails. Safe to retry: a
+    replay repairs anything a previous partial run left missing.
+    """
+    nomination, error = _load_reviewable_nomination(nomination_id)
+    if error:
+        return error
+
+    result = approve_nomination(nomination, actor=get_api_user())
+    if not result.ok:
+        return jsonify({'error': result.error}), result.status_code
+
+    welcome_url = result.welcome_url
+    # Delivery is reported, never rolled back: the role, membership and welcome
+    # notification are already committed and must not be undone by a mail outage.
+    email_ok = send_admin_decision(nomination, approved=True, welcome_url=welcome_url)
+    db.session.commit()
+    if not email_ok:
+        current_app.logger.warning(
+            'Approval emails incomplete for nomination %s; approve again to retry',
+            nomination_id,
         )
 
-    db.session.commit()
-    send_admin_decision(nomination, approved=True, welcome_url=welcome_url)
-    db.session.commit()
-
-    payload = {'success': True, 'message': 'Nomination approved'}
+    payload = {
+        'success': True,
+        'message': (
+            'Nomination already approved; membership and welcome verified'
+            if result.already_approved
+            else 'Nomination approved'
+        ),
+        'already_approved': result.already_approved,
+        'membership_created': result.membership_created,
+        'notifications_sent': email_ok,
+    }
     if welcome_url:
         payload['welcome_url'] = welcome_url
+    if not email_ok:
+        payload['warning'] = (
+            'The role was granted but the notification email failed. '
+            'Approve again to retry delivery.'
+        )
     return jsonify(payload)
 
 
 @bp.route('/api/admin/chair-nominations/<nomination_id>/reject/', methods=['POST'])
-@require_role('admin')
+@require_api_auth
 def api_admin_reject_chair_nomination(nomination_id):
-    """Reject a position nomination."""
-    nomination = WorkingGroupChair.query.get(nomination_id)
-    if not nomination:
-        return jsonify({'error': 'Nomination not found'}), 404
+    """Reject a position nomination that has not been approved yet."""
+    nomination, error = _load_reviewable_nomination(nomination_id)
+    if error:
+        return error
 
-    nomination.approved = False
-    nomination.status = NOMINATION_STATUS_REJECTED
-    db.session.commit()
-    send_admin_decision(nomination, approved=False)
-    db.session.commit()
+    result = reject_nomination(nomination)
+    if not result.ok:
+        return jsonify({'error': result.error}), result.status_code
 
-    return jsonify({'success': True, 'message': 'Nomination rejected'})
+    email_ok = send_admin_decision(nomination, approved=False)
+    db.session.commit()
+    if not email_ok:
+        current_app.logger.warning(
+            'Rejection emails incomplete for nomination %s', nomination_id
+        )
+
+    return jsonify({
+        'success': True,
+        'message': 'Nomination rejected',
+        'notifications_sent': email_ok,
+    })
 
 
 @bp.route('/admin/chair-nominations/')
-@require_role('admin')
+@require_auth
 def admin_chair_nominations():
-    """Admin dashboard for managing chair nominations"""
+    """Review queue for Gov Hub staff and layer administrators."""
+    if not can_review_any_nomination(get_current_user()):
+        return REVIEW_FORBIDDEN_ERROR, 403
+
     _, generate_user_menu, _, _, _, render_page = _get_imports()
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')

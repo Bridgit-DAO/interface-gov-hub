@@ -63,7 +63,10 @@ def require_api_auth(view: Callable):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not get_api_user():
-            return jsonify({'error': 'Authentication required'}), 401
+            return jsonify({
+                'error': 'Authentication required',
+                'code': 'authentication_required',
+            }), 401
         return view(*args, **kwargs)
 
     return wrapped
