@@ -641,6 +641,9 @@ def create_dp_proposal(
     scope: str = 'dp',
     rationale: Optional[str] = None,
     reference_url: Optional[str] = None,
+    source_channel: str = 'gov-hub',
+    external_id: Optional[str] = None,
+    canopi_overlay_id: Optional[str] = None,
 ) -> DpProposal:
     anchor_hash = compute_anchor_hash(
         submission.id,
@@ -659,11 +662,14 @@ def create_dp_proposal(
         reference_url=reference_url,
         content_hash_at_create=submission.content_hash,
         author_user_id=author_user_id,
-        source_channel='gov-hub',
+        source_channel=source_channel or 'gov-hub',
+        external_id=external_id,
+        canopi_overlay_id=canopi_overlay_id,
     )
     db.session.add(row)
     from services.contribution_pipeline import contribution_registry_id
 
+    db.session.flush()
     row.contribution_registry_id = contribution_registry_id(row.source_channel, row.id)
     return row
 

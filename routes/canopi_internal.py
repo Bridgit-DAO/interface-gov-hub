@@ -128,6 +128,31 @@ def layer_admin_check():
     })
 
 
+@bp.route('/api/internal/canopi/contributions', methods=['POST'])
+def canopi_contribution_intake():
+    """
+    Ingest Canopi smart-tag patch or comment into Gov Hub + scout queue.
+
+    Auth: GOV_HUB_API_KEY via Authorization: Bearer.
+
+    Body:
+      kind: patch | comment
+      draft_ref: ML number or draft slug
+      external_id: Canopi message UUID (idempotent key)
+      author_email | author_user_id
+      canopi_overlay_id: optional
+      payload: patch or comment fields
+    """
+    if not _canopi_internal_allowed():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    from services.canopi_contributions import intake_canopi_contribution
+
+    body = request.get_json(silent=True) or {}
+    resp, status = intake_canopi_contribution(body)
+    return jsonify(resp), status
+
+
 @bp.route('/api/internal/contribution-pipeline/pending', methods=['GET'])
 def contribution_pipeline_pending():
     """Unprocessed scout queue rows. Auth: GOV_HUB_API_KEY."""
