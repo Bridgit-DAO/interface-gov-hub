@@ -17,6 +17,7 @@ from services.dp_proposals import (
 from services.proposal_modes import is_mode_enabled, mode_labels, proposal_mode_for_submission
 from services.read_navigation import read_page_url
 from services.submissions import get_submission_by_ref
+from services.text_diff import build_diff_html, change_counts
 
 
 def _draft_dict_from_submission(submission: Submission, draft_name: str) -> dict:
@@ -93,6 +94,34 @@ def _patch_reader_href(draft_ref: str, patch_id: str, *, return_to: str) -> str:
     return base + sep + urlencode({'patch': patch_id})
 
 
+def _render_diff_block(patch: DpProposal, labels: Dict[str, str]) -> str:
+    """Inline red/green diff, matching the reader's patch modal."""
+    original = patch.original_text or ''
+    proposed = patch.proposed_text or ''
+    label = html_mod.escape(labels.get('proposed_label', 'Patched text'))
+
+    if not original:
+        body = html_mod.escape(proposed)
+        legend = ''
+    else:
+        body = build_diff_html(original, proposed)
+        added, removed = change_counts(original, proposed)
+        legend = (
+            '<div class="gh-patch-diff-legend small text-muted mt-1">'
+            f'<span class="gh-patch-diff-added">+{added}</span>'
+            f'<span class="gh-patch-diff-removed ms-2">&minus;{removed}</span>'
+            '</div>'
+        )
+
+    return (
+        '<div class="gh-patch-diff">'
+        f'<div class="small text-muted mb-1">{label}</div>'
+        f'<pre class="dp-proposal-pre gh-patch-pre mb-0">{body}</pre>'
+        f'{legend}'
+        '</div>'
+    )
+
+
 def render_patch_card(
     patch: DpProposal,
     *,
@@ -108,6 +137,7 @@ def render_patch_card(
     badge_cls = _status_badge_class(status)
     created = patch.created_at.strftime('%b %d, %Y') if patch.created_at else ''
     reader_href = html_mod.escape(_patch_reader_href(draft_ref, patch.id, return_to=return_to))
+    diff_block = _render_diff_block(patch, labels)
 
     rationale_block = ''
     if patch.rationale:
@@ -152,10 +182,7 @@ def render_patch_card(
           <small class="text-muted text-nowrap">{html_mod.escape(created)}</small>
         </div>
         <p class="small mb-2"><strong>{author}</strong></p>
-        <div class="gh-patch-diff">
-          <div class="small text-muted mb-1">{html_mod.escape(labels.get("proposed_label", "Patched text"))}</div>
-          <pre class="dp-proposal-pre gh-patch-pre mb-0">{html_mod.escape(patch.proposed_text or "")}</pre>
-        </div>
+        {diff_block}
         {rationale_block}
         {reference_block}
         <div class="mt-3">

@@ -2343,7 +2343,7 @@ def draft_patches(draft_name):
         propose_cta = (
             f'<a href="{html_mod.escape(read_page_url(draft_name, patches_path))}" '
             'class="btn btn-primary w-100 mb-2">'
-            '<i class="fas fa-highlighter me-1"></i>Select a passage to patch</a>'
+            '<i class="fas fa-book-open me-1"></i>Open Reader</a>'
         )
     else:
         patches_html = '''
@@ -2353,7 +2353,7 @@ def draft_patches(draft_name):
         propose_cta = ''
 
     content = f"""
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260604patchpage">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260731patchdiff">
     <div class="gh-page container mt-4 gh-patches-page">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Patches', None)])}
         {gh_page_header(f'Patches – {display_id}', draft['title'], 'fa-code-branch')}

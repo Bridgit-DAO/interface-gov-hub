@@ -9,7 +9,7 @@ WORKGROUP_POSITIONS = {
     },
     'co_lead': {
         'label': 'Co-lead',
-        'description': 'Shares recruitment, member approvals, and contributor coordination with the lead.',
+        'description': 'Shares recruitment, member approvals, and contributor coordination with the coordinator.',
         'icon': 'fa-user-friends',
     },
     'editor': {

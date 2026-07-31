@@ -552,12 +552,15 @@ mark.dp-proposal-mark.dp-proposal-mark-hidden {
 .dp-diff-del {
   text-decoration: line-through;
   text-decoration-color: rgba(255, 120, 120, 0.95);
+  background: rgba(255, 120, 120, 0.16);
   color: var(--text-secondary);
   opacity: 0.95;
+  padding: 0 1px;
+  border-radius: 2px;
 }
 
 mark.dp-diff-ins {
-  background: rgba(255, 235, 59, 0.45);
+  background: rgba(70, 220, 130, 0.28);
   color: inherit;
   padding: 0 1px;
   border-radius: 2px;
@@ -590,4 +593,16 @@ mark.dp-diff-ins {
 
 .gh-patches-page .gh-patch-item .card-body {
   padding: 1rem 1.1rem;
+}
+
+.gh-patches-page .gh-patch-diff-legend {
+  font-variant-numeric: tabular-nums;
+}
+
+.gh-patches-page .gh-patch-diff-added {
+  color: rgba(70, 220, 130, 0.95);
+}
+
+.gh-patches-page .gh-patch-diff-removed {
+  color: rgba(255, 120, 120, 0.95);
 }

@@ -799,6 +799,16 @@
   animation: gh-pulse-blink 2s ease-in-out infinite;
 }
 
+a.living-layer-pulse-chip {
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+a.living-layer-pulse-chip:hover {
+  border-color: var(--gh-accent, #6ea8fe);
+  color: var(--text-primary);
+}
+
 @keyframes gh-pulse-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -1227,8 +1237,20 @@
 
 .gh-detail-hero-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: var(--gh-space-sm);
+  /* Buttons here are `w-100`; without a cap they stretch across the hero. */
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 200px;
+  margin-left: auto;
+}
+
+@media (max-width: 575.98px) {
+  .gh-detail-hero-actions {
+    max-width: none;
+    margin-left: 0;
+  }
 }
 
 .gh-detail-layout {
@@ -1774,6 +1796,35 @@ img.gh-entity-thumb {
   font-size: 0.75rem;
   white-space: nowrap;
   color: var(--text-secondary);
+}
+
+/* People page → "By workgroup" view: one card per workgroup with its roster. */
+.gh-wg-roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--gh-space-md);
+  align-items: start;
+}
+
+.gh-wg-roster-card {
+  margin-bottom: 0;
+}
+
+.gh-wg-roster-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gh-wg-roster-person {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0;
+  font-size: 0.9rem;
+}
+
+.gh-wg-roster-person + .gh-wg-roster-person {
+  border-top: 1px solid var(--card-border);
 }
 
 .gh-detail-breadcrumb {

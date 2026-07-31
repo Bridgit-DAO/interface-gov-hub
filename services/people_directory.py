@@ -101,14 +101,21 @@ def build_people_lookup_tables() -> dict[str, Any]:
     layers_by_id = {layer.id: layer for layer in Layer.query.all()}
 
     chairs_by_user: dict[str, list[str]] = {}
+    # acronym -> user_id -> position keys, for the by-workgroup roster.
+    positions_by_acronym: dict[str, dict[str, list[str]]] = {}
     for row in WorkingGroupChair.query.all():
         if row and row.user_id and row.group_acronym:
             chairs_by_user.setdefault(row.user_id, []).append(row.group_acronym)
+            positions_by_acronym.setdefault(row.group_acronym, {}).setdefault(
+                row.user_id, []
+            ).append(row.position_key or 'chair')
 
     members_by_user: dict[str, list[str]] = {}
+    member_ids_by_acronym: dict[str, list[str]] = {}
     for row in WorkingGroupMember.query.all():
         if row and row.user_id and row.group_acronym:
             members_by_user.setdefault(row.user_id, []).append(row.group_acronym)
+            member_ids_by_acronym.setdefault(row.group_acronym, []).append(row.user_id)
 
     layer_admin_ids_by_user: dict[str, set[str]] = {}
     for row in LayerAdmin.query.all():
@@ -128,6 +135,8 @@ def build_people_lookup_tables() -> dict[str, Any]:
         'layers_by_id': layers_by_id,
         'chairs_by_user': chairs_by_user,
         'members_by_user': members_by_user,
+        'positions_by_acronym': positions_by_acronym,
+        'member_ids_by_acronym': member_ids_by_acronym,
         'layer_admin_ids_by_user': layer_admin_ids_by_user,
         'layer_members_by_user': layer_members_by_user,
         'initiator_layers_by_user': initiator_layers_by_user,
@@ -365,6 +374,90 @@ def build_person_row(
         'sort_workgroup': primary_wg_sort,
         'sort_role': site_role_label(user.role),
     }
+
+
+def _roster_person_html(user: User, position_keys: list[str]) -> str:
+    """One person inside a workgroup roster, with their position pills."""
+    from services.avatar import get_avatar_url
+    from services.workgroup_positions import position_label
+
+    display = user.name or user.displayName or user.oauthName or user.username
+    avatar_src = get_avatar_url(user, 28)
+    pills = ''.join(
+        f'<span class="badge bg-primary gh-pill-truncate ms-2">'
+        f'{html_mod.escape(position_label(key))}</span>'
+        for key in sorted(set(position_keys))
+    )
+    if not pills:
+        pills = '<span class="badge bg-secondary gh-pill-truncate ms-2">Member</span>'
+    return (
+        '<li class="gh-wg-roster-person">'
+        f'<img src="{html_mod.escape(avatar_src)}" alt="" class="rounded-circle" '
+        'style="width:28px;height:28px;object-fit:cover" '
+        'onerror="this.onerror=null;this.src=\'/static/images/default-avatar.png\'">'
+        f'<a href="/profile/{html_mod.escape(user.username)}/" class="text-decoration-none ms-2">'
+        f'{html_mod.escape(display)}</a>'
+        f'{pills}</li>'
+    )
+
+
+def build_workgroup_rosters_html(users: list[User], lookup: dict[str, Any]) -> str:
+    """Cards listing every workgroup and the people assigned to it."""
+    users_by_id = {u.id: u for u in users}
+    wg_by = lookup['wg_by_acronym']
+    positions_by_acronym = lookup['positions_by_acronym']
+    member_ids_by_acronym = lookup['member_ids_by_acronym']
+
+    acronyms = sorted(
+        set(positions_by_acronym) | set(member_ids_by_acronym) | set(wg_by),
+        key=lambda ac: workgroup_label_for_acronym(ac, wg_by).lower(),
+    )
+
+    cards = []
+    for acronym in acronyms:
+        positions = positions_by_acronym.get(acronym, {})
+        member_ids = member_ids_by_acronym.get(acronym, [])
+
+        # Position holders first, then plain members; nobody listed twice.
+        ordered_ids = list(positions.keys())
+        ordered_ids += [uid for uid in dict.fromkeys(member_ids) if uid not in positions]
+
+        people_html = ''.join(
+            _roster_person_html(users_by_id[uid], positions.get(uid, []))
+            for uid in ordered_ids
+            if uid in users_by_id
+        )
+        count = sum(1 for uid in ordered_ids if uid in users_by_id)
+
+        label = workgroup_label_for_acronym(acronym, wg_by)
+        wg = wg_by.get(acronym)
+        href = _workgroup_href(wg, acronym)
+        title_html = (
+            f'<a href="{href}" class="text-decoration-none">{html_mod.escape(label)}</a>'
+            if href != '#'
+            else html_mod.escape(label)
+        )
+        body = (
+            f'<ul class="gh-wg-roster-list">{people_html}</ul>'
+            if people_html
+            else '<p class="text-muted small mb-0">No one assigned yet.</p>'
+        )
+        cards.append(
+            '<div class="living-module gh-wg-roster-card" '
+            f'data-search="{html_mod.escape((label + " " + acronym).lower())}" '
+            f'data-acronym="{html_mod.escape(acronym)}" '
+            f'data-people="{count}">'
+            '<div class="living-module-header">'
+            f'<h5 class="living-module-title">{title_html}</h5>'
+            f'<span class="badge bg-secondary ms-auto">{count}</span>'
+            '</div>'
+            f'<div class="living-module-body">{body}</div>'
+            '</div>'
+        )
+
+    if not cards:
+        return '<p class="text-muted">No workgroups yet.</p>'
+    return f'<div class="gh-wg-roster-grid">{"".join(cards)}</div>'
 
 
 def workgroup_filter_options(lookup: dict[str, Any]) -> list[tuple[str, str]]:

@@ -554,16 +554,20 @@ def normalize_document_draft_ref(ref: Optional[str]) -> Optional[str]:
 
 
 def enrich_workgroup_dict(data: dict, workgroup) -> dict:
-    """Add document_href, document_label, and effective document ref to workgroup dict."""
+    """Add document_href, reader_href, document_label, and effective document ref."""
+    from services.read_navigation import read_page_url
+
     ref = effective_document_draft_ref(workgroup)
     data['document_draft_name'] = workgroup.document_draft_name
     data['document_draft_ref'] = ref
     data['document_href'] = None
+    data['reader_href'] = None
     data['document_label'] = None
     if ref:
         submission = resolve_document_draft(ref)
         if submission:
             data['document_href'] = f'/doc/draft/{submission.id}/'
+            data['reader_href'] = read_page_url(submission.id)
             data['document_label'] = format_draft_display_name(submission)
     return data
 

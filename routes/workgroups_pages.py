@@ -604,6 +604,7 @@ def workgroup_detail(workgroup_slug):
                             <label for="nomination-position" class="form-label">Position <span class="text-danger">*</span></label>
                             <select id="nomination-position" class="form-select" required></select>
                             <div class="form-text" id="nomination-position-desc"></div>
+                            <div class="alert alert-info py-2 mt-2 mb-0" id="nomination-position-notice" style="display:none;"></div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label d-block">Who are you nominating?</label>
@@ -652,7 +653,7 @@ def workgroup_detail(workgroup_slug):
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-success" onclick="submitChairNomination()">
+                    <button type="button" class="btn btn-success" id="nomination-submit-btn" onclick="submitChairNomination()">
                         <i class="fas fa-paper-plane me-2"></i>Submit Nomination
                     </button>
                 </div>
@@ -670,6 +671,10 @@ def workgroup_detail(workgroup_slug):
     let selectedNomineeUserId = null;
     let nominationSearchResults = [];
     let workgroupPositions = [];
+    // Membership the signed-in user already has here, so we never offer them
+    // something they already hold (join, or a nomination for their own position).
+    let isCurrentUserMember = false;
+    let currentUserPositionKeys = [];
     // Read ?action= once so we can auto-open the nominate / join modal
     // after the page finishes loading. Stripped after firing so a refresh
     // doesn't re-trigger the modal.
@@ -690,6 +695,9 @@ def workgroup_detail(workgroup_slug):
         if (autoAction === 'nominate') {{
             nominateForChair();
         }} else if (autoAction === 'join') {{
+            // Arriving with ?action=join when already in the workgroup should be
+            // a no-op rather than a "Join workgroup?" prompt.
+            if (isCurrentUserMember) return;
             joinWorkgroup();
         }}
     }}
@@ -701,14 +709,35 @@ def workgroup_detail(workgroup_slug):
             workgroupPositions = data.positions || [];
             const sel = document.getElementById('nomination-position');
             if (!sel) return;
-            sel.innerHTML = workgroupPositions.map(function(p) {{
-                return '<option value="' + p.key + '">' + p.label + '</option>';
-            }}).join('');
+            renderPositionOptions([]);
             sel.addEventListener('change', updatePositionDescription);
-            updatePositionDescription();
         }} catch (e) {{
             console.warn('Could not load positions', e);
         }}
+    }}
+
+    /** Rebuild the position dropdown, leaving out anything in `excludeKeys`. */
+    function renderPositionOptions(excludeKeys) {{
+        const sel = document.getElementById('nomination-position');
+        if (!sel) return;
+        const skip = excludeKeys || [];
+        const available = workgroupPositions.filter(p => skip.indexOf(p.key) === -1);
+        sel.innerHTML = available.map(function(p) {{
+            return '<option value="' + p.key + '">' + p.label + '</option>';
+        }}).join('');
+
+        const noneLeft = workgroupPositions.length > 0 && available.length === 0;
+        sel.disabled = noneLeft;
+        const submitBtn = document.getElementById('nomination-submit-btn');
+        if (submitBtn) submitBtn.disabled = noneLeft;
+        const noticeEl = document.getElementById('nomination-position-notice');
+        if (noticeEl) {{
+            noticeEl.textContent = noneLeft
+                ? 'You already hold every position in this workgroup. Choose "Someone else" to nominate another person.'
+                : '';
+            noticeEl.style.display = noneLeft ? 'block' : 'none';
+        }}
+        updatePositionDescription();
     }}
 
     function updatePositionDescription() {{
@@ -779,9 +808,10 @@ def workgroup_detail(workgroup_slug):
             displayWorkgroupAbout();
             displayWorkgroupCharter();
             displayWorkgroupDetails();
-            loadChairs();
-            loadMembers();
             loadAssignedDocuments();
+            // Awaited: maybeAutoOpenAction() below needs to know whether the
+            // signed-in user is already a member before offering to join.
+            await Promise.all([loadChairs(), loadMembers()]);
 
             // Auto-open the nominate / join modal when the user arrived here
             // via a "?action=nominate" or "?action=join" link (e.g. from the
@@ -805,8 +835,9 @@ def workgroup_detail(workgroup_slug):
         const approvalBadge = getApprovalBadge(workgroup.approval_status);
         const projectSlug = project ? project.slug : '';
         const projectName = project ? project.name : (workgroup.layer_name || 'Layer');
-        const linkBtns = (workgroup.external_url ? '<a href="' + workgroup.external_url + '" class="btn btn-outline-primary btn-sm w-100 mb-2" target="_blank" rel="noopener noreferrer"><i class="fas fa-external-link-alt me-2"></i>Website</a>' : '') +
-            (workgroup.document_href ? '<a href="' + workgroup.document_href + '" class="btn btn-outline-primary btn-sm w-100 mb-2"><i class="fas fa-file-alt me-2"></i>Document</a>' : '');
+        // Workgroups link to the draft's reader rather than an external website.
+        const linkBtns = (workgroup.reader_href ? '<a href="' + workgroup.reader_href + '" class="btn btn-outline-primary btn-sm w-100"><i class="fas fa-book-open me-2"></i>Reader</a>' : '') +
+            (workgroup.document_href ? '<a href="' + workgroup.document_href + '" class="btn btn-outline-primary btn-sm w-100"><i class="fas fa-file-alt me-2"></i>Document</a>' : '');
         const bc = '<nav aria-label="breadcrumb" class="gh-detail-breadcrumb"><ol class="breadcrumb">' +
             '<li class="breadcrumb-item"><a href="/layers/">Layers</a></li>' +
             (projectSlug ? '<li class="breadcrumb-item"><a href="/layers/' + projectSlug + '/">' + projectName + '</a></li>' : '<li class="breadcrumb-item">' + projectName + '</li>') +
@@ -815,8 +846,8 @@ def workgroup_detail(workgroup_slug):
             ? '<div class="gh-detail-hero-media"><img src="' + workgroup.image_url + '" alt=""></div>'
             : '<div class="gh-detail-hero-media"><i class="fas fa-users-cog fa-2x text-muted opacity-50"></i></div>';
         const backBtn = projectSlug
-            ? '<a href="/layers/' + projectSlug + '/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-2"></i>Back</a>'
-            : '<a href="/workgroups/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-2"></i>Back</a>';
+            ? '<a href="/layers/' + projectSlug + '/" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>Back</a>'
+            : '<a href="/workgroups/" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>Back</a>';
         document.getElementById('workgroup-header').innerHTML =
             '<div class="gh-detail-hero-inner">' +
                 mediaHtml +
@@ -827,7 +858,7 @@ def workgroup_detail(workgroup_slug):
                 '</div>' +
                 '<div class="gh-detail-hero-actions">' +
                     linkBtns +
-                    (workgroup.can_edit ? '<button type="button" class="btn btn-secondary btn-sm w-100 mb-2" onclick="editWorkgroup()"><i class="fas fa-edit me-2"></i>Edit</button>' : '') +
+                    (workgroup.can_edit ? '<button type="button" class="btn btn-secondary btn-sm w-100" onclick="editWorkgroup()"><i class="fas fa-edit me-2"></i>Edit</button>' : '') +
                     backBtn +
                 '</div>' +
             '</div>';
@@ -990,6 +1021,19 @@ def workgroup_detail(workgroup_slug):
             // Load chairs from working_group_chair table using acronym
             const response = await fetch(`/api/workgroups/${{workgroup.id}}/chairs/?_=${{Date.now()}}`);
             const data = await response.json();
+            const chairs = data.chairs || [];
+
+            // Positions the signed-in user already holds or is under review for.
+            currentUserPositionKeys = (currentUserId
+                ? chairs.filter(c => c.user_id === currentUserId)
+                : []
+            ).map(c => c.position_key || 'chair');
+
+            // Holding a position counts as being in the workgroup even when the
+            // user never pressed "Join" (e.g. an admin-approved co-lead).
+            if (currentUserPositionKeys.length > 0) {{
+                isCurrentUserMember = true;
+            }}
 
             // Show nominate button on approved workgroups (auth checked on click)
             const nominateBtn = document.getElementById('nominate-btn');
@@ -998,9 +1042,9 @@ def workgroup_detail(workgroup_slug):
             }}
 
             let html = '';
-            if (data.chairs && data.chairs.length > 0) {{
+            if (chairs.length > 0) {{
                 html = '<div class="list-group">';
-                data.chairs.forEach(chair => {{
+                chairs.forEach(chair => {{
                     const statusBadge = chair.approved
                         ? '<span class="badge bg-success ms-2">Approved</span>'
                         : '<span class="badge bg-warning text-dark ms-2">' + (chair.status_label || 'Pending') + '</span>';
@@ -1035,10 +1079,11 @@ def workgroup_detail(workgroup_slug):
             const response = await fetch(`/api/workgroups/${{workgroup.id}}/members/?_=${{Date.now()}}`);
             const data = await response.json();
 
-            // Check if current user is already a member
-            let isCurrentUserMember = false;
+            // Check if current user is already a member. Do not clear a true set
+            // by loadChairs(): holding a position also makes you part of the group.
             if (isAuthenticated && currentUserId && data.members) {{
-                isCurrentUserMember = data.members.some(m => m.user_id === currentUserId);
+                isCurrentUserMember = isCurrentUserMember
+                    || data.members.some(m => m.user_id === currentUserId);
             }}
 
             const joinBtn = document.getElementById('join-btn');
@@ -1152,6 +1197,15 @@ def workgroup_detail(workgroup_slug):
             return;
         }}
 
+        if (isCurrentUserMember) {{
+            await GhDialog.alert({{
+                title: 'Already a member',
+                message: 'You are already part of this workgroup.',
+                variant: 'info',
+            }});
+            return;
+        }}
+
         const confirmed = await GhDialog.confirm({{
             title: 'Join workgroup',
             message: 'Join this workgroup as a member?',
@@ -1187,6 +1241,7 @@ def workgroup_detail(workgroup_slug):
 
     function setNominationTarget(target) {{
         const isSelf = target === 'self';
+        renderPositionOptions(isSelf ? currentUserPositionKeys : []);
         document.getElementById('nomination-other-search-wrap').style.display = isSelf ? 'none' : 'block';
         document.getElementById('nomination-name').readOnly = isSelf;
         document.getElementById('nomination-email').readOnly = isSelf;
@@ -1333,6 +1388,16 @@ def workgroup_detail(workgroup_slug):
         if (target === 'self') {{
             if (!currentUserProfile?.id) {{
                 await GhDialog.alert({{ title: 'Not signed in', message: 'Please sign in to nominate yourself.', variant: 'warning' }});
+                return;
+            }}
+            if (currentUserPositionKeys.indexOf(payload.position_key) !== -1) {{
+                const held = workgroupPositions.find(p => p.key === payload.position_key);
+                await GhDialog.alert({{
+                    title: 'Already nominated',
+                    message: 'You already hold or have an active nomination for '
+                        + (held ? held.label : 'this position') + ' in this workgroup.',
+                    variant: 'info',
+                }});
                 return;
             }}
             const selfEmail = (currentUserProfile.email || '').trim().toLowerCase();

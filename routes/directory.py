@@ -17,6 +17,7 @@ from services.directory_ui import (
 from services.people_directory import (
     build_people_lookup_tables,
     build_person_row,
+    build_workgroup_rosters_html,
     workgroup_filter_options,
 )
 from services.page_heroes import render_page_hero_html
@@ -70,15 +71,31 @@ def people():
         f'<option value="{v}"{" selected" if v == "last-active" else ""}>{label}</option>'
         for v, label in sort_options
     )
+    workgroup_select = (
+        '<select id="people-workgroup" class="form-select">'
+        '<option value="">All people</option>'
+        '<option value="__any__">Only people in a workgroup</option>'
+        f'{wg_options}</select>'
+    )
+    view_toggle = (
+        '<div class="btn-group" role="group" aria-label="People view">'
+        '<input type="radio" class="btn-check" name="people-view" id="people-view-people" value="people" checked>'
+        '<label class="btn btn-outline-primary btn-sm" for="people-view-people">By person</label>'
+        '<input type="radio" class="btn-check" name="people-view" id="people-view-workgroups" value="workgroups">'
+        '<label class="btn btn-outline-primary btn-sm" for="people-view-workgroups">By workgroup</label>'
+        '</div>'
+    )
+    rosters_html = build_workgroup_rosters_html(users, lookup)
+
     content = f"""
     {gh_page_open()}
-    {gh_page_header('People', 'Discover who is active – roles, layers, workgroups, and contributions.', 'fa-user-friends')}
+    {gh_page_header('People', 'Discover who is active – roles, layers, workgroups, and contributions.', 'fa-user-friends', actions_html=view_toggle)}
     {gh_filter_row(
         gh_filter_col('Search', '<input type="search" id="people-search" class="form-control" placeholder="Name or username…" autocomplete="off">', 'col-md-5')
-        + gh_filter_col('Workgroup', f'<select id="people-workgroup" class="form-select"><option value="">All workgroups</option>{wg_options}</select>', 'col-md-4')
+        + gh_filter_col('Workgroup', workgroup_select, 'col-md-4')
         + gh_filter_col('Sort', f'<select id="people-sort" class="form-select">{sort_opts_html}</select>', 'col-md-3')
     )}
-    <div class="gh-people-table-wrap">
+    <div class="gh-people-table-wrap" id="people-view-by-person">
         <table class="table table-hover mb-0" id="people-table">
             <thead>
                 <tr>
@@ -94,6 +111,7 @@ def people():
             <tbody>{table_rows}</tbody>
         </table>
     </div>
+    <div id="people-view-by-workgroup" style="display:none;">{rosters_html}</div>
     {gh_page_close()}
     <script>
     (function() {{
@@ -101,6 +119,9 @@ def people():
         var workgroupEl = document.getElementById('people-workgroup');
         var sortEl = document.getElementById('people-sort');
         var tbody = document.querySelector('#people-table tbody');
+        var byPersonEl = document.getElementById('people-view-by-person');
+        var byWorkgroupEl = document.getElementById('people-view-by-workgroup');
+        var sortWrap = sortEl ? sortEl.closest('.col-md-3') : null;
         function compareRows(a, b, sort) {{
             if (sort === 'name-asc') {{
                 return (a.getAttribute('data-name') || '').localeCompare(b.getAttribute('data-name') || '', undefined, {{ numeric: true, sensitivity: 'base' }});
@@ -122,18 +143,22 @@ def people():
             }}
             return (parseInt(b.getAttribute('data-last-active'), 10) || 0) - (parseInt(a.getAttribute('data-last-active'), 10) || 0);
         }}
-        function applyPeopleView() {{
+        function currentView() {{
+            var checked = document.querySelector('input[name="people-view"]:checked');
+            return checked ? checked.value : 'people';
+        }}
+        function applyPersonView(q, group, sort) {{
             if (!tbody) return;
-            var q = (searchEl && searchEl.value) ? searchEl.value.toLowerCase().trim() : '';
-            var group = (workgroupEl && workgroupEl.value) ? workgroupEl.value.trim() : '';
-            var sort = (sortEl && sortEl.value) ? sortEl.value : 'last-active';
             var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-search]'));
             rows.forEach(function(tr) {{
                 var show = true;
                 if (q && (tr.getAttribute('data-search') || '').indexOf(q) === -1) show = false;
                 if (group) {{
                     var groups = (tr.getAttribute('data-groups') || '').split(/\\s+/).filter(Boolean);
-                    if (groups.indexOf(group) === -1) show = false;
+                    // '__any__' keeps everyone who belongs to at least one workgroup.
+                    if (group === '__any__' ? groups.length === 0 : groups.indexOf(group) === -1) {{
+                        show = false;
+                    }}
                 }}
                 tr.style.display = show ? '' : 'none';
             }});
@@ -141,9 +166,38 @@ def people():
             visible.sort(function(a, b) {{ return compareRows(a, b, sort); }});
             visible.forEach(function(tr) {{ tbody.appendChild(tr); }});
         }}
+        function applyWorkgroupView(q, group) {{
+            if (!byWorkgroupEl) return;
+            var cards = Array.prototype.slice.call(byWorkgroupEl.querySelectorAll('.gh-wg-roster-card'));
+            cards.forEach(function(card) {{
+                var show = true;
+                if (q && (card.getAttribute('data-search') || '').indexOf(q) === -1) show = false;
+                if (group === '__any__') {{
+                    if ((parseInt(card.getAttribute('data-people'), 10) || 0) === 0) show = false;
+                }} else if (group && card.getAttribute('data-acronym') !== group) {{
+                    show = false;
+                }}
+                card.style.display = show ? '' : 'none';
+            }});
+        }}
+        function applyPeopleView() {{
+            var q = (searchEl && searchEl.value) ? searchEl.value.toLowerCase().trim() : '';
+            var group = (workgroupEl && workgroupEl.value) ? workgroupEl.value.trim() : '';
+            var sort = (sortEl && sortEl.value) ? sortEl.value : 'last-active';
+            var view = currentView();
+            if (byPersonEl) byPersonEl.style.display = view === 'people' ? '' : 'none';
+            if (byWorkgroupEl) byWorkgroupEl.style.display = view === 'workgroups' ? '' : 'none';
+            // Sorting only applies to the person table.
+            if (sortWrap) sortWrap.style.display = view === 'people' ? '' : 'none';
+            if (view === 'people') applyPersonView(q, group, sort);
+            else applyWorkgroupView(q, group);
+        }}
         if (searchEl) searchEl.addEventListener('input', applyPeopleView);
         if (workgroupEl) workgroupEl.addEventListener('change', applyPeopleView);
         if (sortEl) sortEl.addEventListener('change', applyPeopleView);
+        document.querySelectorAll('input[name="people-view"]').forEach(function(radio) {{
+            radio.addEventListener('change', applyPeopleView);
+        }});
         applyPeopleView();
     }})();
     </script>
