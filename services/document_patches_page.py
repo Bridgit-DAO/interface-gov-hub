@@ -229,7 +229,7 @@ def render_patches_list_html(
         </div>'''
 
     wg = workgroup_for_submission(submission)
-    can_merge = bool(current_user and can_accept_amendments(current_user))
+    can_merge = bool(current_user and can_accept_amendments(current_user, wg))
     can_decline = bool(current_user and can_manage_amendments(current_user, wg))
     return_to = f'/doc/draft/{quote(draft_ref, safe="")}/patches/'
     groups = _group_patches_by_passage(rows)

@@ -1788,6 +1788,81 @@ def migrate_dp_proposal_rationale_reference(app):
         print(f'⚠️  Error in migrate_dp_proposal_rationale_reference: {e}')
 
 
+def migrate_contribution_registry_v1(app):
+    """Contribution learning loop: federation columns, registry ids, scout queue."""
+    try:
+        import sqlite3
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('PRAGMA table_info(dp_proposal)')
+        proposal_cols = {row[1] for row in cursor.fetchall()}
+        for col, ddl in (
+            ('source_channel', "ALTER TABLE dp_proposal ADD COLUMN source_channel VARCHAR(20) NOT NULL DEFAULT 'gov-hub'"),
+            ('external_id', 'ALTER TABLE dp_proposal ADD COLUMN external_id VARCHAR(36)'),
+            ('canopi_overlay_id', 'ALTER TABLE dp_proposal ADD COLUMN canopi_overlay_id VARCHAR(36)'),
+            ('contribution_registry_id', 'ALTER TABLE dp_proposal ADD COLUMN contribution_registry_id VARCHAR(80)'),
+        ):
+            if col not in proposal_cols:
+                cursor.execute(ddl)
+
+        cursor.execute('PRAGMA table_info(comment)')
+        comment_cols = {row[1] for row in cursor.fetchall()}
+        for col, ddl in (
+            ('source_channel', "ALTER TABLE comment ADD COLUMN source_channel VARCHAR(20) NOT NULL DEFAULT 'gov-hub'"),
+            ('external_id', 'ALTER TABLE comment ADD COLUMN external_id VARCHAR(36)'),
+            ('canopi_overlay_id', 'ALTER TABLE comment ADD COLUMN canopi_overlay_id VARCHAR(36)'),
+            ('contribution_registry_id', 'ALTER TABLE comment ADD COLUMN contribution_registry_id VARCHAR(80)'),
+        ):
+            if col not in comment_cols:
+                cursor.execute(ddl)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS contribution_pipeline_queue (
+                id VARCHAR(36) PRIMARY KEY,
+                subject_type VARCHAR(40) NOT NULL,
+                subject_id VARCHAR(36) NOT NULL,
+                event_type VARCHAR(60) NOT NULL,
+                source_channel VARCHAR(20) NOT NULL DEFAULT 'gov-hub',
+                payload_json TEXT,
+                processed_at DATETIME,
+                created_at DATETIME NOT NULL
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_unprocessed '
+            'ON contribution_pipeline_queue(processed_at, created_at)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_subject '
+            'ON contribution_pipeline_queue(subject_type, subject_id)'
+        )
+
+        cursor.execute("""
+            UPDATE dp_proposal
+            SET source_channel = 'gov-hub'
+            WHERE source_channel IS NULL OR source_channel = ''
+        """)
+        cursor.execute("""
+            UPDATE dp_proposal
+            SET contribution_registry_id = 'dp-contrib:gov-hub:' || id
+            WHERE contribution_registry_id IS NULL OR contribution_registry_id = ''
+        """)
+        cursor.execute("""
+            UPDATE comment
+            SET source_channel = 'gov-hub'
+            WHERE source_channel IS NULL OR source_channel = ''
+        """)
+
+        conn.commit()
+        conn.close()
+        print('✅ contribution registry columns + pipeline queue ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_contribution_registry_v1: {e}')
+
+
 def migrate_platform_invitations(app):
     """Create platform_invitation table; extend workgroup_member_request for invites."""
     try:

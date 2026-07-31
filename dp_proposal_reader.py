@@ -144,7 +144,7 @@ def build_read_meta(
     current_user = get_current_user()
     wg = workgroup_for_submission(submission)
     can_manage = bool(current_user and can_manage_amendments(current_user, wg))
-    can_accept = bool(current_user and can_accept_amendments(current_user))
+    can_accept = bool(current_user and can_accept_amendments(current_user, wg))
     mode = proposal_mode_for_submission(submission)
     labels = mode_labels(mode)
     enabled = is_mode_enabled(mode)

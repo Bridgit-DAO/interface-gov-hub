@@ -51,6 +51,7 @@ def init_db(app):
             migrate_meta_layer_governance_metaweb_link,
             migrate_dp_proposals,
             migrate_dp_proposal_rationale_reference,
+            migrate_contribution_registry_v1,
             migrate_platform_invitations,
             migrate_user_bitcoin_wallet_v1,
             migrate_layer_nft_gate_v1,
@@ -126,6 +127,7 @@ def init_db(app):
         migrate_meta_layer_governance_metaweb_link(app)
         migrate_dp_proposals(app)
         migrate_dp_proposal_rationale_reference(app)
+        migrate_contribution_registry_v1(app)
         migrate_platform_invitations(app)
         migrate_user_bitcoin_wallet_v1(app)
         migrate_layer_nft_gate_v1(app)

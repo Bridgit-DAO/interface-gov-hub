@@ -35,6 +35,10 @@ class DpProposal(db.Model):
     reviewed_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     incorporated_submission_id = db.Column(db.String(36), db.ForeignKey('submission.id'), nullable=True)
+    source_channel = db.Column(db.String(20), default='gov-hub', nullable=False, index=True)
+    external_id = db.Column(db.String(36), nullable=True, index=True)
+    canopi_overlay_id = db.Column(db.String(36), nullable=True, index=True)
+    contribution_registry_id = db.Column(db.String(80), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)
 
@@ -86,6 +90,10 @@ class DpProposal(db.Model):
             'reviewed_by_name': reviewer_name,
             'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
             'incorporated_submission_id': self.incorporated_submission_id,
+            'source_channel': self.source_channel or 'gov-hub',
+            'external_id': self.external_id,
+            'canopi_overlay_id': self.canopi_overlay_id,
+            'contribution_registry_id': self.contribution_registry_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

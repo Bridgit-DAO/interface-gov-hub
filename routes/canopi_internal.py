@@ -128,3 +128,32 @@ def layer_admin_check():
     })
 
 
+@bp.route('/api/internal/contribution-pipeline/pending', methods=['GET'])
+def contribution_pipeline_pending():
+    """Unprocessed scout queue rows. Auth: GOV_HUB_API_KEY."""
+    if not _canopi_internal_allowed():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    from services.contribution_pipeline import list_pending_pipeline_events
+
+    limit = request.args.get('limit', 100, type=int)
+    events = list_pending_pipeline_events(limit=limit)
+    return jsonify({'events': events, 'count': len(events)})
+
+
+@bp.route('/api/internal/contribution-pipeline/mark-processed', methods=['POST'])
+def contribution_pipeline_mark_processed():
+    """Mark scout queue rows processed. Auth: GOV_HUB_API_KEY."""
+    if not _canopi_internal_allowed():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    from services.contribution_pipeline import mark_pipeline_events_processed
+
+    body = request.get_json(silent=True) or {}
+    ids = body.get('ids') or body.get('event_ids') or []
+    if not isinstance(ids, list):
+        return jsonify({'error': 'ids must be an array'}), 400
+    updated = mark_pipeline_events_processed([str(i) for i in ids if i])
+    db.session.commit()
+    return jsonify({'updated': updated})
+

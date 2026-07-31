@@ -148,6 +148,15 @@ def create_proposal(draft_ref):
             'scope': row.scope,
         },
     )
+    from services.contribution_pipeline import enqueue_contribution_pipeline_event, pipeline_payload_for_proposal
+
+    enqueue_contribution_pipeline_event(
+        subject_type='dp_proposal',
+        subject_id=row.id,
+        event_type='submitted',
+        source_channel=row.source_channel or 'gov-hub',
+        payload=pipeline_payload_for_proposal(row, submission),
+    )
     db.session.commit()
     return jsonify({'proposal': row.to_dict(), 'status_label': row.status_label()}), 201
 
@@ -166,8 +175,9 @@ def accept_proposal_route(draft_ref, proposal_id):
     if guard:
         return guard
 
-    if not can_accept_amendments(current_user):
-        return jsonify({'error': 'Only site administrators can accept amendments'}), 403
+    wg = workgroup_for_submission(submission)
+    if not can_accept_amendments(current_user, wg):
+        return jsonify({'error': 'You do not have permission to accept amendments on this document'}), 403
 
     proposal = DpProposal.query.filter_by(id=proposal_id, submission_id=submission.id).first()
     if not proposal:

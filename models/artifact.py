@@ -65,6 +65,10 @@ class Comment(db.Model):
     edited_at = db.Column(db.DateTime, nullable=True)
     is_deleted = db.Column(SafeBoolean, nullable=False, default=False)
     original_text = db.Column(db.Text, nullable=True)
+    source_channel = db.Column(db.String(20), default='gov-hub', nullable=False, index=True)
+    external_id = db.Column(db.String(36), nullable=True, index=True)
+    canopi_overlay_id = db.Column(db.String(36), nullable=True, index=True)
+    contribution_registry_id = db.Column(db.String(80), nullable=True, index=True)
 
     replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy=True)
     artifact = db.relationship('Artifact', backref=db.backref('comments', lazy='dynamic'), foreign_keys=[artifact_id])
