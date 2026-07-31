@@ -1,5 +1,7 @@
 """DP Proposal API and admin dashboard (scaffolding)."""
 import html as html_mod
+import os
+import secrets
 
 from flask import Blueprint, current_app, jsonify, redirect, request, session, url_for
 
@@ -30,6 +32,17 @@ from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_modul
 
 bp = Blueprint('dp_proposals', __name__, url_prefix='/api/doc/draft')
 admin_bp = Blueprint('dp_proposals_admin', __name__, url_prefix='')
+
+
+def _trusted_hermes_origin() -> bool:
+    secret = (os.environ.get('HERMES_ORIGIN_SECRET') or '').strip()
+    supplied = (request.headers.get('X-Hermes-Origin') or '').strip()
+    if not secret or not supplied:
+        return False
+    return secrets.compare_digest(
+        supplied.encode('utf-8'),
+        secret.encode('utf-8'),
+    )
 
 
 @admin_bp.route('/dp-proposals/')
@@ -127,6 +140,7 @@ def create_proposal(draft_ref):
         scope=payload['scope'],
         rationale=payload.get('rationale'),
         reference_url=payload.get('reference_url'),
+        source_channel='hermes' if _trusted_hermes_origin() else 'gov-hub',
     )
     db.session.flush()  # ensure row.id is populated before emit_event reads it
     from services.events import emit_event
@@ -377,6 +391,7 @@ def create_reader_comment_route(draft_ref):
         draft_ref,
         author_user_id=current_user['id'],
         body=body,
+        source_channel='hermes' if _trusted_hermes_origin() else 'gov-hub',
     )
     return jsonify(resp), status
 

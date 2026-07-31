@@ -8,8 +8,6 @@ from uuid import uuid4
 
 from extensions import db
 
-# Dedup window for identical subject+event enqueues
-IDEMPOTENCY_WINDOW_SECONDS = 60
 # Scout claim lease TTL — expired claims can be reclaimed
 CLAIM_LEASE_SECONDS = 300
 
@@ -26,57 +24,56 @@ def enqueue_contribution_pipeline_event(
     source_channel: str = 'gov-hub',
     payload: Optional[dict] = None,
 ) -> Optional[str]:
-    """Insert a row for Scout. Idempotent per subject+event within 1 minute.
+    """Insert a row for Scout in a savepoint.
 
     Returns the new (or existing) row id, or None if the insert was skipped
-    because an identical unprocessed/recent row already exists.
+    because an identical unprocessed row already exists. The savepoint keeps
+    queue failures from poisoning the caller's business transaction.
     """
     from sqlalchemy import text
 
-    window_start = datetime.utcnow() - timedelta(seconds=IDEMPOTENCY_WINDOW_SECONDS)
-    existing = db.session.execute(
-        text("""
-            SELECT id FROM contribution_pipeline_queue
-            WHERE subject_type = :subject_type
-              AND subject_id = :subject_id
-              AND event_type = :event_type
-              AND created_at >= :window_start
-              AND processed_at IS NULL
-            ORDER BY created_at DESC
-            LIMIT 1
-        """),
-        {
-            'subject_type': subject_type,
-            'subject_id': str(subject_id),
-            'event_type': event_type,
-            'window_start': window_start,
-        },
-    ).mappings().first()
-    if existing:
-        return existing['id']
+    with db.session.begin_nested():
+        existing = db.session.execute(
+            text("""
+                SELECT id FROM contribution_pipeline_queue
+                WHERE subject_type = :subject_type
+                  AND subject_id = :subject_id
+                  AND event_type = :event_type
+                  AND processed_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 1
+            """),
+            {
+                'subject_type': subject_type,
+                'subject_id': str(subject_id),
+                'event_type': event_type,
+            },
+        ).mappings().first()
+        if existing:
+            return existing['id']
 
-    row_id = str(uuid4())
-    payload_json = json.dumps(payload or {}, default=str)
-    db.session.execute(
-        text("""
-            INSERT INTO contribution_pipeline_queue
-              (id, subject_type, subject_id, event_type, source_channel,
-               payload_json, created_at)
-            VALUES
-              (:id, :subject_type, :subject_id, :event_type, :source_channel,
-               :payload_json, :created_at)
-        """),
-        {
-            'id': row_id,
-            'subject_type': subject_type,
-            'subject_id': str(subject_id),
-            'event_type': event_type,
-            'source_channel': source_channel,
-            'payload_json': payload_json,
-            'created_at': datetime.utcnow(),
-        },
-    )
-    return row_id
+        row_id = str(uuid4())
+        payload_json = json.dumps(payload or {}, default=str)
+        db.session.execute(
+            text("""
+                INSERT INTO contribution_pipeline_queue
+                  (id, subject_type, subject_id, event_type, source_channel,
+                   payload_json, created_at)
+                VALUES
+                  (:id, :subject_type, :subject_id, :event_type, :source_channel,
+                   :payload_json, :created_at)
+            """),
+            {
+                'id': row_id,
+                'subject_type': subject_type,
+                'subject_id': str(subject_id),
+                'event_type': event_type,
+                'source_channel': source_channel,
+                'payload_json': payload_json,
+                'created_at': datetime.utcnow(),
+            },
+        )
+        return row_id
 
 
 def list_pending_pipeline_events(*, limit: int = 100) -> list[dict]:
@@ -170,18 +167,24 @@ def claim_pending_pipeline_events(
     return [_row_to_event(row) for row in rows]
 
 
-def mark_pipeline_events_processed(event_ids: list[str]) -> int:
+def mark_pipeline_events_processed(event_ids: list[str], *, claimant: str) -> int:
     if not event_ids:
         return 0
     from sqlalchemy import text
 
+    if len(event_ids) > 500:
+        raise ValueError('At most 500 event ids may be marked at once')
     placeholders = ', '.join(f':id{i}' for i in range(len(event_ids)))
     params = {f'id{i}': eid for i, eid in enumerate(event_ids)}
     params['now'] = datetime.utcnow()
+    params['claimant'] = (claimant or '').strip()[:80]
+    if not params['claimant']:
+        raise ValueError('claimant required')
     result = db.session.execute(
         text(
             'UPDATE contribution_pipeline_queue '
-            f'SET processed_at = :now WHERE processed_at IS NULL AND id IN ({placeholders})'
+            f'SET processed_at = :now WHERE processed_at IS NULL '
+            f'AND claimed_by = :claimant AND id IN ({placeholders})'
         ),
         params,
     )
@@ -190,16 +193,10 @@ def mark_pipeline_events_processed(event_ids: list[str]) -> int:
 
 def pipeline_queue_table_exists() -> bool:
     """Startup health check — True if contribution_pipeline_queue is present."""
-    from sqlalchemy import text
+    from sqlalchemy import inspect
 
     try:
-        row = db.session.execute(
-            text(
-                "SELECT name FROM sqlite_master "
-                "WHERE type='table' AND name='contribution_pipeline_queue'"
-            )
-        ).first()
-        return bool(row)
+        return 'contribution_pipeline_queue' in inspect(db.engine).get_table_names()
     except Exception:
         return False
 

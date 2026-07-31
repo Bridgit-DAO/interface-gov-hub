@@ -201,6 +201,7 @@ def create_reader_comment(
     *,
     author_user_id: str,
     payload: dict,
+    source_channel: str = 'gov-hub',
 ) -> Tuple[Comment, Optional[str]]:
     user = User.query.get(author_user_id)
     if not user:
@@ -231,7 +232,7 @@ def create_reader_comment(
 
     draft_name = submission_draft_ref(submission) or submission.draft_name or submission.id
     comment_id = str(uuid4())
-    source_channel = 'gov-hub'
+    source_channel = source_channel or 'gov-hub'
     try:
         from services.contribution_pipeline import contribution_registry_id
         registry_id = contribution_registry_id(source_channel, comment_id)
@@ -293,6 +294,8 @@ def create_reader_comment_for_draft(
     *,
     author_user_id: str,
     body: dict,
+    source_channel: str = 'gov-hub',
+    enqueue_pipeline: bool = True,
 ) -> Tuple[dict, int]:
     submission, err = resolve_submission_for_proposals(draft_ref)
     if err:
@@ -309,10 +312,12 @@ def create_reader_comment_for_draft(
         submission,
         author_user_id=author_user_id,
         payload=payload,
+        source_channel=source_channel,
     )
     if create_err:
         return {'error': create_err}, 400
-    _enqueue_comment_pipeline(row, submission, 'submitted')
+    if enqueue_pipeline:
+        _enqueue_comment_pipeline(row, submission, 'submitted')
     db.session.commit()
     from services.identity import get_current_user
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 import secrets
+import hmac
+import hashlib
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy import text
@@ -17,11 +19,26 @@ def _canopi_internal_allowed() -> bool:
     secret = (os.environ.get('GOV_HUB_API_KEY') or '').strip()
     if not secret:
         return False
-    supplied = (
-        request.headers.get('Authorization', '').replace('Bearer ', '', 1).strip()
-        or ''
-    ).strip()
-    return bool(supplied) and secrets.compare_digest(supplied, secret)
+    header = request.headers.get('Authorization', '').strip()
+    if not header.lower().startswith('bearer '):
+        return False
+    supplied = header[7:].strip()
+    try:
+        return bool(supplied) and secrets.compare_digest(
+            supplied.encode('utf-8'),
+            secret.encode('utf-8'),
+        )
+    except UnicodeEncodeError:
+        return False
+
+
+def _canopi_signature_valid() -> bool:
+    secret = (os.environ.get('CANOPI_SIGNING_SECRET') or '').encode('utf-8')
+    signature = (request.headers.get('X-Canopi-Signature') or '').strip().lower()
+    if not secret or not signature:
+        return False
+    digest = hmac.new(secret, request.get_data(cache=True), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, digest)
 
 
 def _normalize_email(raw: str | None) -> str:
@@ -145,6 +162,11 @@ def canopi_contribution_intake():
     """
     if not _canopi_internal_allowed():
         return jsonify({'error': 'Unauthorized'}), 401
+    if not _canopi_signature_valid():
+        return jsonify({
+            'error': 'Signed Canopi assertion required',
+            'error_code': 'CANOPI_SIGNATURE_REQUIRED',
+        }), 503
 
     from services.canopi_contributions import intake_canopi_contribution
 
@@ -198,7 +220,16 @@ def contribution_pipeline_mark_processed():
     ids = body.get('ids') or body.get('event_ids') or []
     if not isinstance(ids, list):
         return jsonify({'error': 'ids must be an array'}), 400
-    updated = mark_pipeline_events_processed([str(i) for i in ids if i])
+    claimant = (body.get('claimant') or body.get('claimed_by') or '').strip()
+    if not claimant:
+        return jsonify({'error': 'claimant required'}), 400
+    try:
+        updated = mark_pipeline_events_processed(
+            [str(i) for i in ids if i],
+            claimant=claimant,
+        )
+    except ValueError as err:
+        return jsonify({'error': str(err)}), 400
     db.session.commit()
     return jsonify({'updated': updated})
 

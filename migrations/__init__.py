@@ -1855,6 +1855,16 @@ def migrate_contribution_registry_v1(app):
             'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_claim '
             'ON contribution_pipeline_queue(claimed_at, processed_at)'
         )
+        cursor.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS uq_dp_proposal_canopi_external '
+            'ON dp_proposal(source_channel, external_id) '
+            'WHERE external_id IS NOT NULL'
+        )
+        cursor.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS uq_comment_canopi_external '
+            'ON comment(source_channel, external_id) '
+            'WHERE external_id IS NOT NULL'
+        )
 
         cursor.execute("""
             UPDATE dp_proposal

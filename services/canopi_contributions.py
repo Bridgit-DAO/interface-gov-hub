@@ -1,12 +1,11 @@
 """Canopi smart-tag contributions → Gov Hub dp_proposal / comment (Phase 1 intake)."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Optional, Tuple
-from uuid import uuid4
 
 from extensions import db
 from models import Comment, DpProposal, Submission, User
+from sqlalchemy.exc import IntegrityError
 from services.contribution_pipeline import (
     contribution_registry_id,
     enqueue_contribution_pipeline_event,
@@ -16,8 +15,12 @@ from services.contribution_pipeline import (
 from services.document_reader_comments import create_reader_comment, validate_comment_payload
 from services.dp_proposals import (
     create_dp_proposal,
+    expected_proposal_scope,
+    passage_exists_in_current_document,
     resolve_canonical_submission,
     resolve_submission_for_proposals,
+    validate_create_payload,
+    validate_proposal_scope_for_submission,
 )
 
 
@@ -26,17 +29,14 @@ def _normalize_email(raw: str | None) -> str:
 
 
 def _resolve_author_user_id(*, author_user_id: str | None, author_email: str | None) -> Tuple[Optional[str], Optional[str]]:
-    if author_user_id:
-        user = User.query.get(author_user_id)
-        if user:
-            return user.id, None
-        return None, 'author_user_id not found'
     email = _normalize_email(author_email)
-    if not email:
-        return None, 'author_email or author_user_id required'
-    user = User.query.filter(db.func.lower(User.email) == email).first()
+    if not author_user_id or not email:
+        return None, 'author_user_id and author_email are required'
+    user = User.query.get(author_user_id)
     if not user:
-        return None, 'author not found in Gov Hub'
+        return None, 'author_user_id not found'
+    if _normalize_email(user.email) != email:
+        return None, 'author identity mismatch'
     return user.id, None
 
 
@@ -124,6 +124,10 @@ def intake_canopi_patch(
         return {'error': 'Patches require an approved document'}, 400
     submission = resolve_canonical_submission(submission) or submission
 
+    from services.product_rollout import is_feature_enabled
+    if not is_feature_enabled('patches'):
+        return {'error': 'Patches are not enabled.', 'error_code': 'FEATURE_DISABLED'}, 403
+
     uid, author_err = _resolve_author_user_id(
         author_user_id=author_user_id,
         author_email=author_email,
@@ -131,32 +135,66 @@ def intake_canopi_patch(
     if author_err:
         return {'error': author_err}, 400
 
-    original = (payload.get('original_text') or '').strip()
-    proposed = (payload.get('proposed_text') or '').strip()
-    if not original or not proposed:
-        return {'error': 'original_text and proposed_text required'}, 400
-
-    scope = (payload.get('scope') or 'dp').strip().lower()
-    if scope not in ('dp', 'document'):
-        return {'error': 'scope must be dp or document'}, 400
+    if not isinstance(payload, dict):
+        return {'error': 'payload must be an object'}, 400
+    payload = dict(payload)
+    payload.setdefault('scope', expected_proposal_scope(submission))
+    normalized, val_err = validate_create_payload(payload)
+    if val_err:
+        return {'error': val_err}, 400
+    scope_err = validate_proposal_scope_for_submission(submission, normalized['scope'])
+    if scope_err:
+        return {'error': scope_err}, 400
+    if not passage_exists_in_current_document(submission, normalized['original_text']):
+        return {
+            'error': 'Selected passage was not found in the current document.',
+            'error_code': 'PASSAGE_NOT_FOUND',
+        }, 400
 
     row = create_dp_proposal(
         submission,
         author_user_id=uid,
-        original_text=original,
-        proposed_text=proposed,
-        context_anchor=payload.get('context_anchor'),
-        scope=scope,
-        rationale=(payload.get('rationale') or None),
-        reference_url=(payload.get('reference_url') or None),
+        original_text=normalized['original_text'],
+        proposed_text=normalized['proposed_text'],
+        context_anchor=normalized.get('context_anchor'),
+        scope=normalized['scope'],
+        rationale=normalized.get('rationale'),
+        reference_url=normalized.get('reference_url'),
         source_channel='canopi',
         external_id=ext,
         canopi_overlay_id=(canopi_overlay_id or None),
     )
     db.session.flush()
-    row.contribution_registry_id = contribution_registry_id('canopi', row.id)
+    row.contribution_registry_id = contribution_registry_id('canopi', ext)
+    from services.events import emit_event
+    emit_event(
+        'dp_proposal_submitted',
+        actor_type='canopi',
+        actor_id=uid,
+        subject_type='dp_proposal',
+        subject_id=row.id,
+        layer_id=submission.layer_id,
+        payload={
+            'source_channel': 'canopi',
+            'external_id': ext,
+            'submission_id': submission.id,
+            'proposal_id': row.id,
+        },
+    )
     _enqueue_patch_pipeline(row, 'submitted')
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        existing = _find_existing_canopi_patch(ext)
+        if existing:
+            return {
+                'proposal': existing.to_dict(),
+                'status_label': existing.status_label(),
+                'contribution_registry_id': existing.contribution_registry_id,
+                'idempotent': True,
+            }, 200
+        raise
     return {
         'proposal': row.to_dict(),
         'status_label': row.status_label(),
@@ -193,6 +231,10 @@ def intake_canopi_comment(
         return {'error': 'Comments require an approved document'}, 400
     submission = resolve_canonical_submission(submission) or submission
 
+    from services.product_rollout import is_feature_enabled
+    if not is_feature_enabled('patches'):
+        return {'error': 'Patches are not enabled.', 'error_code': 'FEATURE_DISABLED'}, 403
+
     uid, author_err = _resolve_author_user_id(
         author_user_id=author_user_id,
         author_email=author_email,
@@ -200,11 +242,23 @@ def intake_canopi_comment(
     if author_err:
         return {'error': author_err}, 400
 
-    body = dict(payload or {})
+    if not isinstance(payload, dict):
+        return {'error': 'payload must be an object'}, 400
+    body = dict(payload)
     body.setdefault('comment_scope', body.get('comment_scope') or 'document')
+    if body.get('parent_id'):
+        return {'error': 'Canopi comments may not set parent_id'}, 400
     validated, val_err = validate_comment_payload(body, require_passage=False)
     if val_err:
         return {'error': val_err}, 400
+    if (
+        validated['comment_scope'] == 'passage'
+        and not passage_exists_in_current_document(submission, validated['original_text'])
+    ):
+        return {
+            'error': 'Selected passage was not found in the current document.',
+            'error_code': 'PASSAGE_NOT_FOUND',
+        }, 400
 
     row, create_err = create_reader_comment(
         submission,
@@ -217,9 +271,37 @@ def intake_canopi_comment(
     row.source_channel = 'canopi'
     row.external_id = ext
     row.canopi_overlay_id = canopi_overlay_id or None
-    row.contribution_registry_id = contribution_registry_id('canopi', row.id)
+    row.contribution_registry_id = contribution_registry_id('canopi', ext)
+    from services.events import emit_event
+    emit_event(
+        'reader_comment_created',
+        actor_type='canopi',
+        actor_id=uid,
+        subject_type='comment',
+        subject_id=row.id,
+        layer_id=submission.layer_id,
+        payload={
+            'source_channel': 'canopi',
+            'external_id': ext,
+            'submission_id': submission.id,
+            'comment_id': row.id,
+        },
+    )
     _enqueue_comment_pipeline(row, submission, 'submitted')
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        existing = _find_existing_canopi_comment(ext)
+        if existing:
+            from services.document_reader_comments import _comment_to_dict
+            from services.identity import get_current_user
+            return {
+                'comment': _comment_to_dict(existing, current_user=get_current_user()),
+                'contribution_registry_id': existing.contribution_registry_id,
+                'idempotent': True,
+            }, 200
+        raise
 
     from services.document_reader_comments import _comment_to_dict
     from services.identity import get_current_user
@@ -237,7 +319,9 @@ def intake_canopi_contribution(body: Any) -> Tuple[dict, int]:
     kind = (body.get('kind') or '').strip().lower()
     draft_ref = (body.get('draft_ref') or body.get('draftRef') or '').strip()
     external_id = (body.get('external_id') or body.get('externalId') or '').strip()
-    payload = body.get('payload') if isinstance(body.get('payload'), dict) else body
+    if 'payload' not in body or not isinstance(body.get('payload'), dict):
+        return {'error': 'payload object required'}, 400
+    payload = body['payload']
 
     if not draft_ref:
         return {'error': 'draft_ref required'}, 400
