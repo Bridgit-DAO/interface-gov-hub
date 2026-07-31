@@ -698,19 +698,32 @@ def _emit_dp_proposal_review_event(
 
 
 def _enqueue_proposal_pipeline(proposal: DpProposal, event_type: str) -> None:
-    from services.contribution_pipeline import (
-        enqueue_contribution_pipeline_event,
-        pipeline_payload_for_proposal,
-    )
+    """Best-effort Scout queue write — never block proposal status changes."""
+    try:
+        from services.contribution_pipeline import (
+            enqueue_contribution_pipeline_event,
+            pipeline_payload_for_proposal,
+        )
 
-    sub = proposal.submission
-    enqueue_contribution_pipeline_event(
-        subject_type='dp_proposal',
-        subject_id=proposal.id,
-        event_type=event_type,
-        source_channel=getattr(proposal, 'source_channel', None) or 'gov-hub',
-        payload=pipeline_payload_for_proposal(proposal, sub),
-    )
+        sub = proposal.submission
+        enqueue_contribution_pipeline_event(
+            subject_type='dp_proposal',
+            subject_id=proposal.id,
+            event_type=event_type,
+            source_channel=getattr(proposal, 'source_channel', None) or 'gov-hub',
+            payload=pipeline_payload_for_proposal(proposal, sub),
+        )
+    except Exception as e:
+        try:
+            from flask import current_app
+            current_app.logger.warning(
+                '[ContributionPipeline] Failed to enqueue %s for proposal %s: %s',
+                event_type,
+                getattr(proposal, 'id', None),
+                e,
+            )
+        except RuntimeError:
+            pass
 
 
 def accept_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:

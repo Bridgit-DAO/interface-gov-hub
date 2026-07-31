@@ -1790,11 +1790,11 @@ def migrate_dp_proposal_rationale_reference(app):
 
 def migrate_contribution_registry_v1(app):
     """Contribution learning loop: federation columns, registry ids, scout queue."""
-    try:
-        import sqlite3
+    import sqlite3
 
-        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
-        conn = sqlite3.connect(db_path)
+    db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+    conn = sqlite3.connect(db_path)
+    try:
         cursor = conn.cursor()
 
         cursor.execute('PRAGMA table_info(dp_proposal)')
@@ -1828,9 +1828,21 @@ def migrate_contribution_registry_v1(app):
                 source_channel VARCHAR(20) NOT NULL DEFAULT 'gov-hub',
                 payload_json TEXT,
                 processed_at DATETIME,
+                claimed_at DATETIME,
+                claimed_by VARCHAR(80),
                 created_at DATETIME NOT NULL
             )
         """)
+
+        cursor.execute('PRAGMA table_info(contribution_pipeline_queue)')
+        queue_cols = {row[1] for row in cursor.fetchall()}
+        for col, ddl in (
+            ('claimed_at', 'ALTER TABLE contribution_pipeline_queue ADD COLUMN claimed_at DATETIME'),
+            ('claimed_by', 'ALTER TABLE contribution_pipeline_queue ADD COLUMN claimed_by VARCHAR(80)'),
+        ):
+            if col not in queue_cols:
+                cursor.execute(ddl)
+
         cursor.execute(
             'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_unprocessed '
             'ON contribution_pipeline_queue(processed_at, created_at)'
@@ -1838,6 +1850,10 @@ def migrate_contribution_registry_v1(app):
         cursor.execute(
             'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_subject '
             'ON contribution_pipeline_queue(subject_type, subject_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_claim '
+            'ON contribution_pipeline_queue(claimed_at, processed_at)'
         )
 
         cursor.execute("""
@@ -1855,12 +1871,20 @@ def migrate_contribution_registry_v1(app):
             SET source_channel = 'gov-hub'
             WHERE source_channel IS NULL OR source_channel = ''
         """)
+        cursor.execute("""
+            UPDATE comment
+            SET contribution_registry_id = 'dp-contrib:gov-hub:' || id
+            WHERE contribution_registry_id IS NULL OR contribution_registry_id = ''
+        """)
 
         conn.commit()
-        conn.close()
         print('✅ contribution registry columns + pipeline queue ready')
     except Exception as e:
-        print(f'⚠️  Error in migrate_contribution_registry_v1: {e}')
+        conn.rollback()
+        print(f'❌ Error in migrate_contribution_registry_v1: {e}')
+        raise
+    finally:
+        conn.close()
 
 
 def migrate_platform_invitations(app):

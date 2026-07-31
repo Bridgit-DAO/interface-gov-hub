@@ -141,6 +141,26 @@ def contribution_pipeline_pending():
     return jsonify({'events': events, 'count': len(events)})
 
 
+@bp.route('/api/internal/contribution-pipeline/claim', methods=['POST'])
+def contribution_pipeline_claim():
+    """Claim pending rows for a Scout worker (lease). Auth: GOV_HUB_API_KEY."""
+    if not _canopi_internal_allowed():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    from services.contribution_pipeline import claim_pending_pipeline_events
+
+    body = request.get_json(silent=True) or {}
+    limit = body.get('limit', 100)
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 100
+    claimant = (body.get('claimant') or body.get('claimed_by') or 'scout').strip()
+    events = claim_pending_pipeline_events(claimant=claimant, limit=limit)
+    db.session.commit()
+    return jsonify({'events': events, 'count': len(events), 'claimant': claimant})
+
+
 @bp.route('/api/internal/contribution-pipeline/mark-processed', methods=['POST'])
 def contribution_pipeline_mark_processed():
     """Mark scout queue rows processed. Auth: GOV_HUB_API_KEY."""

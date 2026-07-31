@@ -230,8 +230,16 @@ def create_reader_comment(
         serialized_anchor = serialize_context_anchor(payload.get('context_anchor'))
 
     draft_name = submission_draft_ref(submission) or submission.draft_name or submission.id
+    comment_id = str(uuid4())
+    source_channel = 'gov-hub'
+    try:
+        from services.contribution_pipeline import contribution_registry_id
+        registry_id = contribution_registry_id(source_channel, comment_id)
+    except Exception:
+        registry_id = f'dp-contrib:{source_channel}:{comment_id}'
+
     row = Comment(
-        id=str(uuid4()),
+        id=comment_id,
         draft_name=draft_name,
         submission_id=submission.id,
         comment_scope=scope,
@@ -245,9 +253,39 @@ def create_reader_comment(
         parent_id=payload.get('parent_id'),
         timestamp=datetime.utcnow(),
         is_deleted=False,
+        source_channel=source_channel,
+        contribution_registry_id=registry_id,
     )
     db.session.add(row)
     return row, None
+
+
+def _enqueue_comment_pipeline(comment: Comment, submission: Submission, event_type: str = 'submitted') -> None:
+    """Best-effort Scout queue write — never block comment create."""
+    try:
+        from services.contribution_pipeline import (
+            enqueue_contribution_pipeline_event,
+            pipeline_payload_for_comment,
+        )
+
+        enqueue_contribution_pipeline_event(
+            subject_type='comment',
+            subject_id=comment.id,
+            event_type=event_type,
+            source_channel=getattr(comment, 'source_channel', None) or 'gov-hub',
+            payload=pipeline_payload_for_comment(comment, submission),
+        )
+    except Exception as e:
+        try:
+            from flask import current_app
+            current_app.logger.warning(
+                '[ContributionPipeline] Failed to enqueue %s for comment %s: %s',
+                event_type,
+                getattr(comment, 'id', None),
+                e,
+            )
+        except RuntimeError:
+            pass
 
 
 def create_reader_comment_for_draft(
@@ -274,6 +312,7 @@ def create_reader_comment_for_draft(
     )
     if create_err:
         return {'error': create_err}, 400
+    _enqueue_comment_pipeline(row, submission, 'submitted')
     db.session.commit()
     from services.identity import get_current_user
 

@@ -150,13 +150,24 @@ def create_proposal(draft_ref):
     )
     from services.contribution_pipeline import enqueue_contribution_pipeline_event, pipeline_payload_for_proposal
 
-    enqueue_contribution_pipeline_event(
-        subject_type='dp_proposal',
-        subject_id=row.id,
-        event_type='submitted',
-        source_channel=row.source_channel or 'gov-hub',
-        payload=pipeline_payload_for_proposal(row, submission),
-    )
+    try:
+        enqueue_contribution_pipeline_event(
+            subject_type='dp_proposal',
+            subject_id=row.id,
+            event_type='submitted',
+            source_channel=row.source_channel or 'gov-hub',
+            payload=pipeline_payload_for_proposal(row, submission),
+        )
+    except Exception as e:
+        try:
+            from flask import current_app
+            current_app.logger.warning(
+                '[ContributionPipeline] Failed to enqueue submitted for proposal %s: %s',
+                row.id,
+                e,
+            )
+        except RuntimeError:
+            pass
     db.session.commit()
     return jsonify({'proposal': row.to_dict(), 'status_label': row.status_label()}), 201
 

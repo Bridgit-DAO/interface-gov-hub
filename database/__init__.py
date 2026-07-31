@@ -128,6 +128,14 @@ def init_db(app):
         migrate_dp_proposals(app)
         migrate_dp_proposal_rationale_reference(app)
         migrate_contribution_registry_v1(app)
+        try:
+            from services.contribution_pipeline import pipeline_queue_table_exists
+            if not pipeline_queue_table_exists():
+                raise RuntimeError(
+                    'contribution_pipeline_queue missing after migrate_contribution_registry_v1'
+                )
+        except ImportError:
+            pass
         migrate_platform_invitations(app)
         migrate_user_bitcoin_wallet_v1(app)
         migrate_layer_nft_gate_v1(app)

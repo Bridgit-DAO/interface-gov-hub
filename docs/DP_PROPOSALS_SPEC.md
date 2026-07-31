@@ -31,9 +31,9 @@ Multiple **competing proposals** per anchor are allowed. Accepting one does not 
 |--------|-----|
 | Create DP Proposal | Authenticated user (approved DP only) |
 | Accept → Amendment | Workgroup coordinator, approved chair, layer admin, site admin/editor |
-| Decline | Same as accept |
+| Decline / Consider | Same as accept (`can_manage_amendments` / `can_accept_amendments`) |
 
-Future: dedicated editor role via `can_manage_amendments`.
+`can_accept_amendments` delegates to `can_manage_amendments` — chairs and layer admins are scoped to their own workgroup's documents; site admin/editor may act globally.
 
 ## Badge & visibility (UI – later phases)
 
