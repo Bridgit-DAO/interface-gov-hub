@@ -665,7 +665,12 @@ def workgroup_detail(workgroup_slug):
     let workgroup = null;
     let project = null;
     const workgroupSlug = '{workgroup_slug}';
-    const isAuthenticated = {'true' if current_user else 'false'};
+    // `let`, not `const`: this is a snapshot of server-rendered state at page
+    // load. Signing in via the navbar widget without a full reload otherwise
+    // leaves this stuck at `false`, so Join/Nominate keep bouncing back to
+    // "sign in required" until the user manually refreshes. See the
+    // `gh:auth-changed` listener below.
+    let isAuthenticated = {'true' if current_user else 'false'};
     const currentUserId = {json.dumps(current_user['id']) if current_user else 'null'};
     const currentUserProfile = {current_user_json};
     let selectedNomineeUserId = null;
@@ -1676,6 +1681,17 @@ def workgroup_detail(workgroup_slug):
 
     // Load workgroup on page load
     loadWorkgroup();
+
+    // Signing in via the navbar widget doesn't reload this page, so
+    // `isAuthenticated` (captured once at render time) would otherwise stay
+    // stale and Join/Nominate/Invite would keep prompting to sign in again.
+    // Refresh live from the shared post-login broadcast (see
+    // `ghFinishLoginAfterSession` in html_templates.py).
+    window.addEventListener('gh:auth-changed', function (ev) {{
+        if (!ev || !ev.detail || !ev.detail.authenticated || isAuthenticated) return;
+        isAuthenticated = true;
+        loadMyWorkgroupStatus().then(updateMembershipButtons);
+    }});
     </script>
     """
 

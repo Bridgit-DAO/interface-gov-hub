@@ -1410,6 +1410,16 @@ BASE_TEMPLATE = """
                 await GhDialog.alert({{ title: 'Notice', message: ('Sign in cancelled – account declaration is required to participate.'), variant: 'info' }});
                 return false;
             }}
+            // Session is established server-side at this point (caller already
+            // confirmed via /api/user/me). Broadcast immediately so any
+            // auth-gated UI already on this page (e.g. the DP patch reader,
+            // workgroup join/nominate buttons) updates without waiting on the
+            // navigation below, which can be delayed or – for in-page sign-in
+            // widgets that return to the same URL – occasionally skipped by
+            // the browser.
+            try {{
+                window.dispatchEvent(new CustomEvent('gh:auth-changed', {{ detail: {{ authenticated: true }} }}));
+            }} catch (_e) {{}}
             let dest = consumePostLoginReturnPath();
             if (window.GhInvite && window.GhInvite.finishLoginWithInviteAccept) {{
                 dest = await window.GhInvite.finishLoginWithInviteAccept(dest);

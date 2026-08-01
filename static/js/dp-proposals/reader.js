@@ -2607,6 +2607,12 @@
     link.setAttribute('href', commentsPageUrl());
   }
 
+  function updatePatchesLinkCount(n) {
+    var link = document.getElementById('draftReaderPatchesLink');
+    if (!link) return;
+    link.innerHTML = '<i class="fas fa-code-branch me-1"></i>Patches (' + n + ')';
+  }
+
   function loadReaderComments() {
     return fetch(apiUrl('/reader-comments/'), { credentials: 'same-origin' })
       .then(parseJsonResponse)
@@ -2628,6 +2634,11 @@
       })
       .then(function (data) {
         proposals = data.proposals || [];
+        // Keep the "Patches (N)" button in the page header (server-rendered
+        // once at load) in sync so a submitted patch shows up immediately
+        // instead of only after a manual reload.
+        var count = typeof data.count === 'number' ? data.count : proposals.length;
+        updatePatchesLinkCount(count);
       })
       .catch(function (err) {
         console.error('Patches load failed:', err);
@@ -2757,4 +2768,18 @@
       resumePatchFromUrl();
     });
   global.addEventListener('hashchange', scrollToGhAnchorFromLocation);
+
+  // `meta` is a snapshot of server-rendered state taken once at script load,
+  // so signing in without a full page reload (e.g. the navbar sign-in widget
+  // while already on this page) would otherwise leave `meta.authenticated`
+  // stuck at `false` and patching broken until the user manually refreshes.
+  // Listen for the shared post-login broadcast (see `ghFinishLoginAfterSession`
+  // in html_templates.py) and flip it live so select/patch/comment work
+  // immediately, regardless of whether/when the post-login navigation lands.
+  global.addEventListener('gh:auth-changed', function (ev) {
+    if (!ev || !ev.detail || !ev.detail.authenticated || meta.authenticated) return;
+    meta.authenticated = true;
+    resumePendingProposalAfterLogin();
+    resumeInvitePassageCompose();
+  });
 })(typeof window !== 'undefined' ? window : globalThis);
