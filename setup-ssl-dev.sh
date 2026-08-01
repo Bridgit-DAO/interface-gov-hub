@@ -15,7 +15,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Check if nginx config exists
-if [ ! -f "/etc/nginx/sites-enabled/dev.rfc.themetalayer.org" ]; then
+if [ ! -f "/etc/nginx/sites-enabled/dev.hub.themetalayer.org" ]; then
     echo "Error: Nginx config not found. Run setup-nginx-dev.sh first."
     exit 1
 fi
@@ -26,7 +26,7 @@ echo "Using email: $EMAIL"
 
 # Run certbot
 echo "Requesting SSL certificate from Let's Encrypt..."
-certbot --nginx -d dev.rfc.themetalayer.org \
+certbot --nginx -d dev.hub.themetalayer.org \
     --non-interactive \
     --agree-tos \
     --email "$EMAIL" \
@@ -38,7 +38,7 @@ if [ $? -eq 0 ]; then
     echo "SSL certificate installed successfully!"
     echo ""
     echo "Development server is now available at:"
-    echo "  https://dev.rfc.themetalayer.org"
+    echo "  https://dev.hub.themetalayer.org"
     echo ""
     echo "HTTP will automatically redirect to HTTPS"
     echo "=========================================="

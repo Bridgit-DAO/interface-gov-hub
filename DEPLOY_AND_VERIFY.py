@@ -133,7 +133,7 @@ def main():
 
     # Test dev subdomain
     try:
-        response = urllib.request.urlopen('https://dev.rfc.themetalayer.org/', timeout=10)
+        response = urllib.request.urlopen('https://dev.hub.themetalayer.org/', timeout=10)
         content = response.read().decode('utf-8')
         if 'Governance Hub' in content or 'Meta-Layer' in content:
             print("   ✅ Dev subdomain has new text")
@@ -149,13 +149,13 @@ def main():
     print("\n" + "=" * 60)
     if dev_ok:
         print("🎉🎉🎉 SUCCESS! DEPLOYMENT COMPLETE! 🎉🎉🎉")
-        print("\n✅ The change is LIVE at: https://dev.rfc.themetalayer.org")
+        print("\n✅ The change is LIVE at: https://dev.hub.themetalayer.org")
         print("\nWhat you should see:")
         print("- Governance Hub / Meta-Layer text")
         print("- Hard refresh if needed: Ctrl+Shift+R")
         print("\nAdditional test URLs:")
-        print("- Status: https://dev.rfc.themetalayer.org/_deploy/status")
-        print("- Test page: https://dev.rfc.themetalayer.org/_deploy/test")
+        print("- Status: https://dev.hub.themetalayer.org/_deploy/status")
+        print("- Test page: https://dev.hub.themetalayer.org/_deploy/test")
         return True
     elif localhost_ok:
         print("⚠️  PARTIAL SUCCESS - Working on localhost")

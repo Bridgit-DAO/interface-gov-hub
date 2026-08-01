@@ -71,7 +71,7 @@ if curl -s http://localhost:8001/ | grep -q "Governance Hub\|Meta-Layer\|MLGH"; 
     echo ""
     echo "=========================================="
     echo "SUCCESS! Development environment is working"
-    echo "Visit: https://dev.rfc.themetalayer.org"
+    echo "Visit: https://dev.hub.themetalayer.org"
     echo "=========================================="
 else
     echo "   ⚠ New text not found in response"

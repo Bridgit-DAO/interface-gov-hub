@@ -118,6 +118,6 @@ kill <PID>
 1. **Make code changes**
 2. **Test locally** (if possible)
 3. **Deploy to dev**: `./deploy.sh development`
-4. **Verify dev**: Visit https://dev.rfc.themetalayer.org
+4. **Verify dev**: Visit https://dev.hub.themetalayer.org
 5. **If good, deploy to prod**: `./deploy.sh production`
 6. **Verify prod**: Visit https://rfc.themetalayer.org

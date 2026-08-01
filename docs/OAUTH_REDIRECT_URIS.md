@@ -8,7 +8,7 @@ This document is only for the **optional Flask-Dance OAuth** feature that **link
 
 Add these **exact** URLs to each provider's dashboard **for the linking feature**. The redirect URI must match character-for-character.
 
-**Base URL:** `https://dev.rfc.themetalayer.org` (or your production domain)
+**Base URL:** `https://dev.hub.themetalayer.org` (or your production domain)
 
 After DNS and nginx are live for **Gov Hub**, register the same paths on **`https://govhub.live`** (production) and **`https://dev.govhub.live`** (staging). Layer vanity hosts like `https://yourlayer.govhub.live` still use the same redirect paths (`/auth/.../authorized`) on that host only if you serve OAuth from those hostnames; typically you add **apex dev + prod** origins below.
 
@@ -23,20 +23,22 @@ After DNS and nginx are live for **Gov Hub**, register the same paths on **`http
 
 **Google – Authorized JavaScript origins:** `https://govhub.live` and `https://dev.govhub.live`
 
-## Redirect URIs to Add (RFC / themetalayer)
+## Redirect URIs (hub.themetalayer.org)
 
-| Provider | Where to Add | Redirect URI |
-|----------|--------------|--------------|
-| **Google** | [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → Your OAuth 2.0 Client → Authorized redirect URIs | `https://dev.rfc.themetalayer.org/auth/google/authorized` |
-| **GitHub** | [GitHub Developer Settings](https://github.com/settings/developers) → OAuth Apps → Your App → Authorization callback URL | `https://dev.rfc.themetalayer.org/auth/github/authorized` |
-| **Discord** | [Discord Developer Portal](https://discord.com/developers/applications) → Your App → OAuth2 → Redirects | `https://dev.rfc.themetalayer.org/auth/discord/authorized` |
-| **Twitter/X** | [X Developer Portal](https://developer.x.com/) → Your App → User authentication settings → Callback URI | `https://dev.rfc.themetalayer.org/auth/twitter/authorized` |
+| Provider | Where to Add | Redirect URI (dev) | Redirect URI (prod) |
+|----------|--------------|--------------------|---------------------|
+| **Google** | [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → Your OAuth 2.0 Client → Authorized redirect URIs | `https://dev.hub.themetalayer.org/auth/google/authorized` | `https://hub.themetalayer.org/auth/google/authorized` |
+| **GitHub** | [GitHub Developer Settings](https://github.com/settings/developers) → OAuth Apps → Your App → Authorization callback URL | `https://dev.hub.themetalayer.org/auth/github/authorized` | `https://hub.themetalayer.org/auth/github/authorized` |
+| **Discord** | [Discord Developer Portal](https://discord.com/developers/applications) → Your App → OAuth2 → Redirects | `https://dev.hub.themetalayer.org/auth/discord/authorized` | `https://hub.themetalayer.org/auth/discord/authorized` |
+| **Twitter/X** | [X Developer Portal](https://developer.x.com/) → Your App → User authentication settings → Callback URI | `https://dev.hub.themetalayer.org/auth/twitter/authorized` | `https://hub.themetalayer.org/auth/twitter/authorized` |
+
+**Remove** any `dev.rfc.themetalayer.org` redirect URIs and JavaScript origins from provider dashboards (hostname retired, no redirect).
 
 ## Also Add (Authorized JavaScript Origins / Origins)
 
 Some providers require the origin (without path):
 
-- **Google:** Add `https://dev.rfc.themetalayer.org` to **Authorized JavaScript origins**
+- **Google:** Add `https://dev.hub.themetalayer.org` and `https://hub.themetalayer.org` to **Authorized JavaScript origins**
 - **Discord:** Usually only needs the redirect URI above
 
 ---
@@ -64,9 +66,9 @@ Some providers require the origin (without path):
 2. Open **User authentication settings** (or Settings → User authentication)
 3. Enable **OAuth 2.0** if not already
 4. Set **App permissions** to at least Read (for `tweet.read`, `users.read`)
-5. Add **Callback URI / Redirect URI**: `https://dev.rfc.themetalayer.org/auth/twitter/authorized` (must match exactly)
+5. Add **Callback URI / Redirect URI**: `https://dev.hub.themetalayer.org/auth/twitter/authorized` (must match exactly)
 6. Ensure app type is **Web App** (not Native) for confidential client
-7. **Website URL**: Set to `https://dev.rfc.themetalayer.org` when testing on dev – X may validate that redirect_uri matches the Website URL domain
+7. **Website URL**: Set to `https://dev.hub.themetalayer.org` when testing on dev – X may validate that redirect_uri matches the Website URL domain
 
 ## Debug logging
 
@@ -81,4 +83,4 @@ When OAuth fails, check `instance_dev/oauth_debug.log` (or `instance/oauth_debug
 
 ## Production
 
-For production, replace `dev.rfc.themetalayer.org` with your production domain (e.g. `rfc.themetalayer.org`) and add those URIs as well.
+For production OAuth on the Meta-Layer RFC site, also register URIs on `https://rfc.themetalayer.org` if you serve linked accounts there. Canonical Gov Hub production host is `https://hub.themetalayer.org` (see table above).

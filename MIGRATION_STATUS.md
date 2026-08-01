@@ -50,7 +50,7 @@ git push origin dev
 # Test new scripts in dev
 python3 deploy.py dev
 python3 verify.py dev
-# Verify: https://dev.rfc.themetalayer.org
+# Verify: https://dev.hub.themetalayer.org
 ```
 
 ### Phase 3: Migrate Production (When Ready)
@@ -92,7 +92,7 @@ If anything goes wrong, you can:
 ## Development Status
 
 - **Branch:** `dev` (ready for new scripts)
-- **URL:** https://dev.rfc.themetalayer.org
+- **URL:** https://dev.hub.themetalayer.org
 - **Database:** `instance_dev/datatracker_dev.db`
 - **Service:** `datatracker-dev.service` (port 8001)
 

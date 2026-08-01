@@ -213,7 +213,7 @@ python3 rollback.py <env> --to-tag <tag>
 - **Branch**: `dev`
 - **Service**: `datatracker-dev.service`
 - **Port**: 8001
-- **URL**: `https://dev.rfc.themetalayer.org`
+- **URL**: `https://dev.hub.themetalayer.org`
 - **Database**: `instance_dev/datatracker_dev.db`
 
 ### Production

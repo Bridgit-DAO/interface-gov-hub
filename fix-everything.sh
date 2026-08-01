@@ -60,24 +60,24 @@ fi
 # 8. Test dev subdomain
 echo "8. Testing dev subdomain..."
 sleep 3
-HTTP_DEV=$(curl -s -o /dev/null -w "%{http_code}" https://dev.rfc.themetalayer.org/ 2>&1)
+HTTP_DEV=$(curl -s -o /dev/null -w "%{http_code}" https://dev.hub.themetalayer.org/ 2>&1)
 echo "   Dev HTTP: $HTTP_DEV"
 
 # 9. Check for new text
 echo "9. Checking for new text..."
-TEXT_DEV=$(curl -s https://dev.rfc.themetalayer.org/ 2>&1 | grep -o "Governance Hub\|Meta-Layer\|MLGH" | head -1)
+TEXT_DEV=$(curl -s https://dev.hub.themetalayer.org/ 2>&1 | grep -o "Governance Hub\|Meta-Layer\|MLGH" | head -1)
 if [ -n "$TEXT_DEV" ]; then
     echo "   ✓✓✓ SUCCESS! New text found! ✓✓✓"
     echo ""
     echo "=========================================="
     echo "DEPLOYMENT COMPLETE!"
-    echo "Visit: https://dev.rfc.themetalayer.org"
+    echo "Visit: https://dev.hub.themetalayer.org"
     echo "=========================================="
     exit 0
 else
     echo "   ✗ New text not found"
     echo "   Checking what we got..."
-    curl -s https://dev.rfc.themetalayer.org/ 2>&1 | head -100 | python3 -c "
+    curl -s https://dev.hub.themetalayer.org/ 2>&1 | head -100 | python3 -c "
 import sys
 import re
 content = sys.stdin.read()

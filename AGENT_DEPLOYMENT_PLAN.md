@@ -54,7 +54,7 @@ main (production) ← dev (development) ← feature branches
 ### 2. Environment Structure
 
 **Development Environment**:
-- URL: `dev.rfc.themetalayer.org`
+- URL: `dev.hub.themetalayer.org`
 - Database: `instance_dev/datatracker_dev.db`
 - Port: 8001
 - Auto-deploys from `dev` branch

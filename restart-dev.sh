@@ -6,4 +6,4 @@ sleep 3
 systemctl --user status datatracker-dev.service --no-pager | head -10
 
 echo ""
-echo "Service restarted. Check https://dev.rfc.themetalayer.org"
+echo "Service restarted. Check https://dev.hub.themetalayer.org"

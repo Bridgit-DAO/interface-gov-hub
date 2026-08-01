@@ -61,7 +61,7 @@ for i in {1..5}; do
             echo "   ✓ NEW TEXT FOUND!"
             echo ""
             echo "=== SUCCESS ==="
-            echo "Visit: https://dev.rfc.themetalayer.org"
+            echo "Visit: https://dev.hub.themetalayer.org"
             exit 0
         else
             echo "   ⚠ Text not found (attempt $i)"

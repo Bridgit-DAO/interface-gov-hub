@@ -15,7 +15,7 @@ This guide covers deploying the Web3Auth integration to production with minimal 
 
 ### Production URLs
 - **Production**: https://rfc.themetalayer.org (port 8000)
-- **Dev**: https://dev.rfc.themetalayer.org (port 8001)
+- **Dev**: https://dev.hub.themetalayer.org (port 8001)
 
 ## Deployment Steps
 
@@ -117,7 +117,7 @@ This will:
 ### Domain Whitelist
 Ensure the following domains are whitelisted in Web3Auth Dashboard:
 - https://rfc.themetalayer.org
-- https://dev.rfc.themetalayer.org
+- https://dev.hub.themetalayer.org
 
 ## Changes Deployed
 

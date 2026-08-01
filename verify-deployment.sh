@@ -9,7 +9,7 @@ if [ "$ENV" == "production" ]; then
     URL="https://rfc.themetalayer.org"
 else
     PORT=8001
-    URL="https://dev.rfc.themetalayer.org"
+    URL="https://dev.hub.themetalayer.org"
 fi
 
 echo "=========================================="

@@ -77,12 +77,12 @@ try:
         print("\n" + "=" * 50)
         print("SUCCESS! Development environment is working")
         print("=" * 50)
-        print("\nVisit: https://dev.rfc.themetalayer.org")
+        print("\nVisit: https://dev.hub.themetalayer.org")
         print("Hard refresh: Ctrl+Shift+R (or Cmd+Shift+R)")
     else:
         print("   ⚠ New text not found in response")
         print("   (Service may need more time or browser cache needs clearing)")
-        print("\nVisit: https://dev.rfc.themetalayer.org")
+        print("\nVisit: https://dev.hub.themetalayer.org")
         print("Hard refresh: Ctrl+Shift+R")
 except Exception as e:
     print(f"   ✗ Error connecting: {e}")

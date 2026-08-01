@@ -93,11 +93,13 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ---
 
-## 4. Existing Sites (dev, rfc)
+## 4. Existing Sites (hub aliases)
 
-Your existing configs (`dev.rfc.themetalayer.org`, `rfc.themetalayer.org`) use **exact** server_name, so they take precedence over the wildcard. Order in `sites-enabled` can matter: more specific server_names usually match first.
+Your existing configs (`dev.hub.themetalayer.org`, `hub.themetalayer.org`, `rfc.themetalayer.org`) use **exact** server_name, so they take precedence over the wildcard. Order in `sites-enabled` can matter: more specific server_names usually match first.
 
-If `rfc.themetalayer.org` and `dev.rfc.themetalayer.org` already work, keep those configs. The wildcard will handle `overweb.themetalayer.org`, `canopi.themetalayer.org`, etc.
+If `hub.themetalayer.org` and `dev.hub.themetalayer.org` already work, keep those configs. The wildcard will handle `overweb.themetalayer.org`, `canopi.themetalayer.org`, etc.
+
+**Retired:** Remove `/etc/nginx/sites-enabled/dev.rfc.themetalayer.org` if still present (no redirect).
 
 ---
 

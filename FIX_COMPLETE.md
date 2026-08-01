@@ -21,7 +21,7 @@ I have executed the following commands to fix the development environment:
 
 The service should now be running with the updated code. Please:
 
-1. **Visit**: https://dev.rfc.themetalayer.org
+1. **Visit**: https://dev.hub.themetalayer.org
 2. **Hard refresh**: Ctrl+Shift+R (Windows/Linux) or Cmd+Shift+R (Mac)
 3. **Verify**: You should see "Welcome to the Meta-Layer Governance Hub"
 

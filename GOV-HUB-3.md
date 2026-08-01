@@ -23,7 +23,7 @@ Do not treat this as a fresh start. The Gov Hub is already in production.
 | Item | Detail |
 |---|---|
 | **Dev environment** | `/home/ubuntu/gov-hub-dev` |
-| **Dev URL** | `https://dev.rfc.themetalayer.org` |
+| **Dev URL** | `https://dev.hub.themetalayer.org` |
 | **Production URL** | `https://rfc.themetalayer.org` |
 | **Backend** | Flask + SQLAlchemy (`ietf_data_viewer_simple.py` – MLGH/Meta-Layer app) |
 | **Frontend** | Vue 3 + Vite + Bootstrap 5 (`client/`) |
@@ -62,7 +62,7 @@ All work in GOV-HUB-3 follows the "minimize blast radius" principle:
 ## Migration Safety Rules
 
 1. Never run destructive migrations on production without a verified backup
-2. Always test in `gov-hub-dev` (dev.rfc.themetalayer.org) before deploying to prod (rfc.themetalayer.org)
+2. Always test in `gov-hub-dev` (dev.hub.themetalayer.org) before deploying to prod (rfc.themetalayer.org)
 3. New modules and models are additive – existing routes and models stay functional during transition
 4. Any schema change that touches existing tables requires a migration script and a rollback path
 5. The EventLog is new infrastructure – it does not replace any existing table; it runs alongside
@@ -101,7 +101,7 @@ This section maps the current codebase to the GOV-HUB-3 architecture. All models
 | **UUID primary keys** | Project uses string id (proj_...). Submission uses string id. User uses integer id. | **Migration planned**: All existing entities transition to UUID PKs. See "UUID + Layer Migration Plan" below. |
 | **Badge approval** | Badge has approval workflow | No Badge Keeper Role. No revolving triad. No PEARL path. |
 | **Modular structure** | Single file `ietf_data_viewer_simple.py` (~26k lines) | Phase 0: Extract models into domain modules. Extract routes. Extract services. |
-| **Host → Layer** | No subdomain routing | Need middleware: dev.rfc.themetalayer.org vs layer.themetalayer.org. Nginx already has dev subdomain. |
+| **Host → Layer** | No subdomain routing | Need middleware: dev.hub.themetalayer.org vs layer.themetalayer.org. Nginx already has dev subdomain. |
 
 ## ❌ Not Yet Implemented (Build New)
 
@@ -466,7 +466,7 @@ The primary governance container. Conceptually: Layer. Implementation: Project m
 - Subdomain and path routing:
   - `layername.themetalayer.org`
   - `themetalayer.org/layer/layername`
-- Reserved slug protection: `www`, `dev`, `api`, `docs`, `rfc`, `app`, `admin`, `status`. We also need to protect dev.rfc.
+- Reserved slug protection: `www`, `dev`, `api`, `docs`, `rfc`, `app`, `admin`, `status`, `hub`. We also need to protect `dev.hub`.
 - Layer membership management
 - Configurable governance parameters (quorum defaults, thresholds)
 - Public Layer landing page

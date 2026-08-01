@@ -4,8 +4,8 @@
 
 | Branch | Role | Server checkout | URL | systemd unit |
 |--------|------|-----------------|-----|--------------|
-| `development` | Integration & testing | `/home/ubuntu/gov-hub-dev` | dev.govhub.live (8001) | `datatracker-dev.service` |
-| `production` | Live release | `/home/ubuntu/gov-hub-prod` | govhub.live (8000) | `datatracker.service` |
+| `development` | Integration & testing | `/home/ubuntu/gov-hub-dev` | dev.hub.themetalayer.org (8001) | `datatracker-dev.service` |
+| `production` | Live release | `/home/ubuntu/gov-hub-prod` | hub.themetalayer.org (8000) | `datatracker.service` |
 
 Remote: `https://github.com/Bridgit-DAO/interface-gov-hub.git`
 
@@ -14,7 +14,7 @@ Remote: `https://github.com/Bridgit-DAO/interface-gov-hub.git`
 ## Process rules (required)
 
 1. **All feature work lands on `development`.** Do not commit features directly to `production`.
-2. **Test on dev before every promote.** Use port 8001 / `dev.govhub.live` and the pre-promote checklist below.
+2. **Test on dev before every promote.** Use port 8001 / `dev.hub.themetalayer.org` and the pre-promote checklist below.
 3. **Promote to production** only by merging `development` into `production` (locally on `gov-hub-prod` or via GitHub PR).
 4. **Hotfixes on production** are allowed when prod is broken and dev cannot wait—but **backport to `development` the same day** (cherry-pick or merge `production` → `development`).
 5. **Never duplicate fixes** on both branches (same change, two commits). That causes painful merges; see [SYNC.md](./SYNC.md) for the 2026-08 divergence post-mortem.

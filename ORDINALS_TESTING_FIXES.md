@@ -194,7 +194,7 @@ ps aux | grep ietf_data_viewer
 
 ## Testing Notes
 
-- Testing performed on: `https://dev.rfc.themetalayer.org/`
+- Testing performed on: `https://dev.hub.themetalayer.org/`
 - Real Bitcoin ordinal used for testing
 - All fixes tested incrementally
 - Service restarted after each fix

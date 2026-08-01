@@ -111,7 +111,7 @@ def main():
     print("\n[8] TESTING DEV SUBDOMAIN...")
     time.sleep(3)
     try:
-        response = urllib.request.urlopen('https://dev.rfc.themetalayer.org/', timeout=15)
+        response = urllib.request.urlopen('https://dev.hub.themetalayer.org/', timeout=15)
         content = response.read().decode('utf-8')
         print(f"   ✓ Dev subdomain responds: HTTP {response.getcode()}")
         dev_has_text = 'Governance Hub' in content or 'Meta-Layer' in content
@@ -124,7 +124,7 @@ def main():
     print("\n" + "=" * 70)
     if dev_has_text:
         print("🎉 SUCCESS! The change is LIVE on the dev subdomain!")
-        print("Visit: https://dev.rfc.themetalayer.org")
+        print("Visit: https://dev.hub.themetalayer.org")
         print("Hard refresh: Ctrl+Shift+R (or Cmd+Shift+R)")
         print("=" * 70)
         return True
@@ -138,7 +138,7 @@ def main():
         print("❌ FAILED - Change not found anywhere")
         print("\nDEBUGGING INFO:")
         try:
-            response = urllib.request.urlopen('https://dev.rfc.themetalayer.org/', timeout=10)
+            response = urllib.request.urlopen('https://dev.hub.themetalayer.org/', timeout=10)
             content = response.read().decode('utf-8')
             import re
             match = re.search(r'<p class="lead">(.*?)</p>', content)

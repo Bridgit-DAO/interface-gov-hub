@@ -5,7 +5,7 @@ Deploy the new agent deployment system without disrupting the currently running 
 
 ## Current State
 - Production: Running on `main` branch, port 8000, `rfc.themetalayer.org`
-- Development: Running on `main` branch, port 8001, `dev.rfc.themetalayer.org`
+- Development: Running on `main` branch, port 8001, `dev.hub.themetalayer.org`
 - Both environments use same codebase, different databases
 
 ## Migration Strategy: Zero-Risk Approach

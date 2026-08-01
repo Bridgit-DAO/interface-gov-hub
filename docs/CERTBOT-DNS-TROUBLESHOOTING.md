@@ -49,10 +49,10 @@ No API token needed. Add the TXT record yourself in your DNS provider's control 
 
 ```bash
 sudo certbot certonly --manual --preferred-challenges dns \
-  -d dev.rfc.themetalayer.org -d "*.dev.rfc.themetalayer.org"
+  -d dev.hub.themetalayer.org -d "*.dev.hub.themetalayer.org"
 ```
 
-Certbot will pause and show a TXT record. Add it at your DNS provider, wait 1–2 min, run `dig TXT _acme-challenge.dev.rfc.themetalayer.org +short` to verify, then press Enter. You'll repeat this at renewal (~90 days).
+Certbot will pause and show a TXT record. Add it at your DNS provider, wait 1–2 min, run `dig TXT _acme-challenge.dev.hub.themetalayer.org +short` to verify, then press Enter. You'll repeat this at renewal (~90 days).
 
 ### 5. Cloudflare plugin (optional, if you use Cloudflare)
 

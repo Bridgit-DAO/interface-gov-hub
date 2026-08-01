@@ -4,7 +4,7 @@
 
 ✅ **Single Codebase, Two Environments**
 - Production: `rfc.themetalayer.org` (port 8000, database: `instance/datatracker.db`)
-- Development: `dev.rfc.themetalayer.org` (port 8001, database: `instance_dev/datatracker_dev.db`)
+- Development: `dev.hub.themetalayer.org` (port 8001, database: `instance_dev/datatracker_dev.db`)
 - Both use the **same code** from `main` branch
 - Environment controlled by `FLASK_ENV` variable
 
@@ -18,7 +18,7 @@ Since you have separate environments, you can use a **single branch** approach:
 2. **Test in development**:
    ```bash
    ./deploy.sh development
-   # Visit https://dev.rfc.themetalayer.org
+   # Visit https://dev.hub.themetalayer.org
    ```
 3. **If tests pass, deploy to production**:
    ```bash

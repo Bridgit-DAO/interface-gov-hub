@@ -7,7 +7,7 @@ This file serves as a memory store for the MLTF Datatracker project. Key decisio
 **Project**: MLTF Datatracker (RFC App)  
 **Purpose**: Governance hub for Meta-Layer Task Force standards  
 **Tech Stack**: Flask, SQLite, Bootstrap, systemd, Nginx  
-**Environments**: Production (`rfc.themetalayer.org`), Development (`dev.rfc.themetalayer.org`)
+**Environments**: Production (`rfc.themetalayer.org`), Development (`dev.hub.themetalayer.org`)
 
 ## Current Architecture
 

@@ -97,7 +97,7 @@ def main():
     write_result("\n6. Testing dev subdomain...")
     time.sleep(2)
     try:
-        response = urllib.request.urlopen('https://dev.rfc.themetalayer.org/', timeout=10)
+        response = urllib.request.urlopen('https://dev.hub.themetalayer.org/', timeout=10)
         content_dev = response.read().decode('utf-8')
         write_result(f"   ✓ Dev subdomain HTTP {response.getcode()}")
     except Exception as e:
@@ -124,7 +124,7 @@ def main():
     write_result("\n" + "=" * 60)
     if text_found:
         write_result("SUCCESS! The change is live.")
-        write_result("Visit: https://dev.rfc.themetalayer.org")
+        write_result("Visit: https://dev.hub.themetalayer.org")
         write_result("Hard refresh: Ctrl+Shift+R")
         return True
     else:
@@ -148,7 +148,7 @@ if __name__ == '__main__':
 
     # Save content for inspection
     try:
-        response = urllib.request.urlopen('https://dev.rfc.themetalayer.org/', timeout=5)
+        response = urllib.request.urlopen('https://dev.hub.themetalayer.org/', timeout=5)
         content = response.read().decode('utf-8')
         with open('/tmp/dev-content.html', 'w') as f:
             f.write(content)

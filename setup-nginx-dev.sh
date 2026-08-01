@@ -18,13 +18,13 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Copy nginx config
-CONF_FILE="/etc/nginx/sites-available/dev.rfc.themetalayer.org"
+CONF_FILE="/etc/nginx/sites-available/dev.hub.themetalayer.org"
 cp "$SCRIPT_DIR/nginx-dev.conf" "$CONF_FILE"
 echo "✓ Created nginx config: $CONF_FILE"
 
 # Enable site
-if [ ! -L "/etc/nginx/sites-enabled/dev.rfc.themetalayer.org" ]; then
-    ln -s "$CONF_FILE" /etc/nginx/sites-enabled/dev.rfc.themetalayer.org
+if [ ! -L "/etc/nginx/sites-enabled/dev.hub.themetalayer.org" ]; then
+    ln -s "$CONF_FILE" /etc/nginx/sites-enabled/dev.hub.themetalayer.org
     echo "✓ Enabled nginx site"
 else
     echo "✓ Site already enabled"
@@ -46,8 +46,8 @@ echo "=========================================="
 echo "Nginx setup complete!"
 echo ""
 echo "Development server will be accessible at:"
-echo "  http://dev.rfc.themetalayer.org"
+echo "  http://dev.hub.themetalayer.org"
 echo ""
-echo "Note: You'll need to add DNS A record for dev.rfc.themetalayer.org"
+echo "Note: You'll need to add DNS A record for dev.hub.themetalayer.org"
 echo "pointing to: 216.238.91.120"
 echo "=========================================="

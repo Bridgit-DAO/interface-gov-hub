@@ -141,7 +141,7 @@ def main():
     # Test dev subdomain
     time.sleep(3)
     try:
-        response = urllib.request.urlopen('https://dev.rfc.themetalayer.org/', timeout=20)
+        response = urllib.request.urlopen('https://dev.hub.themetalayer.org/', timeout=20)
         content_dev = response.read().decode('utf-8')
         print(f"   ✓ Dev subdomain: HTTP {response.getcode()}")
     except Exception as e:
@@ -176,7 +176,7 @@ def main():
     print("\n" + "=" * 80)
     if results.get('dev subdomain', False):
         print("🎉🎉🎉 SUCCESS! ALL MARKERS FOUND ON DEV SUBDOMAIN! 🎉🎉🎉")
-        print("\nVisit: https://dev.rfc.themetalayer.org")
+        print("\nVisit: https://dev.hub.themetalayer.org")
         print("You should see a BIG RED BOX at the top of the page!")
         print("=" * 80)
         return True

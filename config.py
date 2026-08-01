@@ -55,13 +55,12 @@ RESERVED_SUBDOMAINS = {
 BASE_DOMAIN = "themetalayer.org"
 # Multiple base domains for layer subdomain resolution (longest suffix wins in middleware).
 # - rfc.* / themetalayer.org: production RFC / Meta-Layer hosts
-# - dev.rfc.*: [layer].dev.rfc.themetalayer.org → same layer as /layer/[layer]/ on dev
+# - dev.hub.*: [layer].dev.hub.themetalayer.org → same layer as /layer/[layer]/ on dev
 # - govhub.live / dev.govhub.live: legacy Gov Hub + layer vanity hosts
 # - hub.themetalayer.org / dev.hub.themetalayer.org: preferred Gov Hub aliases (avoids "gov" blocks)
 BASE_DOMAINS = [
     "dev.hub.themetalayer.org",
     "hub.themetalayer.org",
-    "dev.rfc.themetalayer.org",
     "rfc.themetalayer.org",
     "dev.govhub.live",
     "govhub.live",

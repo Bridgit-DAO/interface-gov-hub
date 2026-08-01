@@ -32,7 +32,7 @@
 
 - [ ] **Test deploy.py in dev**: `python3 deploy.py dev`
 - [ ] **Test verify.py in dev**: `python3 verify.py dev`
-- [ ] **Verify dev environment works**: Check https://dev.rfc.themetalayer.org
+- [ ] **Verify dev environment works**: Check https://dev.hub.themetalayer.org
 - [ ] **Fix any issues**: In dev branch only
 - [ ] **Re-test**: Until everything works in dev
 
@@ -85,7 +85,7 @@ systemctl --user status datatracker-dev.service
 curl -I https://rfc.themetalayer.org
 
 # Verify dev URL
-curl -I https://dev.rfc.themetalayer.org
+curl -I https://dev.hub.themetalayer.org
 
 # Check backups
 ls -lh backups/safe-migration-*/

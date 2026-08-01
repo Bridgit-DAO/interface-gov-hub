@@ -12,18 +12,18 @@ echo -e "\n2. Testing localhost..." >> $OUTPUT
 curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost:8001/ >> $OUTPUT 2>&1
 
 echo -e "\n3. Testing dev subdomain..." >> $OUTPUT
-curl -s -o /dev/null -w "HTTP %{http_code}\n" https://dev.rfc.themetalayer.org/ >> $OUTPUT 2>&1
+curl -s -o /dev/null -w "HTTP %{http_code}\n" https://dev.hub.themetalayer.org/ >> $OUTPUT 2>&1
 
 echo -e "\n4. Checking for new text (localhost)..." >> $OUTPUT
 TEXT_LOCAL=$(curl -s http://localhost:8001/ 2>&1 | grep -o "Governance Hub\|Meta-Layer\|MLGH" | head -1)
 echo "Found: '$TEXT_LOCAL'" >> $OUTPUT
 
 echo -e "\n5. Checking for new text (dev subdomain)..." >> $OUTPUT
-TEXT_DEV=$(curl -s https://dev.rfc.themetalayer.org/ 2>&1 | grep -o "Governance Hub\|Meta-Layer\|MLGH" | head -1)
+TEXT_DEV=$(curl -s https://dev.hub.themetalayer.org/ 2>&1 | grep -o "Governance Hub\|Meta-Layer\|MLGH" | head -1)
 echo "Found: '$TEXT_DEV'" >> $OUTPUT
 
 echo -e "\n6. Nginx config..." >> $OUTPUT
-cat /etc/nginx/sites-enabled/dev.rfc.themetalayer.org | grep -E "server_name|proxy_pass|listen" | head -10 >> $OUTPUT 2>&1
+cat /etc/nginx/sites-enabled/dev.hub.themetalayer.org | grep -E "server_name|proxy_pass|listen" | head -10 >> $OUTPUT 2>&1
 
 echo -e "\n=== CHECK RESULTS ===" >> $OUTPUT
 if [ -n "$TEXT_DEV" ]; then

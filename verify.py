@@ -20,7 +20,7 @@ SCRIPT_DIR = Path(__file__).parent.absolute()
 
 ENV_CONFIG = {
     'dev': {
-        'url': 'https://dev.rfc.themetalayer.org',
+        'url': 'https://dev.hub.themetalayer.org',
         'port': 8001
     },
     'prod': {

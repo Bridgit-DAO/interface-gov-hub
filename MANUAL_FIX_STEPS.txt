@@ -33,7 +33,7 @@ curl http://localhost:8001/ | grep "Welcome to the Meta-Layer Governance Hub"
 
 STEP 7: Check in browser
 -------------------------
-Visit: https://dev.rfc.themetalayer.org
+Visit: https://dev.hub.themetalayer.org
 Hard refresh: Ctrl+Shift+R (or Cmd+Shift+R on Mac)
 
 ALTERNATIVE: Run the fix script

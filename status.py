@@ -23,7 +23,7 @@ ENV_CONFIG = {
     'dev': {
         'service': 'datatracker-dev.service',
         'port': 8001,
-        'url': 'https://dev.rfc.themetalayer.org',
+        'url': 'https://dev.hub.themetalayer.org',
         'flask_env': 'development'
     },
     'prod': {

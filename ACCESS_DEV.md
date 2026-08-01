@@ -1,7 +1,8 @@
 # Accessing Development Server
 
 ## Current Setup
-- **Development Server**: Running on port 8001**
+- **Development URL**: `https://dev.hub.themetalayer.org` (nginx → port 8001)
+- **Development Server**: Running on port 8001
 - **Production Server**: Running on port 8000 (via nginx)
 
 ## Access Methods
@@ -27,10 +28,14 @@ Then access: **http://localhost:8001** in your browser
 - Always works
 - Can keep tunnel open while developing
 
-### Method 3: Nginx Reverse Proxy (Best for Team Access)
-Set up a subdomain like `dev.rfc.themetalayer.org` that proxies to port 8001.
+### Method 3: Canonical Dev URL (Best for Team Access)
+```
+https://dev.hub.themetalayer.org
+```
 
-Would you like me to set this up?
+Layer vanity: `https://[layer-slug].dev.hub.themetalayer.org`
+
+Install/update nginx vhost: `sudo bash docs/install-hub-themetalayer-org.sh` (see `docs/GOVHUB_HUB_LAYER_VANITY.md`).
 
 ## Troubleshooting
 

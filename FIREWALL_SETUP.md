@@ -36,10 +36,10 @@ If using Vultr, DigitalOcean, AWS, etc., you need to open port 8001 in their fir
 Set up nginx to proxy dev server (similar to production):
 
 ```nginx
-# /etc/nginx/sites-available/dev.rfc.themetalayer.org
+# /etc/nginx/sites-available/dev.hub.themetalayer.org
 server {
     listen 80;
-    server_name dev.rfc.themetalayer.org;
+    server_name dev.hub.themetalayer.org;
     
     location / {
         proxy_pass http://127.0.0.1:8001;

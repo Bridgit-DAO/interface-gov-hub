@@ -23,7 +23,7 @@
 - Or a different code path (e.g. subdomain) is rendering the global view instead of standalone
 
 ### Plan
-1. **Verify deployment** – Ensure latest `layer_detail_render.py` is deployed to dev.rfc.themetalayer.org
+1. **Verify deployment** – Ensure latest `layer_detail_render.py` is deployed to dev.hub.themetalayer.org
 2. **Confirm no regressions** – Search codebase for any remaining `standalone_links` or `About | Admin` strings
 3. **Standalone content** – Ensure when `standalone=True`, only `displayProjectHeader` (title + badges) and carousel are shown in the overview; no admin content anywhere
 
