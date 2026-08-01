@@ -1788,6 +1788,115 @@ def migrate_dp_proposal_rationale_reference(app):
         print(f'⚠️  Error in migrate_dp_proposal_rationale_reference: {e}')
 
 
+def migrate_contribution_registry_v1(app):
+    """Contribution learning loop: federation columns, registry ids, scout queue."""
+    import sqlite3
+
+    db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute('PRAGMA table_info(dp_proposal)')
+        proposal_cols = {row[1] for row in cursor.fetchall()}
+        for col, ddl in (
+            ('source_channel', "ALTER TABLE dp_proposal ADD COLUMN source_channel VARCHAR(20) NOT NULL DEFAULT 'gov-hub'"),
+            ('external_id', 'ALTER TABLE dp_proposal ADD COLUMN external_id VARCHAR(36)'),
+            ('canopi_overlay_id', 'ALTER TABLE dp_proposal ADD COLUMN canopi_overlay_id VARCHAR(36)'),
+            ('contribution_registry_id', 'ALTER TABLE dp_proposal ADD COLUMN contribution_registry_id VARCHAR(80)'),
+        ):
+            if col not in proposal_cols:
+                cursor.execute(ddl)
+
+        cursor.execute('PRAGMA table_info(comment)')
+        comment_cols = {row[1] for row in cursor.fetchall()}
+        for col, ddl in (
+            ('source_channel', "ALTER TABLE comment ADD COLUMN source_channel VARCHAR(20) NOT NULL DEFAULT 'gov-hub'"),
+            ('external_id', 'ALTER TABLE comment ADD COLUMN external_id VARCHAR(36)'),
+            ('canopi_overlay_id', 'ALTER TABLE comment ADD COLUMN canopi_overlay_id VARCHAR(36)'),
+            ('contribution_registry_id', 'ALTER TABLE comment ADD COLUMN contribution_registry_id VARCHAR(80)'),
+        ):
+            if col not in comment_cols:
+                cursor.execute(ddl)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS contribution_pipeline_queue (
+                id VARCHAR(36) PRIMARY KEY,
+                subject_type VARCHAR(40) NOT NULL,
+                subject_id VARCHAR(36) NOT NULL,
+                event_type VARCHAR(60) NOT NULL,
+                source_channel VARCHAR(20) NOT NULL DEFAULT 'gov-hub',
+                payload_json TEXT,
+                processed_at DATETIME,
+                claimed_at DATETIME,
+                claimed_by VARCHAR(80),
+                created_at DATETIME NOT NULL
+            )
+        """)
+
+        cursor.execute('PRAGMA table_info(contribution_pipeline_queue)')
+        queue_cols = {row[1] for row in cursor.fetchall()}
+        for col, ddl in (
+            ('claimed_at', 'ALTER TABLE contribution_pipeline_queue ADD COLUMN claimed_at DATETIME'),
+            ('claimed_by', 'ALTER TABLE contribution_pipeline_queue ADD COLUMN claimed_by VARCHAR(80)'),
+        ):
+            if col not in queue_cols:
+                cursor.execute(ddl)
+
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_unprocessed '
+            'ON contribution_pipeline_queue(processed_at, created_at)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_subject '
+            'ON contribution_pipeline_queue(subject_type, subject_id)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_contrib_pipeline_claim '
+            'ON contribution_pipeline_queue(claimed_at, processed_at)'
+        )
+        cursor.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS uq_dp_proposal_canopi_external '
+            'ON dp_proposal(source_channel, external_id) '
+            'WHERE external_id IS NOT NULL'
+        )
+        cursor.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS uq_comment_canopi_external '
+            'ON comment(source_channel, external_id) '
+            'WHERE external_id IS NOT NULL'
+        )
+
+        cursor.execute("""
+            UPDATE dp_proposal
+            SET source_channel = 'gov-hub'
+            WHERE source_channel IS NULL OR source_channel = ''
+        """)
+        cursor.execute("""
+            UPDATE dp_proposal
+            SET contribution_registry_id = 'dp-contrib:gov-hub:' || id
+            WHERE contribution_registry_id IS NULL OR contribution_registry_id = ''
+        """)
+        cursor.execute("""
+            UPDATE comment
+            SET source_channel = 'gov-hub'
+            WHERE source_channel IS NULL OR source_channel = ''
+        """)
+        cursor.execute("""
+            UPDATE comment
+            SET contribution_registry_id = 'dp-contrib:gov-hub:' || id
+            WHERE contribution_registry_id IS NULL OR contribution_registry_id = ''
+        """)
+
+        conn.commit()
+        print('✅ contribution registry columns + pipeline queue ready')
+    except Exception as e:
+        conn.rollback()
+        print(f'❌ Error in migrate_contribution_registry_v1: {e}')
+        raise
+    finally:
+        conn.close()
+
+
 def migrate_platform_invitations(app):
     """Create platform_invitation table; extend workgroup_member_request for invites."""
     try:
@@ -3267,6 +3376,110 @@ def migrate_layer_unique_v1(app):
         conn.close()
     except Exception as e:
         print(f'⚠️  Error in migrate_layer_unique_v1: {e}')
+
+
+def migrate_workgroup_member_unique_v1(app):
+    """Dedupe ``working_group_member`` then enforce UNIQUE(group_acronym, user_id).
+
+    Membership was created from several code paths (self-service join, admin
+    approval of a member request, nomination approval) with only a read-then-
+    write duplicate check, so concurrent requests could insert two rows for the
+    same person in the same workgroup. This migration:
+
+    1. Collapses each ``(group_acronym, user_id)`` duplicate group down to the
+       oldest row (minimum rowid = first join). Rows with a NULL ``user_id``
+       are legacy display-name-only rows and are left untouched; no table
+       references ``working_group_member.id``, so deleting the newer copies is
+       safe and loses nothing but a redundant ``joined_at``.
+    2. Creates the ``uq_wgm_group_user`` UNIQUE index when missing.
+
+    Idempotent: a second run finds no duplicates and no missing index.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT group_acronym, user_id, COUNT(*) AS n, MIN(rowid) AS survivor_rowid
+            FROM working_group_member
+            WHERE user_id IS NOT NULL AND group_acronym IS NOT NULL
+            GROUP BY group_acronym, user_id
+            HAVING n > 1
+            """
+        )
+        dup_groups = cursor.fetchall()
+        total_deleted = 0
+        for acronym, user_id, _count, survivor_rowid in dup_groups:
+            cursor.execute(
+                """
+                DELETE FROM working_group_member
+                WHERE group_acronym = ? AND user_id = ? AND rowid != ?
+                """,
+                (acronym, user_id, survivor_rowid),
+            )
+            total_deleted += cursor.rowcount
+            print(
+                f'  working_group_member {acronym}/{str(user_id)[:8]}…: '
+                f'kept oldest row, removed {cursor.rowcount} duplicate(s)'
+            )
+        if dup_groups:
+            conn.commit()
+            print(
+                '✅ migrate_workgroup_member_unique_v1: removed '
+                f'{total_deleted} duplicate membership row(s)'
+            )
+        else:
+            print('✅ migrate_workgroup_member_unique_v1: no duplicate memberships')
+
+        cursor.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND tbl_name='working_group_member'"
+        )
+        existing_indexes = {row[0] for row in cursor.fetchall()}
+        if 'uq_wgm_group_user' not in existing_indexes:
+            cursor.execute(
+                'CREATE UNIQUE INDEX uq_wgm_group_user '
+                'ON working_group_member(group_acronym, user_id)'
+            )
+            print(
+                '✅ migrate_workgroup_member_unique_v1: created UNIQUE index '
+                'uq_wgm_group_user'
+            )
+        else:
+            print(
+                '✅ migrate_workgroup_member_unique_v1: uq_wgm_group_user '
+                'already present'
+            )
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_workgroup_member_unique_v1: {e}')
+
+
+def migrate_user_notification_archived_at_v1(app):
+    """Add ``user_notification.archived_at`` for invalidated notifications.
+
+    A notification can outlive the thing it announces: a DP workgroup welcome
+    stays in the feed (and in the email digest) after the person leaves the
+    workgroup. Archiving is recorded on the row instead of deleting it, so
+    history survives and rejoining can revive the same notification.
+    """
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(user_notification)')
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'archived_at' not in cols:
+            cursor.execute('ALTER TABLE user_notification ADD COLUMN archived_at DATETIME')
+            conn.commit()
+            print('✅ Added archived_at to user_notification')
+        conn.close()
+    except Exception as e:
+        print(f'⚠️  Error in migrate_user_notification_archived_at_v1: {e}')
 
 
 def _stub_unused_marker():  # pragma: no cover - keep at end

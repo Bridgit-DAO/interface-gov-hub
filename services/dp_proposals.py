@@ -226,13 +226,13 @@ def workgroup_for_submission(submission: Submission) -> Optional[Workgroup]:
     return None
 
 
-def can_accept_amendments(user: Optional[dict]) -> bool:
-    """Only site admins may accept a DP proposal as an amendment."""
-    return bool(user and user.get('role') == 'admin')
+def can_accept_amendments(user: Optional[dict], workgroup: Optional[Workgroup] = None) -> bool:
+    """Workgroup chairs, coordinators, layer admins, and site staff may accept amendments."""
+    return can_manage_amendments(user, workgroup)
 
 
 def can_manage_amendments(user: Optional[dict], workgroup: Optional[Workgroup]) -> bool:
-    """Chair/coordinator (and admins) may decline DP proposals; accept is admin-only."""
+    """Chair/coordinator, layer admin, and site staff may manage DP proposals (accept/decline/consider)."""
     if not user:
         return False
     if is_site_moderation_staff(user):
@@ -641,6 +641,9 @@ def create_dp_proposal(
     scope: str = 'dp',
     rationale: Optional[str] = None,
     reference_url: Optional[str] = None,
+    source_channel: str = 'gov-hub',
+    external_id: Optional[str] = None,
+    canopi_overlay_id: Optional[str] = None,
 ) -> DpProposal:
     anchor_hash = compute_anchor_hash(
         submission.id,
@@ -659,8 +662,15 @@ def create_dp_proposal(
         reference_url=reference_url,
         content_hash_at_create=submission.content_hash,
         author_user_id=author_user_id,
+        source_channel=source_channel or 'gov-hub',
+        external_id=external_id,
+        canopi_overlay_id=canopi_overlay_id,
     )
     db.session.add(row)
+    from services.contribution_pipeline import contribution_registry_id
+
+    db.session.flush()
+    row.contribution_registry_id = contribution_registry_id(row.source_channel, row.id)
     return row
 
 
@@ -693,6 +703,35 @@ def _emit_dp_proposal_review_event(
     )
 
 
+def _enqueue_proposal_pipeline(proposal: DpProposal, event_type: str) -> None:
+    """Best-effort Scout queue write — never block proposal status changes."""
+    try:
+        from services.contribution_pipeline import (
+            enqueue_contribution_pipeline_event,
+            pipeline_payload_for_proposal,
+        )
+
+        sub = proposal.submission
+        enqueue_contribution_pipeline_event(
+            subject_type='dp_proposal',
+            subject_id=proposal.id,
+            event_type=event_type,
+            source_channel=getattr(proposal, 'source_channel', None) or 'gov-hub',
+            payload=pipeline_payload_for_proposal(proposal, sub),
+        )
+    except Exception as e:
+        try:
+            from flask import current_app
+            current_app.logger.warning(
+                '[ContributionPipeline] Failed to enqueue %s for proposal %s: %s',
+                event_type,
+                getattr(proposal, 'id', None),
+                e,
+            )
+        except RuntimeError:
+            pass
+
+
 def accept_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
     proposal.status = 'accepted'
     proposal.reviewed_by_user_id = reviewer_user_id
@@ -702,6 +741,26 @@ def accept_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
         reviewer_user_id=reviewer_user_id,
         event_type='dp_proposal_accepted',
     )
+    from services.dp_contribution_badges import on_dp_contribution_outcome
+
+    on_dp_contribution_outcome(proposal, 'accepted')
+    _enqueue_proposal_pipeline(proposal, 'accepted')
+    return proposal
+
+
+def consider_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
+    proposal.status = 'considered'
+    proposal.reviewed_by_user_id = reviewer_user_id
+    proposal.reviewed_at = datetime.utcnow()
+    _emit_dp_proposal_review_event(
+        proposal,
+        reviewer_user_id=reviewer_user_id,
+        event_type='dp_proposal_considered',
+    )
+    from services.dp_contribution_badges import on_dp_contribution_outcome
+
+    on_dp_contribution_outcome(proposal, 'considered')
+    _enqueue_proposal_pipeline(proposal, 'considered')
     return proposal
 
 
@@ -714,6 +773,7 @@ def decline_proposal(proposal: DpProposal, reviewer_user_id: str) -> DpProposal:
         reviewer_user_id=reviewer_user_id,
         event_type='dp_proposal_declined',
     )
+    _enqueue_proposal_pipeline(proposal, 'declined')
     return proposal
 
 

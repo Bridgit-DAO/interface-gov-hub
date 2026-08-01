@@ -676,14 +676,14 @@ def workgroup_detail(workgroup_slug):
     let selectedNomineeUserId = null;
     let nominationSearchResults = [];
     let workgroupPositions = [];
-    // Membership the signed-in user already has here, so we never offer them
-    // something they already hold (join, or a nomination for their own position).
     let isCurrentUserMember = false;
     let currentUserPositionKeys = [];
-    // Read ?action= once so we can auto-open the nominate / join modal
-    // after the page finishes loading. Stripped after firing so a refresh
-    // doesn't re-trigger the modal.
-    const _urlParams = new URLSearchParams(window.location.search);
+    // Read ?action= once so we can auto-open the nominate / join modal after
+    // the page finishes loading. `initialSearch` is captured before any URL
+    // rewriting so a sign-in redirect still carries ?action= in ?next=, and the
+    // action resumes automatically once the user comes back authenticated.
+    const initialSearch = window.location.search;
+    const _urlParams = new URLSearchParams(initialSearch);
     const autoAction = _urlParams.get('action');
     let autoActionConsumed = false;
 
@@ -692,10 +692,15 @@ def workgroup_detail(workgroup_slug):
         const approved = !!(workgroup && workgroup.approval_status === 'approved');
         if (!approved) return;
         autoActionConsumed = true;
-        try {{
-            window.history.replaceState({{}}, '', window.location.pathname);
-        }} catch (e) {{
-            console.warn('Could not strip ?action from URL', e);
+        // Only drop ?action= once the action can actually run. An anonymous
+        // visitor is about to be sent to /login/?next=…&action=…, so the
+        // parameter has to survive this navigation.
+        if (isAuthenticated) {{
+            try {{
+                window.history.replaceState({{}}, '', window.location.pathname);
+            }} catch (e) {{
+                console.warn('Could not strip ?action from URL', e);
+            }}
         }}
         if (autoAction === 'nominate') {{
             nominateForChair();
@@ -1183,7 +1188,7 @@ def workgroup_detail(workgroup_slug):
     }}
 
     function loginNextUrl() {{
-        return window.location.pathname + window.location.search + window.location.hash;
+        return window.location.pathname + (initialSearch || window.location.search) + window.location.hash;
     }}
 
     function redirectToLogin() {{
@@ -1233,15 +1238,25 @@ def workgroup_detail(workgroup_slug):
 
             if (response.ok) {{
                 const pending = data.pending_approval === true;
+                const welcomeUrl = data.welcome_url || '';
+                let message = pending
+                    ? 'Your membership request is pending approval.'
+                    : (welcomeUrl
+                        ? 'You joined this workgroup. Open your welcome guide for next steps.'
+                        : 'You joined this workgroup.');
                 await GhDialog.alert({{
                     title: pending ? 'Request submitted' : 'Welcome',
-                    message: pending ? 'Your membership request is pending approval.' : 'You joined this workgroup.',
+                    message: message,
                     variant: pending ? 'info' : 'success',
+                    confirmLabel: welcomeUrl ? 'Open welcome guide' : 'Close',
                 }});
                 // Update local state immediately so the Join button hides without
                 // waiting on a full status re-fetch.
                 if (!pending) isCurrentUserMember = true;
                 updateMembershipButtons();
+                if (welcomeUrl) {{
+                    window.open(welcomeUrl, '_blank', 'noopener');
+                }}
                 loadMembers();
             }} else {{
                 await GhDialog.alert({{ title: 'Could not join', message: data.error || 'Failed to join workgroup', variant: 'danger' }});

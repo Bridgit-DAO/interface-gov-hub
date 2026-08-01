@@ -34,6 +34,7 @@ def register_notification_digest_cli(app):
                 UserNotification.query.filter_by(user_id=user.id)
                 .filter(UserNotification.created_at >= cutoff)
                 .filter(UserNotification.email_sent_at.is_(None))
+                .filter(UserNotification.archived_at.is_(None))
                 .order_by(UserNotification.created_at.asc())
                 .limit(50)
                 .all()

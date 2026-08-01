@@ -51,6 +51,7 @@ def init_db(app):
             migrate_meta_layer_governance_metaweb_link,
             migrate_dp_proposals,
             migrate_dp_proposal_rationale_reference,
+            migrate_contribution_registry_v1,
             migrate_platform_invitations,
             migrate_user_bitcoin_wallet_v1,
             migrate_layer_nft_gate_v1,
@@ -74,6 +75,8 @@ def init_db(app):
             migrate_hardcoded_users,
             migrate_submission_prefix_code_v1,
             migrate_layer_unique_v1,
+            migrate_workgroup_member_unique_v1,
+            migrate_user_notification_archived_at_v1,
             migrate_layer_display_status_v1,
             migrate_delete_test_layers_v1,
             migrate_hide_auth_layers_v1,
@@ -124,6 +127,15 @@ def init_db(app):
         migrate_meta_layer_governance_metaweb_link(app)
         migrate_dp_proposals(app)
         migrate_dp_proposal_rationale_reference(app)
+        migrate_contribution_registry_v1(app)
+        try:
+            from services.contribution_pipeline import pipeline_queue_table_exists
+            if not pipeline_queue_table_exists():
+                raise RuntimeError(
+                    'contribution_pipeline_queue missing after migrate_contribution_registry_v1'
+                )
+        except ImportError:
+            pass
         migrate_platform_invitations(app)
         migrate_user_bitcoin_wallet_v1(app)
         migrate_layer_nft_gate_v1(app)
@@ -146,6 +158,8 @@ def init_db(app):
         migrate_submission_submitter_user_id_v1(app)
         migrate_submission_prefix_code_v1(app)
         migrate_layer_unique_v1(app)
+        migrate_workgroup_member_unique_v1(app)
+        migrate_user_notification_archived_at_v1(app)
         migrate_layer_display_status_v1(app)
         migrate_delete_test_layers_v1(app)
         migrate_hide_auth_layers_v1(app)

@@ -3,11 +3,16 @@ from flask import Blueprint, jsonify, request, session
 
 from extensions import db
 from models import (
-    User, WorkingGroupChair, WorkingGroupMember, WorkgroupMemberRequest, CoordinatorRequest,
+    User, Workgroup, WorkingGroupChair, WorkingGroupMember, WorkgroupMemberRequest,
+    CoordinatorRequest,
 )
 from services.identity import get_current_user, require_auth, require_role
 from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 from services.workgroup_membership import join_or_request_workgroup_membership
+from services.dp_welcome import (
+    invalidate_dp_welcomes_for_workgroup,
+    stale_member_welcome_variants,
+)
 
 bp = Blueprint('group', __name__, url_prefix='')
 
@@ -196,7 +201,11 @@ def group_detail(acronym):
     <script>
     async function showGroupError(message) {{
         if (window.GhDialog) {{
-            await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Workgroup action failed', message: message || 'Request failed', variant: 'danger' }}), variant: 'info' }});
+            await GhDialog.alert({{
+                title: 'Workgroup action failed',
+                message: message || 'Request failed',
+                variant: 'danger',
+            }});
         }}
     }}
     async function joinGroup(acronym) {{
@@ -217,7 +226,10 @@ def group_detail(acronym):
     async function addChair(acronym) {{
         const input = document.getElementById(`new-chair-input-${{acronym}}`);
         const chairName = input?.value?.trim();
-        if (!chairName) {{ await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Missing name', message: 'Please enter a chair name.', variant: 'warning' }}), variant: 'info' }}); return; }}
+        if (!chairName) {{
+            await GhDialog.alert({{ title: 'Missing name', message: 'Please enter a chair name.', variant: 'warning' }});
+            return;
+        }}
         fetch(`/group/${{acronym}}/add_chair`, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify({{ chair_name: chairName }}) }})
         .then(r => r.json()).then(d => {{ if (d.success) location.reload(); else showGroupError(d.message); }})
         .catch(() => showGroupError('Error adding chair'));
@@ -232,7 +244,10 @@ def group_detail(acronym):
     async function removeChair(acronym) {{
         const select = document.getElementById(`chair-select-${{acronym}}`);
         const selected = Array.from(select?.selectedOptions || []);
-        if (!selected.length) {{ await GhDialog.await GhDialog.alert({{ title: 'Notice', message: ({{ title: 'Select chairs', message: 'Please select chairs to remove.', variant: 'warning' }}), variant: 'info' }}); return; }}
+        if (!selected.length) {{
+            await GhDialog.alert({{ title: 'Select chairs', message: 'Please select chairs to remove.', variant: 'warning' }});
+            return;
+        }}
         const ok = await GhDialog.confirm({{ title: 'Remove chairs', message: 'Remove ' + selected.length + ' chair(s)?', variant: 'warning', confirmLabel: 'Remove' }});
         if (ok) {{
             const chairIds = selected.map(o => parseInt(o.value));
@@ -309,6 +324,19 @@ def leave_group(acronym):
         return jsonify({'success': False, 'message': f'Not a member (user_id={user_id}, group={full_acronym})'}), 400
 
     db.session.delete(membership)
+    db.session.flush()
+
+    # A welcome guide is only valid while its grant is. Archive the member
+    # welcome now that membership is gone; an approved lead role (and its
+    # combined welcome) is untouched because leaving does not revoke a role.
+    workgroup = Workgroup.query.filter_by(acronym=full_acronym).first()
+    stale = stale_member_welcome_variants(user_id=user_id, workgroup=workgroup)
+    if stale:
+        invalidate_dp_welcomes_for_workgroup(
+            user_id=user_id,
+            workgroup=workgroup,
+            variants=stale,
+        )
     db.session.commit()
     return jsonify({'success': True, 'message': 'Left successfully'})
 

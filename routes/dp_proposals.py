@@ -1,5 +1,7 @@
 """DP Proposal API and admin dashboard (scaffolding)."""
 import html as html_mod
+import os
+import secrets
 
 from flask import Blueprint, current_app, jsonify, redirect, request, session, url_for
 
@@ -9,6 +11,7 @@ from services.dp_proposals import (
     accept_proposal,
     can_accept_amendments,
     can_manage_amendments,
+    consider_proposal,
     create_dp_proposal,
     dashboard_dp_activity,
     decline_proposal,
@@ -22,12 +25,24 @@ from services.dp_proposals import (
     expected_proposal_scope,
     workgroup_for_submission,
 )
+from services.api_auth import get_api_user, require_api_auth
 from services.identity import get_current_user, require_auth, require_role
 from services.rendering import generate_user_menu, render_page
 from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 
 bp = Blueprint('dp_proposals', __name__, url_prefix='/api/doc/draft')
 admin_bp = Blueprint('dp_proposals_admin', __name__, url_prefix='')
+
+
+def _trusted_hermes_origin() -> bool:
+    secret = (os.environ.get('HERMES_ORIGIN_SECRET') or '').strip()
+    supplied = (request.headers.get('X-Hermes-Origin') or '').strip()
+    if not secret or not supplied:
+        return False
+    return secrets.compare_digest(
+        supplied.encode('utf-8'),
+        secret.encode('utf-8'),
+    )
 
 
 @admin_bp.route('/dp-proposals/')
@@ -103,9 +118,9 @@ def list_proposals(draft_ref):
 
 
 @bp.route('/<path:draft_ref>/proposals/', methods=['POST'])
-@require_auth
+@require_api_auth
 def create_proposal(draft_ref):
-    current_user = get_current_user()
+    current_user = get_api_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     user = user_from_session(current_user)
@@ -153,6 +168,7 @@ def create_proposal(draft_ref):
         scope=payload['scope'],
         rationale=payload.get('rationale'),
         reference_url=payload.get('reference_url'),
+        source_channel='hermes' if _trusted_hermes_origin() else 'gov-hub',
     )
     db.session.flush()  # ensure row.id is populated before emit_event reads it
     from services.events import emit_event
@@ -174,6 +190,26 @@ def create_proposal(draft_ref):
             'scope': row.scope,
         },
     )
+    from services.contribution_pipeline import enqueue_contribution_pipeline_event, pipeline_payload_for_proposal
+
+    try:
+        enqueue_contribution_pipeline_event(
+            subject_type='dp_proposal',
+            subject_id=row.id,
+            event_type='submitted',
+            source_channel=row.source_channel or 'gov-hub',
+            payload=pipeline_payload_for_proposal(row, submission),
+        )
+    except Exception as e:
+        try:
+            from flask import current_app
+            current_app.logger.warning(
+                '[ContributionPipeline] Failed to enqueue submitted for proposal %s: %s',
+                row.id,
+                e,
+            )
+        except RuntimeError:
+            pass
     db.session.commit()
     return jsonify({'proposal': row.to_dict(), 'status_label': row.status_label()}), 201
 
@@ -192,8 +228,9 @@ def accept_proposal_route(draft_ref, proposal_id):
     if guard:
         return guard
 
-    if not can_accept_amendments(current_user):
-        return jsonify({'error': 'Only site administrators can accept amendments'}), 403
+    wg = workgroup_for_submission(submission)
+    if not can_accept_amendments(current_user, wg):
+        return jsonify({'error': 'You do not have permission to accept amendments on this document'}), 403
 
     proposal = DpProposal.query.filter_by(id=proposal_id, submission_id=submission.id).first()
     if not proposal:
@@ -208,6 +245,40 @@ def accept_proposal_route(draft_ref, proposal_id):
         'proposal': proposal.to_dict(),
         'status_label': proposal.status_label(),
         'message': 'Patch merged',
+    })
+
+
+@bp.route('/<path:draft_ref>/proposals/<proposal_id>/consider/', methods=['POST'])
+@require_auth
+def consider_proposal_route(draft_ref, proposal_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    submission, err = resolve_submission_for_proposals(draft_ref)
+    if err:
+        return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
+
+    wg = workgroup_for_submission(submission)
+    if not can_manage_amendments(current_user, wg):
+        return jsonify({'error': 'Not authorized to review proposals for this DP'}), 403
+
+    proposal = DpProposal.query.filter_by(id=proposal_id, submission_id=submission.id).first()
+    if not proposal:
+        return jsonify({'error': 'Proposal not found'}), 404
+    if proposal.status != 'pending':
+        return jsonify({'error': f'Cannot mark proposal as considered in status {proposal.status}'}), 400
+
+    user = user_from_session(current_user)
+    consider_proposal(proposal, user.id if user else current_user.get('id'))
+    db.session.commit()
+    return jsonify({
+        'proposal': proposal.to_dict(),
+        'status_label': proposal.status_label(),
+        'message': 'Marked as considered',
     })
 
 
@@ -336,11 +407,11 @@ def assist_generate_route(draft_ref):
 
 
 @bp.route('/<path:draft_ref>/reader-comments/', methods=['POST'])
-@require_auth
+@require_api_auth
 def create_reader_comment_route(draft_ref):
     from services.document_reader_comments import create_reader_comment_for_draft
 
-    current_user = get_current_user()
+    current_user = get_api_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     body = request.get_json(silent=True) or {}
@@ -348,6 +419,7 @@ def create_reader_comment_route(draft_ref):
         draft_ref,
         author_user_id=current_user['id'],
         body=body,
+        source_channel='hermes' if _trusted_hermes_origin() else 'gov-hub',
     )
     return jsonify(resp), status
 

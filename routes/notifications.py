@@ -48,6 +48,7 @@ def notifications_hub():
 
     notif_rows = (
         UserNotification.query.filter_by(user_id=uid)
+        .filter(UserNotification.archived_at.is_(None))
         .order_by(UserNotification.created_at.desc())
         .limit(50)
         .all()
@@ -136,7 +137,9 @@ def api_list_my_notifications():
     limit = min(int(request.args.get('limit', 50)), 100)
     offset = int(request.args.get('offset', 0))
     unread_only = request.args.get('unread') == '1'
-    q = UserNotification.query.filter_by(user_id=current['id'])
+    q = UserNotification.query.filter_by(user_id=current['id']).filter(
+        UserNotification.archived_at.is_(None)
+    )
     if unread_only:
         q = q.filter(UserNotification.read_at.is_(None))
     rows = q.order_by(UserNotification.created_at.desc()).offset(offset).limit(limit).all()

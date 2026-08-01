@@ -37,6 +37,9 @@ from services.workgroup_membership import (
     join_or_request_workgroup_membership,
     user_workgroup_status,
 )
+from services.workgroup_links import is_dp_workgroup
+from services.dp_welcome import deliver_dp_welcome
+from services.workgroup_nomination_flow import resolve_nominee_identity
 from services.workgroup_positions import (
     WORKGROUP_POSITIONS,
     ACTIVE_NOMINATION_STATUSES,
@@ -209,9 +212,19 @@ def api_workgroup_join(workgroup_id):
         user=user,
     )
     if result.get('duplicate'):
+        db.session.rollback()
         return jsonify({'error': 'You are already a member of this workgroup'}), 400
     if result.get('status') == 'already_pending':
         return jsonify({'error': 'Membership request already pending'}), 400
+
+    # Membership + welcome notification share one commit.
+    welcome_url = None
+    if result.get('joined') and is_dp_workgroup(workgroup):
+        welcome_url = deliver_dp_welcome(
+            user_id=user.id,
+            workgroup=workgroup,
+            variant='member',
+        )
     db.session.commit()
 
     if result.get('pending_approval'):
@@ -220,7 +233,10 @@ def api_workgroup_join(workgroup_id):
             'pending_approval': True,
             'message': 'Membership requested; pending approval',
         })
-    return jsonify({'success': True, 'message': 'Successfully joined workgroup'})
+    payload = {'success': True, 'message': 'Successfully joined workgroup'}
+    if welcome_url:
+        payload['welcome_url'] = welcome_url
+    return jsonify(payload)
 
 
 @bp.route('/<string:workgroup_id>/nominate/', methods=['POST'])
@@ -244,8 +260,6 @@ def api_workgroup_nominate(workgroup_id):
 
     if not nominee_name:
         return jsonify({'error': 'Nominee name is required'}), 400
-    if not _is_valid_email(nominee_email):
-        return jsonify({'error': 'A valid nominee email is required'}), 400
     if not _is_valid_profile_url(nominee_profile_url):
         return jsonify({'error': 'A valid CV or LinkedIn URL is required'}), 400
     if not statement:
@@ -255,12 +269,17 @@ def api_workgroup_nominate(workgroup_id):
     if workgroup.approval_status != 'approved':
         return jsonify({'error': 'Workgroup must be approved before nominating'}), 400
 
-    if nominee_user_id:
-        nominee_user = User.query.get(nominee_user_id)
-        if not nominee_user:
-            return jsonify({'error': 'Selected GovHub user was not found'}), 400
-        if not nominee_email and nominee_user.email:
-            nominee_email = _normalize_email(nominee_user.email)
+    # Same server-authoritative nominee binding as routes/workgroups.py.
+    identity = resolve_nominee_identity(
+        nominee_user_id=nominee_user_id,
+        nominee_email=nominee_email,
+    )
+    if identity.error:
+        return jsonify({'error': identity.error}), 400
+    nominee_user_id = identity.user_id
+    nominee_email = identity.email
+    if not _is_valid_email(nominee_email):
+        return jsonify({'error': 'A valid nominee email is required'}), 400
 
     is_self_nomination = detect_self_nomination(
         nominee_user_id=nominee_user_id,
@@ -299,7 +318,9 @@ def api_workgroup_nominate(workgroup_id):
     )
     db.session.add(chair)
     db.session.flush()
-    send_nomination_submitted(chair)
+    # The nomination, its response token and the in-app notifications commit
+    # together; email delivery is reported and never rolls the nomination back.
+    email_ok = send_nomination_submitted(chair)
     db.session.commit()
 
     pos_label = position_label(position_key)
@@ -307,4 +328,4 @@ def api_workgroup_nominate(workgroup_id):
         message = f'Your {pos_label} nomination was submitted and is pending administrator approval.'
     else:
         message = f'Nomination sent. {nominee_name} will receive an email with your statement and a link to accept or decline.'
-    return jsonify({'success': True, 'message': message})
+    return jsonify({'success': True, 'message': message, 'notifications_sent': email_ok})
