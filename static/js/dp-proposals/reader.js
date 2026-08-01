@@ -110,6 +110,28 @@
     return 'bg-primary';
   }
 
+  var APPLICABILITY_LABELS = {
+    applies: 'Applies to this text',
+    'needs-review': 'Needs re-anchoring',
+    orphaned: 'Text not found',
+  };
+
+  /**
+   * Chip telling the reader whether a patch still lines up with the revision
+   * body on screen. `applies` is the normal case, so it stays unlabelled to
+   * keep the panel quiet; only mismatches are called out.
+   */
+  function applicabilityBadgeHtml(p) {
+    var value = p && p.applicability;
+    if (!value || value === 'applies') return '';
+    var text = APPLICABILITY_LABELS[value] || value;
+    var hint = (p && p.applicability_hint) || text;
+    return (
+      '<span class="badge dp-proposal-applicability dp-proposal-applicability-' +
+      esc(value) + '" title="' + esc(hint) + '">' + esc(text) + '</span>'
+    );
+  }
+
   function setDisplayMode(mode) {
     displayMode = mode;
     localStorage.setItem('dpProposalDisplay:' + draftRef, displayMode);
@@ -461,13 +483,14 @@
   function renderProposalHeaderHtml(p) {
     var author =
       '<small class="text-muted">' + esc(p.author_name || 'Anonymous') + '</small>';
+    var applicability = applicabilityBadgeHtml(p);
     if (p.rationale) {
       return '<div class="d-flex justify-content-end align-items-start gap-2 dp-proposal-list-header">' +
-        author + '</div>';
+        applicability + author + '</div>';
     }
     return '<div class="d-flex justify-content-between align-items-start gap-2 dp-proposal-list-header">' +
       '<span class="badge ' + statusBadgeClass(p.status) + '">' + esc(p.status_label) + '</span>' +
-      author + '</div>';
+      applicability + author + '</div>';
   }
 
   function referenceHost(url) {
@@ -478,8 +501,16 @@
     }
   }
 
+  function renderProposalProvenanceHtml(p) {
+    if (!p || !p.created_on_revision_label) return '';
+    return (
+      '<div class="small text-muted dp-proposal-provenance">Written against ' +
+      esc(p.created_on_revision_label) + '</div>'
+    );
+  }
+
   function renderProposalMetaHtml(p) {
-    var html = '';
+    var html = renderProposalProvenanceHtml(p);
     if (p.rationale) {
       html += '<div class="dp-proposal-meta-block"><div class="small text-muted mb-1">Rationale</div>' +
         '<div class="dp-proposal-rationale">' + esc(p.rationale) + '</div>';
@@ -1257,6 +1288,63 @@
     updateDisplayModeTrigger();
   }
 
+  function unlocatedEntries() {
+    return anchorRegistry.filter(function (entry) {
+      return entry.unlocated && passageActivityCount(entry) > 0;
+    });
+  }
+
+  function unmatchedPassageText(entry) {
+    if (entry.proposals && entry.proposals[0]) {
+      return entry.proposals[0].original_text || '';
+    }
+    if (entry.comments && entry.comments[0]) {
+      var c = entry.comments[0];
+      return c.original_text || c.passage_text || c.text || '';
+    }
+    return '';
+  }
+
+  /**
+   * Patches and comments are scoped to the document family, so a later revision
+   * can drop the text an older patch targets. Those anchors have nowhere to pin
+   * to, so they get a toolbar entry instead of disappearing from the reader.
+   */
+  function refreshUnmatchedControl() {
+    var wrap = document.getElementById('dpProposalUnmatchedWrap');
+    if (!wrap) return;
+    var entries = unlocatedEntries();
+    if (!entries.length) {
+      wrap.classList.add('d-none');
+      return;
+    }
+    wrap.classList.remove('d-none');
+    var total = entries.reduce(function (sum, entry) {
+      return sum + passageActivityCount(entry);
+    }, 0);
+    var countEl = document.getElementById('dpProposalUnmatchedCount');
+    if (countEl) countEl.textContent = String(total);
+    var menu = document.getElementById('dpProposalUnmatchedMenu');
+    if (!menu) return;
+    menu.innerHTML =
+      '<li><h6 class="dropdown-header">Not in the revision you are reading</h6></li>' +
+      entries.map(function (entry) {
+        return (
+          '<li><button type="button" class="dropdown-item dp-proposal-unmatched-option" ' +
+          'data-hash="' + esc(entry.hash) + '">' +
+          '<span class="badge dp-proposal-applicability dp-proposal-applicability-needs-review me-2">' +
+          passageActivityCount(entry) + '</span>' +
+          esc(truncateText(unmatchedPassageText(entry), 70)) +
+          '</button></li>'
+        );
+      }).join('') +
+      '<li><hr class="dropdown-divider"></li>' +
+      '<li><span class="dropdown-item-text small text-muted">' +
+      'These passages were changed in a later revision. Patches and comments stay ' +
+      'with the whole document, so they need re-anchoring before they can be merged.' +
+      '</span></li>';
+  }
+
   function injectToolbarControls() {
     var inner = document.querySelector('.draft-reader-toolbar-inner');
     if (!inner || document.getElementById('dpProposalToolbarControls')) return;
@@ -1264,6 +1352,16 @@
     wrap.id = 'dpProposalToolbarControls';
     wrap.className = 'draft-reader-proposals-controls ms-auto';
     wrap.innerHTML =
+      '<div class="dropdown dp-proposal-unmatched-dropdown d-none" id="dpProposalUnmatchedWrap">' +
+      '<button type="button" class="btn btn-sm btn-outline-warning dropdown-toggle" ' +
+      'id="dpProposalUnmatchedTrigger" data-bs-toggle="dropdown" aria-expanded="false" ' +
+      'title="Patches whose original text is not in this revision">' +
+      '<i class="fas fa-triangle-exclamation me-1" aria-hidden="true"></i>' +
+      '<span id="dpProposalUnmatchedCount">0</span> unmatched' +
+      '</button>' +
+      '<ul class="dropdown-menu dropdown-menu-end dp-proposal-unmatched-menu" ' +
+      'id="dpProposalUnmatchedMenu" aria-label="Unmatched patches"></ul>' +
+      '</div>' +
       '<div class="dropdown dp-proposal-display-dropdown">' +
       '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle dp-proposal-display-trigger" ' +
       'id="dpProposalDisplayTrigger" data-bs-toggle="dropdown" aria-expanded="false" ' +
@@ -1276,6 +1374,14 @@
       '</div>';
     inner.appendChild(wrap);
     refreshDisplayModeOptions();
+    refreshUnmatchedControl();
+    document.getElementById('dpProposalUnmatchedMenu').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-hash]');
+      if (!btn) return;
+      whenBootstrapReady(function () {
+        openListModal(btn.getAttribute('data-hash'));
+      });
+    });
     document.getElementById('dpProposalDisplayMenu').addEventListener('click', function (e) {
       var btn = e.target.closest('[data-mode]');
       if (!btn) return;
@@ -2336,6 +2442,7 @@
     });
     positionAllPins();
     positionFloatingBadges();
+    refreshUnmatchedControl();
     syncDisplayMode();
     scrollToGhAnchorFromLocation();
   }

@@ -53,10 +53,11 @@ def _find_approved_dp_submission():
 
 
 def _sample_passage_from_submission(sub):
+    """Passage from the body a reader is served (the latest approved revision)."""
     from services.dp_proposals import load_submission_plain_document_text
     import re
 
-    body = load_submission_plain_document_text(sub)
+    body = load_submission_plain_document_text(sub, follow_revisions=True)
     if not body:
         return None
     for sentence in re.split(r'(?<=[.!?])\s+', body):

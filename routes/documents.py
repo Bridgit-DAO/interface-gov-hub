@@ -859,7 +859,7 @@ def draft_reader(draft_name):
     from services.rendering import _format_base_template, generate_user_menu
     from config import BUILD_NUMBER
 
-    draft, submission = build_draft_context(draft_name)
+    draft, submission = build_draft_context(draft_name, prefer_latest_revision=True)
     if not draft:
         return 'Document not found', 404
 
@@ -867,10 +867,13 @@ def draft_reader(draft_name):
     title_escaped = html_escape(str(draft.get('title') or ''))
     doc_href = quote(str(draft.get('name') or draft_name), safe='')
     pdf_height = 'calc(100vh - 11rem)'
+    # File links must address the row being rendered, which is the latest
+    # approved revision when the URL used an ML number.
+    body_ref = str(draft.get('name') or draft_name)
     document_content, render_html, pages, words = load_draft_document_body(
         draft,
         submission,
-        draft_name,
+        body_ref,
         pdf_iframe_height=pdf_height,
     )
 
@@ -933,6 +936,20 @@ def draft_reader(draft_name):
                 f'<a href="/doc/draft/{doc_href}/patches/" class="btn btn-sm btn-outline-secondary" '
                 f'id="draftReaderPatchesLink">'
                 f'<i class="fas fa-code-branch me-1"></i>Patches ({patch_count})</a>'
+            )
+
+    revision_chip = ''
+    if submission:
+        from services.submissions import revision_display_label
+
+        revision_label = revision_display_label(submission)
+        if revision_label:
+            revision_chip = (
+                '<span class="draft-reader-sep">·</span>'
+                f'<a href="/doc/draft/{doc_href}/revisions/" class="draft-reader-revision" '
+                'title="Patches and comments are scoped to the whole document. '
+                'Highlights show what still applies to this revision body.">'
+                f'{html_escape(revision_label)}</a>'
             )
 
     dp_proposal_assets = render_dp_proposal_reader_assets(
@@ -1023,6 +1040,15 @@ def draft_reader(draft_name):
       .draft-reader-meta .draft-reader-stats {{
         color: var(--text-secondary);
       }}
+      .draft-reader-revision {{
+        color: var(--text-secondary);
+        text-decoration: none;
+        border-bottom: 1px dotted currentColor;
+      }}
+      .draft-reader-revision:hover,
+      .draft-reader-revision:focus {{
+        color: var(--accent-color);
+      }}
       .draft-reader-sep {{
         flex-shrink: 0;
         color: var(--text-muted);
@@ -1071,6 +1097,7 @@ def draft_reader(draft_name):
             <strong>{html_escape(display_id)}</strong>
             <span class="draft-reader-sep">·</span>
             <span class="draft-reader-title" title="{title_escaped}">{title_escaped}</span>
+            {revision_chip}
             <span class="draft-reader-sep">·</span>
             <span class="draft-reader-stats">{int(pages)} pg</span>
           </div>
@@ -2639,6 +2666,81 @@ def update_draft_subscriptions(draft_name):
     return _redirect_after_subscription(draft_name)
 
 
+def _revisions_patch_summary(submission):
+    """Family patch stats for the revision timeline, or None when unavailable."""
+    if not submission:
+        return None
+    try:
+        from services.document_patches_page import patches_enabled_for_submission
+        from services.dp_proposals import family_patch_summary, resolve_canonical_submission
+
+        if not patches_enabled_for_submission(submission):
+            return None
+        canonical = resolve_canonical_submission(submission) or submission
+        return family_patch_summary(canonical)
+    except Exception:
+        current_app.logger.exception('Failed to build patch summary for revision timeline')
+        return None
+
+
+def _revision_patch_line(summary, submission_id) -> str:
+    """'Patches written against this revision' line inside one revision card."""
+    if not summary or not submission_id:
+        return ''
+    bucket = (summary.get('per_revision') or {}).get(submission_id)
+    if not bucket or not bucket.get('total'):
+        return ''
+    parts = []
+    if bucket.get('applies'):
+        applies = bucket['applies']
+        parts.append(
+            f'<span class="badge dp-proposal-applicability dp-proposal-applicability-applies">'
+            f'{applies} still {"applies" if applies == 1 else "apply"}</span>'
+        )
+    if bucket.get('needs-review'):
+        parts.append(
+            f'<span class="badge dp-proposal-applicability dp-proposal-applicability-needs-review">'
+            f'{bucket["needs-review"]} need re-anchoring</span>'
+        )
+    chips = ' '.join(parts)
+    return (
+        '<p class="mb-0 mt-2 small text-muted">'
+        f'<strong>Patches written on this revision:</strong> {bucket["total"]} {chips}</p>'
+    )
+
+
+def _family_patch_summary_html(summary, draft_name) -> str:
+    """Family-scope explainer above the revision list."""
+    if not summary:
+        return ''
+    counts = summary.get('counts') or {}
+    total = summary.get('total') or 0
+    chips = ''
+    if total:
+        chips = ' '.join(
+            f'<span class="badge dp-proposal-applicability dp-proposal-applicability-{key}">'
+            f'{value} {html_mod.escape(label)}</span>'
+            for key, value, label in (
+                ('applies', counts.get('applies', 0), 'apply to the revision served now'),
+                ('needs-review', counts.get('needs-review', 0), 'need re-anchoring'),
+            )
+            if value
+        )
+    patches_href = f'/doc/draft/{quote(str(draft_name), safe="")}/patches/'
+    return f'''
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260801applicability">
+    <div class="alert alert-secondary" role="note">
+      <div class="mb-2"><strong>{total} patch{'' if total == 1 else 'es'} on this document</strong> {chips}</div>
+      <p class="small mb-0">
+        <i class="fas fa-circle-info me-1" aria-hidden="true"></i>
+        Patches and comments are scoped to the whole document family, not to a single
+        revision. When you open a revision, highlights show what still applies to that
+        revision body; anything anchored to text a later revision removed is listed as
+        needing re-anchoring. <a href="{patches_href}">See all patches</a>.
+      </p>
+    </div>'''
+
+
 @bp.route('/doc/draft/<path:draft_name>/revisions/')
 def draft_revisions(draft_name):
     from services.rendering import _format_base_template, generate_user_menu
@@ -2700,6 +2802,11 @@ def draft_revisions(draft_name):
         Submission.status.in_(['approved', 'published'])
     ).order_by(Submission.revision_number.desc()).all()
 
+    patch_summary = _revisions_patch_summary(original_submission or submission)
+    latest_revision_id = all_revisions[0].id if all_revisions else (
+        original_submission.id if original_submission else None
+    )
+
     revisions_list_html = ""
     for rev in all_revisions:
         status_badge_class = {
@@ -2715,16 +2822,19 @@ def draft_revisions(draft_name):
             if wc_block else ''
         )
 
-        is_current = (rev.id == draft['name'])
-        current_badge = '<span class="badge bg-primary ms-2">Current</span>' if is_current else ''
+        is_current = (rev.id == latest_revision_id)
+        current_badge = (
+            '<span class="badge bg-primary ms-2">Currently served</span>' if is_current else ''
+        )
 
         rev_pages, rev_words = submission_file_pages_words(rev)
+        read_ref = quote(str(rev.draft_name or rev.id), safe='')
 
         revisions_list_html += f"""
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h6 class="mb-0">
-                    <a href="/doc/draft/{rev.id}/" class="text-decoration-none">Revision {rev.revision_number}</a>
+                    <a href="/doc/draft/{rev.id}/" class="text-decoration-none">Revision {html_mod.escape(rev.revision_number or '')}</a>
                     {current_badge}
                 </h6>
                 <span class="badge {status_badge_class}">{rev.status.title()}</span>
@@ -2733,31 +2843,40 @@ def draft_revisions(draft_name):
                 <p class="mb-2"><strong>Published:</strong> {rev.approved_at.strftime('%Y-%m-%d') if rev.approved_at and rev.status == 'approved' else (rev.submitted_at.strftime('%Y-%m-%d') if rev.submitted_at else 'N/A')}</p>
                 <p class="mb-2"><strong>Pages:</strong> {rev_pages} | <strong>Words:</strong> {rev_words}</p>
                 {what_changed_html}
+                {_revision_patch_line(patch_summary, rev.id)}
+                <a href="/doc/draft/{read_ref}/read/" class="btn btn-sm btn-outline-primary mt-2">
+                    <i class="fas fa-book-open me-1"></i>Read this revision
+                </a>
             </div>
         </div>
         """
 
+    original_read_ref = quote(
+        str((original_submission.draft_name if original_submission else '') or original_id),
+        safe='',
+    )
     revisions_html = f"""
                 <h4>Revision History</h4>
+                {_family_patch_summary_html(patch_summary, draft_name)}
                 {revisions_list_html if revisions_list_html else '<p class="text-muted">No revisions yet.</p>'}
 
                 <div class="card mt-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h6 class="mb-0">
                             <a href="/doc/draft/{original_id}/" class="text-decoration-none">Original Version (Rev 00)</a>
+                            {'<span class="badge bg-primary ms-2">Currently served</span>' if original_submission and original_submission.id == latest_revision_id else ''}
                         </h6>
                         <span class="badge bg-success">Approved</span>
                     </div>
                     <div class="card-body">
                         <p class="mb-2"><strong>Published:</strong> {original_submission.approved_at.strftime('%Y-%m-%d') if original_submission and original_submission.approved_at else (original_submission.submitted_at.strftime('%Y-%m-%d') if original_submission and original_submission.submitted_at else draft['date'])}</p>
-                        <p class="mb-0"><strong>Pages:</strong> {orig_pages} | <strong>Words:</strong> {orig_words}</p>
+                        <p class="mb-2"><strong>Pages:</strong> {orig_pages} | <strong>Words:</strong> {orig_words}</p>
+                        {_revision_patch_line(patch_summary, original_submission.id if original_submission else None)}
+                        <a href="/doc/draft/{original_read_ref}/read/" class="btn btn-sm btn-outline-primary mt-2">
+                            <i class="fas fa-book-open me-1"></i>Read this revision
+                        </a>
                     </div>
                 </div>
-
-    <div class="alert alert-info mt-3">
-        <i class="fas fa-info-circle me-2"></i>
-        Detailed revision history and diff viewing would be implemented in a full datatracker system.
-            </div>
     """
 
     content = f"""

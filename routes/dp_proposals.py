@@ -8,7 +8,10 @@ from flask import Blueprint, current_app, jsonify, redirect, request, session, u
 from extensions import db
 from models import DpProposal, Submission
 from services.dp_proposals import (
+    APPLICABILITY_HINTS,
+    APPLICABILITY_LABELS,
     accept_proposal,
+    applicability_counts,
     can_accept_amendments,
     can_manage_amendments,
     consider_proposal,
@@ -80,6 +83,18 @@ def patch_diff_route(patch_id):
     })
 
 
+def _serialize_proposal(row) -> dict:
+    """Patch JSON plus how it relates to the revision body being served."""
+    applicability = getattr(row, 'applicability', 'applies')
+    data = row.to_dict()
+    data['applicability'] = applicability
+    data['applicability_label'] = APPLICABILITY_LABELS.get(applicability, '')
+    data['applicability_hint'] = APPLICABILITY_HINTS.get(applicability, '')
+    data['created_on_revision'] = getattr(row, 'created_on_revision', None)
+    data['created_on_revision_label'] = getattr(row, 'created_on_revision_label', '')
+    return data
+
+
 def _submission_feature_guard(submission):
     from services.proposal_modes import is_mode_enabled, proposal_mode_for_submission
 
@@ -110,10 +125,13 @@ def list_proposals(draft_ref):
     return jsonify({
         'submission_id': submission.id,
         'draft_ref': draft_ref,
-        'proposals': [row.to_dict() for row in rows],
+        'proposals': [_serialize_proposal(row) for row in rows],
         'count': counts['total'],
         'counts_by_status': counts['by_status'],
         'counts_by_anchor': counts['by_anchor'],
+        'counts_by_applicability': applicability_counts(
+            getattr(row, 'applicability', 'applies') for row in rows
+        ),
     })
 
 
@@ -469,11 +487,11 @@ def read_meta(draft_ref):
     from services.draft_reader import load_draft_document_body, build_draft_context
     from services.dp_proposal_reader import build_read_meta
 
-    draft, sub = build_draft_context(draft_ref)
+    draft, sub = build_draft_context(draft_ref, prefer_latest_revision=True)
     if not draft or not sub:
         return jsonify({'error': 'Document not found'}), 404
     content, render_html, _, _ = load_draft_document_body(
-        draft, sub, draft_ref, pdf_iframe_height='800px'
+        draft, sub, str(draft.get('name') or draft_ref), pdf_iframe_height='800px'
     )
     return jsonify(build_read_meta(sub, draft_ref, render_html=render_html, document_content=content))
 

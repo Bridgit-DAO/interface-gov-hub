@@ -192,7 +192,7 @@ def render_dp_proposal_reader_assets(
     draft_ref_esc = html_mod.escape(draft_ref, quote=True)
 
     return f'''
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260604patch">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260801applicability">
     <div id="dp-proposal-reader-root" data-draft-ref="{draft_ref_esc}" data-meta="{meta_json}"></div>
 
     <div class="modal fade" id="dpProposalComposeModal" tabindex="-1" aria-labelledby="dpProposalComposeLabel" aria-hidden="true">
@@ -303,5 +303,5 @@ def render_dp_proposal_reader_assets(
 
     <script src="/static/js/dp-proposals/sentence-tools.js?v=20260527h"></script>
     <script src="/static/js/dp-proposals/proposal-display.js?v=20260526h"></script>
-    <script defer src="/static/js/dp-proposals/reader.js?v=20260607orphananchors"></script>
+    <script defer src="/static/js/dp-proposals/reader.js?v=20260801applicability"></script>
     '''

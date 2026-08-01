@@ -8,6 +8,9 @@ from urllib.parse import quote, urlencode
 
 from models import DpProposal, Submission
 from services.dp_proposals import (
+    APPLICABILITY_HINTS,
+    APPLICABILITY_LABELS,
+    applicability_counts,
     can_accept_amendments,
     can_manage_amendments,
     list_proposals_for_submission,
@@ -16,7 +19,7 @@ from services.dp_proposals import (
 )
 from services.proposal_modes import is_mode_enabled, mode_labels, proposal_mode_for_submission
 from services.read_navigation import read_page_url
-from services.submissions import get_submission_by_ref
+from services.submissions import get_submission_by_ref, served_revision_label
 from services.text_diff import build_diff_html, change_counts
 
 
@@ -51,7 +54,9 @@ def count_patches_for_draft_ref(draft_ref: str) -> int:
         return 0
     if not patches_enabled_for_submission(submission):
         return 0
-    return DpProposal.query.filter_by(submission_id=submission.id).count()
+    # Patches are family-scoped, and patches whose text exists in no revision are
+    # hidden, so count exactly what the patches page and reader will show.
+    return len(list_proposals_for_submission(submission.id))
 
 
 def _truncate(text: str, max_len: int = 160) -> str:
@@ -69,6 +74,62 @@ def _status_badge_class(status: str) -> str:
     if status == 'pending':
         return 'bg-primary'
     return 'bg-secondary'
+
+
+def _applicability_badge_class(applicability: str) -> str:
+    """Shared with the reader overlay (static/css/dp-proposals-reader.css)."""
+    return f'dp-proposal-applicability dp-proposal-applicability-{applicability}'
+
+
+def render_applicability_badge(applicability: str) -> str:
+    """Chip telling readers whether a patch still lines up with the served body."""
+    label = APPLICABILITY_LABELS.get(applicability)
+    if not label:
+        return ''
+    hint = APPLICABILITY_HINTS.get(applicability, '')
+    icon = {
+        'applies': 'fa-circle-check',
+        'needs-review': 'fa-triangle-exclamation',
+        'orphaned': 'fa-link-slash',
+    }.get(applicability, 'fa-circle-question')
+    return (
+        f'<span class="badge {_applicability_badge_class(applicability)} gh-patch-applicability" '
+        f'data-applicability="{html_mod.escape(applicability, quote=True)}" '
+        f'title="{html_mod.escape(hint, quote=True)}">'
+        f'<i class="fas {icon} me-1" aria-hidden="true"></i>{html_mod.escape(label)}</span>'
+    )
+
+
+SUMMARY_PHRASES = {
+    'applies': 'apply to this revision',
+    'needs-review': 'need re-anchoring',
+    'orphaned': 'have no matching text',
+}
+
+
+def render_applicability_summary(rows: List[DpProposal], revision_label: str = '') -> str:
+    """Family-scope note plus applicability tallies above the patch list."""
+    counts = applicability_counts(getattr(r, 'applicability', 'applies') for r in rows)
+    chips = ''.join(
+        f'<span class="badge {_applicability_badge_class(key)} me-2">'
+        f'{count} {html_mod.escape(SUMMARY_PHRASES[key])}</span>'
+        for key, count in counts.items()
+        if count
+    )
+    reading = (
+        f' You are looking at <strong>{html_mod.escape(revision_label)}</strong>.'
+        if revision_label else ''
+    )
+    return f'''
+    <div class="alert alert-secondary gh-patch-applicability-summary" role="note">
+      <div class="mb-2">{chips}</div>
+      <div class="small mb-0">
+        <i class="fas fa-circle-info me-1" aria-hidden="true"></i>
+        Patches and comments are scoped to the whole document family, not a single
+        revision.{reading} Applicability shows which patches still line up with the
+        text of the revision being served.
+      </div>
+    </div>'''
 
 
 def _group_patches_by_passage(rows: List[DpProposal]) -> List[dict]:
@@ -136,8 +197,15 @@ def render_patch_card(
     status_label = html_mod.escape(patch.status_label())
     badge_cls = _status_badge_class(status)
     created = patch.created_at.strftime('%b %d, %Y') if patch.created_at else ''
+    written_on = getattr(patch, 'created_on_revision_label', '')
+    written_on_html = (
+        f'<div class="small text-muted mb-2">Written against '
+        f'{html_mod.escape(written_on)}</div>'
+        if written_on else ''
+    )
     reader_href = html_mod.escape(_patch_reader_href(draft_ref, patch.id, return_to=return_to))
     diff_block = _render_diff_block(patch, labels)
+    applicability_badge = render_applicability_badge(getattr(patch, 'applicability', ''))
 
     rationale_block = ''
     if patch.rationale:
@@ -178,10 +246,14 @@ def render_patch_card(
     <div class="gh-patch-item card mb-2" id="patch-{html_mod.escape(patch.id)}">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-          <span class="badge {badge_cls}">{status_label}</span>
+          <div class="d-flex flex-wrap gap-2">
+            <span class="badge {badge_cls}">{status_label}</span>
+            {applicability_badge}
+          </div>
           <small class="text-muted text-nowrap">{html_mod.escape(created)}</small>
         </div>
-        <p class="small mb-2"><strong>{author}</strong></p>
+        <p class="small mb-1"><strong>{author}</strong></p>
+        {written_on_html}
         {diff_block}
         {rationale_block}
         {reference_block}
@@ -221,9 +293,14 @@ def render_passage_group(
 
     first_patch = (group.get('patches') or [None])[0]
     passage_link = ''
+    group_applicability = ''
     if first_patch:
         href = html_mod.escape(_patch_reader_href(draft_ref, first_patch.id, return_to=return_to))
         passage_link = f'<a href="{href}" class="btn btn-sm btn-link px-0">Open passage in reader</a>'
+        # Patches in a group share an anchor, so they share an applicability.
+        group_applicability = render_applicability_badge(
+            getattr(first_patch, 'applicability', '')
+        )
 
     return f'''
     <section class="gh-patch-passage-group mb-4">
@@ -232,6 +309,7 @@ def render_passage_group(
         <blockquote class="gh-patch-passage-quote mb-2">{passage}</blockquote>
         <div class="d-flex flex-wrap align-items-center gap-2">
           <span class="badge bg-light text-dark border">{html_mod.escape(count_label)}</span>
+          {group_applicability}
           {passage_link}
         </div>
       </div>
@@ -260,7 +338,8 @@ def render_patches_list_html(
     can_decline = bool(current_user and can_manage_amendments(current_user, wg))
     return_to = f'/doc/draft/{quote(draft_ref, safe="")}/patches/'
     groups = _group_patches_by_passage(rows)
-    return ''.join(
+    summary = render_applicability_summary(rows, served_revision_label(submission))
+    return summary + ''.join(
         render_passage_group(
             g,
             draft_ref=draft_ref,
