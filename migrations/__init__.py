@@ -3147,6 +3147,58 @@ def migrate_submission_prefix_code_v1(app):
         print(f'⚠️  Error in migrate_submission_prefix_code_v1: {e}')
 
 
+def migrate_submission_prefix_code_backfill_v1(app):
+    """Backfill submission.prefix_code for legacy NULL rows.
+
+    Derives from the layer's default prefix (``layer_prefix.is_default``) or
+    parses the first segment of ``ml_number`` (e.g. ``ML-Draft-030`` -> ``ML``).
+    Falls back to ``ML``. Idempotent – only updates rows with NULL/blank
+    ``prefix_code``.
+    """
+    try:
+        from services.layer_prefixes import resolve_prefix_code_for_backfill
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(submission)")
+        cols = [c[1] for c in cursor.fetchall()]
+        if 'prefix_code' not in cols:
+            conn.close()
+            print('✅ prefix_code backfill skipped (column not present yet)')
+            return
+
+        cursor.execute(
+            "SELECT s.id, s.ml_number, lp.prefix "
+            "FROM submission s "
+            "LEFT JOIN layer_prefix lp ON lp.layer_id = s.layer_id AND lp.is_default = 1 "
+            "WHERE s.prefix_code IS NULL OR TRIM(s.prefix_code) = ''"
+        )
+        rows = cursor.fetchall()
+        backfilled = 0
+        for sub_id, ml_number, layer_default_prefix in rows:
+            prefix = resolve_prefix_code_for_backfill(
+                layer_default_prefix=layer_default_prefix,
+                ml_number=ml_number,
+            )
+            cursor.execute(
+                "UPDATE submission SET prefix_code = ? "
+                "WHERE id = ? AND (prefix_code IS NULL OR TRIM(prefix_code) = '')",
+                (prefix, sub_id),
+            )
+            if cursor.rowcount:
+                backfilled += 1
+
+        conn.commit()
+        conn.close()
+        if backfilled:
+            print(f'✅ Backfilled prefix_code for {backfilled} submission(s)')
+        else:
+            print('✅ prefix_code backfill: nothing to update')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_submission_prefix_code_backfill_v1: {e}')
+
+
 # Tables in the dev DB that carry a `layer_id` column referencing `layer.id`.
 # We reassign dependent rows from a duplicate-layer-id to its survivor before
 # deleting the duplicate, so no user-facing data (submissions, workgroups,

@@ -220,6 +220,7 @@ def _build_all_documents_catalog():
             'submitted_at': draft.get('date') or '',
             'layer_id': draft.get('layer_id') or None,
             'layer_name': draft.get('layer_name') or None,
+            'layer_slug': draft.get('layer_slug') or None,
             'prefix': catalog_prefix_badge_value(
                 effective_prefix_for_draft(draft),
                 draft.get('ml_number'),
@@ -267,6 +268,10 @@ def _build_all_documents_catalog():
             title=display_submission.title,
             index=wg_index,
         )
+        layer = (
+            Layer.query.get(display_submission.layer_id)
+            if display_submission.layer_id else None
+        )
         all_docs.append({
             'name': display_submission.id,
             'title': display_submission.title or '',
@@ -289,9 +294,8 @@ def _build_all_documents_catalog():
             'revision_number': revision_number,
             'submitted_at': submitted_at,
             'layer_id': display_submission.layer_id or None,
-            'layer_name': (
-                display_submission.layer.name if getattr(display_submission, 'layer', None) else None
-            ),
+            'layer_name': layer.name if layer else None,
+            'layer_slug': layer.slug if layer else None,
             'prefix': catalog_prefix_badge_value(
                 effective_prefix_for_submission(display_submission),
                 display_submission.ml_number,
@@ -426,6 +430,22 @@ def all_documents():
         return encodeURIComponent(String(name || ''));
     }}
 
+    function renderPrefixBadge(d) {{
+        if (!d.prefix) return '';
+        var label = d.layer_name
+            ? ('View ' + d.layer_name)
+            : ('Draft prefix ' + d.prefix);
+        var inner = GhDirectory.esc(d.prefix);
+        if (d.layer_slug) {{
+            return '<a href="/layers/' + encodeURIComponent(d.layer_slug) + '/" '
+                + 'class="badge bg-secondary ms-1 text-decoration-none" '
+                + 'title="' + GhDirectory.esc(label) + '" aria-label="' + GhDirectory.esc(label) + '">'
+                + inner + '</a>';
+        }}
+        return '<span class="badge bg-secondary ms-1" title="' + GhDirectory.esc(label) + '" '
+            + 'aria-label="' + GhDirectory.esc(label) + '">' + inner + '</span>';
+    }}
+
     function renderDocCards(docs) {{
         return docs.map(function(d) {{
             const displayId = GhDirectory.esc(d.ml_number || d.name || '');
@@ -437,9 +457,7 @@ def all_documents():
             const layerBadge = d.layer_name
                 ? '<span class="badge bg-info ms-1">' + GhDirectory.esc(d.layer_name) + '</span>'
                 : '';
-            const prefixBadge = d.prefix
-                ? '<span class="badge bg-secondary ms-1">' + GhDirectory.esc(d.prefix) + '</span>'
-                : '';
+            const prefixBadge = renderPrefixBadge(d);
             return '<div class="col-md-6 document-card"><div class="card"><div class="card-body">'
                 + '<h5 class="card-title document-title"><a href="/doc/draft/' + href + '/">' + displayId + '</a>' + revBadge + layerBadge + prefixBadge + '</h5>'
                 + '<p class="card-text">' + GhDirectory.esc(d.title || '') + '</p>'
@@ -459,8 +477,9 @@ def all_documents():
         const rows = docs.map(function(d) {{
             const displayId = GhDirectory.esc(d.ml_number || d.name || '');
             const href = docHref(d.name);
+            const prefixBadge = renderPrefixBadge(d);
             return '<tr>'
-                + '<td><a href="/doc/draft/' + href + '/">' + displayId + '</a></td>'
+                + '<td><a href="/doc/draft/' + href + '/">' + displayId + '</a>' + prefixBadge + '</td>'
                 + '<td class="doc-all-title-cell" title="' + GhDirectory.esc(d.title || '') + '">' + GhDirectory.esc(d.title || '') + '</td>'
                 + '<td><span class="badge bg-secondary">' + GhDirectory.esc(d.status || '') + '</span></td>'
                 + '<td>' + GhDirectory.esc(d.revision_number || d.rev || '00') + '</td>'

@@ -157,6 +157,7 @@ def init_db(app):
         migrate_layer_prefix_v1(app)
         migrate_submission_submitter_user_id_v1(app)
         migrate_submission_prefix_code_v1(app)
+        migrate_submission_prefix_code_backfill_v1(app)
         migrate_layer_unique_v1(app)
         migrate_workgroup_member_unique_v1(app)
         migrate_user_notification_archived_at_v1(app)

@@ -77,13 +77,35 @@ def effective_prefix_for_draft(draft: dict) -> str:
     )
 
 
-def catalog_prefix_badge_value(effective_prefix: str, ml_number: object = None) -> Optional[str]:
-    """Return prefix text for /doc/all/ badge, or None when redundant with ml_number."""
-    prefix = _normalize_prefix(effective_prefix)
-    if not prefix:
-        return None
+def parse_prefix_from_ml_number(ml_number: object = None) -> Optional[str]:
+    """Parse the leading two-letter token from an ml_number (e.g. ML-Draft-030 -> ML)."""
     ml = (str(ml_number) if ml_number is not None else '').strip()
-    if ml and ml.upper().startswith(f'{prefix}-'):
+    if not ml or '-' not in ml:
+        return None
+    head = _normalize_prefix(ml.split('-', 1)[0])
+    return head if is_valid_prefix_format(head) else None
+
+
+def resolve_prefix_code_for_backfill(
+    *,
+    layer_default_prefix: object = None,
+    ml_number: object = None,
+) -> str:
+    """Derive a stored prefix_code for legacy rows (layer default, ml_number, then ML)."""
+    layer_default = _normalize_prefix(layer_default_prefix)
+    if layer_default and is_valid_prefix_format(layer_default):
+        return layer_default
+    parsed = parse_prefix_from_ml_number(ml_number)
+    if parsed:
+        return parsed
+    return 'ML'
+
+
+def catalog_prefix_badge_value(effective_prefix: str, ml_number: object = None) -> Optional[str]:
+    """Return prefix text for /doc/all/ badge when a prefix is resolved."""
+    del ml_number  # retained for call-site compatibility
+    prefix = _normalize_prefix(effective_prefix)
+    if not prefix or not is_valid_prefix_format(prefix):
         return None
     return prefix
 
