@@ -21,6 +21,7 @@ def test_is_desirable_properties_collection_document_matches_dp_titles():
     assert is_desirable_properties_collection_document('DP1 - Federated Auth & Accountability')
     assert is_desirable_properties_collection_document('DP22 – Civic Memory & Sensemaking Continuity')
     assert is_desirable_properties_collection_document(DESIRABLE_PROPERTIES_META_LAYER_TITLE)
+    assert is_desirable_properties_collection_document('The Desirable Properties of a Meta-Layer')
 
 
 def test_is_desirable_properties_collection_document_excludes_other_docs():

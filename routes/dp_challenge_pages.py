@@ -235,7 +235,7 @@ def _render_prelaunch_hub_page(
                 </li>
                 <li>
                     Review and comment on the
-                    <a href="https://book.desirableproperties.org" target="_blank" rel="noopener" class="alert-link">0.77 Desirable Properties book</a>.
+                    <a href="https://book.desirableproperties.org" target="_blank" rel="noopener" class="alert-link">The Layered Web (v0.77)</a>.
                 </li>
             </ul>
         </div>

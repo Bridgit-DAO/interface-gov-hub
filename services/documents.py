@@ -68,7 +68,10 @@ DOC_COLLECTION_DESIRABLE_PROPERTIES = 'desirable-properties'
 
 # Title of the ML-Draft that isn't itself a numbered "DPn" draft but belongs
 # in the same external deep-link collection as the DP1..DPn drafts.
-DESIRABLE_PROPERTIES_META_LAYER_TITLE = 'The Desirable Properties of a Meta-Layer'
+DESIRABLE_PROPERTIES_META_LAYER_TITLE = 'The Layered Web: The Desirable Properties of a Meta-Layer'
+_DESIRABLE_PROPERTIES_META_LAYER_LEGACY_TITLES = frozenset({
+    'The Desirable Properties of a Meta-Layer',
+})
 
 
 def is_desirable_properties_collection_document(title: str) -> bool:
@@ -78,7 +81,10 @@ def is_desirable_properties_collection_document(title: str) -> bool:
     t = (title or '').strip()
     if extract_dp_number_from_title(t) is not None:
         return True
-    return t.casefold() == DESIRABLE_PROPERTIES_META_LAYER_TITLE.casefold()
+    known_titles = {DESIRABLE_PROPERTIES_META_LAYER_TITLE.casefold()} | {
+        legacy.casefold() for legacy in _DESIRABLE_PROPERTIES_META_LAYER_LEGACY_TITLES
+    }
+    return t.casefold() in known_titles
 
 
 def filter_documents_by_collection(documents: list, collection: str) -> list:
