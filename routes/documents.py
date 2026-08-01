@@ -350,12 +350,12 @@ def all_documents():
         '<button type="button" class="btn btn-outline-secondary btn-sm" id="doc-view-list" onclick="setDocView(\'list\')">List</button>'
         '</div>'
     )
-    doc_header_actions = (
-        f'<a href="{submit_url}" class="btn btn-primary btn-sm me-2">Submit Draft</a>'
+    doc_toolbar_actions = (
+        f'<a href="{submit_url}" class="btn btn-primary btn-sm">Submit Draft</a>'
         + doc_view_actions
     )
     layer_filter_col = (
-        '<div class="col-md-4">'
+        '<div class="col-md-4 doc-all-filter-layer">'
         '<label class="form-label gh-filter-label" for="doc-filter-layer-input">Layer</label>'
         '<div class="gh-typeahead" id="doc-filter-layer-typeahead" data-gh-typeahead>'
         '<div class="gh-typeahead-control">'
@@ -392,14 +392,13 @@ def all_documents():
             'Docs & Drafts',
             page_lead,
             'fa-file-alt',
-            actions_html=doc_header_actions,
         )}
         {dp_collection_notice_html}
         {gh_filter_row(
             gh_directory_toolbar(
                 search_placeholder='Search documents…',
-                search_col='col-md-4',
-                sort_col='col-md-2',
+                search_col='col-md-5 doc-all-filter-search',
+                sort_col='col-md-3 doc-all-filter-sort',
                 extra_cols=layer_filter_col,
                 sort_default='recent',
                 sort_options=(
@@ -412,7 +411,10 @@ def all_documents():
                 ),
             )
         )}
-        <p class="text-muted small mb-3" id="doc-all-count"></p>
+        <div class="doc-all-toolbar-row mb-3">
+            <p class="text-muted small mb-0" id="doc-all-count"></p>
+            <div class="doc-all-toolbar-actions">{doc_toolbar_actions}</div>
+        </div>
         <div id="doc-all-container"></div>
     </div>
     <script>
@@ -451,15 +453,23 @@ def all_documents():
         return parts.filter(Boolean).join('<span class="doc-card-middot"> · </span>');
     }}
 
-    function renderDocMetaInline(d) {{
-        var authors = Array.isArray(d.authors) ? d.authors.join(', ') : (d.authors || 'N/A');
+    function renderDocStatsInline(d) {{
         var revPart = (d.is_revision && d.revision_number)
             ? 'Revision ' + GhDirectory.esc(d.revision_number) + ' · ' : '';
         return revPart
             + (d.pages || 1) + ' pages · '
-            + (d.words || 0) + ' words · '
-            + 'Authors: ' + GhDirectory.esc(authors) + ' · '
-            + 'Date: ' + GhDirectory.esc(d.date || '');
+            + (d.words || 0) + ' words';
+    }}
+
+    function renderDocAuthorsDateRow(d) {{
+        var authors = Array.isArray(d.authors) ? d.authors.join(', ') : (d.authors || '');
+        var parts = [];
+        if (authors) parts.push(GhDirectory.esc(authors));
+        if (d.date) parts.push(GhDirectory.esc(d.date));
+        if (!parts.length) return '';
+        return '<div class="doc-card-meta-row text-muted small mb-2">'
+            + renderDocMiddotJoin(parts)
+            + '</div>';
     }}
 
     function renderDocSecondaryRow(d, href) {{
@@ -470,10 +480,11 @@ def all_documents():
             '<a href="' + draftUrl + '">' + displayId + '</a>',
             layerLink,
         ]);
-        return '<div class="doc-card-secondary text-muted small mb-2">'
+        return '<div class="doc-card-secondary text-muted small mb-1">'
             + '<span class="doc-card-secondary-left">' + secondaryLeft + '</span>'
-            + '<span class="doc-card-secondary-right">' + renderDocMetaInline(d) + '</span>'
-            + '</div>';
+            + '<span class="doc-card-secondary-right">' + renderDocStatsInline(d) + '</span>'
+            + '</div>'
+            + renderDocAuthorsDateRow(d);
     }}
 
     function renderDocCardHead(d, href) {{

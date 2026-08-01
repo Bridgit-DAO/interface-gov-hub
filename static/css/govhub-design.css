@@ -93,6 +93,61 @@
   line-height: 1.4;
 }
 
+.doc-all-page .doc-card-meta-row {
+  line-height: 1.4;
+}
+
+.doc-all-page .doc-all-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.doc-all-page .doc-all-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.doc-all-page .gh-filter-bar {
+  --bs-gutter-x: 1rem;
+}
+
+@media (min-width: 768px) {
+  .doc-all-page .gh-filter-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(9rem, 3fr) minmax(0, 4fr);
+    gap: 1rem;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .doc-all-page .gh-filter-bar > [class*="col-"] {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .doc-all-page .doc-all-filter-sort .form-select {
+    min-width: 9rem;
+  }
+
+  .doc-all-page .doc-all-filter-layer .gh-typeahead {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .doc-all-page .gh-filter-bar > [class*="col-"] {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+
 .doc-all-page .doc-card-secondary-left {
   flex: 0 1 auto;
   min-width: 0;
