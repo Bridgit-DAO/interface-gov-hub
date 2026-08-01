@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "projects": {
+    "metaweb-academy-ordinal": {
+      "title": "Metaweb Academy – BRC333 Badges",
+      "layerSlug": "the-metaweb",
+      "issuerId": "metaweb.academy",
+      "workId": "metaweb-academy",
+      "model": "BRC333-BADGES",
+      "monorepoRoot": "/home/ubuntu/BRC333",
+      "projectDir": "projects/metaweb-academy-ordinal",
+      "previewBase": "https://app.brc333.xyz/projects/metaweb-academy-ordinal",
+      "deployTarget": "/var/www/brc333-projects/metaweb-academy-ordinal",
+      "enabled": true
+    }
+  }
+}

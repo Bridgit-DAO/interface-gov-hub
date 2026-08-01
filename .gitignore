@@ -15,6 +15,10 @@ datatracker.sublime-workspace
 /data/*
 !/data/support-runbooks.json
 !/data/support-hermes-agent.md
+!/data/brc333_application_registry.json
+!/data/brc333_badges_projects.json
+!/data/brc333_layer_bindings.json
+!/data/brc333_management_bindings.json
 /dist
 /docker/docker-compose.extend-custom.yml
 /env
@@ -47,6 +51,7 @@ datatracker.sublime-workspace
 !/static/js/gh-theme.js
 !/static/js/gh-clamp.js
 !/static/js/gh-support.js
+!/static/js/brc333-badges-admin.js
 !/static/js/dp-proposals/
 !/static/js/dp-proposals/**
 !/static/vendor/
@@ -74,6 +79,7 @@ datatracker.sublime-workspace
 !/static/css/dp-challenge.css
 !/static/css/dp-proposals-reader.css
 !/static/css/gh-nav-pills.css
+!/static/css/brc333-badges-admin.css
 !/static/images/
 !/static/images/dp-challenge-hero.png
 !/static/images/doc-patch-dark.png

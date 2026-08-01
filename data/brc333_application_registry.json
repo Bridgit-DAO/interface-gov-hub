@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "title": "BRC333 application registry (Gov Hub mirror)",
+  "applications": [
+    {
+      "workId": "metaweb-academy",
+      "projectId": "metaweb-academy-ordinal",
+      "model": "BRC333-BADGES",
+      "status": "active"
+    }
+  ]
+}
