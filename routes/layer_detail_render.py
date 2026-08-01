@@ -1008,10 +1008,11 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             syncLayerBrandImages();
             await maybeShowLayerInviteBanner();
             loadOverview();
+            let enabledWaitlists = [];
             if (isLayerFeatureOn('waitlists')) {{
                 const wlResp = await fetch('/api/layers/' + project.id + '/waitlists/');
                 const wlData = await wlResp.json().catch(() => ({{ waitlists: [], count: 0 }}));
-                const enabledWaitlists = (wlData.waitlists || []).filter(w => w.active !== false);
+                enabledWaitlists = (wlData.waitlists || []).filter(w => w.active !== false);
                 buildWaitlistTabs(enabledWaitlists);
             }}
             if (initialWaitlistId) {{

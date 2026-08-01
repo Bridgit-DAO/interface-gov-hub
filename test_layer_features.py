@@ -244,3 +244,26 @@ def test_nav_hides_guilds_when_rollout_disabled(client):
     finally:
         with app.app_context():
             set_rollout_config(prev)
+
+
+def test_waitlist_deep_link_hoists_enabled_waitlists(client):
+    """Waitlist referral URLs set initialWaitlistId; enabledWaitlists must be in outer scope."""
+    waitlist_id = 'ed3f6ea9-562a-40f7-9ec4-2443cf8ff127'
+    with app.app_context():
+        layer = Layer.query.filter_by(slug='test-layer-features').first()
+        if not layer:
+            layer = Layer(
+                name='Test Layer Features',
+                slug='test-layer-features',
+                initiator_id='admin',
+            )
+            db.session.add(layer)
+            db.session.commit()
+        slug = layer.slug
+
+    r = client.get(f'/layers/{slug}/waitlist/{waitlist_id}/')
+    assert r.status_code == 200
+    text = r.get_data(as_text=True)
+    assert waitlist_id in text
+    assert 'let enabledWaitlists = []' in text
+    assert 'enabledWaitlists.find(w => w.id === initialWaitlistId)' in text
