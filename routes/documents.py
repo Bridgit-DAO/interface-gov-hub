@@ -42,6 +42,9 @@ from services.documents import (
     sort_documents_by_ml_number_desc,
     submission_file_pages_words,
     revision_notes_to_safe_html,
+    DOC_COLLECTION_DESIRABLE_PROPERTIES,
+    DESIRABLE_PROPERTIES_META_LAYER_TITLE,
+    filter_documents_by_collection,
 )
 from services.draft_reader import (
     build_draft_context,
@@ -296,7 +299,9 @@ def all_documents():
 
     user_menu = generate_user_menu()
     current_theme = session.get('theme', 'dark')
-    catalog = _build_all_documents_catalog()
+    collection = request.args.get('collection', '')
+    catalog = filter_documents_by_collection(_build_all_documents_catalog(), collection)
+    is_dp_collection = (collection or '').strip().lower() == DOC_COLLECTION_DESIRABLE_PROPERTIES
     docs_json = json.dumps(catalog)
     total_docs = len(catalog)
     submit_url = url_for('submissions.submit_draft')
@@ -355,15 +360,28 @@ def all_documents():
         '</div>'
     )
 
+    dp_collection_notice_html = (
+        '<div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">'
+        '<div><i class="fas fa-filter me-2"></i>Showing only the Desirable Properties drafts and '
+        f'&ldquo;{html_mod.escape(DESIRABLE_PROPERTIES_META_LAYER_TITLE)}&rdquo;.</div>'
+        '<a href="/doc/all/" class="btn btn-sm btn-outline-secondary">Clear filter &times;</a>'
+        '</div>'
+    ) if is_dp_collection else ''
+    page_lead = (
+        f'{total_docs} Desirable Properties documents' if is_dp_collection
+        else f'{total_docs} documents in the directory'
+    )
+
     content = f"""
     <div class="gh-page container doc-all-page mt-4">
         {render_page_hero_html('docs_drafts')}
         {gh_page_header(
             'Docs & Drafts',
-            f'{total_docs} documents in the directory',
+            page_lead,
             'fa-file-alt',
             actions_html=doc_view_actions,
         )}
+        {dp_collection_notice_html}
         {gh_filter_row(
             gh_directory_toolbar(
                 search_placeholder='Search documents…',

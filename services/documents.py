@@ -61,6 +61,41 @@ def sort_documents_by_ml_number_desc(documents: list) -> list:
     return sorted(documents, key=draft_ml_number_sort_tuple, reverse=True)
 
 
+# Query-string values accepted by the `collection=` param on /doc/all/ (see
+# filter_documents_by_collection). Unknown/garbage values are ignored so the
+# route always degrades to the full, unfiltered list.
+DOC_COLLECTION_DESIRABLE_PROPERTIES = 'desirable-properties'
+
+# Title of the ML-Draft that isn't itself a numbered "DPn" draft but belongs
+# in the same external deep-link collection as the DP1..DPn drafts.
+DESIRABLE_PROPERTIES_META_LAYER_TITLE = 'The Desirable Properties of a Meta-Layer'
+
+
+def is_desirable_properties_collection_document(title: str) -> bool:
+    """True for the DP1..DPn drafts plus the Meta-Layer overview draft they anchor."""
+    from services.workgroup_links import extract_dp_number_from_title
+
+    t = (title or '').strip()
+    if extract_dp_number_from_title(t) is not None:
+        return True
+    return t.casefold() == DESIRABLE_PROPERTIES_META_LAYER_TITLE.casefold()
+
+
+def filter_documents_by_collection(documents: list, collection: str) -> list:
+    """
+    Server-side filter for the /doc/all/?collection= query param, used to deep-link
+    external sites (e.g. desirableproperties.org) to a curated subset of documents.
+    Unrecognized values fall back to the full, unfiltered list rather than erroring.
+    """
+    key = (collection or '').strip().lower()
+    if key == DOC_COLLECTION_DESIRABLE_PROPERTIES:
+        return [
+            d for d in documents
+            if is_desirable_properties_collection_document(d.get('title'))
+        ]
+    return documents
+
+
 def load_draft_data():
     """Load draft data from test files. Returns empty list - test documents removed."""
     return []
