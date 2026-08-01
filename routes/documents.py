@@ -392,6 +392,7 @@ def all_documents():
             'Docs & Drafts',
             page_lead,
             'fa-file-alt',
+            actions_html=doc_toolbar_actions,
         )}
         {dp_collection_notice_html}
         {gh_filter_row(
@@ -411,10 +412,7 @@ def all_documents():
                 ),
             )
         )}
-        <div class="doc-all-toolbar-row mb-3">
-            <p class="text-muted small mb-0" id="doc-all-count"></p>
-            <div class="doc-all-toolbar-actions">{doc_toolbar_actions}</div>
-        </div>
+        <p class="text-muted small mb-3" id="doc-all-count"></p>
         <div id="doc-all-container"></div>
     </div>
     <script>
