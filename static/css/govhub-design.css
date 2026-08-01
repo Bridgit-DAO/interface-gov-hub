@@ -76,11 +76,44 @@
 
 .doc-card-actions {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
   margin-top: auto;
   padding-top: 0.75rem;
+}
+
+.doc-all-page .doc-card-secondary {
+  margin-bottom: 0.35rem;
+  line-height: 1.4;
+}
+
+.doc-all-page .doc-card-secondary a {
+  text-decoration: none;
+}
+
+.doc-all-page .doc-card-secondary a:hover {
+  text-decoration: underline;
+}
+
+.doc-all-page .doc-card-middot {
+  opacity: 0.65;
+  user-select: none;
+}
+
+.doc-all-page .doc-card-details-toggle {
+  font-size: 0.85rem;
+  text-decoration: none;
+  color: var(--text-muted);
+}
+
+.doc-all-page .doc-card-details-toggle:hover {
+  color: var(--gh-accent-blue, var(--accent-color));
+}
+
+.doc-all-page .doc-card-details-chevron {
+  font-size: 0.75rem;
+  transition: transform 0.15s ease;
 }
 
 /* Documents directory – collapsible tag cloud + wrap chips */
@@ -115,7 +148,11 @@
 }
 
 .doc-all-page #sort-filter {
-  min-width: 12.5rem;
+  min-width: 10.5rem;
+}
+
+.doc-all-page #doc-title-first-toggle {
+  cursor: pointer;
 }
 
 .doc-all-page .doc-tags-panel-body {
@@ -260,7 +297,11 @@
 }
 
 .doc-all-page #sort-filter {
-  min-width: 12.5rem;
+  min-width: 10.5rem;
+}
+
+.doc-all-page #doc-title-first-toggle {
+  cursor: pointer;
 }
 
 .doc-all-page .doc-tags-panel-body {

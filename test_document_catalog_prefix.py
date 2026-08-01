@@ -3,12 +3,37 @@ import sqlite3
 from uuid import uuid4
 
 from fixtures.isolated_app import isolated_app
+from services.documents import (
+    draft_ml_number_sort_tuple,
+    sort_documents_by_ml_number_asc,
+    sort_documents_by_ml_number_desc,
+)
 from services.layer_prefixes import (
     catalog_prefix_badge_value,
     effective_prefix_for_document,
     parse_prefix_from_ml_number,
     resolve_prefix_code_for_backfill,
 )
+
+
+def test_draft_ml_number_sort_tuple_orders_numeric_suffix():
+    low = {'ml_number': 'ML-Draft-001', 'name': 'a'}
+    high = {'ml_number': 'ML-Draft-035', 'name': 'b'}
+    unnumbered = {'ml_number': '', 'name': 'c'}
+    assert draft_ml_number_sort_tuple(high) > draft_ml_number_sort_tuple(low)
+    assert draft_ml_number_sort_tuple(low) > draft_ml_number_sort_tuple(unnumbered)
+
+
+def test_sort_documents_by_ml_number_desc_and_asc():
+    docs = [
+        {'ml_number': 'ML-Draft-001', 'name': 'a', 'title': 'First'},
+        {'ml_number': 'ML-Draft-035', 'name': 'b', 'title': 'Thirty-five'},
+        {'ml_number': 'ML-Draft-010', 'name': 'c', 'title': 'Ten'},
+    ]
+    desc = [d['name'] for d in sort_documents_by_ml_number_desc(docs)]
+    asc = [d['name'] for d in sort_documents_by_ml_number_asc(docs)]
+    assert desc == ['b', 'c', 'a']
+    assert asc == ['a', 'c', 'b']
 
 
 def test_catalog_prefix_badge_shows_even_when_ml_number_matches_prefix():
@@ -184,6 +209,8 @@ def test_catalog_includes_layer_link_for_prefix_badge():
             response = client.get('/doc/all/')
             html = response.get_data(as_text=True)
             assert 'catalog-prefix-layer' in html
-            assert 'function renderPrefixBadge(d)' in html
+            assert 'function renderDocCardHead(d, href)' in html
             assert 'encodeURIComponent(d.layer_slug)' in html
-            assert "('View ' + d.layer_name)" in html
+            assert 'doc-title-first-toggle' in html
+            assert 'gh_doc_directory_sort' in html
+            assert '/patches/' in html

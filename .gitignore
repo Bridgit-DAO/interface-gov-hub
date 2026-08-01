@@ -49,6 +49,7 @@ datatracker.sublime-workspace
 !/static/js/gh-nav-pills.js
 !/static/js/document-patches.js
 !/static/js/gh-theme.js
+!/static/js/gh-directory.js
 !/static/js/gh-clamp.js
 !/static/js/gh-support.js
 !/static/js/brc333-badges-admin.js
