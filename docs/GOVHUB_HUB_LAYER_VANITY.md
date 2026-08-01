@@ -13,8 +13,6 @@ Examples: `https://the-metaweb.hub.themetalayer.org`, `https://canopi.dev.hub.th
 
 Legacy `*.govhub.live` and `*.dev.govhub.live` continue to work.
 
-**Retired:** `dev.rfc.themetalayer.org` — removed; no redirect. Use `dev.hub.themetalayer.org` only.
-
 ## Flask
 
 `BASE_DOMAINS` in `config.py` includes `hub.themetalayer.org` and `dev.hub.themetalayer.org` (longest suffix wins). Middleware: `middleware/__init__.py` → `_do_resolve_layer_from_host()`.
@@ -35,8 +33,6 @@ python3 test_layer_resolution.py
 | A | `*.dev.hub` | VPS IPv4 |
 
 Or use existing wildcard `*` → VPS if your registrar supports nested wildcards.
-
-Remove any DNS records for `dev.rfc.themetalayer.org` when decommissioning the old hostname.
 
 ## TLS
 
@@ -69,8 +65,6 @@ Both pass browser `Host` through (required for layer slug resolution).
 ## OAuth
 
 Register redirect URIs on apex hosts — see `docs/OAUTH_REDIRECT_URIS.md`.
-
-Remove `dev.rfc.themetalayer.org` from all OAuth provider dashboards.
 
 ## Canopi
 

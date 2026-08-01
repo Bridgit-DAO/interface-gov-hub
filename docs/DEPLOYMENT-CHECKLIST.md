@@ -99,8 +99,6 @@ Your existing configs (`dev.hub.themetalayer.org`, `hub.themetalayer.org`, `rfc.
 
 If `hub.themetalayer.org` and `dev.hub.themetalayer.org` already work, keep those configs. The wildcard will handle `overweb.themetalayer.org`, `canopi.themetalayer.org`, etc.
 
-**Retired:** Remove `/etc/nginx/sites-enabled/dev.rfc.themetalayer.org` if still present (no redirect).
-
 ---
 
 ## 5. Local Testing (no SSL)

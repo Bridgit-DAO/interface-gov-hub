@@ -32,8 +32,6 @@ After DNS and nginx are live for **Gov Hub**, register the same paths on **`http
 | **Discord** | [Discord Developer Portal](https://discord.com/developers/applications) → Your App → OAuth2 → Redirects | `https://dev.hub.themetalayer.org/auth/discord/authorized` | `https://hub.themetalayer.org/auth/discord/authorized` |
 | **Twitter/X** | [X Developer Portal](https://developer.x.com/) → Your App → User authentication settings → Callback URI | `https://dev.hub.themetalayer.org/auth/twitter/authorized` | `https://hub.themetalayer.org/auth/twitter/authorized` |
 
-**Remove** any `dev.rfc.themetalayer.org` redirect URIs and JavaScript origins from provider dashboards (hostname retired, no redirect).
-
 ## Also Add (Authorized JavaScript Origins / Origins)
 
 Some providers require the origin (without path):
