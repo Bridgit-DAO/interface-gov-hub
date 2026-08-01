@@ -45,6 +45,10 @@ class UserNotification(db.Model):
     link_url = db.Column(db.String(500), nullable=True)
     read_at = db.Column(db.DateTime, nullable=True)
     email_sent_at = db.Column(db.DateTime, nullable=True)
+    # Set when the notification's subject is no longer valid (for example a
+    # workgroup welcome after the person left the workgroup). Archived rows are
+    # kept for history but are not listed, counted or emailed.
+    archived_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     user = db.relationship('User', backref=db.backref('notifications', lazy='dynamic'))

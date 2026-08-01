@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-28T00:00:00.000Z",
+  "runbooks": [
+    {
+      "id": "gh-sign-in",
+      "title": "Sign-in fails on Gov Hub",
+      "category": "technical_support",
+      "symptoms": ["sign in", "web3auth", "login", "session", "mfa", "popup"],
+      "steps": [
+        "Confirm user is on https://hub.themetalayer.org (or their layer subdomain).",
+        "Ask for browser and whether popups or third-party cookies are blocked.",
+        "If MFA is enabled, confirm TOTP device time is correct.",
+        "Escalate if sign-in works on Canopi but not Gov Hub."
+      ]
+    },
+    {
+      "id": "gh-workgroup",
+      "title": "Workgroup join or membership",
+      "category": "workgroup_help",
+      "symptoms": ["workgroup", "join", "member", "invite", "slug"],
+      "steps": [
+        "Ask for workgroup name/slug and layer URL.",
+        "Confirm user is signed in with the same email used for invitations.",
+        "Direct membership changes to workgroup lead or layer admin — support does not override roles."
+      ]
+    },
+    {
+      "id": "gh-nominations",
+      "title": "Nominations and role appointments",
+      "category": "nominations",
+      "symptoms": ["nomination", "nominate", "chair", "role", "appointment"],
+      "steps": [
+        "Ask which layer and role (chair, editor, etc.).",
+        "Point to layer nominations page and confirm nomination window is open.",
+        "Escalate billing or identity disputes to human admin."
+      ]
+    },
+    {
+      "id": "gh-layer",
+      "title": "Layer governance and programs",
+      "category": "layer_governance",
+      "symptoms": ["layer", "program", "waitlist", "guild", "vote", "artifact"],
+      "steps": [
+        "Ask for layer slug and what action failed (create, join, vote).",
+        "Check whether user is layer admin vs member.",
+        "Escalate canonical governance decisions to layer admins."
+      ]
+    }
+  ],
+  "faq": {
+    "where_submit": "https://hub.themetalayer.org/support",
+    "canopi": "https://app.canopi.live/",
+    "dp_challenge": "https://desirableproperties.org/support"
+  },
+  "escalationRules": [
+    { "when": "urgency critical or blocking", "action": "escalate_human" },
+    { "when": "technical_support without screenshots", "action": "request_screenshot" },
+    { "when": "nominations with legal or billing dispute", "action": "escalate_human" }
+  ]
+}
