@@ -61,6 +61,10 @@ def sort_documents_by_ml_number_desc(documents: list) -> list:
     return sorted(documents, key=draft_ml_number_sort_tuple, reverse=True)
 
 
+def sort_documents_by_ml_number_asc(documents: list) -> list:
+    return sorted(documents, key=draft_ml_number_sort_tuple, reverse=False)
+
+
 # Query-string values accepted by the `collection=` param on /doc/all/ (see
 # filter_documents_by_collection). Unknown/garbage values are ignored so the
 # route always degrades to the full, unfiltered list.

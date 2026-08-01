@@ -29,6 +29,87 @@ def get_default_prefix(layer_id: str) -> Optional[LayerPrefix]:
     ).order_by(LayerPrefix.created_at.asc()).first()
 
 
+def effective_prefix_for_document(
+    *,
+    prefix_code: object = None,
+    layer_id: object = None,
+    primary_layer_id: object = None,
+) -> str:
+    """Resolve the 2-letter draft prefix for a submission or catalog row.
+
+    Mirrors ``routes.submissions._layer_prefix_for_submission``: honour an
+    explicit per-draft ``prefix_code``, then the layer's default
+    ``LayerPrefix`` row, then ``ML``.
+    """
+    override = _normalize_prefix(prefix_code)
+    if override and is_valid_prefix_format(override):
+        return override
+    lid = primary_layer_id or layer_id
+    if not lid:
+        return 'ML'
+    try:
+        row = get_default_prefix(str(lid))
+        if row is None:
+            return 'ML'
+        prefix = _normalize_prefix(getattr(row, 'prefix', None) or '')
+        return prefix or 'ML'
+    except Exception:
+        return 'ML'
+
+
+def effective_prefix_for_submission(submission) -> str:
+    """Return the effective prefix for a ``Submission`` ORM row."""
+    if submission is None:
+        return 'ML'
+    return effective_prefix_for_document(
+        prefix_code=getattr(submission, 'prefix_code', None),
+        layer_id=getattr(submission, 'layer_id', None),
+        primary_layer_id=getattr(submission, 'primary_layer_id', None),
+    )
+
+
+def effective_prefix_for_draft(draft: dict) -> str:
+    """Return the effective prefix for a draft dict in the document catalog."""
+    return effective_prefix_for_document(
+        prefix_code=draft.get('prefix_code') or draft.get('prefix'),
+        layer_id=draft.get('layer_id'),
+        primary_layer_id=draft.get('primary_layer_id'),
+    )
+
+
+def parse_prefix_from_ml_number(ml_number: object = None) -> Optional[str]:
+    """Parse the leading two-letter token from an ml_number (e.g. ML-Draft-030 -> ML)."""
+    ml = (str(ml_number) if ml_number is not None else '').strip()
+    if not ml or '-' not in ml:
+        return None
+    head = _normalize_prefix(ml.split('-', 1)[0])
+    return head if is_valid_prefix_format(head) else None
+
+
+def resolve_prefix_code_for_backfill(
+    *,
+    layer_default_prefix: object = None,
+    ml_number: object = None,
+) -> str:
+    """Derive a stored prefix_code for legacy rows (layer default, ml_number, then ML)."""
+    layer_default = _normalize_prefix(layer_default_prefix)
+    if layer_default and is_valid_prefix_format(layer_default):
+        return layer_default
+    parsed = parse_prefix_from_ml_number(ml_number)
+    if parsed:
+        return parsed
+    return 'ML'
+
+
+def catalog_prefix_badge_value(effective_prefix: str, ml_number: object = None) -> Optional[str]:
+    """Return prefix text for /doc/all/ badge when a prefix is resolved."""
+    del ml_number  # retained for call-site compatibility
+    prefix = _normalize_prefix(effective_prefix)
+    if not prefix or not is_valid_prefix_format(prefix):
+        return None
+    return prefix
+
+
 def list_prefixes(layer_id: str) -> list[LayerPrefix]:
     return (
         LayerPrefix.query
