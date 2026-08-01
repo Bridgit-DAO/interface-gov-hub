@@ -470,18 +470,29 @@ def all_documents():
             + '</div>';
     }}
 
-    function renderDocSecondaryRow(d, href) {{
+    function renderDocIdLayerRow(d, href) {{
         var draftUrl = '/doc/draft/' + href + '/';
         var displayId = GhDirectory.esc(docDisplayId(d));
         var layerLink = renderDocLayerLink(d);
-        var secondaryLeft = renderDocMiddotJoin([
+        var parts = [
             '<a href="' + draftUrl + '">' + displayId + '</a>',
             layerLink,
-        ]);
-        return '<div class="doc-card-secondary text-muted small mb-1">'
-            + '<span class="doc-card-secondary-left">' + secondaryLeft + '</span>'
-            + '<span class="doc-card-secondary-right">' + renderDocStatsInline(d) + '</span>'
-            + '</div>'
+        ];
+        if (!parts.filter(Boolean).length) return '';
+        return '<div class="doc-card-id-layer text-muted small mb-1">'
+            + renderDocMiddotJoin(parts)
+            + '</div>';
+    }}
+
+    function renderDocStatsRow(d) {{
+        return '<div class="doc-card-stats text-muted small mb-1">'
+            + renderDocStatsInline(d)
+            + '</div>';
+    }}
+
+    function renderDocSecondaryRow(d, href) {{
+        return renderDocIdLayerRow(d, href)
+            + renderDocStatsRow(d)
             + renderDocAuthorsDateRow(d);
     }}
 

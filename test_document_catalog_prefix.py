@@ -212,6 +212,7 @@ def test_catalog_includes_layer_link_for_prefix_badge():
             assert 'function renderDocCardHead(d, href)' in html
             assert 'encodeURIComponent(d.layer_slug)' in html
             assert 'gh_doc_directory_sort' in html
-            assert 'doc-card-secondary-right' in html
+            assert 'doc-card-id-layer' in html
+            assert 'doc-card-stats' in html
             assert 'doc-title-first-toggle' not in html
             assert '/patches/' in html
