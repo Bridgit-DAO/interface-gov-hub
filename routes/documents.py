@@ -52,6 +52,11 @@ from services.draft_reader import (
     load_draft_document_body,
 )
 from services.layer_features import is_feature_enabled_for_layer
+from services.layer_prefixes import (
+    catalog_prefix_badge_value,
+    effective_prefix_for_draft,
+    effective_prefix_for_submission,
+)
 from services.directory_ui import gh_page_header, gh_living_module, gh_breadcrumb, gh_filter_row, gh_directory_toolbar
 from services.workgroup_links import build_document_workgroup_index, resolve_document_workgroup_meta
 
@@ -215,7 +220,10 @@ def _build_all_documents_catalog():
             'submitted_at': draft.get('date') or '',
             'layer_id': draft.get('layer_id') or None,
             'layer_name': draft.get('layer_name') or None,
-            'prefix': (draft.get('prefix_code') or draft.get('prefix') or '').upper() or None,
+            'prefix': catalog_prefix_badge_value(
+                effective_prefix_for_draft(draft),
+                draft.get('ml_number'),
+            ),
         })
 
     approved_submissions = Submission.query.filter(
@@ -284,7 +292,10 @@ def _build_all_documents_catalog():
             'layer_name': (
                 display_submission.layer.name if getattr(display_submission, 'layer', None) else None
             ),
-            'prefix': (display_submission.prefix_code or '').upper() or None,
+            'prefix': catalog_prefix_badge_value(
+                effective_prefix_for_submission(display_submission),
+                display_submission.ml_number,
+            ),
         })
 
     return sort_documents_by_ml_number_desc(all_docs)

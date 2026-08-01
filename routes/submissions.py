@@ -66,26 +66,8 @@ def _layer_prefix_for_submission(submission) -> str:
     author chose a non-default code. Falls back to the layer's default
     ``LayerPrefix`` row, then to 'ML' as a last resort.
     """
-    if submission is None:
-        return 'ML'
-    override = (getattr(submission, 'prefix_code', None) or '').strip().upper()
-    if override and _is_valid_prefix_code(override):
-        return override
-    layer_id = (
-        getattr(submission, 'primary_layer_id', None)
-        or getattr(submission, 'layer_id', None)
-    )
-    if not layer_id:
-        return 'ML'
-    try:
-        from models import LayerPrefix  # untracked WIP model
-        row = LayerPrefix.query.filter_by(layer_id=layer_id, is_default=True).first()
-        if row is None:
-            return 'ML'
-        prefix = (getattr(row, 'prefix', None) or '').strip().upper()
-        return prefix or 'ML'
-    except Exception:
-        return 'ML'
+    from services.layer_prefixes import effective_prefix_for_submission
+    return effective_prefix_for_submission(submission)
 
 
 def _is_valid_prefix_code(value: object) -> bool:
