@@ -84,8 +84,27 @@
 }
 
 .doc-all-page .doc-card-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
   margin-bottom: 0.35rem;
   line-height: 1.4;
+}
+
+.doc-all-page .doc-card-secondary-left {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.doc-all-page .doc-card-secondary-right {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .doc-all-page .doc-card-secondary a {
@@ -93,7 +112,16 @@
 }
 
 .doc-all-page .doc-card-secondary a:hover {
-  text-decoration: underline;
+  color: var(--gh-accent-blue, var(--accent-color));
+}
+
+.doc-all-page .document-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.doc-all-page .document-title a:hover {
+  color: var(--gh-accent-blue, var(--accent-color));
 }
 
 .doc-all-page .doc-card-middot {
@@ -101,19 +129,16 @@
   user-select: none;
 }
 
-.doc-all-page .doc-card-details-toggle {
-  font-size: 0.85rem;
-  text-decoration: none;
-  color: var(--text-muted);
+.doc-card-actions .doc-card-patch-btn {
+  border-color: rgba(245, 240, 230, 0.72);
+  color: var(--text-secondary);
 }
 
-.doc-all-page .doc-card-details-toggle:hover {
-  color: var(--gh-accent-blue, var(--accent-color));
-}
-
-.doc-all-page .doc-card-details-chevron {
-  font-size: 0.75rem;
-  transition: transform 0.15s ease;
+.doc-card-actions .doc-card-patch-btn:hover,
+.doc-card-actions .doc-card-patch-btn:focus {
+  border-color: rgba(245, 240, 230, 0.95);
+  background: rgba(245, 240, 230, 0.08);
+  color: var(--text-primary);
 }
 
 /* Documents directory – collapsible tag cloud + wrap chips */
@@ -149,10 +174,6 @@
 
 .doc-all-page #sort-filter {
   min-width: 10.5rem;
-}
-
-.doc-all-page #doc-title-first-toggle {
-  cursor: pointer;
 }
 
 .doc-all-page .doc-tags-panel-body {
@@ -300,10 +321,6 @@
   min-width: 10.5rem;
 }
 
-.doc-all-page #doc-title-first-toggle {
-  cursor: pointer;
-}
-
 .doc-all-page .doc-tags-panel-body {
   padding: 0 0.75rem 0.75rem;
   border-top: 1px solid var(--border-color);
@@ -408,16 +425,18 @@
   padding: 0.25rem 0;
 }
 
-.document-card .document-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem 0.75rem;
-  font-size: 0.875rem;
+.doc-all-list-table .doc-all-primary-cell {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.document-card .document-meta .status-badge {
-  margin: 0;
+.doc-all-list-table .doc-all-secondary-cell {
+  width: 100%;
+}
+
+.doc-all-list-table .doc-all-secondary-cell .doc-card-secondary {
+  margin-bottom: 0;
 }
 
 .document-card .card-title.document-title {

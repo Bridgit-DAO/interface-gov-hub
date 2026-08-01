@@ -350,10 +350,9 @@ def all_documents():
         '<button type="button" class="btn btn-outline-secondary btn-sm" id="doc-view-list" onclick="setDocView(\'list\')">List</button>'
         '</div>'
     )
-    submit_draft_col = (
-        '<div class="col-md-auto ms-md-auto d-flex align-items-end">'
-        f'<a href="{submit_url}" class="btn btn-primary">Submit Draft</a>'
-        '</div>'
+    doc_header_actions = (
+        f'<a href="{submit_url}" class="btn btn-primary btn-sm me-2">Submit Draft</a>'
+        + doc_view_actions
     )
     layer_filter_col = (
         '<div class="col-md-4">'
@@ -370,17 +369,6 @@ def all_documents():
         '<ul class="gh-typeahead-menu" id="doc-filter-layer-listbox" role="listbox" '
         'aria-label="Layer suggestions" hidden></ul>'
         '<input type="hidden" id="doc-filter-layer" value="">'
-        '</div>'
-        '<div class="form-text small">Type to filter; pick one layer.</div>'
-        '</div>'
-    )
-    title_first_col = (
-        '<div class="col-md-auto d-flex align-items-end">'
-        '<div class="form-check form-switch mb-2">'
-        '<input class="form-check-input" type="checkbox" role="switch" '
-        'id="doc-title-first-toggle" checked>'
-        '<label class="form-check-label small text-nowrap" for="doc-title-first-toggle">'
-        'Title first</label>'
         '</div>'
         '</div>'
     )
@@ -404,7 +392,7 @@ def all_documents():
             'Docs & Drafts',
             page_lead,
             'fa-file-alt',
-            actions_html=doc_view_actions,
+            actions_html=doc_header_actions,
         )}
         {dp_collection_notice_html}
         {gh_filter_row(
@@ -412,7 +400,7 @@ def all_documents():
                 search_placeholder='Search documents…',
                 search_col='col-md-4',
                 sort_col='col-md-2',
-                extra_cols=title_first_col + layer_filter_col + submit_draft_col,
+                extra_cols=layer_filter_col,
                 sort_default='recent',
                 sort_options=(
                     ('recent', 'Newest first'),
@@ -431,11 +419,9 @@ def all_documents():
     const allDocItems = {docs_json};
     const docLayerOptions = {layers_for_typeahead_json};
     const DOC_SORT_KEY = 'gh_doc_directory_sort';
-    const DOC_TITLE_FIRST_KEY = 'gh_doc_directory_title_first';
     const DOC_VALID_SORTS = ['recent', 'oldest', 'name-asc', 'name-desc', 'id-asc', 'id-desc'];
     let docViewMode = 'cards';
     let selectedLayerId = '';
-    let docTitleFirst = true;
 
     function setDocView(mode) {{
         docViewMode = mode === 'list' ? 'list' : 'cards';
@@ -465,68 +451,44 @@ def all_documents():
         return parts.filter(Boolean).join('<span class="doc-card-middot"> · </span>');
     }}
 
-    function renderDocCardHead(d, href) {{
-        var draftUrl = '/doc/draft/' + href + '/';
-        var displayId = GhDirectory.esc(docDisplayId(d));
-        var title = GhDirectory.esc(d.title || docDisplayId(d));
-        var layerLink = renderDocLayerLink(d);
-        if (docTitleFirst) {{
-            var secondary = renderDocMiddotJoin([
-                '<a href="' + draftUrl + '">' + displayId + '</a>',
-                layerLink,
-            ]);
-            return '<h5 class="card-title document-title mb-1"><a href="' + draftUrl + '">' + title + '</a></h5>'
-                + '<p class="doc-card-secondary text-muted small mb-2">' + secondary + '</p>';
-        }}
-        var secondary = renderDocMiddotJoin([
-            title ? '<span>' + title + '</span>' : '',
-            layerLink,
-        ]);
-        return '<h5 class="card-title document-title mb-1"><a href="' + draftUrl + '">' + displayId + '</a></h5>'
-            + '<p class="doc-card-secondary text-muted small mb-2">' + secondary + '</p>';
+    function renderDocMetaInline(d) {{
+        var authors = Array.isArray(d.authors) ? d.authors.join(', ') : (d.authors || 'N/A');
+        var revPart = (d.is_revision && d.revision_number)
+            ? 'Revision ' + GhDirectory.esc(d.revision_number) + ' · ' : '';
+        return revPart
+            + (d.pages || 1) + ' pages · '
+            + (d.words || 0) + ' words · '
+            + 'Authors: ' + GhDirectory.esc(authors) + ' · '
+            + 'Date: ' + GhDirectory.esc(d.date || '');
     }}
 
-    function renderDocDetails(d) {{
-        var authors = Array.isArray(d.authors) ? d.authors.join(', ') : (d.authors || 'N/A');
-        var revLine = (d.is_revision && d.revision_number)
-            ? '<span>Revision ' + GhDirectory.esc(d.revision_number) + '</span>' : '';
-        var statusLine = d.status
-            ? '<span>' + GhDirectory.esc(d.status) + '</span>' : '';
-        return '<div class="doc-card-details" hidden>'
-            + '<div class="document-meta mb-1">'
-            + '<span>' + (d.pages || 1) + ' pages</span>'
-            + '<span>' + (d.words || 0) + ' words</span>'
-            + revLine + statusLine
-            + '</div>'
-            + '<small class="text-muted">Authors: ' + GhDirectory.esc(authors)
-            + '<br>Date: ' + GhDirectory.esc(d.date || '') + '</small>'
-            + '</div>'
-            + '<button type="button" class="btn btn-link btn-sm p-0 doc-card-details-toggle mb-2" aria-expanded="false">'
-            + '<i class="fas fa-chevron-down me-1 doc-card-details-chevron"></i>Details</button>';
+    function renderDocSecondaryRow(d, href) {{
+        var draftUrl = '/doc/draft/' + href + '/';
+        var displayId = GhDirectory.esc(docDisplayId(d));
+        var layerLink = renderDocLayerLink(d);
+        var secondaryLeft = renderDocMiddotJoin([
+            '<a href="' + draftUrl + '">' + displayId + '</a>',
+            layerLink,
+        ]);
+        return '<div class="doc-card-secondary text-muted small mb-2">'
+            + '<span class="doc-card-secondary-left">' + secondaryLeft + '</span>'
+            + '<span class="doc-card-secondary-right">' + renderDocMetaInline(d) + '</span>'
+            + '</div>';
+    }}
+
+    function renderDocCardHead(d, href) {{
+        var draftUrl = '/doc/draft/' + href + '/';
+        var title = GhDirectory.esc(d.title || docDisplayId(d));
+        return '<h5 class="card-title document-title mb-1"><a href="' + draftUrl + '">' + title + '</a></h5>'
+            + renderDocSecondaryRow(d, href);
     }}
 
     function renderDocActions(d, href) {{
         return '<div class="doc-card-actions">'
             + '<a href="/doc/draft/' + href + '/read/" class="btn btn-sm btn-primary">Read</a>'
-            + '<a href="/doc/draft/' + href + '/patches/" class="btn btn-sm btn-outline-secondary">Patch</a>'
+            + '<a href="/doc/draft/' + href + '/patches/" class="btn btn-sm btn-outline-secondary doc-card-patch-btn">Patch</a>'
             + '<a href="/doc/draft/' + href + '/comments/" class="btn btn-sm btn-outline-primary">Comments</a>'
             + '</div>';
-    }}
-
-    function bindDocCardDetails(container) {{
-        if (!container) return;
-        container.querySelectorAll('.doc-card-details-toggle').forEach(function(btn) {{
-            btn.addEventListener('click', function() {{
-                var details = btn.closest('.card-body').querySelector('.doc-card-details');
-                if (!details) return;
-                var open = details.hidden;
-                details.hidden = !open;
-                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-                btn.innerHTML = (open
-                    ? '<i class="fas fa-chevron-up me-1 doc-card-details-chevron"></i>'
-                    : '<i class="fas fa-chevron-down me-1 doc-card-details-chevron"></i>') + 'Details';
-            }});
-        }});
     }}
 
     function renderDocCards(docs) {{
@@ -534,36 +496,25 @@ def all_documents():
             const href = docHref(d.name);
             return '<div class="col-md-6 document-card"><div class="card"><div class="card-body">'
                 + renderDocCardHead(d, href)
-                + renderDocDetails(d)
                 + renderDocActions(d, href)
                 + '</div></div></div>';
         }}).join('');
     }}
 
     function renderDocList(docs) {{
-        const primaryHeader = docTitleFirst ? 'Title' : 'ID';
-        const secondaryHeader = docTitleFirst ? 'ID · Layer' : 'Title · Layer';
         const rows = docs.map(function(d) {{
             const href = docHref(d.name);
             const draftUrl = '/doc/draft/' + href + '/';
-            const displayId = GhDirectory.esc(docDisplayId(d));
             const title = GhDirectory.esc(d.title || docDisplayId(d));
-            const layerLink = renderDocLayerLink(d);
-            const primaryCell = docTitleFirst
-                ? '<a href="' + draftUrl + '">' + title + '</a>'
-                : '<a href="' + draftUrl + '">' + displayId + '</a>';
-            const secondaryCell = docTitleFirst
-                ? renderDocMiddotJoin(['<a href="' + draftUrl + '">' + displayId + '</a>', layerLink])
-                : renderDocMiddotJoin([title ? '<span>' + title + '</span>' : '', layerLink]);
+            const primaryCell = '<a href="' + draftUrl + '">' + title + '</a>';
+            const secondaryCell = renderDocSecondaryRow(d, href);
             return '<tr>'
                 + '<td class="doc-all-primary-cell">' + primaryCell + '</td>'
                 + '<td class="doc-all-secondary-cell">' + secondaryCell + '</td>'
                 + '<td class="text-nowrap">' + renderDocActions(d, href) + '</td></tr>';
         }}).join('');
-        return '<style>.doc-all-list-table th,.doc-all-list-table td{{white-space:nowrap}}'
-            + '.doc-all-list-table .doc-all-primary-cell{{max-width:22rem;overflow:hidden;text-overflow:ellipsis}}</style>'
-            + '<div class="table-responsive"><table class="table table-hover align-middle doc-all-list-table"><thead><tr>'
-            + '<th>' + primaryHeader + '</th><th>' + secondaryHeader + '</th><th></th></tr></thead><tbody>'
+        return '<div class="table-responsive"><table class="table table-hover align-middle doc-all-list-table"><thead><tr>'
+            + '<th>Title</th><th>ID · Layer · Details</th><th></th></tr></thead><tbody>'
             + (rows || '<tr><td colspan="3" class="text-muted">No documents match your search.</td></tr>')
             + '</tbody></table></div>';
     }}
@@ -578,7 +529,6 @@ def all_documents():
     function saveDocDirectoryPrefs() {{
         try {{
             localStorage.setItem(DOC_SORT_KEY, GhDirectory.getSortValue('sort-filter'));
-            localStorage.setItem(DOC_TITLE_FIRST_KEY, docTitleFirst ? '1' : '0');
         }} catch (e) {{}}
     }}
 
@@ -589,10 +539,6 @@ def all_documents():
                 var sortEl = document.getElementById('sort-filter');
                 if (sortEl) sortEl.value = storedSort;
             }}
-            var titleFirst = localStorage.getItem(DOC_TITLE_FIRST_KEY);
-            if (titleFirst === '0') docTitleFirst = false;
-            var toggle = document.getElementById('doc-title-first-toggle');
-            if (toggle) toggle.checked = docTitleFirst;
         }} catch (e) {{}}
     }}
 
@@ -624,7 +570,6 @@ def all_documents():
             container.innerHTML = renderDocList(items);
         }} else {{
             container.innerHTML = '<div class="row g-3">' + renderDocCards(items) + '</div>';
-            bindDocCardDetails(container);
         }}
     }}
 
@@ -774,14 +719,6 @@ def all_documents():
     }})();
 
     GhDirectory.bindControls('search-input', 'sort-filter', onDocDirectoryApply);
-    var titleFirstToggle = document.getElementById('doc-title-first-toggle');
-    if (titleFirstToggle) {{
-        titleFirstToggle.addEventListener('change', function() {{
-            docTitleFirst = titleFirstToggle.checked;
-            saveDocDirectoryPrefs();
-            renderDocDirectory();
-        }});
-    }}
     initDocDirectoryPrefs();
     renderDocDirectory();
     </script>
