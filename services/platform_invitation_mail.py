@@ -6,19 +6,8 @@ import json
 from typing import Any, Dict, Optional
 
 from models import PlatformInvitation, User
+from services.email_layout import email_shell, user_display
 from services.resend_mail import send_resend_email
-
-
-def _public_base_url() -> str:
-    from flask import current_app
-    from config import PUBLIC_BASE_URL, resolved_public_base_url
-    return resolved_public_base_url(current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL)
-
-
-def _display(user: Optional[User], fallback: str = 'Someone') -> str:
-    if not user:
-        return fallback
-    return user.displayName or user.name or user.username or fallback
 
 
 def _passage_excerpt(target: Dict[str, Any]) -> str:
@@ -66,7 +55,7 @@ def send_platform_invitation_email(
     if target_title:
         short_name = target_title
 
-    inviter_name = html.escape(_display(inviter))
+    inviter_name = html.escape(user_display(inviter))
     title_esc = html.escape(short_name)
     accept_url = html.escape(landing_url, quote=True)
     note = ''
@@ -106,12 +95,7 @@ def send_platform_invitation_email(
 {sign_in_note}
 <p style="font-size:13px;color:#666;">Or copy this link:<br><code>{accept_url}</code></p>
 """
-    html_doc = f"""<!DOCTYPE html>
-<html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#222;max-width:560px;margin:0 auto;padding:24px;">
-<h2 style="color:#667eea;margin-top:0;">Invitation – {html.escape(short_name)}</h2>
-{body}
-<p style="font-size:12px;color:#888;margin-top:32px;">Gov Hub · Interface Governance Hub</p>
-</body></html>"""
+    html_doc = email_shell(f'Invitation – {short_name}', body)
     return send_resend_email(
         to=[invitee_email.strip()],
         subject=f'Invitation: {short_name} on Gov Hub',

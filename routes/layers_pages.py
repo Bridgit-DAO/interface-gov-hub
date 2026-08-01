@@ -368,11 +368,15 @@ def artifact_detail(layer_slug, artifact_id):
     else:
         add_support_oppose_forms = '<p class="text-muted small mt-2"><a href="/login/">Sign in</a> to add support or opposition.</p>'
     public_ref_esc = html_mod.escape(artifact.public_ref or '')
-    public_ref_block = f'<code class="text-muted ms-2" title="Public reference (artifact_specification)">{public_ref_esc}</code>' if public_ref_esc else ''
+    public_ref_block = (
+        f'<code class="text-muted ms-2" title="Public reference (artifact_specification)">{public_ref_esc}</code>'
+        if public_ref_esc
+        else ''
+    )
     artifact_meta = f'{artifact.artifact_type} · {artifact.status or "draft"}'
     content = f'''
 <div class="gh-page container mt-4">
-    {gh_page_header(f'{title_esc}{public_ref_block}', artifact_meta, 'fa-gem', breadcrumb_html=gh_breadcrumb([('Layers', '/layers/'), (layer_name_esc, f'/layers/{layer_slug}/'), ('Artifact', None)]))}
+    {gh_page_header(artifact.title or 'Untitled', artifact_meta, 'fa-gem', title_suffix_html=public_ref_block, breadcrumb_html=gh_breadcrumb([('Layers', '/layers/'), (layer_name_esc, f'/layers/{layer_slug}/'), ('Artifact', None)]))}
     <div class="gh-detail-layout">
     <div class="row">
         <div class="col-lg-8">

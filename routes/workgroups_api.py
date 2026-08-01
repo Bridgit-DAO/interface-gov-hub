@@ -33,7 +33,10 @@ from services.workgroup_links import (
     enrich_workgroup_dict,
     list_assigned_documents_for_workgroup,
 )
-from services.workgroup_membership import join_or_request_workgroup_membership
+from services.workgroup_membership import (
+    join_or_request_workgroup_membership,
+    user_workgroup_status,
+)
 from services.workgroup_positions import (
     WORKGROUP_POSITIONS,
     ACTIVE_NOMINATION_STATUSES,
@@ -165,6 +168,16 @@ def api_workgroup_members(workgroup_id):
     } for row in rows]
 
     return jsonify({'members': members, 'count': len(members)})
+
+
+@bp.route('/<string:acronym>/me/status', methods=['GET'])
+@require_auth
+def api_workgroup_my_status(acronym):
+    """Current user's membership, positions, and join/nominate affordances for one workgroup."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    return jsonify(user_workgroup_status(current_user.get('id'), acronym))
 
 
 @bp.route('/<string:workgroup_id>/assigned-documents/', methods=['GET'])

@@ -4,7 +4,7 @@ import html as html_mod
 from flask import Blueprint, current_app, jsonify, redirect, request, session, url_for
 
 from extensions import db
-from models import DpProposal
+from models import DpProposal, Submission
 from services.dp_proposals import (
     accept_proposal,
     can_accept_amendments,
@@ -35,6 +35,34 @@ admin_bp = Blueprint('dp_proposals_admin', __name__, url_prefix='')
 def dp_proposals_shortcut():
     """Redirect common mistyped path to the admin dashboard."""
     return redirect(url_for('dp_proposals_admin.dp_proposals_dashboard'))
+
+
+@admin_bp.route('/api/doc/patch/<patch_id>/diff/', methods=['GET'])
+def patch_diff_route(patch_id):
+    """Server-computed word diff for one patch, matching the reader modal's markup."""
+    from services.text_diff import build_diff_html, change_counts
+
+    proposal = DpProposal.query.get(patch_id)
+    if not proposal:
+        return jsonify({'error': 'Patch not found'}), 404
+    submission = Submission.query.get(proposal.submission_id)
+    if not submission:
+        return jsonify({'error': 'Document not found'}), 404
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
+
+    original = proposal.original_text or ''
+    proposed = proposal.proposed_text or ''
+    if not original:
+        return jsonify({'html': html_mod.escape(proposed), 'added': 0, 'removed': 0})
+
+    added, removed = change_counts(original, proposed)
+    return jsonify({
+        'html': build_diff_html(original, proposed),
+        'added': added,
+        'removed': removed,
+    })
 
 
 def _submission_feature_guard(submission):

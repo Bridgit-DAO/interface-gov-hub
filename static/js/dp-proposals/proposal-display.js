@@ -145,6 +145,21 @@
     return escHtml(text || '');
   }
 
+  /**
+   * Fetch the server-computed word diff for a patch (services/text_diff.py –
+   * the same algorithm this module mirrors in `buildDiffHtml`). Callers should
+   * keep rendering the local `buildDiffHtml` result as a fallback and only
+   * swap it in once this resolves, since it depends on a network round trip.
+   */
+  function fetchServerDiff(patchId) {
+    if (!patchId || typeof fetch !== 'function') {
+      return Promise.resolve(null);
+    }
+    return fetch('/api/doc/patch/' + encodeURIComponent(patchId) + '/diff/')
+      .then(function (resp) { return resp.ok ? resp.json() : null; })
+      .catch(function () { return null; });
+  }
+
   /** Character counts for insertions/deletions (uses focused passage when possible). */
   function charChangeCounts(original, proposed) {
     var o = String(original || '');
@@ -186,5 +201,6 @@
     formatCharDeltaHtml: formatCharDeltaHtml,
     buildDiffHtml: buildDiffHtml,
     formatPreHtml: formatPreHtml,
+    fetchServerDiff: fetchServerDiff,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

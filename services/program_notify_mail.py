@@ -8,37 +8,21 @@ from typing import Any, Dict, List, Optional
 
 from extensions import db
 from models import Layer, LayerProgram, User, WaitlistEntry
+from services.email_layout import email_shell, user_display
 from services.layer_programs import format_launch_at_pacific, parse_entry_dp_interests
+from services.public_urls import public_base_url
 import os
 import time
 
 from services.resend_mail import send_resend_email_result
 
 
-def _public_base_url() -> str:
-    from flask import current_app
-    from config import PUBLIC_BASE_URL, resolved_public_base_url
-
-    return resolved_public_base_url(current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL)
-
-
 def _user_display(user: Optional[User]) -> str:
-    if not user:
-        return 'there'
-    return user.displayName or user.name or user.username or 'there'
-
-
-def _email_shell(title: str, body_html: str) -> str:
-    return f"""<!DOCTYPE html>
-<html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#222;max-width:560px;margin:0 auto;padding:24px;">
-<h2 style="color:#667eea;margin-top:0;">{html.escape(title)}</h2>
-{body_html}
-<p style="font-size:12px;color:#888;margin-top:32px;">Gov Hub · Interface Governance Hub</p>
-</body></html>"""
+    return user_display(user, 'there')
 
 
 def _program_hub_url(program: LayerProgram, layer: Optional[Layer]) -> str:
-    base = _public_base_url()
+    base = public_base_url()
     if program.hub_path:
         path = program.hub_path if program.hub_path.startswith('/') else f'/{program.hub_path}'
         return f'{base}{path}'
@@ -100,7 +84,7 @@ def send_program_notify_confirmation(
     result = send_resend_email_result(
         to=[email],
         subject=f'You\'re on the list – {program.name}',
-        html=_email_shell('Notify list confirmed', body),
+        html=email_shell('Notify list confirmed', body),
         text='\n'.join(text_lines),
         tags=[
             {'name': 'category', 'value': 'program_notify'},
@@ -187,7 +171,7 @@ def send_program_launch_notifications(program: LayerProgram) -> Dict[str, Any]:
         result = send_resend_email_result(
             to=[email],
             subject=f'{program.name} is open',
-            html=_email_shell(f'{program.name} is open', body),
+            html=email_shell(f'{program.name} is open', body),
             text='\n'.join(text_lines),
             tags=[
                 {'name': 'category', 'value': 'program_launch'},

@@ -540,6 +540,58 @@ def test_suggest_edit_page_loads():
         assert b'Help refine living documents' in r.data
 
 
+def test_patch_diff_endpoint():
+    from app import app
+    from extensions import db
+    from models import DpProposal, User
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        if not sub:
+            return
+        user = User.query.first()
+        if not user:
+            return
+
+        original = 'the quick fox'
+        proposed = 'the slow fox'
+        row = DpProposal(
+            submission_id=sub.id,
+            scope='dp',
+            status='pending',
+            anchor_hash='test-diff-anchor-hash',
+            original_text=original,
+            proposed_text=proposed,
+            content_hash_at_create=sub.content_hash,
+            author_user_id=user.id,
+        )
+        db.session.add(row)
+        db.session.commit()
+        patch_id = row.id
+
+    with app.test_client() as client:
+        r = client.get(f'/api/doc/patch/{patch_id}/diff/')
+        assert r.status_code == 200, r.get_data(as_text=True)
+        data = r.get_json()
+        assert '<del class="dp-diff-del">quick</del>' in data['html']
+        assert '<mark class="dp-diff-ins">slow</mark>' in data['html']
+        assert data['added'] == 4
+        assert data['removed'] == 5
+
+    with app.app_context():
+        db.session.delete(DpProposal.query.get(patch_id))
+        db.session.commit()
+
+
+def test_patch_diff_endpoint_missing_patch():
+    from app import app
+
+    with app.test_client() as client:
+        r = client.get('/api/doc/patch/does-not-exist/diff/')
+        assert r.status_code == 404
+
+
 def test_read_meta_for_non_dp():
     from app import app
 

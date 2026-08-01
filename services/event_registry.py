@@ -38,6 +38,7 @@ REGISTERED_EVENT_TYPES: Dict[str, EventTypeDef] = {
     'artifact_commented': EventTypeDef('Comment on artifact', True, None),
     # –– Layer / membership ––
     'layer_config_changed': EventTypeDef('Layer configuration changed', True, None),
+    'brc333_badges_admin': EventTypeDef('BRC333 badges admin edit', True, None),
     'member_joined': EventTypeDef('Member joined layer', True, None),
     'member_removed': EventTypeDef('Member left layer', True, None),
     'contribution_type_filter_applied': EventTypeDef('Contribution filter used', False, None),

@@ -374,7 +374,14 @@
     return { original: original, proposed: proposed, trimmedStart: false, trimmedEnd: false };
   }
 
-  function renderProposalBody(original, proposed, diffOn) {
+  /**
+   * `patchId` lets us upgrade the diff to the server-computed version
+   * (services/text_diff.py, via DpProposalDisplay.fetchServerDiff) once it
+   * resolves. The JS diff below always renders first so the modal has no
+   * loading delay; the API result only replaces it when the passage was not
+   * sentence-truncated (the API diffs the untrimmed original/proposed text).
+   */
+  function renderProposalBody(original, proposed, diffOn, patchId) {
     var trimmed = truncateTexts(original, proposed);
     var origHtml;
     if (diffOn && display && display.buildDiffHtml) {
@@ -387,13 +394,28 @@
     var propHtml = display && display.formatPreHtml
       ? display.formatPreHtml(trimmed.proposed)
       : esc(trimmed.proposed);
+    var canUpgrade = diffOn && patchId && !trimmed.trimmedStart && !trimmed.trimmedEnd;
+    var upgradeAttr = canUpgrade ? ' data-diff-patch-id="' + esc(patchId) + '"' : '';
     return (
       '<div class="dp-proposal-card-label">Original</div>' +
       '<div class="dp-proposal-card-original dp-proposal-pre-block' +
-      (diffOn ? '' : ' dp-proposal-plain-original') + '">' + origHtml + '</div>' +
+      (diffOn ? '' : ' dp-proposal-plain-original') + '"' + upgradeAttr + '>' + origHtml + '</div>' +
       '<div class="dp-proposal-card-label mt-3">' + esc(label('proposed_label', 'Patched text')) + '</div>' +
       '<div class="dp-proposal-card-proposed dp-proposal-pre-block">' + propHtml + '</div>'
     );
+  }
+
+  /** Swap in the canonical server diff for any upgradeable patch once it resolves. */
+  function upgradeProposalDiffsFromApi(container) {
+    if (!display || !display.fetchServerDiff || !container) return;
+    var nodes = container.querySelectorAll('[data-diff-patch-id]');
+    nodes.forEach(function (node) {
+      display.fetchServerDiff(node.getAttribute('data-diff-patch-id')).then(function (result) {
+        if (result && typeof result.html === 'string') {
+          node.innerHTML = result.html;
+        }
+      });
+    });
   }
 
   function anchorRectFromWrap(wrap) {
@@ -2467,7 +2489,7 @@
         } else {
           html += renderProposalHeaderHtml(p);
         }
-        html += renderProposalBody(p.original_text, p.proposed_text, showDiff);
+        html += renderProposalBody(p.original_text, p.proposed_text, showDiff, p.id);
         if (!p.rationale) {
           html += renderProposalMetaHtml(p);
         }
@@ -2495,6 +2517,7 @@
     body.querySelectorAll('.dp-proposal-decline').forEach(function (btn) {
       btn.addEventListener('click', function () { reviewProposal(btn.dataset.id, 'decline'); });
     });
+    upgradeProposalDiffsFromApi(body);
   }
 
   function openListModal(anchorHash, focusProposalId) {

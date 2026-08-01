@@ -5,7 +5,13 @@ from typing import Optional
 from uuid import uuid4
 
 from extensions import db
-from models import PlatformInvitation, User, WorkingGroupMember, WorkgroupMemberRequest
+from models import (
+    PlatformInvitation,
+    User,
+    WorkingGroupChair,
+    WorkingGroupMember,
+    WorkgroupMemberRequest,
+)
 from services.workgroup_authority import is_workgroup_member
 
 
@@ -76,3 +82,45 @@ def join_or_request_workgroup_membership(
     ))
     db.session.flush()
     return {'ok': True, 'joined': True, 'status': 'joined'}
+
+
+def user_workgroup_status(user_id: Optional[str], acronym: str) -> dict:
+    """One user's membership, held positions, and join/nominate affordances for a workgroup.
+
+    Consolidates the member/position/pending-request checks that were
+    otherwise re-derived independently in the workgroup page's client JS,
+    the launch-action checker, and the people directory.
+    """
+    from services.workgroup_positions import WORKGROUP_POSITIONS
+
+    if not acronym or not user_id:
+        return {
+            'member': False,
+            'positions': [],
+            'pending_request': False,
+            'can_join': False,
+            'can_self_nominate': False,
+        }
+
+    positions = [
+        row.position_key or 'chair'
+        for row in WorkingGroupChair.query.filter_by(
+            group_acronym=acronym,
+            user_id=user_id,
+        ).all()
+    ]
+    is_member = bool(positions) or is_workgroup_member(acronym, user_id)
+
+    pending_request = WorkgroupMemberRequest.query.filter_by(
+        group_acronym=acronym,
+        user_id=user_id,
+        status='pending',
+    ).first() is not None
+
+    return {
+        'member': is_member,
+        'positions': sorted(set(positions)),
+        'pending_request': pending_request,
+        'can_join': not is_member and not pending_request,
+        'can_self_nominate': len(set(positions)) < len(WORKGROUP_POSITIONS),
+    }

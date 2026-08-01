@@ -4,6 +4,8 @@ GovHub Entry point.
 
 Runs the Flask app. Use: python run.py
 """
+import os
+
 from config import BUILD_NUMBER, ENV, PORT, DEBUG, DB_PATH, DEPLOYMENT_MODE
 
 from app import app
@@ -18,4 +20,5 @@ if __name__ == '__main__':
     print(f"Environment: {ENV} mode on port {PORT}")
     print(f"Database: {DB_PATH}")
     use_reloader = DEBUG and not __import__('os').environ.get('INVOCATION_ID')
-    app.run(host='0.0.0.0', port=PORT, debug=DEBUG, use_reloader=use_reloader)
+    host = os.environ.get('FLASK_HOST', '127.0.0.1')
+    app.run(host=host, port=PORT, debug=DEBUG, use_reloader=use_reloader)

@@ -13,6 +13,7 @@ from services.layer_features import (
 )
 from services.product_rollout import get_rollout_config
 from config import METAWEB_PIONEERS_LAYER_SLUG, METAWEB_BOOK_PURCHASE_URL
+from services.brc333_badges_activation import layer_badges_status
 from services.nav_pills import (
     PILL_ANIMATIONS,
     get_effective_nav_pill_settings,
@@ -180,7 +181,19 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     site_nav_pill_json = json.dumps(get_effective_nav_pill_settings(page='layer', layer=project_obj))
     metaweb_pioneers_slug_json = json.dumps(METAWEB_PIONEERS_LAYER_SLUG)
     metaweb_book_purchase_url_json = json.dumps(METAWEB_BOOK_PURCHASE_URL)
-    
+
+    badges_status = layer_badges_status(project_slug) if project_obj else {}
+    badges_client = {
+        'available': bool(badges_status.get('available')),
+        'activated': bool(badges_status.get('activated')),
+        'projectTitle': badges_status.get('projectTitle'),
+        'inventoryUrl': badges_status.get('inventoryUrl'),
+        'previewBase': badges_status.get('previewBase'),
+    }
+    if show_admin_tab and badges_status.get('adminUrl'):
+        badges_client['adminUrl'] = badges_status['adminUrl']
+    layer_badges_json = json.dumps(badges_client)
+
     admin_tab_html = ''
     admin_tab_pane_html = ''
     admin_tab_listener = ''
@@ -767,6 +780,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
     const navPillAnimations = {nav_pill_animations_json};
     const layerNavPillConfig = {layer_nav_pill_json};
     const siteNavPillSettings = {site_nav_pill_json};
+    let layerBadges = {layer_badges_json};
 
     function layerFeatKeysSiteEnabled() {{
         return (layerFeatKeys || []).filter(function(k) {{ return siteProductRollout[k] === true; }});
@@ -1298,6 +1312,15 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showCreateVoteModal()"><i class="fas fa-vote-yea me-2"></i>Create Vote</button></div>';
             actionsHtml += '<div class="mb-3"><button class="btn btn-outline-primary btn-sm w-100" onclick="showEmailModal()"><i class="fas fa-envelope me-2"></i>Email</button></div>';
         }}
+        if (isLayerFeatureOn('badges') && layerBadges && layerBadges.available) {{
+            if (isProjectAdmin && layerBadges.adminUrl) {{
+                actionsHtml += '<div class="mb-3"><a href="' + escapeHtmlBasic(layerBadges.adminUrl) + '" class="btn btn-outline-primary btn-sm w-100"><i class="fas fa-certificate me-2"></i>Manage badges</a></div>';
+            }} else if (isProjectAdmin && !layerBadges.activated) {{
+                actionsHtml += '<div class="mb-3"><button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="activateLayerBadgesFromHero()"><i class="fas fa-play me-2"></i>Activate badges</button></div>';
+            }} else if (layerBadges.activated && layerBadges.inventoryUrl) {{
+                actionsHtml += '<div class="mb-3"><a href="' + escapeHtmlBasic(layerBadges.inventoryUrl) + '" class="btn btn-outline-primary btn-sm w-100" target="_blank" rel="noopener"><i class="fas fa-certificate me-2"></i>View badges</a></div>';
+            }}
+        }}
         actionsHtml += '<div class="mb-2"><a href="' + (showCarousel ? layerBase : '/layers/') + '" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>' + (showCarousel ? 'Back to Layer' : 'Back to Layers') + '</a></div>';
         if (isProjectAdmin) {{
             actionsHtml += '<button type="button" class="btn btn-secondary btn-sm w-100" onclick="editProject()"><i class="fas fa-edit me-2"></i>Edit</button>';
@@ -1344,7 +1367,13 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         if (isLayerFeatureOn('docs')) chips.push('<span class="living-layer-pulse-chip is-live">Docs</span>');
         if (isLayerFeatureOn('votes')) chips.push('<span class="living-layer-pulse-chip">Votes</span>');
         if (isLayerFeatureOn('artifacts')) chips.push('<span class="living-layer-pulse-chip">Artifacts</span>');
-        if (isLayerFeatureOn('badges')) chips.push('<span class="living-layer-pulse-chip">Badges</span>');
+        if (isLayerFeatureOn('badges')) {{
+            if (layerBadges && layerBadges.activated && layerBadges.inventoryUrl) {{
+                chips.push('<a href="' + escapeHtmlBasic(layerBadges.inventoryUrl) + '" class="living-layer-pulse-chip is-live" target="_blank" rel="noopener">Badges</a>');
+            }} else {{
+                chips.push('<span class="living-layer-pulse-chip">Badges</span>');
+            }}
+        }}
         if (!chips.length) return '';
         return '<div class="living-layer-pulse-strip">' + chips.join('') + '</div>';
     }}
@@ -2976,6 +3005,38 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             }}
             html += '</div></div>';
 
+            try {{
+                const badgesRes = await fetch('/api/brc333-badges/layer/' + encodeURIComponent(project.slug) + '/status', {{ credentials: 'same-origin' }});
+                if (badgesRes.ok) {{
+                    const badges = await badgesRes.json();
+                    html += '<div class="card mb-4" id="layer-badges-card"><div class="card-header d-flex justify-content-between align-items-center">';
+                    html += '<h5 class="mb-0"><i class="fas fa-certificate me-2"></i>Badges</h5></div><div class="card-body">';
+                    html += '<p class="text-muted small mb-3">Certification and badge ordinals for this layer (Metaweb Academy preset in v1). PNG badges and optional on-chain mints.</p>';
+                    if (!badges.available) {{
+                        html += '<p class="text-muted small mb-0">No badges project is configured for this layer yet.</p>';
+                    }} else if (badges.activated && badges.adminUrl) {{
+                        html += '<p class="mb-2"><strong>' + escapeHtml(badges.projectTitle || badges.projectId || '') + '</strong></p>';
+                        html += '<div class="d-flex flex-wrap gap-2 mb-2">';
+                        html += '<a class="btn btn-primary btn-sm" href="' + escapeHtmlBasic(badges.adminUrl) + '"><i class="fas fa-edit me-1"></i>Open badges admin</a>';
+                        if (badges.inventoryUrl) {{
+                            html += '<a class="btn btn-outline-secondary btn-sm" href="' + escapeHtmlBasic(badges.inventoryUrl) + '" target="_blank" rel="noopener">Inventory</a>';
+                        }}
+                        if (badges.previewBase) {{
+                            html += '<a class="btn btn-outline-secondary btn-sm" href="' + escapeHtmlBasic(badges.previewBase + '/mint-preview.html') + '" target="_blank" rel="noopener">Mint preview</a>';
+                        }}
+                        html += '</div>';
+                        html += '<p class="small text-muted mb-0">Feature: ' + (badges.badgesFeatureEnabled ? 'enabled' : 'disabled') + '</p>';
+                    }} else {{
+                        html += '<p class="text-muted small mb-3">Activate badges to enable the project admin, certification editor, and preview tooling for this layer.</p>';
+                        html += '<button type="button" class="btn btn-primary btn-sm" onclick="activateLayerBadges()"><i class="fas fa-play me-1"></i>Activate badges</button>';
+                        html += '<p class="small text-muted mt-2 mb-0" id="layer-badges-msg"></p>';
+                    }}
+                    html += '</div></div>';
+                }}
+            }} catch (badgesErr) {{
+                console.warn('Badges status:', badgesErr);
+            }}
+
             html += '<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Product features</h5></div><div class="card-body">';
             html += '<p class="text-muted small mb-3">Turn off capabilities for this layer only (among features enabled site-wide). Disabled areas are removed from navigation, tabs, and admin sections.</p>';
             html += '<div class="row g-2">';
@@ -3281,6 +3342,64 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
             setTimeout(function() {{ window.location.reload(); }}, 600);
         }} catch (e) {{
             if (msgEl) msgEl.textContent = e.message || 'Save failed';
+        }}
+    }}
+
+    async function activateLayerBadges() {{
+        const msg = document.getElementById('layer-badges-msg');
+        if (msg) msg.textContent = 'Activating…';
+        try {{
+            const data = await activateLayerBadgesRequest();
+            if (msg) msg.textContent = '';
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{
+                    title: 'Badges activated',
+                    message: 'You can open the badges admin to edit certifications, rails, and config.',
+                    variant: 'success',
+                }});
+            }}
+            loadAdmins();
+            return data;
+        }} catch (e) {{
+            if (msg) msg.textContent = e.message || 'Activation failed';
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{ title: 'Activation failed', message: e.message || 'Could not activate badges.', variant: 'danger' }});
+            }}
+            throw e;
+        }}
+    }}
+
+    async function activateLayerBadgesRequest() {{
+        const r = await fetch('/api/brc333-badges/layer/' + encodeURIComponent(project.slug) + '/activate', {{
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {{ 'Content-Type': 'application/json' }},
+        }});
+        const data = await r.json().catch(function() {{ return {{}}; }});
+        if (!r.ok) throw new Error(data.error || r.statusText);
+        if (data.adminUrl) layerBadges = Object.assign({{}}, layerBadges, {{ activated: true, adminUrl: data.adminUrl }});
+        return data;
+    }}
+
+    async function activateLayerBadgesFromHero() {{
+        try {{
+            const data = await activateLayerBadgesRequest();
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{
+                    title: 'Badges activated',
+                    message: 'Opening badges admin…',
+                    variant: 'success',
+                }});
+            }}
+            if (data.adminUrl) {{
+                window.location.href = data.adminUrl;
+                return;
+            }}
+            displayProjectHeader();
+        }} catch (e) {{
+            if (typeof GhDialog !== 'undefined') {{
+                await GhDialog.alert({{ title: 'Activation failed', message: e.message || 'Could not activate badges.', variant: 'danger' }});
+            }}
         }}
     }}
 

@@ -19,6 +19,7 @@ def gh_page_header(
     icon: str = 'fa-compass',
     actions_html: str = '',
     breadcrumb_html: str = '',
+    title_suffix_html: str = '',
 ) -> str:
     icon_html = (
         f'<div class="gh-page-header-icon"><i class="fas {html_mod.escape(icon)}"></i></div>'
@@ -33,11 +34,14 @@ def gh_page_header(
         if actions_html
         else ''
     )
+    title_html = html_mod.escape(title)
+    if title_suffix_html:
+        title_html += title_suffix_html
     return (
         f'{breadcrumb_html}'
         f'<header class="gh-page-header">'
         f'<div class="gh-page-header-main">{icon_html}'
-        f'<div><h1 class="gh-page-title">{html_mod.escape(title)}</h1>{lead_html}</div></div>'
+        f'<div><h1 class="gh-page-title">{title_html}</h1>{lead_html}</div></div>'
         f'{actions}'
         f'</header>'
     )

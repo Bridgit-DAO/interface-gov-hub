@@ -811,7 +811,8 @@ def workgroup_detail(workgroup_slug):
             loadAssignedDocuments();
             // Awaited: maybeAutoOpenAction() below needs to know whether the
             // signed-in user is already a member before offering to join.
-            await Promise.all([loadChairs(), loadMembers()]);
+            await Promise.all([loadChairs(), loadMembers(), loadMyWorkgroupStatus()]);
+            updateMembershipButtons();
 
             // Auto-open the nominate / join modal when the user arrived here
             // via a "?action=nominate" or "?action=join" link (e.g. from the
@@ -1016,30 +1017,54 @@ def workgroup_detail(workgroup_slug):
         return badges[approval] || '';
     }}
 
+    /**
+     * Single source of truth for the signed-in user's membership/position
+     * state on this workgroup (replaces deriving it separately from the
+     * chairs and members list responses). Backed by
+     * services.workgroup_membership.user_workgroup_status.
+     */
+    async function loadMyWorkgroupStatus() {{
+        if (!isAuthenticated || !workgroup || !workgroup.acronym) return;
+        try {{
+            const response = await fetch(`/api/workgroups/${{encodeURIComponent(workgroup.acronym)}}/me/status`);
+            if (!response.ok) return;
+            const data = await response.json();
+            if (data.member) isCurrentUserMember = true;
+            if (Array.isArray(data.positions) && data.positions.length) {{
+                currentUserPositionKeys = data.positions;
+            }}
+        }} catch (error) {{
+            console.warn('Could not load workgroup membership status', error);
+        }}
+    }}
+
+    /** Join / nominate / invite button visibility, once membership state is known. */
+    function updateMembershipButtons() {{
+        const nominateBtn = document.getElementById('nominate-btn');
+        if (nominateBtn) {{
+            nominateBtn.style.display = workgroup.approval_status === 'approved' ? 'block' : 'none';
+        }}
+        const joinBtn = document.getElementById('join-btn');
+        if (joinBtn) {{
+            joinBtn.style.display = (!isCurrentUserMember && workgroup.approval_status === 'approved')
+                ? 'block'
+                : 'none';
+        }}
+        const inviteBtn = document.getElementById('invite-member-btn');
+        if (inviteBtn) {{
+            const canInvite = workgroup && workgroup.can_invite_members === true;
+            inviteBtn.style.display = (isAuthenticated && (isCurrentUserMember || canInvite))
+                ? 'block'
+                : 'none';
+        }}
+    }}
+
     async function loadChairs() {{
         try {{
             // Load chairs from working_group_chair table using acronym
             const response = await fetch(`/api/workgroups/${{workgroup.id}}/chairs/?_=${{Date.now()}}`);
             const data = await response.json();
             const chairs = data.chairs || [];
-
-            // Positions the signed-in user already holds or is under review for.
-            currentUserPositionKeys = (currentUserId
-                ? chairs.filter(c => c.user_id === currentUserId)
-                : []
-            ).map(c => c.position_key || 'chair');
-
-            // Holding a position counts as being in the workgroup even when the
-            // user never pressed "Join" (e.g. an admin-approved co-lead).
-            if (currentUserPositionKeys.length > 0) {{
-                isCurrentUserMember = true;
-            }}
-
-            // Show nominate button on approved workgroups (auth checked on click)
-            const nominateBtn = document.getElementById('nominate-btn');
-            if (nominateBtn) {{
-                nominateBtn.style.display = workgroup.approval_status === 'approved' ? 'block' : 'none';
-            }}
 
             let html = '';
             if (chairs.length > 0) {{
@@ -1078,27 +1103,6 @@ def workgroup_detail(workgroup_slug):
             // Load members from working_group_member table using acronym
             const response = await fetch(`/api/workgroups/${{workgroup.id}}/members/?_=${{Date.now()}}`);
             const data = await response.json();
-
-            // Check if current user is already a member. Do not clear a true set
-            // by loadChairs(): holding a position also makes you part of the group.
-            if (isAuthenticated && currentUserId && data.members) {{
-                isCurrentUserMember = isCurrentUserMember
-                    || data.members.some(m => m.user_id === currentUserId);
-            }}
-
-            const joinBtn = document.getElementById('join-btn');
-            const inviteBtn = document.getElementById('invite-member-btn');
-            if (joinBtn) {{
-                joinBtn.style.display = (!isCurrentUserMember && workgroup.approval_status === 'approved')
-                    ? 'block'
-                    : 'none';
-            }}
-            if (inviteBtn) {{
-                var canInvite = workgroup && workgroup.can_invite_members === true;
-                inviteBtn.style.display = (isAuthenticated && (isCurrentUserMember || canInvite))
-                    ? 'block'
-                    : 'none';
-            }}
 
             let html = '';
             if (data.members && data.members.length > 0) {{
@@ -1229,6 +1233,10 @@ def workgroup_detail(workgroup_slug):
                     message: pending ? 'Your membership request is pending approval.' : 'You joined this workgroup.',
                     variant: pending ? 'info' : 'success',
                 }});
+                // Update local state immediately so the Join button hides without
+                // waiting on a full status re-fetch.
+                if (!pending) isCurrentUserMember = true;
+                updateMembershipButtons();
                 loadMembers();
             }} else {{
                 await GhDialog.alert({{ title: 'Could not join', message: data.error || 'Failed to join workgroup', variant: 'danger' }});
@@ -1436,6 +1444,11 @@ def workgroup_detail(workgroup_slug):
                     variant: 'success',
                     confirmLabel: 'Got it',
                 }});
+                if (target === 'self' && currentUserPositionKeys.indexOf(payload.position_key) === -1) {{
+                    currentUserPositionKeys.push(payload.position_key);
+                    isCurrentUserMember = true;
+                    updateMembershipButtons();
+                }}
                 loadChairs();
             }} else {{
                 await GhDialog.alert({{ title: 'Submission failed', message: data.error || 'Failed to submit nomination', variant: 'danger' }});

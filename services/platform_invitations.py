@@ -29,6 +29,7 @@ from services.dp_proposals import (
 )
 from services.platform_invitation_mail import send_platform_invitation_email
 from services.proposal_modes import is_mode_enabled, proposal_mode_for_submission
+from services.public_urls import public_base_url
 from services.utils import generate_invitation_token
 from services.workgroup_authority import can_invite_workgroup_member, is_workgroup_member
 from services.workgroup_membership import (
@@ -520,7 +521,7 @@ def create_invitation(
             invitation=pending_match,
             inviter=inviter,
             invitee_email=email,
-            landing_url=_public_base_url() + build_landing_path(pending_match),
+            landing_url=public_base_url() + build_landing_path(pending_match),
             target_title=_target_title(pending_match),
         )
         body = _invitation_response(pending_match, email_sent=sent)
@@ -548,7 +549,7 @@ def create_invitation(
         invitation=inv,
         inviter=inviter,
         invitee_email=email,
-        landing_url=_public_base_url() + build_landing_path(inv),
+        landing_url=public_base_url() + build_landing_path(inv),
         target_title=_target_title(inv),
     )
     body = _invitation_response(inv, email_sent=sent)
@@ -615,7 +616,7 @@ def _create_shareable_platform_invitation(
             invitation=inv,
             inviter=inviter,
             invitee_email=email,
-            landing_url=_public_base_url() + build_landing_path(inv),
+            landing_url=public_base_url() + build_landing_path(inv),
             target_title=_target_title(inv),
         )
 
@@ -751,7 +752,7 @@ def _create_shareable_platform_batch(
 
     inviter = User.query.get(inviter_id)
     share_path = body.get('invite_path') or build_landing_path(inv)
-    landing_url = _public_base_url() + share_path
+    landing_url = public_base_url() + share_path
     results = []
     sent_count = 0
     error_count = 0
@@ -791,12 +792,6 @@ def _create_shareable_platform_batch(
         'invite_path': share_path,
         'results': results,
     }, 200 if error_count == 0 else 207
-
-
-def _public_base_url() -> str:
-    from flask import current_app
-    from config import PUBLIC_BASE_URL, resolved_public_base_url
-    return resolved_public_base_url(current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL)
 
 
 def _passage_excerpt_from_target(target: dict) -> str:

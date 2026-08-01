@@ -24,6 +24,22 @@ def _get_site_config(key, default):
     return row.value if row else default
 
 
+def _brc333_inscribe_base():
+    """When set, Unisat create/status/fee calls proxy to BRC333 Inscribe API."""
+    return (os.environ.get('BRC333_INSCRIBE_URL') or '').rstrip('/')
+
+
+def _brc333_headers():
+    key = (os.environ.get('BRC333_INSCRIBE_SERVICE_API_KEY') or os.environ.get('BRC333_INSCRIBE_API_KEY') or '').strip()
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+    if key:
+        headers['X-API-Key'] = key
+    uid = session.get('user_id')
+    if uid:
+        headers['X-GovHub-User-Id'] = str(uid)
+    return headers
+
+
 @bp.route('/ordinal/preview', methods=['POST'])
 def preview_ordinal():
     """Preview ordinal content and fetch metadata."""
@@ -347,7 +363,7 @@ def inscribe_order_status(order_id):
 
 @bp.route('/inscription/create', methods=['POST'])
 def inscription_create():
-    """Create Unisat inscription order."""
+    """Create Unisat inscription order (optionally via BRC333 Inscribe API)."""
     try:
         data = request.get_json() or {}
         receive_address = (data.get('receiveAddress') or '').strip()
@@ -358,11 +374,39 @@ def inscription_create():
         if not files:
             return jsonify({'success': False, 'error': 'At least one file is required'}), 400
 
+        brc333 = _brc333_inscribe_base()
+        if brc333:
+            payload = {
+                'receiveAddress': receive_address,
+                'feeRate': fee_rate,
+                'files': [{'filename': f.get('filename', 'content.txt'), 'dataURL': f.get('dataURL')} for f in files],
+            }
+            resp = requests.post(
+                f'{brc333}/v1/external/create-order',
+                json=payload,
+                headers=_brc333_headers(),
+                timeout=30,
+            )
+            result = resp.json() if resp.content else {}
+            if resp.status_code >= 400:
+                detail = result.get('detail') if isinstance(result, dict) else result
+                if isinstance(detail, dict):
+                    return jsonify(detail), resp.status_code
+                return jsonify({'success': False, 'error': detail or resp.reason}), resp.status_code
+            return jsonify({
+                'success': True,
+                'order_id': result.get('order_id') or result.get('job_id') or '',
+                'pay_address': result.get('pay_address') or '',
+                'amount': result.get('amount') or 0,
+                'qr_code': None,
+                'via': 'brc333',
+            })
+
         api_key = os.environ.get('UNISAT_API_KEY', '').strip()
         if not api_key:
             return jsonify({
                 'success': False,
-                'error': 'Inscription service not configured. Set UNISAT_API_KEY to enable.',
+                'error': 'Inscription service not configured. Set UNISAT_API_KEY or BRC333_INSCRIBE_URL to enable.',
                 'placeholder': True
             }), 503
 
@@ -396,8 +440,28 @@ def inscription_create():
 
 @bp.route('/inscription/status/<order_id>', methods=['GET'])
 def inscription_status(order_id):
-    """Poll Unisat inscription order status."""
+    """Poll Unisat (or BRC333) inscription order status."""
     try:
+        brc333 = _brc333_inscribe_base()
+        if brc333:
+            resp = requests.get(
+                f'{brc333}/v1/external/orders/{order_id}',
+                headers=_brc333_headers(),
+                timeout=15,
+            )
+            result = resp.json() if resp.content else {}
+            status = result.get('status') or 'pending'
+            inscription_id = result.get('inscription_id')
+            # Normalize BRC333 statuses to Immortalize UI expectations
+            if status == 'confirmed':
+                status = 'completed'
+            return jsonify({
+                'success': bool(result.get('success', True)),
+                'status': status,
+                'inscription_id': inscription_id,
+                'via': 'brc333',
+            })
+
         api_key = os.environ.get('UNISAT_API_KEY', '').strip()
         if not api_key:
             return jsonify({'success': False, 'error': 'Not configured', 'status': 'pending'}), 503
@@ -423,6 +487,11 @@ def inscription_status(order_id):
 def inscription_btc_price():
     """Fetch current BTC price in USD."""
     try:
+        brc333 = _brc333_inscribe_base()
+        if brc333:
+            resp = requests.get(f'{brc333}/v1/fees/btc-price', timeout=5)
+            if resp.ok:
+                return jsonify(resp.json())
         resp = requests.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd', timeout=5)
         resp.raise_for_status()
         data = resp.json()
@@ -435,8 +504,22 @@ def inscription_btc_price():
 
 @bp.route('/inscription/network-fee', methods=['GET'])
 def inscription_network_fee():
-    """Fetch current Bitcoin network fee rates from mempool.space."""
+    """Fetch current Bitcoin network fee rates from mempool.space (or BRC333)."""
     try:
+        brc333 = _brc333_inscribe_base()
+        if brc333:
+            resp = requests.get(f'{brc333}/v1/fees/network', timeout=8)
+            if resp.ok:
+                data = resp.json()
+                return jsonify({
+                    'success': data.get('success', True),
+                    'fastestFee': data.get('fastestFee', 0),
+                    'halfHourFee': data.get('halfHourFee', 0),
+                    'hourFee': data.get('hourFee', 0),
+                    'economyFee': data.get('economyFee', 0),
+                    'minimumFee': data.get('minimumFee', 0),
+                    'via': 'brc333',
+                })
         base = 'https://mempool.space/testnet/api' if os.environ.get('UNISAT_TESTNET') else 'https://mempool.space/api'
         url = f'{base}/v1/fees/recommended'
         resp = requests.get(url, timeout=5)

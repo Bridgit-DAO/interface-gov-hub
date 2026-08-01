@@ -3,7 +3,7 @@ import html as html_mod
 import json
 from flask import Blueprint, redirect, request, session
 
-from models import User, Layer
+from models import Layer
 from services.identity import get_current_user
 from services.directory_ui import (
     gh_page_open,
@@ -14,12 +14,7 @@ from services.directory_ui import (
     gh_directory_grid,
     gh_directory_toolbar,
 )
-from services.people_directory import (
-    build_people_lookup_tables,
-    build_person_row,
-    build_workgroup_rosters_html,
-    workgroup_filter_options,
-)
+from services.people_directory import build_people_directory_data
 from services.page_heroes import render_page_hero_html
 
 bp = Blueprint('directory', __name__, url_prefix='')
@@ -41,16 +36,13 @@ def people():
     current_user = get_current_user()
     is_admin = current_user and current_user.get('role') == 'admin'
 
-    lookup = build_people_lookup_tables()
-    users = User.query.order_by(User.username).all()
+    directory_data = build_people_directory_data(show_admin_actions=is_admin)
+    users = directory_data['users']
     wg_options = ''.join(
         f'<option value="{html_mod.escape(ac)}">{html_mod.escape(label)}</option>'
-        for ac, label in workgroup_filter_options(lookup)
+        for ac, label in directory_data['workgroup_options']
     )
-    rows = [
-        build_person_row(u, lookup, show_admin_actions=is_admin)['row_html']
-        for u in users
-    ]
+    rows = [row['row_html'] for row in directory_data['rows']]
     num_cols = 6 + (1 if is_admin else 0)
     table_rows = (
         ''.join(rows)
@@ -85,7 +77,7 @@ def people():
         '<label class="btn btn-outline-primary btn-sm" for="people-view-workgroups">By workgroup</label>'
         '</div>'
     )
-    rosters_html = build_workgroup_rosters_html(users, lookup)
+    rosters_html = directory_data['rosters_html']
 
     content = f"""
     {gh_page_open()}

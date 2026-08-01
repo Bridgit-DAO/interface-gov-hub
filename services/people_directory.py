@@ -460,6 +460,23 @@ def build_workgroup_rosters_html(users: list[User], lookup: dict[str, Any]) -> s
     return f'<div class="gh-wg-roster-grid">{"".join(cards)}</div>'
 
 
+def build_people_directory_data(*, show_admin_actions: bool) -> dict[str, Any]:
+    """Single query pass powering both the People table and by-workgroup roster views."""
+    lookup = build_people_lookup_tables()
+    users = User.query.order_by(User.username).all()
+    rows = [
+        build_person_row(u, lookup, show_admin_actions=show_admin_actions)
+        for u in users
+    ]
+    return {
+        'lookup': lookup,
+        'users': users,
+        'rows': rows,
+        'rosters_html': build_workgroup_rosters_html(users, lookup),
+        'workgroup_options': workgroup_filter_options(lookup),
+    }
+
+
 def workgroup_filter_options(lookup: dict[str, Any]) -> list[tuple[str, str]]:
     """Distinct workgroup acronyms → (value, label) for filter dropdown."""
     wg_by = lookup['wg_by_acronym']

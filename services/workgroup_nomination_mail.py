@@ -8,29 +8,10 @@ from typing import Optional
 
 from extensions import db
 from models import Layer, LayerAdmin, User, UserNotification, Workgroup, WorkingGroupChair
+from services.email_layout import email_shell, user_display as _user_display
+from services.public_urls import public_base_url
 from services.resend_mail import send_resend_email
 from services.workgroup_positions import position_label
-
-
-def _public_base_url() -> str:
-    from flask import current_app
-    from config import PUBLIC_BASE_URL, resolved_public_base_url
-    return resolved_public_base_url(current_app.config.get('PUBLIC_BASE_URL') or PUBLIC_BASE_URL)
-
-
-def _user_display(user: Optional[User], fallback: str = 'Someone') -> str:
-    if not user:
-        return fallback
-    return user.displayName or user.name or user.username or fallback
-
-
-def _email_shell(title: str, body_html: str) -> str:
-    return f"""<!DOCTYPE html>
-<html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#222;max-width:560px;margin:0 auto;padding:24px;">
-<h2 style="color:#667eea;margin-top:0;">{html.escape(title)}</h2>
-{body_html}
-<p style="font-size:12px;color:#888;margin-top:32px;">Gov Hub · Interface Governance Hub</p>
-</body></html>"""
 
 
 def ensure_nominee_token(nomination: WorkingGroupChair, days: int = 30) -> str:
@@ -42,7 +23,7 @@ def ensure_nominee_token(nomination: WorkingGroupChair, days: int = 30) -> str:
 
 def nomination_respond_url(nomination: WorkingGroupChair) -> str:
     token = ensure_nominee_token(nomination)
-    return f"{_public_base_url()}/nomination/respond/{token}/"
+    return f"{public_base_url()}/nomination/respond/{token}/"
 
 
 def _workgroup_context(nomination: WorkingGroupChair):
@@ -95,7 +76,7 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
     nominator_name = _user_display(nominator, 'A community member')
     statement = html.escape(nomination.statement or '').replace('\n', '<br>')
     respond_url = nomination_respond_url(nomination)
-    wg_url = f"{_public_base_url()}/workgroups/{wg.slug}/"
+    wg_url = f"{public_base_url()}/workgroups/{wg.slug}/"
 
     if nomination.is_self_nomination:
         confirm_body = f"""
@@ -109,7 +90,7 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
             send_resend_email(
                 to=[nominator.email.strip()],
                 subject=f'Your {pos_label} nomination was submitted – {wg_name}',
-                html=_email_shell('Nomination submitted', confirm_body),
+                html=email_shell('Nomination submitted', confirm_body),
             )
         return
 
@@ -127,7 +108,7 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
         send_resend_email(
             to=[nomination.nominee_email.strip()],
             subject=f'You were nominated as {pos_label} – {wg_name}',
-            html=_email_shell('Workgroup nomination', nominee_body),
+            html=email_shell('Workgroup nomination', nominee_body),
         )
 
     if nominee_user:
@@ -148,7 +129,7 @@ def send_nomination_submitted(nomination: WorkingGroupChair):
         send_resend_email(
             to=[nominator.email.strip()],
             subject=f'Nomination sent – {nomination.chair_name} for {pos_label}',
-            html=_email_shell('Nomination sent', nominator_body),
+            html=email_shell('Nomination sent', nominator_body),
         )
 
 
@@ -162,7 +143,7 @@ def send_admin_nomination_accepted(nomination: WorkingGroupChair):
     wg_name = wg.name if wg else nomination.group_acronym
     layer_name = layer.name or 'Gov Hub'
     nominee_name = nomination.chair_name or 'The nominee'
-    review_url = f"{_public_base_url()}/admin/chair-nominations/"
+    review_url = f"{public_base_url()}/admin/chair-nominations/"
 
     body = f"""
 <p><strong>{html.escape(nominee_name)}</strong> accepted a nomination for <strong>{html.escape(pos_label)}</strong> in the workgroup <strong>{html.escape(wg_name)}</strong> on <strong>{html.escape(layer_name)}</strong>.</p>
@@ -172,7 +153,7 @@ def send_admin_nomination_accepted(nomination: WorkingGroupChair):
 </p>
 """
     subject = f'Nomination accepted – {pos_label} in {wg_name} ({layer_name})'
-    html_content = _email_shell('Nomination ready for review', body)
+    html_content = email_shell('Nomination ready for review', body)
 
     for admin in _layer_admin_users(layer):
         if not admin.email:
@@ -205,14 +186,14 @@ def send_nominee_accepted(nomination: WorkingGroupChair):
         send_resend_email(
             to=[nominator.email.strip()],
             subject=f'{nominee_name} accepted your nomination',
-            html=_email_shell('Nominee accepted', body),
+            html=email_shell('Nominee accepted', body),
         )
     if nominator:
         _notify_in_app(
             nominator.id,
             f'{nominee_name} accepted nomination',
             f'They accepted your {pos_label} nomination in {wg_name}. Pending admin approval.',
-            f"{_public_base_url()}/workgroups/{wg.slug}/" if wg else '/',
+            f"{public_base_url()}/workgroups/{wg.slug}/" if wg else '/',
         )
 
     send_admin_nomination_accepted(nomination)
@@ -235,14 +216,14 @@ def send_nominee_declined(nomination: WorkingGroupChair):
         send_resend_email(
             to=[nominator.email.strip()],
             subject=f'{nominee_name} declined your nomination',
-            html=_email_shell('Nominee declined', body),
+            html=email_shell('Nominee declined', body),
         )
     if nominator:
         _notify_in_app(
             nominator.id,
             f'{nominee_name} declined nomination',
             f'They declined your {pos_label} nomination in {wg_name}.',
-            f"{_public_base_url()}/workgroups/{wg.slug}/" if wg else '/',
+            f"{public_base_url()}/workgroups/{wg.slug}/" if wg else '/',
         )
 
 
@@ -251,7 +232,7 @@ def send_admin_decision(nomination: WorkingGroupChair, approved: bool):
     nominator = User.query.get(nomination.nominated_by_user_id) if nomination.nominated_by_user_id else None
     pos_label = position_label(nomination.position_key or 'chair')
     wg_name = wg.name if wg else nomination.group_acronym
-    wg_url = f"{_public_base_url()}/workgroups/{wg.slug}/" if wg else _public_base_url()
+    wg_url = f"{public_base_url()}/workgroups/{wg.slug}/" if wg else public_base_url()
 
     if approved:
         subject = f'Nomination approved – {pos_label} in {wg_name}'
@@ -263,6 +244,6 @@ def send_admin_decision(nomination: WorkingGroupChair, approved: bool):
         body_nominator = f'<p>The nomination of <strong>{html.escape(nomination.chair_name or "")}</strong> for <strong>{html.escape(pos_label)}</strong> in <strong>{html.escape(wg_name)}</strong> was not approved.</p>'
 
     if nomination.nominee_email:
-        send_resend_email(to=[nomination.nominee_email.strip()], subject=subject, html=_email_shell(subject, body_nominee))
+        send_resend_email(to=[nomination.nominee_email.strip()], subject=subject, html=email_shell(subject, body_nominee))
     if nominator and nominator.email:
-        send_resend_email(to=[nominator.email.strip()], subject=subject, html=_email_shell(subject, body_nominator))
+        send_resend_email(to=[nominator.email.strip()], subject=subject, html=email_shell(subject, body_nominator))

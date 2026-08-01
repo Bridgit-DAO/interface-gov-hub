@@ -203,6 +203,7 @@ def create_app():
     from routes.dp_proposals import bp as dp_proposals_bp, admin_bp as dp_proposals_admin_bp
     from routes.dp_challenge_pages import bp as dp_challenge_bp
     from routes.platform_invitations import bp as platform_invitations_bp
+    from routes.brc333_badges_admin import bp as brc333_badges_admin_bp
     from routes.metaweb import bp as metaweb_bp
     from routes.canopi_internal import bp as canopi_internal_bp
     from routes.scope_email import bp as scope_email_bp
@@ -278,6 +279,7 @@ def create_app():
     app.register_blueprint(dp_challenge_bp)
     app.register_blueprint(platform_invitations_bp)
     app.register_blueprint(metaweb_bp)
+    app.register_blueprint(brc333_badges_admin_bp)
     app.register_blueprint(canopi_internal_bp)
     app.register_blueprint(scope_email_bp)
     app.register_blueprint(layer_connections_bp)
