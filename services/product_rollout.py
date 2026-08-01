@@ -402,6 +402,8 @@ def _path_needs_artifacts(p: str) -> bool:
 def _path_needs_patches(p: str) -> bool:
     if p.startswith('/admin/dp-proposals'):
         return True
+    if p.startswith('/patches'):
+        return True
     if p.startswith('/dp-challenge'):
         return True
     if p.startswith('/api/dp-challenge'):

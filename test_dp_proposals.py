@@ -540,6 +540,40 @@ def test_suggest_edit_page_loads():
         assert b'Help refine living documents' in r.data
 
 
+def test_patches_about_page_loads():
+    from app import app
+
+    _enable_dp_proposals(app)
+    with app.test_client() as client:
+        r = client.get('/patches/about/')
+        assert r.status_code == 200, r.get_data(as_text=True)
+        assert b'What is a patch?' in r.data
+        assert b'How collaboration works' in r.data
+        assert b'Browse documents' in r.data
+        assert b'/suggest-edit/' in r.data
+
+
+def test_patches_index_redirects_to_about():
+    from app import app
+
+    _enable_dp_proposals(app)
+    with app.test_client() as client:
+        r = client.get('/patches/', follow_redirects=False)
+        assert r.status_code == 302
+        assert '/patches/about/' in r.headers.get('Location', '')
+
+
+def test_participate_nav_patches_link():
+    from app import app
+
+    _enable_dp_proposals(app)
+    with app.test_client() as client:
+        r = client.get('/')
+        assert r.status_code == 200, r.get_data(as_text=True)
+        assert b'href="/patches/about/"' in r.data
+        assert b'data-gh-i18n="nav.suggestEdit"' in r.data
+
+
 def test_patch_diff_endpoint():
     from app import app
     from extensions import db

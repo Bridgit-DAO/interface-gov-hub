@@ -202,6 +202,7 @@ def create_app():
     from routes.layer_invitations import bp as layer_invitations_bp, bp_pages as layer_invite_pages_bp
     from routes.dp_proposals import bp as dp_proposals_bp, admin_bp as dp_proposals_admin_bp
     from routes.dp_challenge_pages import bp as dp_challenge_bp
+    from routes.patches_pages import bp as patches_pages_bp
     from routes.platform_invitations import bp as platform_invitations_bp
     from routes.brc333_badges_admin import bp as brc333_badges_admin_bp
     from routes.metaweb import bp as metaweb_bp
@@ -277,6 +278,7 @@ def create_app():
     app.register_blueprint(dp_proposals_bp)
     app.register_blueprint(dp_proposals_admin_bp)
     app.register_blueprint(dp_challenge_bp)
+    app.register_blueprint(patches_pages_bp)
     app.register_blueprint(platform_invitations_bp)
     app.register_blueprint(metaweb_bp)
     app.register_blueprint(brc333_badges_admin_bp)

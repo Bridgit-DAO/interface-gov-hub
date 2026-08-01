@@ -141,8 +141,8 @@ def generate_participate_nav_html(layer_slug=None):
             'DP Challenge</a></li>'
         )
         lines.append(
-            '<li><a class="dropdown-item" href="/suggest-edit/" data-gh-i18n="nav.suggestEdit">'
-            'Propose a Patch</a></li>'
+            '<li><a class="dropdown-item" href="/patches/about/" data-gh-i18n="nav.suggestEdit">'
+            'Patches</a></li>'
         )
     lines.append(
         f'<li><a class="dropdown-item" href="{submit_href}" data-gh-i18n="nav.submitDraft">Submit Draft</a></li>'
