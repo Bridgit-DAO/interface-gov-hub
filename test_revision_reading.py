@@ -106,7 +106,9 @@ def _enable_patches():
     db.session.commit()
 
 
-def _make_patch(submission, *, original_text, created_at, content_hash_at_create):
+def _make_patch(
+    submission, *, original_text, created_at, content_hash_at_create, status='pending'
+):
     from extensions import db
     from models import DpProposal
     from services.dp_proposals import compute_anchor_hash
@@ -115,7 +117,7 @@ def _make_patch(submission, *, original_text, created_at, content_hash_at_create
         id=str(uuid4()),
         submission_id=submission.id,
         scope='document',
-        status='pending',
+        status=status,
         anchor_hash=compute_anchor_hash(
             submission.id, content_hash_at_create, original_text
         ),
@@ -216,8 +218,40 @@ def test_patch_applicability_reflects_served_revision():
 
         assert rows[still_there_id] == 'applies'
         assert rows[dropped_id] == 'needs-review'
-        # Text that exists in no revision is dropped from the list entirely.
-        assert nowhere_id not in rows
+        # Text that exists in no revision is listed, but as obsolete.
+        assert rows[nowhere_id] == 'obsolete'
+
+
+def test_closed_patch_on_removed_passage_is_obsolete_not_needs_review():
+    """A declined patch cannot be merged, so re-anchoring it would be busywork."""
+    from services.dp_proposals import list_proposals_for_submission
+
+    with isolated_app() as ctx:
+        with ctx.app.app_context():
+            from extensions import db
+
+            _enable_patches()
+            parent, _revision = _seed_family(ctx)
+            open_patch = _make_patch(
+                parent,
+                original_text='This sentence only exists in the original draft.',
+                created_at=datetime(2026, 1, 6),
+                content_hash_at_create=parent.content_hash,
+            )
+            declined = _make_patch(
+                parent,
+                original_text='This sentence only exists in the original draft.',
+                created_at=datetime(2026, 1, 7),
+                content_hash_at_create=parent.content_hash,
+                status='declined',
+            )
+            db.session.commit()
+            open_id, declined_id = open_patch.id, declined.id
+
+            rows = {row.id: row.applicability for row in list_proposals_for_submission(parent.id)}
+
+        assert rows[open_id] == 'needs-review'
+        assert rows[declined_id] == 'obsolete'
 
 
 def test_proposals_api_reports_applicability():
@@ -233,15 +267,64 @@ def test_proposals_api_reports_applicability():
                 created_at=datetime(2026, 1, 6),
                 content_hash_at_create=parent.content_hash,
             )
+            _make_patch(
+                parent,
+                original_text='The quick brown fox jumps over the lazy dog.',
+                created_at=datetime(2026, 1, 7),
+                content_hash_at_create=parent.content_hash,
+            )
             db.session.commit()
 
         payload = ctx.client().get(f'/api/doc/draft/{ML_NUMBER}/proposals/').get_json()
 
         assert payload['counts_by_applicability'] == {
-            'applies': 0, 'needs-review': 1, 'orphaned': 0,
+            'applies': 0, 'needs-review': 1, 'obsolete': 1,
         }
-        assert payload['proposals'][0]['applicability'] == 'needs-review'
-        assert payload['proposals'][0]['applicability_label'] == 'Needs re-anchoring'
+        by_state = {row['applicability']: row for row in payload['proposals']}
+        assert by_state['needs-review']['applicability_label'] == 'Needs re-anchoring'
+        assert by_state['obsolete']['applicability_label'] == 'Obsolete'
+        assert by_state['obsolete']['applicability_hint']
+
+
+def test_patches_page_labels_every_applicability_state():
+    with isolated_app() as ctx:
+        with ctx.app.app_context():
+            from extensions import db
+
+            _enable_patches()
+            parent, _revision = _seed_family(ctx)
+            for text in (
+                'Shared vocabulary is the foundation of interoperability.',
+                'This sentence only exists in the original draft.',
+                'The quick brown fox jumps over the lazy dog.',
+            ):
+                _make_patch(
+                    parent,
+                    original_text=text,
+                    created_at=datetime(2026, 1, 6),
+                    content_hash_at_create=parent.content_hash,
+                )
+            db.session.commit()
+
+        html = ctx.client().get(f'/doc/draft/{ML_NUMBER}/patches/').get_data(as_text=True)
+
+        assert 'Applies to this text' in html
+        assert 'Needs re-anchoring' in html
+        assert 'Obsolete' in html
+        assert '3 patches' in html
+        assert '1 obsolete' in html
+
+
+def test_reader_script_labels_all_three_applicability_states():
+    """The reader chips are rendered client-side, so guard the JS label table."""
+    from services.dp_proposals import APPLICABILITY_LABELS
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, 'static/js/dp-proposals/reader.js'), encoding='utf-8') as fh:
+        source = fh.read()
+
+    for label in APPLICABILITY_LABELS.values():
+        assert f"'{label}'" in source
 
 
 def test_family_patch_summary_attributes_patches_to_a_revision():
@@ -290,6 +373,12 @@ def test_revisions_page_lists_revision_and_patch_context():
                 created_at=datetime(2026, 1, 6),
                 content_hash_at_create=parent.content_hash,
             )
+            _make_patch(
+                parent,
+                original_text='The quick brown fox jumps over the lazy dog.',
+                created_at=datetime(2026, 1, 7),
+                content_hash_at_create=parent.content_hash,
+            )
             db.session.commit()
             parent_draft = parent.draft_name
 
@@ -299,4 +388,6 @@ def test_revisions_page_lists_revision_and_patch_context():
         assert 'Dropped the original-only sentence' in html
         assert 'Read this revision' in html
         assert 'scoped to the whole document family' in html
-        assert 'need re-anchoring' in html
+        assert '1 needs re-anchoring' in html
+        assert '1 obsolete' in html
+        assert 'Patches written on this revision:' in html

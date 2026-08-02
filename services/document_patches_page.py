@@ -10,6 +10,7 @@ from models import DpProposal, Submission
 from services.dp_proposals import (
     APPLICABILITY_HINTS,
     APPLICABILITY_LABELS,
+    APPLICABILITY_STATES,
     applicability_counts,
     can_accept_amendments,
     can_manage_amendments,
@@ -54,8 +55,8 @@ def count_patches_for_draft_ref(draft_ref: str) -> int:
         return 0
     if not patches_enabled_for_submission(submission):
         return 0
-    # Patches are family-scoped, and patches whose text exists in no revision are
-    # hidden, so count exactly what the patches page and reader will show.
+    # Patches are family-scoped, so this counts exactly what the patches page and
+    # the reader will show, obsolete patches included.
     return len(list_proposals_for_submission(submission.id))
 
 
@@ -90,7 +91,7 @@ def render_applicability_badge(applicability: str) -> str:
     icon = {
         'applies': 'fa-circle-check',
         'needs-review': 'fa-triangle-exclamation',
-        'orphaned': 'fa-link-slash',
+        'obsolete': 'fa-link-slash',
     }.get(applicability, 'fa-circle-question')
     return (
         f'<span class="badge {_applicability_badge_class(applicability)} gh-patch-applicability" '
@@ -100,19 +101,21 @@ def render_applicability_badge(applicability: str) -> str:
     )
 
 
+#: Tally wording per state, as (one patch, several patches).
 SUMMARY_PHRASES = {
-    'applies': 'apply to this revision',
-    'needs-review': 'need re-anchoring',
-    'orphaned': 'have no matching text',
+    'applies': ('applies to this revision', 'apply to this revision'),
+    'needs-review': ('needs re-anchoring', 'need re-anchoring'),
+    'obsolete': ('obsolete', 'obsolete'),
 }
 
 
 def render_applicability_summary(rows: List[DpProposal], revision_label: str = '') -> str:
     """Family-scope note plus applicability tallies above the patch list."""
     counts = applicability_counts(getattr(r, 'applicability', 'applies') for r in rows)
+    total = len(rows)
     chips = ''.join(
         f'<span class="badge {_applicability_badge_class(key)} me-2">'
-        f'{count} {html_mod.escape(SUMMARY_PHRASES[key])}</span>'
+        f'{count} {html_mod.escape(SUMMARY_PHRASES[key][0 if count == 1 else 1])}</span>'
         for key, count in counts.items()
         if count
     )
@@ -122,12 +125,16 @@ def render_applicability_summary(rows: List[DpProposal], revision_label: str = '
     )
     return f'''
     <div class="alert alert-secondary gh-patch-applicability-summary" role="note">
-      <div class="mb-2">{chips}</div>
+      <div class="mb-2">
+        <strong class="me-2">{total} patch{'' if total == 1 else 'es'}</strong>{chips}
+      </div>
       <div class="small mb-0">
         <i class="fas fa-circle-info me-1" aria-hidden="true"></i>
         Patches and comments are scoped to the whole document family, not a single
         revision.{reading} Applicability shows which patches still line up with the
-        text of the revision being served.
+        text of the revision being served: they apply as written, they need
+        re-anchoring against the newer text, or they are obsolete and can no
+        longer be merged at all.
       </div>
     </div>'''
 
@@ -205,7 +212,11 @@ def render_patch_card(
     )
     reader_href = html_mod.escape(_patch_reader_href(draft_ref, patch.id, return_to=return_to))
     diff_block = _render_diff_block(patch, labels)
-    applicability_badge = render_applicability_badge(getattr(patch, 'applicability', ''))
+    applicability = getattr(patch, 'applicability', '')
+    applicability_badge = render_applicability_badge(applicability)
+    if applicability == 'obsolete':
+        # Nothing in the served body matches, so merging would have no target.
+        can_merge = False
 
     rationale_block = ''
     if patch.rationale:
@@ -297,9 +308,13 @@ def render_passage_group(
     if first_patch:
         href = html_mod.escape(_patch_reader_href(draft_ref, first_patch.id, return_to=return_to))
         passage_link = f'<a href="{href}" class="btn btn-sm btn-link px-0">Open passage in reader</a>'
-        # Patches in a group share an anchor, so they share an applicability.
-        group_applicability = render_applicability_badge(
-            getattr(first_patch, 'applicability', '')
+        # Patches on one passage share an anchor, but a closed patch on a passage a
+        # later revision edited is obsolete while an open one still needs
+        # re-anchoring, so a group can carry more than one state.
+        group_applicability = ''.join(
+            render_applicability_badge(state)
+            for state in APPLICABILITY_STATES
+            if any(getattr(p, 'applicability', '') == state for p in group.get('patches') or [])
         )
 
     return f'''

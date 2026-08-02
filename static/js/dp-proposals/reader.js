@@ -113,22 +113,34 @@
   var APPLICABILITY_LABELS = {
     applies: 'Applies to this text',
     'needs-review': 'Needs re-anchoring',
-    orphaned: 'Text not found',
+    obsolete: 'Obsolete',
   };
+
+  var APPLICABILITY_ICONS = {
+    applies: 'fa-circle-check',
+    'needs-review': 'fa-triangle-exclamation',
+    obsolete: 'fa-link-slash',
+  };
+
+  function applicabilityLabel(value) {
+    return APPLICABILITY_LABELS[value] || value || '';
+  }
 
   /**
    * Chip telling the reader whether a patch still lines up with the revision
-   * body on screen. `applies` is the normal case, so it stays unlabelled to
-   * keep the panel quiet; only mismatches are called out.
+   * body on screen: it applies as written, it needs re-anchoring, or it is
+   * obsolete and can no longer be merged.
    */
   function applicabilityBadgeHtml(p) {
     var value = p && p.applicability;
-    if (!value || value === 'applies') return '';
-    var text = APPLICABILITY_LABELS[value] || value;
+    if (!value) return '';
+    var text = applicabilityLabel(value);
     var hint = (p && p.applicability_hint) || text;
+    var icon = APPLICABILITY_ICONS[value] || 'fa-circle-question';
     return (
       '<span class="badge dp-proposal-applicability dp-proposal-applicability-' +
-      esc(value) + '" title="' + esc(hint) + '">' + esc(text) + '</span>'
+      esc(value) + '" title="' + esc(hint) + '">' +
+      '<i class="fas ' + icon + ' me-1" aria-hidden="true"></i>' + esc(text) + '</span>'
     );
   }
 
@@ -1306,6 +1318,20 @@
   }
 
   /**
+   * Worst applicability among an unlocated entry's patches: an entry counts as
+   * still re-anchorable if any one of its patches is, and only reads as obsolete
+   * once none of them can be merged anywhere.
+   */
+  function entryApplicability(entry) {
+    var values = (entry.proposals || []).map(function (p) {
+      return p.applicability || '';
+    });
+    if (values.indexOf('needs-review') !== -1) return 'needs-review';
+    if (values.indexOf('obsolete') !== -1) return 'obsolete';
+    return 'needs-review';
+  }
+
+  /**
    * Patches and comments are scoped to the document family, so a later revision
    * can drop the text an older patch targets. Those anchors have nowhere to pin
    * to, so they get a toolbar entry instead of disappearing from the reader.
@@ -1329,11 +1355,13 @@
     menu.innerHTML =
       '<li><h6 class="dropdown-header">Not in the revision you are reading</h6></li>' +
       entries.map(function (entry) {
+        var state = entryApplicability(entry);
         return (
           '<li><button type="button" class="dropdown-item dp-proposal-unmatched-option" ' +
-          'data-hash="' + esc(entry.hash) + '">' +
-          '<span class="badge dp-proposal-applicability dp-proposal-applicability-needs-review me-2">' +
-          passageActivityCount(entry) + '</span>' +
+          'data-hash="' + esc(entry.hash) + '" ' +
+          'title="' + esc(applicabilityLabel(state)) + '">' +
+          '<span class="badge dp-proposal-applicability dp-proposal-applicability-' +
+          esc(state) + ' me-2">' + passageActivityCount(entry) + '</span>' +
           esc(truncateText(unmatchedPassageText(entry), 70)) +
           '</button></li>'
         );
@@ -1341,7 +1369,8 @@
       '<li><hr class="dropdown-divider"></li>' +
       '<li><span class="dropdown-item-text small text-muted">' +
       'These passages were changed in a later revision. Patches and comments stay ' +
-      'with the whole document, so they need re-anchoring before they can be merged.' +
+      'with the whole document, so they need re-anchoring before they can be merged. ' +
+      'Greyed-out entries are obsolete: they can no longer be merged at all.' +
       '</span></li>';
   }
 

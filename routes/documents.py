@@ -2494,7 +2494,7 @@ def draft_patches(draft_name):
         propose_cta = ''
 
     content = f"""
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260731patchdiff">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802obsolete">
     <div class="gh-page container mt-4 gh-patches-page">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Patches', None)])}
         {gh_page_header(f'Patches – {display_id}', draft['title'], 'fa-code-branch')}
@@ -2683,6 +2683,14 @@ def _revisions_patch_summary(submission):
         return None
 
 
+def _applicability_chip(key, count, singular, plural) -> str:
+    phrase = singular if count == 1 else plural
+    return (
+        f'<span class="badge dp-proposal-applicability dp-proposal-applicability-{key}">'
+        f'{count} {html_mod.escape(phrase)}</span>'
+    )
+
+
 def _revision_patch_line(summary, submission_id) -> str:
     """'Patches written against this revision' line inside one revision card."""
     if not summary or not submission_id:
@@ -2690,19 +2698,15 @@ def _revision_patch_line(summary, submission_id) -> str:
     bucket = (summary.get('per_revision') or {}).get(submission_id)
     if not bucket or not bucket.get('total'):
         return ''
-    parts = []
-    if bucket.get('applies'):
-        applies = bucket['applies']
-        parts.append(
-            f'<span class="badge dp-proposal-applicability dp-proposal-applicability-applies">'
-            f'{applies} still {"applies" if applies == 1 else "apply"}</span>'
+    chips = ' '.join(
+        _applicability_chip(key, bucket.get(key, 0), singular, plural)
+        for key, singular, plural in (
+            ('applies', 'still applies', 'still apply'),
+            ('needs-review', 'needs re-anchoring', 'need re-anchoring'),
+            ('obsolete', 'obsolete', 'obsolete'),
         )
-    if bucket.get('needs-review'):
-        parts.append(
-            f'<span class="badge dp-proposal-applicability dp-proposal-applicability-needs-review">'
-            f'{bucket["needs-review"]} need re-anchoring</span>'
-        )
-    chips = ' '.join(parts)
+        if bucket.get(key, 0)
+    )
     return (
         '<p class="mb-0 mt-2 small text-muted">'
         f'<strong>Patches written on this revision:</strong> {bucket["total"]} {chips}</p>'
@@ -2718,17 +2722,21 @@ def _family_patch_summary_html(summary, draft_name) -> str:
     chips = ''
     if total:
         chips = ' '.join(
-            f'<span class="badge dp-proposal-applicability dp-proposal-applicability-{key}">'
-            f'{value} {html_mod.escape(label)}</span>'
-            for key, value, label in (
-                ('applies', counts.get('applies', 0), 'apply to the revision served now'),
-                ('needs-review', counts.get('needs-review', 0), 'need re-anchoring'),
+            _applicability_chip(key, counts.get(key, 0), singular, plural)
+            for key, singular, plural in (
+                (
+                    'applies',
+                    'applies to the revision served now',
+                    'apply to the revision served now',
+                ),
+                ('needs-review', 'needs re-anchoring', 'need re-anchoring'),
+                ('obsolete', 'obsolete', 'obsolete'),
             )
-            if value
+            if counts.get(key, 0)
         )
     patches_href = f'/doc/draft/{quote(str(draft_name), safe="")}/patches/'
     return f'''
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260801applicability">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802obsolete">
     <div class="alert alert-secondary" role="note">
       <div class="mb-2"><strong>{total} patch{'' if total == 1 else 'es'} on this document</strong> {chips}</div>
       <p class="small mb-0">
@@ -2736,9 +2744,118 @@ def _family_patch_summary_html(summary, draft_name) -> str:
         Patches and comments are scoped to the whole document family, not to a single
         revision. When you open a revision, highlights show what still applies to that
         revision body; anything anchored to text a later revision removed is listed as
-        needing re-anchoring. <a href="{patches_href}">See all patches</a>.
+        needing re-anchoring, and anything that can no longer be merged at all is
+        marked obsolete. <a href="{patches_href}">See all patches</a>.
       </p>
     </div>'''
+
+
+def _revision_timeline(original_submission, all_revisions):
+    """Family rows oldest-first as ``{'id', 'label', 'submission'}`` for the compare picker."""
+    timeline = []
+    if original_submission:
+        timeline.append({
+            'id': original_submission.id,
+            'label': 'Revision 00 (original)',
+            'submission': original_submission,
+        })
+    for rev in sorted(all_revisions, key=lambda r: (r.revision_number or '', r.submitted_at or datetime.min)):
+        timeline.append({
+            'id': rev.id,
+            'label': f'Revision {rev.revision_number or ""}'.strip(),
+            'submission': rev,
+        })
+    return timeline
+
+
+def _pick_compare_pair(timeline, requested_from, requested_to):
+    """
+    Resolve the two entries to diff.
+
+    Defaults to the last two revisions, which is the comparison readers want
+    most often: what the newest revision changed about the one before it.
+    """
+    index_by_id = {str(entry['id']): i for i, entry in enumerate(timeline)}
+    to_index = index_by_id.get(str(requested_to or ''))
+    if to_index is None:
+        to_index = len(timeline) - 1
+    if to_index < 0:
+        return None, None
+    from_index = index_by_id.get(str(requested_from or ''))
+    if from_index is None or from_index == to_index:
+        from_index = to_index - 1
+    if from_index < 0:
+        return None, timeline[to_index]
+    return timeline[from_index], timeline[to_index]
+
+
+def _revision_diff_panel(timeline, draft_name, requested_from, requested_to) -> str:
+    """Compare picker plus the rendered diff between the two chosen revisions."""
+    if len(timeline) < 2:
+        return ''
+
+    from services.revision_diff import render_revision_diff, revision_options
+
+    from_entry, to_entry = _pick_compare_pair(timeline, requested_from, requested_to)
+    picker_rows = list(reversed(timeline))
+    form_action = f'/doc/draft/{quote(str(draft_name), safe="")}/revisions/'
+    picker = f'''
+        <form method="get" action="{form_action}" class="row g-2 align-items-end mb-3">
+          {revision_options(picker_rows, from_entry['id'] if from_entry else '', name='from', label='Compare from')}
+          {revision_options(picker_rows, to_entry['id'], name='to', label='to')}
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">
+              <i class="fas fa-code-compare me-1" aria-hidden="true"></i>Compare
+            </button>
+          </div>
+        </form>'''
+
+    if not from_entry:
+        body = (
+            '<div class="alert alert-secondary mb-0" role="note">'
+            'Pick two revisions to compare.</div>'
+        )
+    else:
+        try:
+            body = render_revision_diff(
+                from_entry['submission'],
+                to_entry['submission'],
+                old_label=from_entry['label'],
+                new_label=to_entry['label'],
+            )
+        except Exception:
+            current_app.logger.exception('Failed to render revision diff')
+            body = (
+                '<div class="alert alert-warning mb-0" role="alert">'
+                'The diff could not be generated for these revisions.</div>'
+            )
+
+    return f'''
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802revdiff">
+    <div class="card mb-4" id="revision-diff">
+      <div class="card-header"><h6 class="mb-0">
+        <i class="fas fa-code-compare me-2" aria-hidden="true"></i>What changed between revisions
+      </h6></div>
+      <div class="card-body gh-revdiff">{picker}{body}</div>
+    </div>'''
+
+
+def _compare_with_previous_link(timeline, draft_name, entry_id) -> str:
+    """'Compare with the previous revision' link for one revision card."""
+    index = next((i for i, e in enumerate(timeline) if e['id'] == entry_id), None)
+    if index is None or index == 0:  # the oldest row has nothing before it
+        return ''
+    previous = timeline[index - 1]
+    href = (
+        f'/doc/draft/{quote(str(draft_name), safe="")}/revisions/'
+        f'?from={quote(str(previous["id"]), safe="")}&to={quote(str(entry_id), safe="")}'
+        '#revision-diff'
+    )
+    return (
+        f'<a href="{href}" class="btn btn-sm btn-outline-secondary mt-2 ms-2">'
+        f'<i class="fas fa-code-compare me-1" aria-hidden="true"></i>'
+        f'Compare with {html_mod.escape(previous["label"])}</a>'
+    )
 
 
 @bp.route('/doc/draft/<path:draft_name>/revisions/')
@@ -2807,6 +2924,11 @@ def draft_revisions(draft_name):
         original_submission.id if original_submission else None
     )
 
+    timeline = _revision_timeline(original_submission, all_revisions)
+    diff_panel_html = _revision_diff_panel(
+        timeline, draft_name, request.args.get('from'), request.args.get('to')
+    )
+
     revisions_list_html = ""
     for rev in all_revisions:
         status_badge_class = {
@@ -2847,6 +2969,7 @@ def draft_revisions(draft_name):
                 <a href="/doc/draft/{read_ref}/read/" class="btn btn-sm btn-outline-primary mt-2">
                     <i class="fas fa-book-open me-1"></i>Read this revision
                 </a>
+                {_compare_with_previous_link(timeline, draft_name, rev.id)}
             </div>
         </div>
         """
@@ -2858,6 +2981,7 @@ def draft_revisions(draft_name):
     revisions_html = f"""
                 <h4>Revision History</h4>
                 {_family_patch_summary_html(patch_summary, draft_name)}
+                {diff_panel_html}
                 {revisions_list_html if revisions_list_html else '<p class="text-muted">No revisions yet.</p>'}
 
                 <div class="card mt-3">

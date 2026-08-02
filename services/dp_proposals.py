@@ -516,13 +516,22 @@ def passage_exists_in_current_document(submission: Submission, original_text: st
 APPLICABILITY_BY_LOCATION = {
     'current': 'applies',
     'superseded': 'needs-review',
-    'bogus': 'orphaned',
+    'bogus': 'obsolete',
 }
+
+#: The three states every patch surface (reader, patches page, revisions page,
+#: proposals API) reports, in the order they are shown.
+APPLICABILITY_STATES = ('applies', 'needs-review', 'obsolete')
+
+#: Patch statuses that can never be merged again. A patch in one of these states
+#: whose passage has already been edited away is finished business, not work
+#: waiting on a maintainer, so it reads as obsolete rather than needs-review.
+CLOSED_PROPOSAL_STATUSES = frozenset({'declined', 'incorporated', 'orphaned'})
 
 APPLICABILITY_LABELS = {
     'applies': 'Applies to this text',
     'needs-review': 'Needs re-anchoring',
-    'orphaned': 'Text not found',
+    'obsolete': 'Obsolete',
 }
 
 APPLICABILITY_HINTS = {
@@ -531,7 +540,10 @@ APPLICABILITY_HINTS = {
         'The passage this patch targets only exists in an earlier revision. '
         'It needs re-anchoring before it can be merged.'
     ),
-    'orphaned': 'The passage this patch targets was not found in any revision of this document.',
+    'obsolete': (
+        'This patch can no longer be applied: its passage is gone from the document, '
+        'or the patch itself was closed before the passage changed.'
+    ),
 }
 
 
@@ -539,13 +551,31 @@ def proposal_applicability(
     proposal: DpProposal,
     canonical: Optional[Submission] = None,
 ) -> str:
-    """UI-facing applicability of a patch: applies / needs-review / orphaned."""
+    """
+    UI-facing applicability of a patch: applies / needs-review / obsolete.
+
+    Obsolete covers two cases, both of which mean nobody should spend time on the
+    patch again:
+
+    - the anchor text is in no revision of the document family at all
+      (``classify_proposal_location`` says ``bogus``), so the passage was removed
+      or the anchor was never valid; or
+    - the anchor survives only in an older revision *and* the patch is already
+      closed – declined, published in a revision, or explicitly marked orphaned.
+      A closed patch cannot be merged, so re-anchoring it is pointless.
+
+    A superseded patch that is still open (pending, considered, accepted but not
+    yet published) stays ``needs-review``: it is real work, it just has to be
+    re-anchored against the revision now being served.
+    """
     location = classify_proposal_location(proposal, canonical)
-    return APPLICABILITY_BY_LOCATION.get(location, 'orphaned')
+    if location == 'superseded' and (proposal.status or '') in CLOSED_PROPOSAL_STATUSES:
+        return 'obsolete'
+    return APPLICABILITY_BY_LOCATION.get(location, 'obsolete')
 
 
 def applicability_counts(applicabilities) -> Dict[str, int]:
-    counts = {'applies': 0, 'needs-review': 0, 'orphaned': 0}
+    counts = {state: 0 for state in APPLICABILITY_STATES}
     for value in applicabilities:
         if value in counts:
             counts[value] += 1
@@ -614,7 +644,8 @@ def family_patch_summary(canonical: Submission) -> Dict[str, Any]:
     rows = list_proposals_for_submission(canonical.id)
     ordered = _family_rows_in_order(canonical)
     per_revision: Dict[str, Dict[str, int]] = {
-        row.id: {'total': 0, 'applies': 0, 'needs-review': 0} for row in ordered
+        row.id: dict({'total': 0}, **{state: 0 for state in APPLICABILITY_STATES})
+        for row in ordered
     }
     unattributed = 0
     for proposal in rows:
@@ -640,6 +671,9 @@ def family_patch_summary(canonical: Submission) -> Dict[str, Any]:
 def reconcile_dp_proposal_locations(*, dry_run: bool = False) -> Dict[str, Any]:
     """
     Delete bogus patches; mark superseded-revision patches as orphaned.
+
+    An explicit maintenance action, not something the pages call: the patch
+    surfaces now label these rows obsolete instead of removing them.
     """
     stats: Dict[str, Any] = {
         'total': 0,
@@ -675,10 +709,12 @@ def reconcile_dp_proposal_locations(*, dry_run: bool = False) -> Dict[str, Any]:
 
 def list_proposals_for_submission(submission_id: str) -> List[DpProposal]:
     """
-    Family-scoped patches for a document, minus patches whose text exists nowhere.
+    Every family-scoped patch for a document, obsolete ones included.
 
     Each returned row carries a transient ``applicability`` attribute so callers
     can render status without reclassifying (which re-reads document bodies).
+    Obsolete patches are returned rather than hidden: readers asked to be able to
+    see that a patch exists but no longer has anywhere to land.
     """
     from services.submissions import revision_display_label
 
@@ -696,15 +732,12 @@ def list_proposals_for_submission(submission_id: str) -> List[DpProposal]:
             row.created_on_revision_label = ''
         return rows
     ordered = _family_rows_in_order(canonical)
-    kept = []
     for row in rows:
         row.applicability = proposal_applicability(row, canonical)
         written_against = attribute_patch_to_revision(row, ordered)
         row.created_on_revision = written_against.id if written_against else None
         row.created_on_revision_label = revision_display_label(written_against)
-        if row.applicability != 'orphaned':
-            kept.append(row)
-    return kept
+    return rows
 
 
 def proposal_counts(proposals: List[DpProposal]) -> Dict[str, Any]:
