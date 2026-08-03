@@ -1,3 +1,5 @@
+> **Gov Hub (`Bridgit-DAO/interface-gov-hub`):** Default and integration branch is **`development`**; promote to **`production`** only via merge. **`main` is obsolete.** See [docs/DEV-TO-PROD-WORKFLOW.md](docs/DEV-TO-PROD-WORKFLOW.md).
+
 <div align="center">
   
 <img src="https://raw.githubusercontent.com/ietf-tools/common/main/assets/logos/datatracker.svg" alt="IETF Datatracker" height="125" />
