@@ -29,7 +29,7 @@ DEPLOYMENT_LOG = LOG_DIR / f"deploy-{datetime.now().strftime('%Y%m%d_%H%M%S')}.l
 # Environment mapping
 ENV_CONFIG = {
     'dev': {
-        'branch': 'dev',
+        'branch': 'development',
         'service': 'datatracker-dev.service',
         'port': 8001,
         'url': 'https://dev.hub.themetalayer.org',

@@ -20,7 +20,7 @@ SCRIPT_DIR = Path(__file__).parent.absolute()
 
 ENV_CONFIG = {
     'dev': {
-        'branch': 'dev',
+        'branch': 'development',
         'service': 'datatracker-dev.service',
         'port': 8001,
         'url': 'https://dev.hub.themetalayer.org'
