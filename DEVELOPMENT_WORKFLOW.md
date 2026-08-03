@@ -9,7 +9,7 @@
 3. **Make changes** and commit
 4. **Deploy to dev**: `python3 deploy.py dev`
 5. **Verify**: `python3 verify.py dev`
-6. **If passes**: `python3 deploy.py prod`
+6. **If passes**: `python3 deploy.py main`
 7. **Store in JAUmemory**: Document what was done
 
 ### Making a Quick Fix
@@ -18,14 +18,14 @@
 2. **Make fix** and commit
 3. **Deploy to dev**: `python3 deploy.py dev`
 4. **Verify**: `python3 verify.py dev`
-5. **If passes**: `python3 deploy.py prod`
+5. **If passes**: `python3 deploy.py main`
 
 ### Database Changes
 
 1. **Create migration file** in `migrations/`
 2. **Test in dev**: `python3 deploy.py dev`
 3. **Verify database**: `python3 verify.py dev`
-4. **If passes**: `python3 deploy.py prod`
+4. **If passes**: `python3 deploy.py main`
 
 ## Detailed Workflow
 
@@ -98,7 +98,7 @@
 
 1. **Only if dev verification passed**
    ```bash
-   python3 deploy.py prod
+   python3 deploy.py main
    ```
    - Merges `dev` to `main`
    - Creates backup
@@ -113,7 +113,7 @@
    - Ensures production is working
 
 3. **If Production Fails**
-   - Rollback immediately: `python3 rollback.py prod`
+   - Rollback immediately: `python3 rollback.py main`
    - Fix issues in dev
    - Re-deploy to dev
    - Re-verify
@@ -141,14 +141,14 @@
 2. Add test to `tests/integration/test_api_routes.py`
 3. Deploy to dev: `python3 deploy.py dev`
 4. Verify: `python3 verify.py dev`
-5. If passes: `python3 deploy.py prod`
+5. If passes: `python3 deploy.py main`
 
 ### Changing Database Schema
 
 1. Create migration in `migrations/001_description.py`
 2. Test migration: `python3 deploy.py dev`
 3. Verify database: `python3 verify.py dev`
-4. If passes: `python3 deploy.py prod`
+4. If passes: `python3 deploy.py main`
 
 ### Changing UI Content
 
@@ -156,7 +156,7 @@
 2. Add content verification test
 3. Deploy to dev: `python3 deploy.py dev`
 4. Verify content: `python3 verify.py dev`
-5. If passes: `python3 deploy.py prod`
+5. If passes: `python3 deploy.py main`
 
 ### Fixing a Bug
 
@@ -165,7 +165,7 @@
 3. Add test to prevent regression
 4. Deploy to dev: `python3 deploy.py dev`
 5. Verify fix: `python3 verify.py dev`
-6. If passes: `python3 deploy.py prod`
+6. If passes: `python3 deploy.py main`
 
 ## Verification Checklist
 
@@ -201,7 +201,7 @@ Before promoting to production, verify:
 
 ### If Production Deployment Fails
 
-1. Rollback immediately: `python3 rollback.py prod`
+1. Rollback immediately: `python3 rollback.py main`
 2. Verify rollback succeeded
 3. Fix issues in dev
 4. Re-test in dev

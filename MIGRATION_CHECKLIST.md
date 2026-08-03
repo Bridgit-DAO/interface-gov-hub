@@ -41,7 +41,7 @@
 - [ ] **Final backup**: Create one more backup before migration
 - [ ] **Verify dev stable**: Dev has been stable for X days
 - [ ] **Merge dev to main**: `git checkout main && git merge dev`
-- [ ] **Deploy to production**: `python3 deploy.py prod`
+- [ ] **Deploy to production**: `python3 deploy.py main`
 - [ ] **Verify production**: Check https://rfc.themetalayer.org
 - [ ] **Monitor closely**: Watch for any issues
 

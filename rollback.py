@@ -4,8 +4,8 @@ Rollback Script - Rollback deployment to previous version
 
 Usage:
     python3 rollback.py dev --last          # Rollback to last deployment
-    python3 rollback.py prod --to-commit abc123  # Rollback to specific commit
-    python3 rollback.py prod --to-tag v1.0.0    # Rollback to specific tag
+    python3 rollback.py main --to-commit abc123  # Rollback live to specific commit
+    python3 rollback.py main --to-tag v1.0.0    # Rollback live to specific tag
 """
 
 import os
@@ -25,7 +25,7 @@ ENV_CONFIG = {
         'port': 8001,
         'url': 'https://dev.hub.themetalayer.org'
     },
-    'prod': {
+    'main': {
         'branch': 'main',
         'service': 'datatracker.service',
         'port': 8000,
@@ -33,10 +33,20 @@ ENV_CONFIG = {
     }
 }
 
+ENV_ALIASES = {'prod': 'main', 'production': 'main'}
+
+
 def log(message, level='INFO'):
     """Log message"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] [{level}] {message}")
+
+
+def normalize_env(env):
+    canonical = ENV_ALIASES.get(env, env)
+    if canonical != env:
+        log(f"'{env}' is deprecated; use '{canonical}' (main is production)", 'WARN')
+    return canonical
 
 def run_command(cmd, check=True):
     """Run shell command"""
@@ -73,8 +83,11 @@ def restore_database_backup(env):
         log("No backups directory found", 'WARN')
         return False
     
-    # Find most recent backup
-    backups = sorted(backup_dir.glob('prod-*'), reverse=True)
+    # Find most recent backup (main-* or legacy prod-*)
+    backups = sorted(
+        list(backup_dir.glob('main-*')) + list(backup_dir.glob('prod-*')),
+        reverse=True,
+    )
     if not backups:
         log("No backups found", 'WARN')
         return False
@@ -87,7 +100,7 @@ def restore_database_backup(env):
         return False
     
     # Restore database
-    if env == 'prod':
+    if env == 'main':
         db_path = SCRIPT_DIR / 'instance' / 'datatracker.db'
     else:
         db_path = SCRIPT_DIR / 'instance_dev' / 'datatracker_dev.db'
@@ -99,6 +112,7 @@ def restore_database_backup(env):
 
 def rollback(env, target=None, target_type='commit'):
     """Rollback deployment"""
+    env = normalize_env(env)
     if env not in ENV_CONFIG:
         log(f"Invalid environment: {env}", 'ERROR')
         return False
@@ -127,10 +141,10 @@ def rollback(env, target=None, target_type='commit'):
     log(f"Rollback target: {target} ({target_type})")
     
     # Confirm rollback
-    if env == 'prod':
-        log("⚠️  WARNING: Rolling back PRODUCTION", 'WARN')
-        response = input("Type 'ROLLBACK PRODUCTION' to confirm: ")
-        if response != 'ROLLBACK PRODUCTION':
+    if env == 'main':
+        log("⚠️  WARNING: Rolling back LIVE (main branch)", 'WARN')
+        response = input("Type 'ROLLBACK MAIN' to confirm: ")
+        if response != 'ROLLBACK MAIN':
             log("Rollback cancelled", 'WARN')
             return False
     
@@ -145,8 +159,8 @@ def rollback(env, target=None, target_type='commit'):
     else:
         run_command(f'git checkout {target}')
     
-    # Stage 3: Restore database (production only)
-    if env == 'prod':
+    # Stage 3: Restore database (live/main only)
+    if env == 'main':
         log("Restoring database from backup...")
         restore_database_backup(env)
     
@@ -179,14 +193,14 @@ def main():
     """Main entry point"""
     if len(sys.argv) < 2:
         print("Usage: python3 rollback.py <env> [options]")
-        print("  env: 'dev' or 'prod'")
+        print("  env: 'dev' or 'main'  (deprecated alias: prod)")
         print("  options:")
         print("    --last              Rollback to last deployment")
         print("    --to-commit <hash>  Rollback to specific commit")
         print("    --to-tag <tag>     Rollback to specific tag")
         sys.exit(1)
     
-    env = sys.argv[1].lower()
+    env = normalize_env(sys.argv[1].lower())
     
     if env not in ENV_CONFIG:
         print(f"Invalid environment: {env}")

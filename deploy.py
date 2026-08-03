@@ -4,7 +4,7 @@ Deployment Script - Agent-friendly deployment system for MLTF Datatracker
 
 Usage:
     python3 deploy.py dev          # Deploy to development
-    python3 deploy.py prod          # Deploy to production
+    python3 deploy.py main         # Deploy live (main branch)
     python3 deploy.py dev --branch feature/new-feature  # Deploy specific branch
 
 Exit codes:
@@ -35,7 +35,7 @@ ENV_CONFIG = {
         'url': 'https://dev.hub.themetalayer.org',
         'flask_env': 'development'
     },
-    'prod': {
+    'main': {
         'branch': 'main',
         'service': 'datatracker.service',
         'port': 8000,
@@ -43,6 +43,16 @@ ENV_CONFIG = {
         'flask_env': 'production'
     }
 }
+
+# Deprecated CLI names — main is the live release branch (2026-08-03).
+ENV_ALIASES = {'prod': 'main', 'production': 'main'}
+
+
+def normalize_env(env):
+    canonical = ENV_ALIASES.get(env, env)
+    if canonical != env:
+        log(f"'{env}' is deprecated; use '{canonical}' (main is production)", 'WARN')
+    return canonical
 
 def log(message, level='INFO'):
     """Log message to file and stdout"""
@@ -137,13 +147,13 @@ def wait_for_service(url, max_attempts=10, delay=2):
     return False
 
 def create_backup(env):
-    """Create backup before production deployment"""
-    if env != 'prod':
-        log("Skipping backup (not production)")
+    """Create backup before live (main) deployment"""
+    if env != 'main':
+        log("Skipping backup (not live/main)")
         return True
     
-    log("Creating production backup...")
-    backup_dir = SCRIPT_DIR / 'backups' / f'prod-{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    log("Creating live deployment backup...")
+    backup_dir = SCRIPT_DIR / 'backups' / f'main-{datetime.now().strftime("%Y%m%d_%H%M%S")}'
     backup_dir.mkdir(parents=True, exist_ok=True)
     
     # Backup database
@@ -171,33 +181,37 @@ def create_backup(env):
 
 def deploy(env, branch=None):
     """Main deployment function"""
+    env = normalize_env(env)
     if env not in ENV_CONFIG:
-        log(f"Invalid environment: {env}. Must be 'dev' or 'prod'", 'ERROR')
+        log(f"Invalid environment: {env}. Must be 'dev' or 'main'", 'ERROR')
         return False
 
-    # PRODUCTION SAFETY CHECK
-    if env == 'prod':
+    # LIVE (MAIN) SAFETY CHECK
+    if env == 'main':
         print("\n" + "="*60)
-        print("🚨 PRODUCTION DEPLOYMENT REQUESTED")
+        print("🚨 LIVE DEPLOYMENT REQUESTED (main branch)")
         print("="*60)
-        print("This will deploy to PRODUCTION environment")
+        print("This will deploy the live Gov Hub (main → datatracker.service)")
         print("URL: https://rfc.themetalayer.org")
         print("Service: datatracker.service")
         print("="*60)
 
-        # Check for recent production backup
-        backup_check = run_command("find backups/ -name 'prod-working-*' -mmin -60 | wc -l", capture_output=True)
+        # Check for recent live backup (main-* or legacy prod-*)
+        backup_check = run_command(
+            "find backups/ \\( -name 'main-*' -o -name 'prod-*' \\) -mmin -60 | wc -l",
+            capture_output=True,
+        )
         if backup_check.strip() == '0':
-            log("No recent production backup found (< 1 hour old)", 'ERROR')
-            log("Please create a backup before deploying to production", 'ERROR')
+            log("No recent live backup found (< 1 hour old)", 'ERROR')
+            log("Please create a backup before deploying main", 'ERROR')
             return False
 
-        response = input("\nType 'DEPLOY_PRODUCTION' to confirm: ").strip()
-        if response != 'DEPLOY_PRODUCTION':
-            log("Production deployment cancelled by user", 'INFO')
+        response = input("\nType 'DEPLOY_MAIN' to confirm: ").strip()
+        if response != 'DEPLOY_MAIN':
+            log("Live deployment cancelled by user", 'INFO')
             return False
 
-        log("✅ Production deployment confirmed", 'INFO')
+        log("✅ Live (main) deployment confirmed", 'INFO')
 
     config = ENV_CONFIG[env]
     target_branch = branch or config['branch']
@@ -225,8 +239,8 @@ def deploy(env, branch=None):
     current_branch = get_current_branch()
     log(f"Current branch: {current_branch}")
     
-    # Create backup for production
-    if env == 'prod':
+    # Create backup for live (main)
+    if env == 'main':
         if not create_backup(env):
             log("Backup failed, aborting", 'ERROR')
             return False
@@ -291,8 +305,8 @@ def deploy(env, branch=None):
     log("Verifying data integrity...")
     # This would require implementing data integrity checks
 
-    # Create git tag for production
-    if env == 'prod':
+    # Create git tag for live deploy
+    if env == 'main':
         tag_name = f"deployed-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         run_command(f'git tag {tag_name}', check=False)
         log(f"Created tag: {tag_name}")
@@ -318,11 +332,11 @@ def main():
     """Main entry point"""
     if len(sys.argv) < 2:
         print("Usage: python3 deploy.py <env> [--branch <branch>]")
-        print("  env: 'dev' or 'prod'")
+        print("  env: 'dev' or 'main'  (deprecated alias: prod)")
         print("  branch: Optional branch name (defaults to env branch)")
         sys.exit(1)
     
-    env = sys.argv[1].lower()
+    env = normalize_env(sys.argv[1].lower())
     branch = None
     
     # Parse --branch flag

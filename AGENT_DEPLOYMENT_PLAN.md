@@ -133,7 +133,7 @@ main (production) ← dev (development) ← feature branches
 
 4. **Promote to Production** (only if dev verification passes):
    ```bash
-   python3 deploy.py prod --from-dev
+   python3 deploy.py main --from-dev
    ```
    - Merges `dev` → `main`
    - Deploys to production
@@ -304,7 +304,7 @@ def deploy(environment, branch=None):
 **Manual Rollback**:
 ```bash
 python3 rollback.py dev --to-commit abc123
-python3 rollback.py prod --to-version 1.2.3
+python3 rollback.py main --to-version 1.2.3
 ```
 
 **Rollback Process**:
@@ -343,7 +343,7 @@ python3 deploy.py dev
 python3 verify.py dev
 
 # Deploy to prod (only if dev verified)
-python3 deploy.py prod
+python3 deploy.py main
 
 # Check status
 python3 status.py dev
@@ -351,7 +351,7 @@ python3 status.py prod
 
 # Rollback
 python3 rollback.py dev
-python3 rollback.py prod
+python3 rollback.py main
 ```
 
 **All Commands Return**:

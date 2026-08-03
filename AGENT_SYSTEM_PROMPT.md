@@ -54,7 +54,7 @@ You are responsible for:
    - Merge `dev` to `main`
    - Deploy to production:
    ```bash
-   python3 deploy.py prod
+   python3 deploy.py main
    ```
 
 7. **If Verification Fails**:
@@ -119,14 +119,14 @@ Store in JAUmemory: "Feature: [name] - Implemented [what], used [how], learned [
 2. Add test to `tests/integration/test_api_routes.py`
 3. Deploy to dev: `python3 deploy.py dev`
 4. Verify: `python3 verify.py dev`
-5. If passes: `python3 deploy.py prod`
+5. If passes: `python3 deploy.py main`
 
 ### Changing Database Schema
 
 1. Create migration file in `migrations/`
 2. Test migration in dev: `python3 deploy.py dev`
 3. Verify database: `python3 verify.py dev`
-4. If passes: `python3 deploy.py prod`
+4. If passes: `python3 deploy.py main`
 
 ### Changing UI Content
 
@@ -134,7 +134,7 @@ Store in JAUmemory: "Feature: [name] - Implemented [what], used [how], learned [
 2. Add content verification test
 3. Deploy to dev: `python3 deploy.py dev`
 4. Verify content appears: `python3 verify.py dev`
-5. If passes: `python3 deploy.py prod`
+5. If passes: `python3 deploy.py main`
 
 ## Error Handling
 

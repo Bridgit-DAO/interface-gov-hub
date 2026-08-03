@@ -74,7 +74,7 @@ git merge dev
 git push origin main
 
 # Deploy to production using new system
-python3 deploy.py prod
+python3 deploy.py main
 ```
 
 ## Implementation: Non-Breaking Approach
@@ -196,7 +196,7 @@ git merge dev
 git push origin main
 
 # Deploy using new system
-python3 deploy.py prod
+python3 deploy.py main
 
 # Old scripts still available as backup
 ```

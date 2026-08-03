@@ -62,7 +62,7 @@ touch .production_lock
 python3 deploy.py dev
 
 # Prod deployment - requires "DEPLOY_PRODUCTION" confirmation
-python3 deploy.py prod
+python3 deploy.py main
 ```
 
 ## Verification Commands
