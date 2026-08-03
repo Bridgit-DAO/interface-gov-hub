@@ -1,55 +1,26 @@
-# Gov Hub: development → production
+# Gov Hub: development → main
 
-**Repository:** [Bridgit-DAO/interface-gov-hub](https://github.com/Bridgit-DAO/interface-gov-hub)
+## Branches
 
-## Branch policy
-
-| Branch | Role | GitHub / git |
-|--------|------|----------------|
-| **`development`** | **Default branch**, integration, all feature work | Set as repo default; every PR targets here |
-| **`production`** | Live deploy only | Promote by merging `development` → `production`; **never** open feature PRs here |
-| **`main`** | **Obsolete — do not use** | Historical; remote may still list `legacy-main` for old history. Do not branch from, merge to, or PR against `main` |
-
-| Branch | Server checkout | URL | systemd unit |
-|--------|-----------------|-----|--------------|
-| `development` | `~/gov-hub-dev` (`/home/ubuntu/gov-hub-dev`) | dev.hub.themetalayer.org (8001) | `datatracker-dev.service` |
-| `production` | `~/gov-hub-prod` (`/home/ubuntu/gov-hub-prod`) | hub.themetalayer.org (8000) | `datatracker.service` |
+| Branch | Role | Server checkout | URL | systemd unit |
+|--------|------|-----------------|-----|--------------|
+| `development` | Integration & testing | `/home/ubuntu/gov-hub-dev` | dev.hub.themetalayer.org (8001) | `datatracker-dev.service` |
+| `main` | Live release | `/home/ubuntu/gov-hub-prod` | hub.themetalayer.org / govhub.live (8000) | `datatracker.service` |
 
 Remote: `https://github.com/Bridgit-DAO/interface-gov-hub.git`
 
-`legacy-main` on the remote preserves the old dev `main` history before `development` was aligned to `production` (2026-07). Do not merge the old 90-commit backlog into `development`.
+**2026-08-03:** `main` was retargeted to the former `production` tip (pointer move, not a content merge). Old `main` tip is preserved at `archive/main-20260803`. The remote branch `production` remains temporarily as an alias at the same commit; prefer `main` for all new promotes and hotfixes. `deploy.py` / `rollback.py` map `prod` → `main`.
 
-## Step-by-step (humans and agents)
-
-1. **Start from `development`**
-   ```bash
-   git fetch origin
-   git checkout development
-   git pull origin development
-   git checkout -b feat/your-change   # or fix/…
-   ```
-2. **Implement, commit, push** the feature branch to `origin`.
-3. **Open a pull request** on GitHub: **base = `development`**, compare = your branch. Do not target `production` or `main`.
-4. **After merge**, on the dev server pull and restart:
-   ```bash
-   cd ~/gov-hub-dev
-   git checkout development
-   git pull origin development
-   systemctl --user restart datatracker-dev.service
-   ```
-5. **Test on dev** (checklist below), then **promote to production** (commands in [Ship to production](#ship-to-production)).
-
-Agents: treat `development` as the only integration branch; never commit feature work directly to `production` unless executing an documented hotfix.
+`legacy-main` on the remote preserves older pre-`development` history. Do not merge that backlog into `development`.
 
 ## Process rules (required)
 
-1. **All feature work lands on `development`.** Do not commit features directly to `production`.
+1. **All feature work lands on `development`.** Do not commit features directly to `main`.
 2. **Test on dev before every promote.** Use port 8001 / `dev.hub.themetalayer.org` and the pre-promote checklist below.
-3. **Promote to production** only by merging `development` into `production` (locally on `gov-hub-prod` or via a merge PR on GitHub that only merges `development` → `production`).
-4. **No direct PRs to `production`** for new features or routine fixes—only the promote merge from `development`.
-5. **Hotfixes on production** are allowed when prod is broken and dev cannot wait—but **backport to `development` the same day** (cherry-pick or merge `production` → `development`).
-6. **Never duplicate fixes** on both branches (same change, two commits). That causes painful merges; see [SYNC.md](./SYNC.md) for the 2026-08 divergence post-mortem.
-7. **CI / tests before promote.** Run local tests on dev; upstream datatracker GitHub Actions may still reference legacy branch names—Gov Hub–specific tests are run manually on the server.
+3. **Promote to production** only by merging `development` into `main` (locally on `gov-hub-prod` or via GitHub PR).
+4. **Hotfixes on `main`** are allowed when prod is broken and dev cannot wait—but **backport to `development` the same day** (cherry-pick or merge `main` → `development`).
+5. **Never duplicate fixes** on both branches (same change, two commits). That causes painful merges; see [SYNC.md](./SYNC.md) for the 2026-08 divergence post-mortem.
+6. **CI / tests before promote.** Run local tests on dev; GitHub Actions runs on PRs to `main`/`feat/rfc` (datatracker upstream paths)—Gov Hub–specific tests are run manually on the server.
 
 ## Daily work (development)
 
@@ -72,7 +43,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST https://dev.govhub.live/api/met
 
 ## Pre-promote checklist (on development)
 
-Complete on `gov-hub-dev` **before** merging to `production`:
+Complete on `gov-hub-dev` **before** merging to `main`:
 
 - [ ] `git status` clean; branch pushed to `origin/development`
 - [ ] `systemctl --user restart datatracker-dev.service` — dev app starts without traceback
@@ -88,15 +59,17 @@ Complete on `gov-hub-dev` **before** merging to `production`:
 - [ ] Migrations: if `migrations/__init__.py` changed, confirm dev DB migrates cleanly on restart
 - [ ] No secrets or `.env` changes committed
 
-## Ship to production
+## Ship to production (`main`)
 
 ```bash
 cd ~/gov-hub-prod
 git fetch origin
-git checkout production
-git pull origin production
-git merge origin/development -m "ship: merge development to production"
-git push origin production
+git checkout main
+git pull origin main
+git merge origin/development -m "ship: merge development to main"
+git push origin main
+# Optional while production alias exists: keep it aligned
+# git push origin main:production
 systemctl --user restart datatracker.service
 ```
 
@@ -104,35 +77,35 @@ After promote, confirm prod health and keep branches aligned:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" https://govhub.live/
-cd ~/gov-hub-dev && git pull origin development   # if hotfix was prod-only, merge prod→dev instead
+cd ~/gov-hub-dev && git pull origin development   # if hotfix was prod-only, merge main→dev instead
 ```
 
 ## Hotfix workflow (production emergency)
 
 ```bash
-# 1. Fix on production (minimal diff)
+# 1. Fix on main (minimal diff)
 cd ~/gov-hub-prod
-git checkout production
+git checkout main
 # ... fix, commit ...
-git push origin production
+git push origin main
 systemctl --user restart datatracker.service
 
 # 2. Backport to development same day
 cd ~/gov-hub-dev
 git checkout development
 git pull origin development
-git cherry-pick <hotfix-commit>   # or: git merge origin/production
+git cherry-pick <hotfix-commit>   # or: git merge origin/main
 git push origin development
 systemctl --user restart datatracker-dev.service
 ```
 
 ## Branch out of sync?
 
-If `development` and `production` have diverged (parallel commits on both sides), **do not** merge blindly. Follow the inventory and ordered plan in [SYNC.md](./SYNC.md):
+If `development` and `main` have diverged (parallel commits on both sides), **do not** merge blindly. Follow the inventory and ordered plan in [SYNC.md](./SYNC.md):
 
-1. Merge **production → development** first (integrate live-only work).
+1. Merge **main → development** first (integrate live-only work).
 2. Resolve conflicts on an integration branch; test on dev.
-3. Merge **development → production** to promote.
+3. Merge **development → main** to promote.
 
 ## systemd paths (confirmed)
 
@@ -141,15 +114,4 @@ If `development` and `production` have diverged (parallel commits on both sides)
 
 ## Git worktrees note
 
-This server uses one repo with two worktrees (`gov-hub-dev` on `development`, `gov-hub-prod` on `production`). Only one worktree can check out a given branch at a time.
-
-## GitHub default branch
-
-The repository default branch must be **`development`** (not `main`). After changing it:
-
-```bash
-gh repo edit Bridgit-DAO/interface-gov-hub --default-branch development
-gh repo view Bridgit-DAO/interface-gov-hub --json defaultBranchRef
-```
-
-Expect `defaultBranchRef.name` to be `development`.
+This server uses one repo with two worktrees (`gov-hub-dev` on `development`, `gov-hub-prod` on `main`). Only one worktree can check out a given branch at a time.
