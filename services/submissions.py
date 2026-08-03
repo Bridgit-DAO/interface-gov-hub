@@ -2,8 +2,28 @@
 import re
 from datetime import datetime
 
+from sqlalchemy import or_
+
 from extensions import db
 from models import Submission
+
+APPROVED_STATUSES = ('approved', 'published')
+
+
+def submission_is_revision(submission) -> bool:
+    """
+    True when a row is a revision of another submission.
+
+    The ``is_revision`` column cannot be trusted in Python: deployed SQLite rows
+    hold TEXT '0'/'1', and SQLAlchemy's Boolean turns the string '0' into True.
+    SQL comparisons still work (numeric affinity), so queries keep using the
+    column, but attribute reads go through ``parent_draft_name``, which every
+    revision sets.
+    """
+    if not submission:
+        return False
+    return bool((getattr(submission, 'parent_draft_name', '') or '').strip())
+
 
 # In-memory document history (used by add_to_document_history)
 DOCUMENT_HISTORY = {}
@@ -54,6 +74,114 @@ def get_submission_by_ref(ref):
         return s
     s = Submission.query.filter_by(public_id=ref).first()
     return s
+
+
+def family_parent_refs(submission) -> list:
+    """Refs that revisions of ``submission``'s family point at via parent_draft_name."""
+    if not submission:
+        return []
+    parent_ref = (getattr(submission, 'parent_draft_name', '') or '').strip()
+    if submission_is_revision(submission) and parent_ref:
+        parent = Submission.query.filter(
+            or_(Submission.id == parent_ref, Submission.draft_name == parent_ref)
+        ).first()
+    else:
+        parent = submission
+    refs = {parent_ref} if parent_ref else set()
+    if parent:
+        refs.add(parent.id)
+        if parent.draft_name:
+            refs.add(parent.draft_name)
+    return [r for r in refs if r]
+
+
+def _revision_sort_key(row):
+    raw = (getattr(row, 'revision_number', '') or '').strip()
+    try:
+        number = int(raw)
+    except ValueError:
+        number = -1
+    return (number, row.submitted_at or datetime.min)
+
+
+def latest_approved_revision(submission):
+    """Newest approved revision in ``submission``'s family, or None when there is none."""
+    refs = family_parent_refs(submission)
+    if not refs:
+        return None
+    rows = Submission.query.filter(
+        Submission.parent_draft_name.in_(refs),
+        Submission.is_revision == True,  # noqa: E712 - SQLAlchemy column comparison
+        Submission.status.in_(APPROVED_STATUSES),
+    ).all()
+    if not rows:
+        return None
+    return max(rows, key=_revision_sort_key)
+
+
+def ref_addresses_document_family(ref, submission) -> bool:
+    """
+    True when ``ref`` names the document family rather than one stored row.
+
+    An ML number is the stable public identifier for a document and is shared by
+    every revision, so it means "the document". Ids, draft names and public ids
+    each belong to exactly one row and mean "this revision".
+    """
+    value = (ref or '').strip()
+    if not value or not submission:
+        return False
+    row_refs = {
+        (getattr(submission, 'id', '') or '').strip(),
+        (getattr(submission, 'draft_name', '') or '').strip(),
+        (getattr(submission, 'public_id', '') or '').strip(),
+    }
+    if value in row_refs:
+        return False
+    return value == (getattr(submission, 'ml_number', '') or '').strip()
+
+
+def revision_display_label(submission) -> str:
+    """Human label for one revision row, e.g. 'Revision 02' or 'Revision 00 (original)'."""
+    if not submission:
+        return ''
+    if submission_is_revision(submission):
+        number = (getattr(submission, 'revision_number', '') or '').strip() or '01'
+        return f'Revision {number}'
+    return 'Revision 00 (original)'
+
+
+def served_submission_for_family(submission):
+    """
+    The row a reader is served for this document.
+
+    A revision ref means that exact revision; anything else means the document,
+    which serves its latest approved revision.
+    """
+    if not submission:
+        return None
+    if submission_is_revision(submission):
+        return submission
+    return latest_approved_revision(submission) or submission
+
+
+def served_revision_label(submission) -> str:
+    """Label for the revision a reader is served when they open this document."""
+    return revision_display_label(served_submission_for_family(submission))
+
+
+def get_readable_submission_by_ref(ref):
+    """
+    Resolve ``ref`` to the row whose body should be displayed.
+
+    Same as :func:`get_submission_by_ref`, except an ML number resolves to the
+    latest approved revision instead of the Rev 00 parent row.
+    """
+    submission = get_submission_by_ref(ref)
+    if not submission:
+        return None
+    if not ref_addresses_document_family(ref, submission):
+        return submission
+    return latest_approved_revision(submission) or submission
 
 
 def add_to_document_history(draft_name, action, user, details=""):

@@ -39,6 +39,53 @@
   gap: 0.5rem;
 }
 
+/* Applicability: does a family-scoped patch still match the revision on screen? */
+.dp-proposal-applicability {
+  font-weight: 500;
+  font-size: 0.7rem;
+  border: 1px solid transparent;
+}
+
+.dp-proposal-applicability-applies {
+  background: rgba(25, 135, 84, 0.16);
+  border-color: rgba(25, 135, 84, 0.45);
+  color: #4ade80;
+}
+
+.dp-proposal-applicability-needs-review {
+  background: rgba(255, 193, 7, 0.16);
+  border-color: rgba(255, 193, 7, 0.45);
+  color: #fbbf24;
+}
+
+.dp-proposal-applicability-obsolete {
+  background: rgba(148, 163, 184, 0.16);
+  border-color: rgba(148, 163, 184, 0.45);
+  color: #cbd5e1;
+}
+
+/* An obsolete patch is still listed, but it should not compete for attention. */
+.gh-patch-item:has(.dp-proposal-applicability-obsolete) {
+  opacity: 0.75;
+}
+
+.dp-proposal-unmatched-dropdown .dropdown-toggle {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.dp-proposal-unmatched-menu {
+  max-width: 26rem;
+}
+
+.dp-proposal-unmatched-option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  white-space: normal;
+  text-align: left;
+}
+
 .dp-proposal-display-option-icon {
   display: inline-flex;
   flex-shrink: 0;
@@ -605,4 +652,102 @@ mark.dp-diff-ins {
 
 .gh-patches-page .gh-patch-diff-removed {
   color: rgba(255, 120, 120, 0.95);
+}
+
+/* Revision-to-revision diff on /doc/draft/<ref>/revisions/ */
+.gh-revdiff .gh-revdiff-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gh-revdiff .gh-revdiff-chip {
+  font-weight: 500;
+  font-size: 0.75rem;
+  border: 1px solid transparent;
+}
+
+.gh-revdiff .gh-revdiff-chip-added {
+  background: rgba(25, 135, 84, 0.16);
+  border-color: rgba(25, 135, 84, 0.45);
+  color: #4ade80;
+}
+
+.gh-revdiff .gh-revdiff-chip-removed {
+  background: rgba(220, 53, 69, 0.16);
+  border-color: rgba(220, 53, 69, 0.45);
+  color: #f87171;
+}
+
+.gh-revdiff .gh-revdiff-chip-rewritten {
+  background: rgba(255, 193, 7, 0.16);
+  border-color: rgba(255, 193, 7, 0.45);
+  color: #fbbf24;
+}
+
+.gh-revdiff .gh-revdiff-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: none;
+}
+
+.gh-revdiff .gh-revdiff-row {
+  position: relative;
+  padding: 0.6rem 0.85rem 0.6rem 1rem;
+  margin-bottom: 0.5rem;
+  border-left: 3px solid transparent;
+  border-radius: 0 6px 6px 0;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
+}
+
+.gh-revdiff .gh-revdiff-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--text-primary);
+}
+
+.gh-revdiff .gh-revdiff-tag {
+  display: inline-block;
+  margin-bottom: 0.3rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.gh-revdiff .gh-revdiff-context {
+  background: transparent;
+  border-left-color: var(--card-border, rgba(0, 0, 0, 0.12));
+  opacity: 0.7;
+}
+
+.gh-revdiff .gh-revdiff-added {
+  border-left-color: rgba(25, 135, 84, 0.75);
+  background: rgba(25, 135, 84, 0.08);
+}
+
+.gh-revdiff .gh-revdiff-removed {
+  border-left-color: rgba(220, 53, 69, 0.75);
+  background: rgba(220, 53, 69, 0.08);
+}
+
+.gh-revdiff .gh-revdiff-removed .gh-revdiff-text {
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 120, 120, 0.8);
+  color: var(--text-secondary);
+}
+
+.gh-revdiff .gh-revdiff-rewritten {
+  border-left-color: rgba(255, 193, 7, 0.75);
+  background: rgba(255, 193, 7, 0.07);
+}
+
+.gh-revdiff .gh-revdiff-skip {
+  padding: 0.25rem 0 0.5rem 1rem;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-muted);
 }
