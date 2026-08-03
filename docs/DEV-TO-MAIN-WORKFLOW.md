@@ -5,11 +5,20 @@
 | Branch | Role | Server checkout | URL | systemd unit |
 |--------|------|-----------------|-----|--------------|
 | `development` | Integration & testing | `/home/ubuntu/gov-hub-dev` | dev.hub.themetalayer.org (8001) | `datatracker-dev.service` |
-| `main` | Live release | `/home/ubuntu/gov-hub-prod` | hub.themetalayer.org / govhub.live (8000) | `datatracker.service` |
+| `main` | **Live production** | `/home/ubuntu/gov-hub-prod` | hub.themetalayer.org / govhub.live (8000) | `datatracker.service` |
+
+**Policy:** `main` **is** production. There is no separate `production` git branch.
+
+**Retired (do not use):** git branch `production` — superseded by `main` on 2026-08-03. Delete remote when ready:
+
+```bash
+git push origin --delete production   # after confirming origin/main is canonical
+git branch -d production                # local, if present
+```
 
 Remote: `https://github.com/Bridgit-DAO/interface-gov-hub.git`
 
-**2026-08-03:** `main` was retargeted to the former `production` tip (pointer move, not a content merge). Old `main` tip is preserved at `archive/main-20260803`. The remote branch `production` remains temporarily as an alias at the same commit; prefer `main` for all new promotes and hotfixes. `deploy.py` / `rollback.py` map `prod` → `main`.
+**2026-08-03:** `main` was retargeted to the former `production` tip (pointer move, not a content merge). Old `main` tip is preserved at `archive/main-20260803`. All promotes and hotfixes use **`main`**. Deploy/rollback: `python3 deploy.py main`, `python3 rollback.py main` (CLI alias `prod` is deprecated).
 
 `legacy-main` on the remote preserves older pre-`development` history. Do not merge that backlog into `development`.
 
@@ -17,8 +26,8 @@ Remote: `https://github.com/Bridgit-DAO/interface-gov-hub.git`
 
 1. **All feature work lands on `development`.** Do not commit features directly to `main`.
 2. **Test on dev before every promote.** Use port 8001 / `dev.hub.themetalayer.org` and the pre-promote checklist below.
-3. **Promote to production** only by merging `development` into `main` (locally on `gov-hub-prod` or via GitHub PR).
-4. **Hotfixes on `main`** are allowed when prod is broken and dev cannot wait—but **backport to `development` the same day** (cherry-pick or merge `main` → `development`).
+3. **Promote to live** only by merging `development` into `main` (locally on `gov-hub-prod` worktree or via GitHub PR).
+4. **Hotfixes on `main`** are allowed when live is broken and dev cannot wait—but **backport to `development` the same day** (cherry-pick or merge `main` → `development`).
 5. **Never duplicate fixes** on both branches (same change, two commits). That causes painful merges; see [SYNC.md](./SYNC.md) for the 2026-08 divergence post-mortem.
 6. **CI / tests before promote.** Run local tests on dev; GitHub Actions runs on PRs to `main`/`feat/rfc` (datatracker upstream paths)—Gov Hub–specific tests are run manually on the server.
 
@@ -59,7 +68,7 @@ Complete on `gov-hub-dev` **before** merging to `main`:
 - [ ] Migrations: if `migrations/__init__.py` changed, confirm dev DB migrates cleanly on restart
 - [ ] No secrets or `.env` changes committed
 
-## Ship to production (`main`)
+## Ship to main (live)
 
 ```bash
 cd ~/gov-hub-prod
@@ -68,19 +77,23 @@ git checkout main
 git pull origin main
 git merge origin/development -m "ship: merge development to main"
 git push origin main
-# Optional while production alias exists: keep it aligned
-# git push origin main:production
 systemctl --user restart datatracker.service
 ```
 
-After promote, confirm prod health and keep branches aligned:
+After promote, confirm live health and keep branches aligned:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" https://govhub.live/
-cd ~/gov-hub-dev && git pull origin development   # if hotfix was prod-only, merge main→dev instead
+cd ~/gov-hub-dev && git pull origin development   # if hotfix was main-only, merge main→dev instead
 ```
 
-## Hotfix workflow (production emergency)
+Optional deploy helper (from live worktree):
+
+```bash
+cd ~/gov-hub-prod && python3 deploy.py main
+```
+
+## Hotfix workflow (live emergency)
 
 ```bash
 # 1. Fix on main (minimal diff)
@@ -110,7 +123,9 @@ If `development` and `main` have diverged (parallel commits on both sides), **do
 ## systemd paths (confirmed)
 
 - **Dev:** `WorkingDirectory=/home/ubuntu/gov-hub-dev`, `FLASK_PORT=8001`, `datatracker-dev.service`
-- **Prod:** `WorkingDirectory=/home/ubuntu/gov-hub-prod`, `FLASK_PORT=8000`, `datatracker.service`
+- **Live (main):** `WorkingDirectory=/home/ubuntu/gov-hub-prod`, `FLASK_PORT=8000`, `datatracker.service`
+
+> **Directory name:** `~/gov-hub-prod` is the live worktree path (historical name). It tracks git branch **`main`**, not a `production` branch.
 
 ## Git worktrees note
 

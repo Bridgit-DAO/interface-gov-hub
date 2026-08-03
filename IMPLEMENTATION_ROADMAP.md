@@ -214,7 +214,7 @@ python3 deploy.py dev --branch feature/new-feature
 python3 verify.py dev
 
 # Deploy to prod (only if dev verified)
-python3 deploy.py prod
+python3 deploy.py main
 
 # Check status
 python3 status.py dev
@@ -222,7 +222,7 @@ python3 status.py prod
 
 # Rollback
 python3 rollback.py dev
-python3 rollback.py prod
+python3 rollback.py main
 
 # Run tests only
 pytest tests/
@@ -275,7 +275,7 @@ def health_check():
 python3 rollback.py dev --to-commit abc123
 
 # Rollback to previous version tag
-python3 rollback.py prod --to-version v1.2.3
+python3 rollback.py main --to-version v1.2.3
 
 # Rollback last deployment
 python3 rollback.py dev --last

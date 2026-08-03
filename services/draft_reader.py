@@ -6,7 +6,7 @@ from html import escape
 from typing import Any, Dict, Optional, Tuple
 
 from services.documents import DRAFTS, submission_file_pages_words
-from services.submissions import get_submission_by_ref
+from services.submissions import get_readable_submission_by_ref, get_submission_by_ref
 from services.submission_preview_md import markdown_to_safe_preview_html, text_looks_like_markdown
 from services.ordinals import (
     process_ordinal_markdown,
@@ -93,16 +93,25 @@ def _load_ordinal_body(url: str, content_type: str, draft: dict) -> Tuple[str, b
     return document_content, render_html, pages, words
 
 
-def build_draft_context(draft_name: str) -> Tuple[Optional[Dict[str, Any]], Optional[Any]]:
+def build_draft_context(
+    draft_name: str,
+    *,
+    prefer_latest_revision: bool = False,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Any]]:
     """
     Resolve draft dict + submission for a URL ref (draft name, id, or ml_number).
     Returns (None, None) when not found.
+
+    With ``prefer_latest_revision`` an ML number resolves to the latest approved
+    revision rather than the Rev 00 parent row, so reading views serve the body
+    the catalog advertises.
     """
     draft = next((d for d in DRAFTS if d['name'] == draft_name), None)
     submission = None
+    lookup = get_readable_submission_by_ref if prefer_latest_revision else get_submission_by_ref
 
     if not draft:
-        submission = get_submission_by_ref(draft_name)
+        submission = lookup(draft_name)
         if submission:
             source_type = getattr(submission, 'sourceType', 'file')
             pages_count, words_count = submission_file_pages_words(submission)
@@ -149,7 +158,7 @@ def build_draft_context(draft_name: str) -> Tuple[Optional[Dict[str, Any]], Opti
         return None, None
 
     if not submission:
-        submission = get_submission_by_ref(draft.get('name')) or get_submission_by_ref(draft_name)
+        submission = lookup(draft.get('name')) or lookup(draft_name)
         if submission:
             dbs = getattr(submission, 'displayBodySource', None) or 'file'
             draft['displayBodySource'] = dbs

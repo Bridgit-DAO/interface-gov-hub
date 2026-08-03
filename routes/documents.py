@@ -859,7 +859,7 @@ def draft_reader(draft_name):
     from services.rendering import _format_base_template, generate_user_menu
     from config import BUILD_NUMBER
 
-    draft, submission = build_draft_context(draft_name)
+    draft, submission = build_draft_context(draft_name, prefer_latest_revision=True)
     if not draft:
         return 'Document not found', 404
 
@@ -867,10 +867,13 @@ def draft_reader(draft_name):
     title_escaped = html_escape(str(draft.get('title') or ''))
     doc_href = quote(str(draft.get('name') or draft_name), safe='')
     pdf_height = 'calc(100vh - 11rem)'
+    # File links must address the row being rendered, which is the latest
+    # approved revision when the URL used an ML number.
+    body_ref = str(draft.get('name') or draft_name)
     document_content, render_html, pages, words = load_draft_document_body(
         draft,
         submission,
-        draft_name,
+        body_ref,
         pdf_iframe_height=pdf_height,
     )
 
@@ -933,6 +936,20 @@ def draft_reader(draft_name):
                 f'<a href="/doc/draft/{doc_href}/patches/" class="btn btn-sm btn-outline-secondary" '
                 f'id="draftReaderPatchesLink">'
                 f'<i class="fas fa-code-branch me-1"></i>Patches ({patch_count})</a>'
+            )
+
+    revision_chip = ''
+    if submission:
+        from services.submissions import revision_display_label
+
+        revision_label = revision_display_label(submission)
+        if revision_label:
+            revision_chip = (
+                '<span class="draft-reader-sep">·</span>'
+                f'<a href="/doc/draft/{doc_href}/revisions/" class="draft-reader-revision" '
+                'title="Patches and comments are scoped to the whole document. '
+                'Highlights show what still applies to this revision body.">'
+                f'{html_escape(revision_label)}</a>'
             )
 
     dp_proposal_assets = render_dp_proposal_reader_assets(
@@ -1023,6 +1040,15 @@ def draft_reader(draft_name):
       .draft-reader-meta .draft-reader-stats {{
         color: var(--text-secondary);
       }}
+      .draft-reader-revision {{
+        color: var(--text-secondary);
+        text-decoration: none;
+        border-bottom: 1px dotted currentColor;
+      }}
+      .draft-reader-revision:hover,
+      .draft-reader-revision:focus {{
+        color: var(--accent-color);
+      }}
       .draft-reader-sep {{
         flex-shrink: 0;
         color: var(--text-muted);
@@ -1071,6 +1097,7 @@ def draft_reader(draft_name):
             <strong>{html_escape(display_id)}</strong>
             <span class="draft-reader-sep">·</span>
             <span class="draft-reader-title" title="{title_escaped}">{title_escaped}</span>
+            {revision_chip}
             <span class="draft-reader-sep">·</span>
             <span class="draft-reader-stats">{int(pages)} pg</span>
           </div>
@@ -2467,7 +2494,7 @@ def draft_patches(draft_name):
         propose_cta = ''
 
     content = f"""
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260731patchdiff">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802obsolete">
     <div class="gh-page container mt-4 gh-patches-page">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Patches', None)])}
         {gh_page_header(f'Patches – {display_id}', draft['title'], 'fa-code-branch')}
@@ -2639,6 +2666,198 @@ def update_draft_subscriptions(draft_name):
     return _redirect_after_subscription(draft_name)
 
 
+def _revisions_patch_summary(submission):
+    """Family patch stats for the revision timeline, or None when unavailable."""
+    if not submission:
+        return None
+    try:
+        from services.document_patches_page import patches_enabled_for_submission
+        from services.dp_proposals import family_patch_summary, resolve_canonical_submission
+
+        if not patches_enabled_for_submission(submission):
+            return None
+        canonical = resolve_canonical_submission(submission) or submission
+        return family_patch_summary(canonical)
+    except Exception:
+        current_app.logger.exception('Failed to build patch summary for revision timeline')
+        return None
+
+
+def _applicability_chip(key, count, singular, plural) -> str:
+    phrase = singular if count == 1 else plural
+    return (
+        f'<span class="badge dp-proposal-applicability dp-proposal-applicability-{key}">'
+        f'{count} {html_mod.escape(phrase)}</span>'
+    )
+
+
+def _revision_patch_line(summary, submission_id) -> str:
+    """'Patches written against this revision' line inside one revision card."""
+    if not summary or not submission_id:
+        return ''
+    bucket = (summary.get('per_revision') or {}).get(submission_id)
+    if not bucket or not bucket.get('total'):
+        return ''
+    chips = ' '.join(
+        _applicability_chip(key, bucket.get(key, 0), singular, plural)
+        for key, singular, plural in (
+            ('applies', 'still applies', 'still apply'),
+            ('needs-review', 'needs re-anchoring', 'need re-anchoring'),
+            ('obsolete', 'obsolete', 'obsolete'),
+        )
+        if bucket.get(key, 0)
+    )
+    return (
+        '<p class="mb-0 mt-2 small text-muted">'
+        f'<strong>Patches written on this revision:</strong> {bucket["total"]} {chips}</p>'
+    )
+
+
+def _family_patch_summary_html(summary, draft_name) -> str:
+    """Family-scope explainer above the revision list."""
+    if not summary:
+        return ''
+    counts = summary.get('counts') or {}
+    total = summary.get('total') or 0
+    chips = ''
+    if total:
+        chips = ' '.join(
+            _applicability_chip(key, counts.get(key, 0), singular, plural)
+            for key, singular, plural in (
+                (
+                    'applies',
+                    'applies to the revision served now',
+                    'apply to the revision served now',
+                ),
+                ('needs-review', 'needs re-anchoring', 'need re-anchoring'),
+                ('obsolete', 'obsolete', 'obsolete'),
+            )
+            if counts.get(key, 0)
+        )
+    patches_href = f'/doc/draft/{quote(str(draft_name), safe="")}/patches/'
+    return f'''
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802obsolete">
+    <div class="alert alert-secondary" role="note">
+      <div class="mb-2"><strong>{total} patch{'' if total == 1 else 'es'} on this document</strong> {chips}</div>
+      <p class="small mb-0">
+        <i class="fas fa-circle-info me-1" aria-hidden="true"></i>
+        Patches and comments are scoped to the whole document family, not to a single
+        revision. When you open a revision, highlights show what still applies to that
+        revision body; anything anchored to text a later revision removed is listed as
+        needing re-anchoring, and anything that can no longer be merged at all is
+        marked obsolete. <a href="{patches_href}">See all patches</a>.
+      </p>
+    </div>'''
+
+
+def _revision_timeline(original_submission, all_revisions):
+    """Family rows oldest-first as ``{'id', 'label', 'submission'}`` for the compare picker."""
+    timeline = []
+    if original_submission:
+        timeline.append({
+            'id': original_submission.id,
+            'label': 'Revision 00 (original)',
+            'submission': original_submission,
+        })
+    for rev in sorted(all_revisions, key=lambda r: (r.revision_number or '', r.submitted_at or datetime.min)):
+        timeline.append({
+            'id': rev.id,
+            'label': f'Revision {rev.revision_number or ""}'.strip(),
+            'submission': rev,
+        })
+    return timeline
+
+
+def _pick_compare_pair(timeline, requested_from, requested_to):
+    """
+    Resolve the two entries to diff.
+
+    Defaults to the last two revisions, which is the comparison readers want
+    most often: what the newest revision changed about the one before it.
+    """
+    index_by_id = {str(entry['id']): i for i, entry in enumerate(timeline)}
+    to_index = index_by_id.get(str(requested_to or ''))
+    if to_index is None:
+        to_index = len(timeline) - 1
+    if to_index < 0:
+        return None, None
+    from_index = index_by_id.get(str(requested_from or ''))
+    if from_index is None or from_index == to_index:
+        from_index = to_index - 1
+    if from_index < 0:
+        return None, timeline[to_index]
+    return timeline[from_index], timeline[to_index]
+
+
+def _revision_diff_panel(timeline, draft_name, requested_from, requested_to) -> str:
+    """Compare picker plus the rendered diff between the two chosen revisions."""
+    if len(timeline) < 2:
+        return ''
+
+    from services.revision_diff import render_revision_diff, revision_options
+
+    from_entry, to_entry = _pick_compare_pair(timeline, requested_from, requested_to)
+    picker_rows = list(reversed(timeline))
+    form_action = f'/doc/draft/{quote(str(draft_name), safe="")}/revisions/'
+    picker = f'''
+        <form method="get" action="{form_action}" class="row g-2 align-items-end mb-3">
+          {revision_options(picker_rows, from_entry['id'] if from_entry else '', name='from', label='Compare from')}
+          {revision_options(picker_rows, to_entry['id'], name='to', label='to')}
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">
+              <i class="fas fa-code-compare me-1" aria-hidden="true"></i>Compare
+            </button>
+          </div>
+        </form>'''
+
+    if not from_entry:
+        body = (
+            '<div class="alert alert-secondary mb-0" role="note">'
+            'Pick two revisions to compare.</div>'
+        )
+    else:
+        try:
+            body = render_revision_diff(
+                from_entry['submission'],
+                to_entry['submission'],
+                old_label=from_entry['label'],
+                new_label=to_entry['label'],
+            )
+        except Exception:
+            current_app.logger.exception('Failed to render revision diff')
+            body = (
+                '<div class="alert alert-warning mb-0" role="alert">'
+                'The diff could not be generated for these revisions.</div>'
+            )
+
+    return f'''
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802revdiff">
+    <div class="card mb-4" id="revision-diff">
+      <div class="card-header"><h6 class="mb-0">
+        <i class="fas fa-code-compare me-2" aria-hidden="true"></i>What changed between revisions
+      </h6></div>
+      <div class="card-body gh-revdiff">{picker}{body}</div>
+    </div>'''
+
+
+def _compare_with_previous_link(timeline, draft_name, entry_id) -> str:
+    """'Compare with the previous revision' link for one revision card."""
+    index = next((i for i, e in enumerate(timeline) if e['id'] == entry_id), None)
+    if index is None or index == 0:  # the oldest row has nothing before it
+        return ''
+    previous = timeline[index - 1]
+    href = (
+        f'/doc/draft/{quote(str(draft_name), safe="")}/revisions/'
+        f'?from={quote(str(previous["id"]), safe="")}&to={quote(str(entry_id), safe="")}'
+        '#revision-diff'
+    )
+    return (
+        f'<a href="{href}" class="btn btn-sm btn-outline-secondary mt-2 ms-2">'
+        f'<i class="fas fa-code-compare me-1" aria-hidden="true"></i>'
+        f'Compare with {html_mod.escape(previous["label"])}</a>'
+    )
+
+
 @bp.route('/doc/draft/<path:draft_name>/revisions/')
 def draft_revisions(draft_name):
     from services.rendering import _format_base_template, generate_user_menu
@@ -2700,6 +2919,16 @@ def draft_revisions(draft_name):
         Submission.status.in_(['approved', 'published'])
     ).order_by(Submission.revision_number.desc()).all()
 
+    patch_summary = _revisions_patch_summary(original_submission or submission)
+    latest_revision_id = all_revisions[0].id if all_revisions else (
+        original_submission.id if original_submission else None
+    )
+
+    timeline = _revision_timeline(original_submission, all_revisions)
+    diff_panel_html = _revision_diff_panel(
+        timeline, draft_name, request.args.get('from'), request.args.get('to')
+    )
+
     revisions_list_html = ""
     for rev in all_revisions:
         status_badge_class = {
@@ -2715,16 +2944,19 @@ def draft_revisions(draft_name):
             if wc_block else ''
         )
 
-        is_current = (rev.id == draft['name'])
-        current_badge = '<span class="badge bg-primary ms-2">Current</span>' if is_current else ''
+        is_current = (rev.id == latest_revision_id)
+        current_badge = (
+            '<span class="badge bg-primary ms-2">Currently served</span>' if is_current else ''
+        )
 
         rev_pages, rev_words = submission_file_pages_words(rev)
+        read_ref = quote(str(rev.draft_name or rev.id), safe='')
 
         revisions_list_html += f"""
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h6 class="mb-0">
-                    <a href="/doc/draft/{rev.id}/" class="text-decoration-none">Revision {rev.revision_number}</a>
+                    <a href="/doc/draft/{rev.id}/" class="text-decoration-none">Revision {html_mod.escape(rev.revision_number or '')}</a>
                     {current_badge}
                 </h6>
                 <span class="badge {status_badge_class}">{rev.status.title()}</span>
@@ -2733,31 +2965,42 @@ def draft_revisions(draft_name):
                 <p class="mb-2"><strong>Published:</strong> {rev.approved_at.strftime('%Y-%m-%d') if rev.approved_at and rev.status == 'approved' else (rev.submitted_at.strftime('%Y-%m-%d') if rev.submitted_at else 'N/A')}</p>
                 <p class="mb-2"><strong>Pages:</strong> {rev_pages} | <strong>Words:</strong> {rev_words}</p>
                 {what_changed_html}
+                {_revision_patch_line(patch_summary, rev.id)}
+                <a href="/doc/draft/{read_ref}/read/" class="btn btn-sm btn-outline-primary mt-2">
+                    <i class="fas fa-book-open me-1"></i>Read this revision
+                </a>
+                {_compare_with_previous_link(timeline, draft_name, rev.id)}
             </div>
         </div>
         """
 
+    original_read_ref = quote(
+        str((original_submission.draft_name if original_submission else '') or original_id),
+        safe='',
+    )
     revisions_html = f"""
                 <h4>Revision History</h4>
+                {_family_patch_summary_html(patch_summary, draft_name)}
+                {diff_panel_html}
                 {revisions_list_html if revisions_list_html else '<p class="text-muted">No revisions yet.</p>'}
 
                 <div class="card mt-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h6 class="mb-0">
                             <a href="/doc/draft/{original_id}/" class="text-decoration-none">Original Version (Rev 00)</a>
+                            {'<span class="badge bg-primary ms-2">Currently served</span>' if original_submission and original_submission.id == latest_revision_id else ''}
                         </h6>
                         <span class="badge bg-success">Approved</span>
                     </div>
                     <div class="card-body">
                         <p class="mb-2"><strong>Published:</strong> {original_submission.approved_at.strftime('%Y-%m-%d') if original_submission and original_submission.approved_at else (original_submission.submitted_at.strftime('%Y-%m-%d') if original_submission and original_submission.submitted_at else draft['date'])}</p>
-                        <p class="mb-0"><strong>Pages:</strong> {orig_pages} | <strong>Words:</strong> {orig_words}</p>
+                        <p class="mb-2"><strong>Pages:</strong> {orig_pages} | <strong>Words:</strong> {orig_words}</p>
+                        {_revision_patch_line(patch_summary, original_submission.id if original_submission else None)}
+                        <a href="/doc/draft/{original_read_ref}/read/" class="btn btn-sm btn-outline-primary mt-2">
+                            <i class="fas fa-book-open me-1"></i>Read this revision
+                        </a>
                     </div>
                 </div>
-
-    <div class="alert alert-info mt-3">
-        <i class="fas fa-info-circle me-2"></i>
-        Detailed revision history and diff viewing would be implemented in a full datatracker system.
-            </div>
     """
 
     content = f"""

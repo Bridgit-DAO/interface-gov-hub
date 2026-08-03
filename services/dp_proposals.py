@@ -421,19 +421,53 @@ def submission_family_submissions(canonical: Submission) -> List[Submission]:
     )
 
 
-def load_submission_plain_document_text(submission: Submission) -> str:
-    from services.draft_reader import build_draft_context, load_draft_document_body
+def _document_text_cache() -> Dict[str, str]:
+    """Request-scoped body cache; classification reads the same bodies repeatedly."""
+    from flask import g, has_app_context
 
+    if not has_app_context():
+        return {}
+    cache = getattr(g, '_dp_document_text_cache', None)
+    if cache is None:
+        cache = {}
+        g._dp_document_text_cache = cache
+    return cache
+
+
+def load_submission_plain_document_text(
+    submission: Submission,
+    *,
+    follow_revisions: bool = False,
+) -> str:
+    """
+    Plain text of a submission's body.
+
+    ``follow_revisions`` loads the body a reader is served for the document
+    family (the latest approved revision) instead of this exact row.
+    """
+    from services.draft_reader import build_draft_context, load_draft_document_body
+    from services.submissions import served_submission_for_family
+
+    if follow_revisions:
+        submission = served_submission_for_family(submission) or submission
     ref = (submission.draft_name or submission.ml_number or submission.id or '').strip()
     if not ref:
         return ''
+    cache = _document_text_cache()
+    cache_key = f'{submission.id}:{ref}'
+    if cache_key in cache:
+        return cache[cache_key]
     draft, sub = build_draft_context(ref)
     if not draft or not sub:
+        cache[cache_key] = ''
         return ''
     content, render_html, _, _ = load_draft_document_body(draft, sub, ref)
     if render_html:
-        return _html_to_plain_text(content)
-    return normalize_proposal_text(content)
+        text = _html_to_plain_text(content)
+    else:
+        text = normalize_proposal_text(content)
+    cache[cache_key] = text
+    return text
 
 
 def classify_proposal_location(
@@ -441,11 +475,13 @@ def classify_proposal_location(
     canonical: Optional[Submission] = None,
 ) -> str:
     """
-    Return how a patch relates to the current approved document body:
-    - current: passage text is in the canonical document
-    - superseded: passage is only in an older revision (content hash / revision row)
-    - bogus: not found in current or any revision in the document family
+    Return how a patch relates to the document body readers are served:
+    - current: passage text is in the served body (latest approved revision)
+    - superseded: passage is only in an older row of the document family
+    - bogus: not found in any row of the document family
     """
+    from services.submissions import served_submission_for_family
+
     if not canonical:
         canonical = resolve_canonical_submission(
             Submission.query.get(proposal.submission_id)
@@ -457,44 +493,187 @@ def classify_proposal_location(
     if not passage:
         return 'bogus'
 
-    current_body = load_submission_plain_document_text(canonical)
-    if passage_text_in_haystack(current_body, passage):
+    served = served_submission_for_family(canonical) or canonical
+    if passage_text_in_haystack(load_submission_plain_document_text(served), passage):
         return 'current'
 
-    create_hash = (proposal.content_hash_at_create or '').strip().lower()
-    current_hash = (canonical.content_hash or '').strip().lower()
-
     for row in submission_family_submissions(canonical):
-        if row.id == canonical.id:
+        if row.id == served.id:
             continue
-        row_hash = (row.content_hash or '').strip().lower()
-        if create_hash and row_hash and row_hash != create_hash:
-            continue
-        body = load_submission_plain_document_text(row)
-        if passage_text_in_haystack(body, passage):
+        if passage_text_in_haystack(load_submission_plain_document_text(row), passage):
             return 'superseded'
-
-    if create_hash and current_hash and create_hash != current_hash:
-        for row in submission_family_submissions(canonical):
-            row_hash = (row.content_hash or '').strip().lower()
-            if row_hash != create_hash:
-                continue
-            body = load_submission_plain_document_text(row)
-            if passage_text_in_haystack(body, passage):
-                return 'superseded'
 
     return 'bogus'
 
 
 def passage_exists_in_current_document(submission: Submission, original_text: str) -> bool:
     canonical = resolve_canonical_submission(submission) or submission
-    body = load_submission_plain_document_text(canonical)
+    body = load_submission_plain_document_text(canonical, follow_revisions=True)
     return passage_text_in_haystack(body, original_text)
+
+
+#: How ``classify_proposal_location`` verdicts read in the UI.
+APPLICABILITY_BY_LOCATION = {
+    'current': 'applies',
+    'superseded': 'needs-review',
+    'bogus': 'obsolete',
+}
+
+#: The three states every patch surface (reader, patches page, revisions page,
+#: proposals API) reports, in the order they are shown.
+APPLICABILITY_STATES = ('applies', 'needs-review', 'obsolete')
+
+#: Patch statuses that can never be merged again. A patch in one of these states
+#: whose passage has already been edited away is finished business, not work
+#: waiting on a maintainer, so it reads as obsolete rather than needs-review.
+CLOSED_PROPOSAL_STATUSES = frozenset({'declined', 'incorporated', 'orphaned'})
+
+APPLICABILITY_LABELS = {
+    'applies': 'Applies to this text',
+    'needs-review': 'Needs re-anchoring',
+    'obsolete': 'Obsolete',
+}
+
+APPLICABILITY_HINTS = {
+    'applies': 'The passage this patch targets is present in the revision you are reading.',
+    'needs-review': (
+        'The passage this patch targets only exists in an earlier revision. '
+        'It needs re-anchoring before it can be merged.'
+    ),
+    'obsolete': (
+        'This patch can no longer be applied: its passage is gone from the document, '
+        'or the patch itself was closed before the passage changed.'
+    ),
+}
+
+
+def proposal_applicability(
+    proposal: DpProposal,
+    canonical: Optional[Submission] = None,
+) -> str:
+    """
+    UI-facing applicability of a patch: applies / needs-review / obsolete.
+
+    Obsolete covers two cases, both of which mean nobody should spend time on the
+    patch again:
+
+    - the anchor text is in no revision of the document family at all
+      (``classify_proposal_location`` says ``bogus``), so the passage was removed
+      or the anchor was never valid; or
+    - the anchor survives only in an older revision *and* the patch is already
+      closed – declined, published in a revision, or explicitly marked orphaned.
+      A closed patch cannot be merged, so re-anchoring it is pointless.
+
+    A superseded patch that is still open (pending, considered, accepted but not
+    yet published) stays ``needs-review``: it is real work, it just has to be
+    re-anchored against the revision now being served.
+    """
+    location = classify_proposal_location(proposal, canonical)
+    if location == 'superseded' and (proposal.status or '') in CLOSED_PROPOSAL_STATUSES:
+        return 'obsolete'
+    return APPLICABILITY_BY_LOCATION.get(location, 'obsolete')
+
+
+def applicability_counts(applicabilities) -> Dict[str, int]:
+    counts = {state: 0 for state in APPLICABILITY_STATES}
+    for value in applicabilities:
+        if value in counts:
+            counts[value] += 1
+    return counts
+
+
+def _submission_effective_date(submission):
+    return getattr(submission, 'approved_at', None) or getattr(submission, 'submitted_at', None)
+
+
+def _family_rows_in_order(canonical: Submission) -> List[Submission]:
+    """Family rows oldest first: Rev 00 parent, then revisions in revision order."""
+    from services.submissions import submission_is_revision
+
+    rows = submission_family_submissions(canonical)
+    parents = [r for r in rows if not submission_is_revision(r)]
+    revisions = [r for r in rows if submission_is_revision(r)]
+
+    def revision_key(row):
+        raw = (row.revision_number or '').strip()
+        try:
+            number = int(raw)
+        except ValueError:
+            number = 0
+        return (number, _submission_effective_date(row) or datetime.min)
+
+    revisions.sort(key=revision_key)
+    parents.sort(key=lambda r: _submission_effective_date(r) or datetime.min)
+    return parents + revisions
+
+
+def attribute_patch_to_revision(
+    proposal: DpProposal,
+    ordered_rows: List[Submission],
+) -> Optional[Submission]:
+    """
+    The revision that was being served when this patch was written.
+
+    Prefers ``content_hash_at_create``, which names the body the author saw
+    exactly. Patches created before that field was recorded fall back to the
+    newest revision that already existed when the patch was created.
+    """
+    create_hash = (proposal.content_hash_at_create or '').strip().lower()
+    if create_hash:
+        for row in ordered_rows:
+            if (row.content_hash or '').strip().lower() == create_hash:
+                return row
+    created = proposal.created_at
+    if not created:
+        return None
+    match = None
+    for row in ordered_rows:
+        row_date = _submission_effective_date(row)
+        if row_date is None or row_date <= created:
+            match = row
+    return match
+
+
+def family_patch_summary(canonical: Submission) -> Dict[str, Any]:
+    """
+    Family-scoped patch stats for the revision timeline.
+
+    Returns overall applicability counts plus, per family row, the patches that
+    were written against that row's body.
+    """
+    rows = list_proposals_for_submission(canonical.id)
+    ordered = _family_rows_in_order(canonical)
+    per_revision: Dict[str, Dict[str, int]] = {
+        row.id: dict({'total': 0}, **{state: 0 for state in APPLICABILITY_STATES})
+        for row in ordered
+    }
+    unattributed = 0
+    for proposal in rows:
+        applicability = getattr(proposal, 'applicability', 'applies')
+        target = attribute_patch_to_revision(proposal, ordered)
+        if target is None or target.id not in per_revision:
+            unattributed += 1
+            continue
+        bucket = per_revision[target.id]
+        bucket['total'] += 1
+        if applicability in bucket:
+            bucket[applicability] += 1
+    return {
+        'total': len(rows),
+        'counts': applicability_counts(
+            getattr(p, 'applicability', 'applies') for p in rows
+        ),
+        'per_revision': per_revision,
+        'unattributed': unattributed,
+    }
 
 
 def reconcile_dp_proposal_locations(*, dry_run: bool = False) -> Dict[str, Any]:
     """
     Delete bogus patches; mark superseded-revision patches as orphaned.
+
+    An explicit maintenance action, not something the pages call: the patch
+    surfaces now label these rows obsolete instead of removing them.
     """
     stats: Dict[str, Any] = {
         'total': 0,
@@ -529,6 +708,16 @@ def reconcile_dp_proposal_locations(*, dry_run: bool = False) -> Dict[str, Any]:
 
 
 def list_proposals_for_submission(submission_id: str) -> List[DpProposal]:
+    """
+    Every family-scoped patch for a document, obsolete ones included.
+
+    Each returned row carries a transient ``applicability`` attribute so callers
+    can render status without reclassifying (which re-reads document bodies).
+    Obsolete patches are returned rather than hidden: readers asked to be able to
+    see that a patch exists but no longer has anywhere to land.
+    """
+    from services.submissions import revision_display_label
+
     canonical = resolve_canonical_submission(Submission.query.get(submission_id))
     sid = canonical.id if canonical else submission_id
     rows = (
@@ -537,8 +726,18 @@ def list_proposals_for_submission(submission_id: str) -> List[DpProposal]:
         .all()
     )
     if not canonical:
+        for row in rows:
+            row.applicability = 'applies'
+            row.created_on_revision = None
+            row.created_on_revision_label = ''
         return rows
-    return [row for row in rows if classify_proposal_location(row, canonical) != 'bogus']
+    ordered = _family_rows_in_order(canonical)
+    for row in rows:
+        row.applicability = proposal_applicability(row, canonical)
+        written_against = attribute_patch_to_revision(row, ordered)
+        row.created_on_revision = written_against.id if written_against else None
+        row.created_on_revision_label = revision_display_label(written_against)
+    return rows
 
 
 def proposal_counts(proposals: List[DpProposal]) -> Dict[str, Any]:

@@ -57,7 +57,7 @@ python3 verify.py dev
 ```bash
 git checkout main
 git merge dev
-python3 deploy.py prod
+python3 deploy.py main
 # Verify: https://rfc.themetalayer.org
 ```
 

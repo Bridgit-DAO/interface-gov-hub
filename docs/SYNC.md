@@ -1,11 +1,11 @@
 # Branch sync plan (development ↔ main)
 
 **As of:** 2026-08-01 (historical inventory below)  
-**Updated:** 2026-08-03 — live release branch is **`main`** (retargeted to the former `production` tip; `production` kept temporarily as an alias). Promote with `development` → `main`. See [DEV-TO-PROD-WORKFLOW.md](./DEV-TO-PROD-WORKFLOW.md).  
+**Updated:** 2026-08-03 — **`main` is production** (live release branch). The git branch **`production` is retired** — delete `origin/production` when ready. Promote with `development` → `main`. See [DEV-TO-MAIN-WORKFLOW.md](./DEV-TO-MAIN-WORKFLOW.md).  
 **Merge-base:** `dfc42dbd2`  
 **Worktrees:** `gov-hub-dev` → `development` (8001), `gov-hub-prod` → `main` (8000)
 
-> Historical note: tables and commands below that say `production` refer to the gated live branch as of the 2026-08-01 sync. That tip is now `main` (same SHA as `origin/production` until the alias is deleted).
+> Historical note: tables and commands below that say `production` refer to the gated live branch as of the 2026-08-01 sync. That tip is now **`main`**; the `production` git branch is obsolete.
 
 ## Current state
 
@@ -120,7 +120,7 @@ git push origin sync/prod-into-dev-20260801
 
 ### Phase 2 — Test on dev (mandatory gate)
 
-See checklist in [DEV-TO-PROD-WORKFLOW.md](./DEV-TO-PROD-WORKFLOW.md#pre-promote-checklist-on-development).
+See checklist in [DEV-TO-MAIN-WORKFLOW.md](./DEV-TO-MAIN-WORKFLOW.md#pre-promote-checklist-on-development).
 
 ```bash
 cd ~/gov-hub-dev
@@ -193,7 +193,7 @@ For **parallel duplicate commits**, diff the two sides; if hunks match, take eit
 4. **Hotfixes on `main`** — cherry-pick or merge back to `development` the same day.
 5. **Never** cherry-pick the same fix to both branches independently (causes duplicate SHAs and merge conflicts).
 
-See [DEV-TO-PROD-WORKFLOW.md](./DEV-TO-PROD-WORKFLOW.md) for daily commands and the pre-promote checklist.
+See [DEV-TO-MAIN-WORKFLOW.md](./DEV-TO-MAIN-WORKFLOW.md) for daily commands and the pre-promote checklist.
 
 ---
 

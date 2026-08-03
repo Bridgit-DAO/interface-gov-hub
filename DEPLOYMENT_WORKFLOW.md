@@ -14,7 +14,7 @@ python3 verify.py dev
 
 ### Deploy to Production (after dev verified)
 ```bash
-python3 deploy.py prod
+python3 deploy.py main
 python3 verify.py prod
 ```
 
@@ -28,7 +28,7 @@ python3 status.py all
 ### Rollback (if needed)
 ```bash
 python3 rollback.py dev --last
-python3 rollback.py prod --to-commit abc123
+python3 rollback.py main --to-commit abc123
 ```
 
 ## Detailed Workflow
@@ -82,7 +82,7 @@ python3 rollback.py prod --to-commit abc123
 
 2. **Deploy to production**
    ```bash
-   python3 deploy.py prod
+   python3 deploy.py main
    ```
    
    This will:
@@ -118,7 +118,7 @@ python3 deploy.py <env> [--branch <branch>]
 **Examples**:
 ```bash
 python3 deploy.py dev
-python3 deploy.py prod
+python3 deploy.py main
 python3 deploy.py dev --branch feature/new-feature
 ```
 

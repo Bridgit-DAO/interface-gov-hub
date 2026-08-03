@@ -1,5 +1,9 @@
 # Production Migration Plan - Build 51
 **Date:** 2026-02-08  
+
+> **Historical:** Pre-dates the 2026-08-03 policy that **`main` is production**.
+> The git branch `production` is retired. See [docs/DEV-TO-MAIN-WORKFLOW.md](docs/DEV-TO-MAIN-WORKFLOW.md).
+
 **Target:** Production (rfc.themetalayer.org)  
 **Current Build:** 33 → **New Build:** 51
 
@@ -91,7 +95,7 @@ cd /home/ubuntu/datatracker
 # Ensure dev changes are committed
 git status
 
-# Merge dev into main (or production branch)
+# Merge dev into main (production release branch)
 git checkout main
 git pull origin main
 git merge dev --no-ff -m "Merge build 51: Markdown rendering and UI improvements"
