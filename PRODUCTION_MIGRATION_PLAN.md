@@ -91,7 +91,7 @@ cd /home/ubuntu/datatracker
 # Ensure dev changes are committed
 git status
 
-# Merge dev into main (or production branch)
+# Merge dev into main (production release branch)
 git checkout main
 git pull origin main
 git merge dev --no-ff -m "Merge build 51: Markdown rendering and UI improvements"

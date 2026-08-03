@@ -1,11 +1,11 @@
 # Branch sync plan (development ↔ main)
 
 **As of:** 2026-08-01 (historical inventory below)  
-**Updated:** 2026-08-03 — live release branch is **`main`** (retargeted to the former `production` tip; `production` kept temporarily as an alias). Promote with `development` → `main`. See [DEV-TO-PROD-WORKFLOW.md](./DEV-TO-PROD-WORKFLOW.md).  
+**Updated:** 2026-08-03 — live release branch is **`main`** (retargeted to the former `production` tip). The git branch **`production` is retired**. Promote with `development` → `main`. See [DEV-TO-PROD-WORKFLOW.md](./DEV-TO-PROD-WORKFLOW.md).  
 **Merge-base:** `dfc42dbd2`  
 **Worktrees:** `gov-hub-dev` → `development` (8001), `gov-hub-prod` → `main` (8000)
 
-> Historical note: tables and commands below that say `production` refer to the gated live branch as of the 2026-08-01 sync. That tip is now `main` (same SHA as `origin/production` until the alias is deleted).
+> Historical note: tables and commands below that say `production` refer to the gated live branch as of the 2026-08-01 sync. That tip is now **`main`**; the `production` git branch is obsolete.
 
 ## Current state
 

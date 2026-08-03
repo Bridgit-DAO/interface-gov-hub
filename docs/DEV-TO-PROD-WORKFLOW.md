@@ -7,9 +7,11 @@
 | `development` | Integration & testing | `/home/ubuntu/gov-hub-dev` | dev.hub.themetalayer.org (8001) | `datatracker-dev.service` |
 | `main` | Live release | `/home/ubuntu/gov-hub-prod` | hub.themetalayer.org / govhub.live (8000) | `datatracker.service` |
 
+**Retired git branches (do not use):** `production` (superseded by `main` on 2026-08-03).
+
 Remote: `https://github.com/Bridgit-DAO/interface-gov-hub.git`
 
-**2026-08-03:** `main` was retargeted to the former `production` tip (pointer move, not a content merge). Old `main` tip is preserved at `archive/main-20260803`. The remote branch `production` remains temporarily as an alias at the same commit; prefer `main` for all new promotes and hotfixes. `deploy.py` / `rollback.py` map `prod` → `main`.
+**2026-08-03:** `main` was retargeted to the former `production` tip (pointer move, not a content merge). Old `main` tip is preserved at `archive/main-20260803`. The git branch **`production` is retired** — do not checkout, merge to, or push it. All promotes and hotfixes use **`main`**. `deploy.py` / `rollback.py` map `prod` → `main`.
 
 `legacy-main` on the remote preserves older pre-`development` history. Do not merge that backlog into `development`.
 
@@ -68,8 +70,6 @@ git checkout main
 git pull origin main
 git merge origin/development -m "ship: merge development to main"
 git push origin main
-# Optional while production alias exists: keep it aligned
-# git push origin main:production
 systemctl --user restart datatracker.service
 ```
 

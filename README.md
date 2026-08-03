@@ -1,4 +1,4 @@
-> **Gov Hub (`Bridgit-DAO/interface-gov-hub`):** Default and integration branch is **`development`**; promote to **`production`** only via merge. **`main` is obsolete.** See [docs/DEV-TO-PROD-WORKFLOW.md](docs/DEV-TO-PROD-WORKFLOW.md).
+> **Gov Hub (`Bridgit-DAO/interface-gov-hub`):** Integration branch is **`development`** (PRs land here); live release is **`main`** (promote via merge). The git branch **`production` is retired** — do not use. See [docs/DEV-TO-PROD-WORKFLOW.md](docs/DEV-TO-PROD-WORKFLOW.md).
 
 <div align="center">
   
