@@ -1,8 +1,11 @@
-# Branch sync plan (development ↔ production)
+# Branch sync plan (development ↔ main)
 
-**As of:** 2026-08-01  
+**As of:** 2026-08-01 (historical inventory below)  
+**Updated:** 2026-08-03 — live release branch is **`main`** (retargeted to the former `production` tip; `production` kept temporarily as an alias). Promote with `development` → `main`. See [DEV-TO-PROD-WORKFLOW.md](./DEV-TO-PROD-WORKFLOW.md).  
 **Merge-base:** `dfc42dbd2`  
-**Worktrees:** `gov-hub-dev` → `development` (8001), `gov-hub-prod` → `production` (8000)
+**Worktrees:** `gov-hub-dev` → `development` (8001), `gov-hub-prod` → `main` (8000)
+
+> Historical note: tables and commands below that say `production` refer to the gated live branch as of the 2026-08-01 sync. That tip is now `main` (same SHA as `origin/production` until the alias is deleted).
 
 ## Current state
 
@@ -95,9 +98,9 @@ services/workgroup_positions.py
 
 ## Recommended sync order
 
-Goal: **`development` becomes the single integration branch** containing everything, tested on 8001, then promoted to `production`.
+Goal: **`development` becomes the single integration branch** containing everything, tested on 8001, then promoted to `main`.
 
-### Phase 1 — Merge production → development (integration)
+### Phase 1 — Merge live (`main` / then-`production`) → development (integration)
 
 ```bash
 cd ~/gov-hub-dev
@@ -107,7 +110,8 @@ git pull origin development
 
 # Optional: integration branch so development stays deployable during resolution
 git checkout -b sync/prod-into-dev-20260801
-git merge origin/production -m "sync: merge production into development"
+git merge origin/main -m "sync: merge main into development"
+# (During the 2026-08-01 sync this was origin/production — same tip as main after 2026-08-03.)
 # Resolve 18 conflicts (see resolution guide below)
 git push origin sync/prod-into-dev-20260801
 ```
@@ -131,23 +135,23 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST https://dev.govhub.live/api/met
   -H 'Content-Type: application/json' -d '{"checks":[]}'
 ```
 
-Fix failures on `development` only. Do not patch `production` directly except documented hotfixes.
+Fix failures on `development` only. Do not patch `main` directly except documented hotfixes.
 
-### Phase 3 — Promote development → production
+### Phase 3 — Promote development → main
 
 After dev tests pass and the integration merge is on `origin/development`:
 
 ```bash
 cd ~/gov-hub-prod
 git fetch origin
-git checkout production
-git pull origin production
-git merge origin/development -m "ship: merge development to production (post-sync)"
-git push origin production
+git checkout main
+git pull origin main
+git merge origin/development -m "ship: merge development to main (post-sync)"
+git push origin main
 systemctl --user restart datatracker.service
 ```
 
-This merge should be **clean or low-conflict** because production is an ancestor of the integrated development tip.
+This merge should be **clean or low-conflict** because `main` is an ancestor of the integrated development tip.
 
 ### Phase 4 — Verify prod + align worktrees
 
@@ -157,8 +161,8 @@ curl -s -o /dev/null -w "%{http_code}\n" https://govhub.live/
 
 # Both worktrees on expected branches
 git -C ~/gov-hub-dev rev-parse development
-git -C ~/gov-hub-prod rev-parse production
-git merge-base development production  # should equal production HEAD after sync
+git -C ~/gov-hub-prod rev-parse main
+git merge-base development main  # should equal main HEAD after sync
 ```
 
 ---
@@ -183,10 +187,10 @@ For **parallel duplicate commits**, diff the two sides; if hunks match, take eit
 
 ## After sync: prevent re-divergence
 
-1. **All feature work on `development`** — no direct commits to `production`.
+1. **All feature work on `development`** — no direct commits to `main`.
 2. **Test on dev** (8001 / dev.govhub.live) before every promote.
-3. **Promote only via** `git merge origin/development` on `gov-hub-prod` (or PR on GitHub).
-4. **Hotfixes on production** — cherry-pick or merge back to `development` the same day.
+3. **Promote only via** `git merge origin/development` on `gov-hub-prod` (or PR on GitHub) into `main`.
+4. **Hotfixes on `main`** — cherry-pick or merge back to `development` the same day.
 5. **Never** cherry-pick the same fix to both branches independently (causes duplicate SHAs and merge conflicts).
 
 See [DEV-TO-PROD-WORKFLOW.md](./DEV-TO-PROD-WORKFLOW.md) for daily commands and the pre-promote checklist.
