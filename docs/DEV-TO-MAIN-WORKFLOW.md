@@ -9,12 +9,9 @@
 
 **Policy:** `main` **is** production. There is no separate `production` git branch.
 
-**Retired (do not use):** git branch `production` — superseded by `main` on 2026-08-03. Delete remote when ready:
-
-```bash
-git push origin --delete production   # after confirming origin/main is canonical
-git branch -d production                # local, if present
-```
+**Retired:** git branch `production` — superseded by `main` on 2026-08-03.
+Remote `origin/production` has been deleted; old tip remains at
+`archive/main-20260803`. Local leftover: `git branch -d production` if present.
 
 Remote: `https://github.com/Bridgit-DAO/interface-gov-hub.git`
 
