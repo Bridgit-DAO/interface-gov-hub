@@ -1,7 +1,7 @@
 # Branch sync plan (development ↔ main)
 
 **As of:** 2026-08-01 (historical inventory below)  
-**Updated:** 2026-08-03 — **`main` is production** (live release branch). The git branch **`production` is retired** — delete `origin/production` when ready. Promote with `development` → `main`. See [DEV-TO-MAIN-WORKFLOW.md](./DEV-TO-MAIN-WORKFLOW.md).  
+**Updated:** 2026-08-03 — **`main` is production** (live release branch). The git branch **`production` is retired** and `origin/production` has been deleted. Promote with `development` → `main`. See [DEV-TO-MAIN-WORKFLOW.md](./DEV-TO-MAIN-WORKFLOW.md).  
 **Merge-base:** `dfc42dbd2`  
 **Worktrees:** `gov-hub-dev` → `development` (8001), `gov-hub-prod` → `main` (8000)
 
