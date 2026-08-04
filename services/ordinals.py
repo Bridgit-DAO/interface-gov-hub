@@ -18,9 +18,13 @@ def process_ordinal_markdown(markdown_text):
         import html
         return html.escape(markdown_text).replace('\n', '<br>')
 
-    from services.submission_preview_md import normalize_backslash_escaped_markdown
+    from services.submission_preview_md import (
+        normalize_backslash_escaped_markdown,
+        strip_hr_adjacent_to_headings,
+    )
 
     markdown_text = normalize_backslash_escaped_markdown(markdown_text)
+    markdown_text = strip_hr_adjacent_to_headings(markdown_text)
 
     def replace_figure_image(match):
         alt_text = match.group(1) if match.group(1) else ''

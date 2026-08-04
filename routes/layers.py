@@ -941,6 +941,80 @@ def list_layer_members(layer_id):
     }), 200
 
 
+@bp.route('/<layer_id>/workgroup-signups/', methods=['GET'])
+def list_layer_workgroup_signups(layer_id):
+    """Public roster of DP workgroup memberships for challenge-site signups views."""
+    Layer.query.get_or_404(layer_id)
+    from services.groups import extract_dp_number
+    from services.workgroup_links import is_dp_workgroup, query_workgroups_for_layer
+
+    workgroups = [
+        wg for wg in query_workgroups_for_layer(layer_id, status='active')
+        if is_dp_workgroup(wg)
+    ]
+    workgroups.sort(
+        key=lambda wg: extract_dp_number(wg.acronym or '') or 999,
+    )
+
+    by_workgroup = []
+    people_map: dict[str, dict] = {}
+
+    for wg in workgroups:
+        members = (
+            WorkingGroupMember.query.filter_by(group_acronym=wg.acronym)
+            .order_by(WorkingGroupMember.joined_at.desc())
+            .all()
+        )
+        member_rows = []
+        for member in members:
+            joined_at = member.joined_at.isoformat() if member.joined_at else None
+            member_rows.append({
+                'id': member.id,
+                'user_id': member.user_id,
+                'user_name': member.user_name,
+                'joined_at': joined_at,
+            })
+            person_key = member.user_id or member.user_name or member.id
+            if person_key not in people_map:
+                people_map[person_key] = {
+                    'user_id': member.user_id,
+                    'user_name': member.user_name,
+                    'workgroups': [],
+                }
+            people_map[person_key]['workgroups'].append({
+                'id': wg.id,
+                'name': wg.name,
+                'slug': wg.slug,
+                'acronym': wg.acronym,
+                'joined_at': joined_at,
+            })
+
+        by_workgroup.append({
+            'id': wg.id,
+            'name': wg.name,
+            'slug': wg.slug,
+            'acronym': wg.acronym,
+            'member_count': len(member_rows),
+            'members': member_rows,
+        })
+
+    people = sorted(
+        people_map.values(),
+        key=lambda row: (row.get('user_name') or '').lower(),
+    )
+    for row in people:
+        row['workgroups'].sort(
+            key=lambda wg: extract_dp_number(wg.get('acronym') or '') or 999,
+        )
+
+    return jsonify({
+        'workgroups': by_workgroup,
+        'people': people,
+        'total_memberships': sum(wg['member_count'] for wg in by_workgroup),
+        'total_people': len(people),
+    }), 200
+
+
 @bp.route('/<layer_id>/join/', methods=['POST'])
 @require_auth
 def join_layer(layer_id):

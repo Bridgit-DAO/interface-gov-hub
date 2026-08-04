@@ -4,7 +4,7 @@
 
 | Branch | Role | Server checkout | URL | systemd unit |
 |--------|------|-----------------|-----|--------------|
-| `development` | Integration & testing | `/home/ubuntu/gov-hub-dev` | dev.hub.themetalayer.org (8001) | `datatracker-dev.service` |
+| `development` | Integration & testing | `/home/ubuntu/gov-hub-dev` | dev.hub.themetalayer.org or staging.hub.themetalayer.org (8001) | `datatracker-dev.service` |
 | `main` | **Live production** | `/home/ubuntu/gov-hub-prod` | hub.themetalayer.org / govhub.live (8000) | `datatracker.service` |
 
 **Policy:** `main` **is** production. There is no separate `production` git branch.
@@ -22,7 +22,9 @@ Remote: `https://github.com/Bridgit-DAO/interface-gov-hub.git`
 ## Process rules (required)
 
 1. **All feature work lands on `development`.** Do not commit features directly to `main`.
-2. **Test on dev before every promote.** Use port 8001 / `dev.hub.themetalayer.org` and the pre-promote checklist below.
+2. **Test on dev before every promote.** Use port 8001 / `dev.hub.themetalayer.org` (or `staging.hub.themetalayer.org` — same app) and the pre-promote checklist below.
+
+**Note:** `staging.hub.themetalayer.org` must route to `:8001`, not production. Nginx config: `docs/nginx-hub-themetalayer-org-combined.conf` (install via `docs/install-hub-themetalayer-org-combined.sh`).
 3. **Promote to live** only by merging `development` into `main` (locally on `gov-hub-prod` worktree or via GitHub PR).
 4. **Hotfixes on `main`** are allowed when live is broken and dev cannot wait—but **backport to `development` the same day** (cherry-pick or merge `main` → `development`).
 5. **Never duplicate fixes** on both branches (same change, two commits). That causes painful merges; see [SYNC.md](./SYNC.md) for the 2026-08 divergence post-mortem.
