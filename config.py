@@ -102,6 +102,12 @@ CANOPI_INTERNAL_API_URL = os.environ.get(
 # Public Canopi REST API (account declaration, embed auth). Used by Gov Hub client JS.
 CANOPI_API_URL = os.environ.get('CANOPI_API_URL', 'https://api.canopi.live').rstrip('/')
 
+# Desirable Properties book rail sync → shiftshapr/desirable-properties repository_dispatch
+GOVHUB_DP_RAIL_SYNC_DISPATCH = _env_bool('GOVHUB_DP_RAIL_SYNC_DISPATCH', 'false')
+GH_DISPATCH_TOKEN = os.environ.get('GH_DISPATCH_TOKEN', '').strip()
+GITHUB_REPO = os.environ.get('GITHUB_REPO', 'shiftshapr/desirable-properties').strip()
+DP_RAIL_SYNC_ENV = os.environ.get('DP_RAIL_SYNC_ENV', 'main').strip() or 'main'
+
 
 def _git_rev_list_count():
     """Total commits on HEAD when .git exists (optional fallback for dev checkouts)."""

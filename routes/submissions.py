@@ -2181,6 +2181,14 @@ def approve_submission(submission_id):
         from flask import current_app
 
         current_app.logger.warning('DP workgroup document link (approve): %s', ex)
+    try:
+        from services.dp_rail_sync_dispatch import dispatch_dp_rail_sync
+
+        dispatch_dp_rail_sync(submission)
+    except Exception as ex:
+        from flask import current_app
+
+        current_app.logger.warning('DP rail sync dispatch (approve): %s', ex)
     action_desc = f"Approved revision {submission.revision_number} of {parent_draft_name}" if is_revision else f"Approved submission: {submission.title}"
     add_to_document_history(f"submission-{submission.id}", "approved", admin_user['name'], action_desc)
 
