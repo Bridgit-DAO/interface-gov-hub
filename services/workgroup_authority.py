@@ -67,6 +67,25 @@ def is_workgroup_leadership(workgroup: Optional[Workgroup], user_or_id) -> bool:
     return user_has_approved_workgroup_position(workgroup, uid)
 
 
+def user_is_dp_coordinator(user_or_id) -> bool:
+    """True when the user holds an approved coordinator role on any DP workgroup."""
+    uid = _user_id(user_or_id)
+    if not uid:
+        return False
+    from services.workgroup_links import is_dp_workgroup
+
+    rows = (
+        Workgroup.query.filter(Workgroup.approval_status == 'approved')
+        .all()
+    )
+    for workgroup in rows:
+        if not is_dp_workgroup(workgroup):
+            continue
+        if is_workgroup_leadership(workgroup, uid):
+            return True
+    return False
+
+
 def can_manage_workgroup(workgroup: Optional[Workgroup], user: Optional[dict]) -> bool:
     if not workgroup or not user:
         return False
