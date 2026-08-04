@@ -25,7 +25,7 @@ from services.workgroup_links import (
     workgroup_display_sort_key,
     _canonical_parent_for_picker,
 )
-from services.workgroup_authority import can_invite_workgroup_member, can_manage_workgroup
+from services.workgroup_authority import can_invite_workgroup_member, can_manage_workgroup, user_is_dp_coordinator
 from services.workgroup_membership import join_or_request_workgroup_membership
 from services.workgroup_links import is_dp_workgroup
 from services.dp_welcome import (
@@ -493,6 +493,7 @@ def api_me_dp_welcome():
         'welcomes': welcomes,
         'count': len(welcomes),
         'user_id': current_user['id'],
+        'is_coordinator': user_is_dp_coordinator(current_user['id']),
     })
 
 
