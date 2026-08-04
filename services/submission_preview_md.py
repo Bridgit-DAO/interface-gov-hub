@@ -9,6 +9,43 @@ _ALLOWED_TAGS = [
     'ul', 'ol', 'li', 'a', 'img', 'code', 'pre', 'blockquote', 'table',
     'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span',
 ]
+
+_HEADING_RE = re.compile(r'^(?: {0,3})#{1,6}\s+')
+_HR_RE = re.compile(r'^(?: {0,3})(?:-{3,}|_{3,}|\*{3,})\s*$')
+
+
+def strip_hr_adjacent_to_headings(text: str) -> str:
+    """Drop markdown horizontal rules immediately before/after headings (book viewer parity)."""
+    if not text or not text.strip():
+        return text
+    lines = text.splitlines()
+    drop = [False] * len(lines)
+
+    def prev_non_empty(idx: int) -> int:
+        for j in range(idx, -1, -1):
+            if lines[j].strip():
+                return j
+        return -1
+
+    def next_non_empty(idx: int) -> int:
+        for j in range(idx, len(lines)):
+            if lines[j].strip():
+                return j
+        return -1
+
+    for i, line in enumerate(lines):
+        if not _HR_RE.match(line):
+            continue
+        prev_i = prev_non_empty(i - 1)
+        next_i = next_non_empty(i + 1)
+        if (prev_i >= 0 and _HEADING_RE.match(lines[prev_i])) or (
+            next_i >= 0 and _HEADING_RE.match(lines[next_i])
+        ):
+            drop[i] = True
+
+    return "\n".join(line for line, d in zip(lines, drop) if not d)
+
+
 _ALLOWED_ATTRS = {
     'a': ['href', 'title', 'target'],
     'img': ['src', 'alt', 'title', 'width', 'height'],
@@ -49,6 +86,7 @@ def markdown_to_safe_preview_html(markdown_text: str) -> Optional[str]:
     if not text.strip():
         return None
     text = normalize_backslash_escaped_markdown(text)
+    text = strip_hr_adjacent_to_headings(text)
 
     html_raw: Optional[str] = None
     try:
