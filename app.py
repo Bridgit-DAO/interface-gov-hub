@@ -215,6 +215,7 @@ def create_app(database_uri=None, *, testing=False):
     from routes.brc333_badges_admin import bp as brc333_badges_admin_bp
     from routes.metaweb import bp as metaweb_bp
     from routes.canopi_internal import bp as canopi_internal_bp
+    from routes.dp_internal import bp as dp_internal_bp
     from routes.scope_email import bp as scope_email_bp
     from routes.layer_connections import bp as layer_connections_bp
     from routes.layer_connections_pages import bp as layer_connections_pages_bp
@@ -293,6 +294,7 @@ def create_app(database_uri=None, *, testing=False):
     app.register_blueprint(metaweb_bp)
     app.register_blueprint(brc333_badges_admin_bp)
     app.register_blueprint(canopi_internal_bp)
+    app.register_blueprint(dp_internal_bp)
     app.register_blueprint(scope_email_bp)
     app.register_blueprint(layer_connections_bp)
     app.register_blueprint(layer_connections_pages_bp)

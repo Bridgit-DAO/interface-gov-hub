@@ -16,6 +16,7 @@ def hermes_api_secret() -> str:
         os.environ.get('GOVHUB_HERMES_API_KEY', '').strip()
         or os.environ.get('GOVHUB_SUPPORT_OPS_SECRET', '').strip()
         or os.environ.get('METAWEB_OPS_SECRET', '').strip()
+        or os.environ.get('METAWEB_GOVHUB_INTERNAL_SECRET', '').strip()
     )
 
 
