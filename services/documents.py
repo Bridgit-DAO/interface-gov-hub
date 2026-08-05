@@ -76,6 +76,10 @@ DESIRABLE_PROPERTIES_META_LAYER_TITLE = 'The Layered Web: The Desirable Properti
 _DESIRABLE_PROPERTIES_META_LAYER_LEGACY_TITLES = frozenset({
     'The Desirable Properties of a Meta-Layer',
 })
+_DESIRABLE_PROPERTIES_FRONT_MATTER_TITLES = frozenset({
+    'About This Digital Monument',
+    'Acknowledgements',
+})
 
 
 def is_desirable_properties_collection_document(title: str) -> bool:
@@ -87,6 +91,8 @@ def is_desirable_properties_collection_document(title: str) -> bool:
         return True
     known_titles = {DESIRABLE_PROPERTIES_META_LAYER_TITLE.casefold()} | {
         legacy.casefold() for legacy in _DESIRABLE_PROPERTIES_META_LAYER_LEGACY_TITLES
+    } | {
+        title.casefold() for title in _DESIRABLE_PROPERTIES_FRONT_MATTER_TITLES
     }
     return t.casefold() in known_titles
 
