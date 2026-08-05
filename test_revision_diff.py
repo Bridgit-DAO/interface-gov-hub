@@ -180,6 +180,9 @@ def test_revisions_page_renders_a_diff_by_default():
         html = ctx.client().get(f'/doc/draft/{parent_draft}/revisions/').get_data(as_text=True)
 
         assert 'What changed between revisions' in html
+        assert '<div class="collapse" id="revision-diff-panel">' in html
+        assert 'Compare Revision 00 (original) → Revision 01' in html
+        assert 'Hide comparison' in html
         assert 'Comparing <strong>Revision 00 (original)</strong>' in html
         assert 'A brand new paragraph introduced by revision one.' in html
         assert 'A paragraph that revision one deletes outright.' in html
@@ -202,8 +205,10 @@ def test_revisions_page_honours_explicit_from_and_to():
         ).get_data(as_text=True)
 
         # from == to falls back to the revision before it rather than an empty diff.
+        assert '<div class="collapse show" id="revision-diff-panel">' in same
         assert 'Comparing <strong>Revision 00 (original)</strong> with <strong>Revision 01</strong>' in same
         # Comparing newest against oldest inverts which side is added.
+        assert '<div class="collapse show" id="revision-diff-panel">' in reversed_pair
         assert 'Comparing <strong>Revision 01</strong> with <strong>Revision 00 (original)</strong>' in reversed_pair
         assert '1 paragraph removed' in reversed_pair
 

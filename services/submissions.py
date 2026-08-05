@@ -150,6 +150,44 @@ def revision_display_label(submission) -> str:
     return 'Revision 00 (original)'
 
 
+def rev_number_for_display(submission) -> str:
+    """Two-digit revision for record metadata, e.g. '04' or '00' for the original."""
+    served = served_submission_for_family(submission)
+    if served and submission_is_revision(served):
+        return (getattr(served, 'revision_number', '') or '').strip() or '01'
+    return '00'
+
+
+def family_root_submission(submission):
+    """Root (Rev 00) row for a document family."""
+    if not submission:
+        return None
+    parent_ref = (getattr(submission, 'parent_draft_name', '') or '').strip()
+    if submission_is_revision(submission) and parent_ref:
+        return get_submission_by_ref(parent_ref) or submission
+    return submission
+
+
+def count_family_revision_entries(ref_or_submission) -> int:
+    """Approved numbered revisions in the family (Rev 01+), excluding the Rev 00 root."""
+    submission = (
+        ref_or_submission
+        if hasattr(ref_or_submission, 'id')
+        else get_submission_by_ref(ref_or_submission)
+    )
+    root = family_root_submission(submission)
+    if not root:
+        return 0
+    refs = family_parent_refs(root)
+    if not refs:
+        return 0
+    return Submission.query.filter(
+        Submission.parent_draft_name.in_(refs),
+        Submission.is_revision == True,  # noqa: E712
+        Submission.status.in_(APPROVED_STATUSES),
+    ).count()
+
+
 def served_submission_for_family(submission):
     """
     The row a reader is served for this document.
