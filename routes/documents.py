@@ -19,7 +19,14 @@ from services.identity import get_current_user, require_auth
 from services.events import emit_event
 from services.document_follow_notifications import dispatch_document_followers
 from services.event_subscriptions import matrix_from_subscription_post, replace_draft_subscriptions_matrix
-from services.submissions import get_submission_by_ref, add_to_document_history, can_edit_submission_metadata
+from services.submissions import (
+    get_submission_by_ref,
+    get_readable_submission_by_ref,
+    add_to_document_history,
+    can_edit_submission_metadata,
+    count_family_revision_entries,
+    rev_number_for_display,
+)
 from services.ordinals import (
     process_ordinal_markdown,
     shorten_inscription_id,
@@ -1128,14 +1135,16 @@ def draft_detail(draft_name):
     draft = next((d for d in drafts if d['name'] == draft_name), None)
 
     submission = None
+    display_submission = None
     if not draft:
         submission = get_submission_by_ref(draft_name)
-        if submission:
-            source_type = getattr(submission, 'sourceType', 'file')
+        display_submission = get_readable_submission_by_ref(draft_name) or submission
+        if display_submission:
+            source_type = getattr(display_submission, 'sourceType', 'file')
             pages_count = 1
             words_count = 0
-            ordinal_content_url = getattr(submission, 'ordinalContentUrl', None)
-            ordinal_content_type = getattr(submission, 'ordinalContentType', '')
+            ordinal_content_url = getattr(display_submission, 'ordinalContentUrl', None)
+            ordinal_content_type = getattr(display_submission, 'ordinalContentType', '')
 
             if source_type == 'ordinal':
                 if ordinal_content_url and ('text/' in ordinal_content_type or 'application/json' in ordinal_content_type):
@@ -1156,38 +1165,38 @@ def draft_detail(draft_name):
                         current_app.logger.warning(f"Failed to fetch ordinal content for word/page count: {e}")
                         pass
             else:
-                pages_count, words_count = submission_file_pages_words(submission)
+                pages_count, words_count = submission_file_pages_words(display_submission)
 
-            dbs = getattr(submission, 'displayBodySource', None) or 'file'
+            dbs = getattr(display_submission, 'displayBodySource', None) or 'file'
             displaying_linked = (
-                dbs.strip().lower() == 'ordinal' and bool(getattr(submission, 'displayOrdinalContentUrl', None))
+                dbs.strip().lower() == 'ordinal' and bool(getattr(display_submission, 'displayOrdinalContentUrl', None))
             )
             draft = {
-                'name': submission.draft_name or submission.id,
-                'title': submission.title,
-                'authors': submission.authors,
-                'abstract': submission.abstract or 'Abstract not available for this draft.',
-                'status': submission.status,
-                'group': submission.group,
-                'date': submission.submitted_at.strftime('%Y-%m-%d') if submission.submitted_at else '',
-                'rev': '00',
+                'name': display_submission.draft_name or display_submission.id,
+                'title': display_submission.title,
+                'authors': display_submission.authors,
+                'abstract': display_submission.abstract or 'Abstract not available for this draft.',
+                'status': display_submission.status,
+                'group': display_submission.group,
+                'date': display_submission.submitted_at.strftime('%Y-%m-%d') if display_submission.submitted_at else '',
+                'rev': rev_number_for_display(display_submission),
                 'pages': pages_count,
                 'words': words_count,
                 'stream': 'mltf',
-                'ml_number': submission.ml_number,
+                'ml_number': display_submission.ml_number,
                 'sourceType': source_type,
-                'ordinalId': getattr(submission, 'ordinalId', None),
-                'inscriptionNumber': getattr(submission, 'inscriptionNumber', None),
-                'blockHeight': getattr(submission, 'blockHeight', None),
-                'inscriptionTimestamp': getattr(submission, 'inscriptionTimestamp', None),
+                'ordinalId': getattr(display_submission, 'ordinalId', None),
+                'inscriptionNumber': getattr(display_submission, 'inscriptionNumber', None),
+                'blockHeight': getattr(display_submission, 'blockHeight', None),
+                'inscriptionTimestamp': getattr(display_submission, 'inscriptionTimestamp', None),
                 'ordinalContentType': ordinal_content_type,
-                'is_revision': getattr(submission, 'is_revision', False),
-                'revision_number': getattr(submission, 'revision_number', ''),
-                'parent_draft_name': getattr(submission, 'parent_draft_name', ''),
+                'is_revision': getattr(display_submission, 'is_revision', False),
+                'revision_number': getattr(display_submission, 'revision_number', ''),
+                'parent_draft_name': getattr(display_submission, 'parent_draft_name', ''),
                 'displayBodySource': dbs,
-                'displayOrdinalId': getattr(submission, 'displayOrdinalId', None),
-                'displayOrdinalContentUrl': getattr(submission, 'displayOrdinalContentUrl', None),
-                'displayOrdinalContentType': getattr(submission, 'displayOrdinalContentType', None),
+                'displayOrdinalId': getattr(display_submission, 'displayOrdinalId', None),
+                'displayOrdinalContentUrl': getattr(display_submission, 'displayOrdinalContentUrl', None),
+                'displayOrdinalContentType': getattr(display_submission, 'displayOrdinalContentType', None),
                 'displayingLinkedOrdinal': displaying_linked,
             }
 
@@ -1208,30 +1217,34 @@ def draft_detail(draft_name):
             draft['displayOrdinalContentType'] = getattr(submission, 'displayOrdinalContentType', None)
             draft['displayingLinkedOrdinal'] = displaying_linked
 
+    if not display_submission:
+        display_submission = get_readable_submission_by_ref(draft_name) or submission
+    body_submission = display_submission or submission
+
     document_content = "Document content not available."
     calculated_pages = draft.get('pages', 1)
     calculated_words = draft.get('words', 0)
     # True when body is HTML (markdown → HTML or PDF iframe); use prose styling, not <pre>-like monospace.
     render_document_as_html = False
 
-    if submission and _submission_uses_display_ordinal(submission):
+    if body_submission and _submission_uses_display_ordinal(body_submission):
         document_content, render_document_as_html, calculated_pages, calculated_words = _load_ordinal_document_body(
-            submission.displayOrdinalContentUrl,
-            submission.displayOrdinalContentType or '',
+            body_submission.displayOrdinalContentUrl,
+            body_submission.displayOrdinalContentType or '',
             draft,
         )
-    elif submission and draft.get('sourceType') == 'ordinal':
+    elif body_submission and draft.get('sourceType') == 'ordinal':
         document_content, render_document_as_html, calculated_pages, calculated_words = _load_ordinal_document_body(
-            getattr(submission, 'ordinalContentUrl', None),
-            getattr(submission, 'ordinalContentType', '') or '',
+            getattr(body_submission, 'ordinalContentUrl', None),
+            getattr(body_submission, 'ordinalContentType', '') or '',
             draft,
         )
 
-    elif submission and submission.file_path and os.path.exists(submission.file_path):
-        _, ext = os.path.splitext(submission.filename.lower())
+    elif body_submission and body_submission.file_path and os.path.exists(body_submission.file_path):
+        _, ext = os.path.splitext(body_submission.filename.lower())
         try:
             if ext in ['.txt', '.xml', '.md', '.markdown']:
-                with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
+                with open(body_submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
                     raw_text = f.read()
                 words = len(raw_text.split())
                 calculated_pages = max(1, (words + 499) // 500)
@@ -1258,7 +1271,7 @@ def draft_detail(draft_name):
             elif ext == '.docx':
                 from services.draft_reader import docx_body_to_safe_html
                 try:
-                    document_content, words = docx_body_to_safe_html(submission.file_path)
+                    document_content, words = docx_body_to_safe_html(body_submission.file_path)
                 except Exception as docx_exc:
                     document_content = f'Error loading .docx content: {docx_exc}'
                     words = 0
@@ -1266,10 +1279,10 @@ def draft_detail(draft_name):
                 calculated_words = words
             elif ext == '.pdf':
                 from PyPDF2 import PdfReader
-                reader = PdfReader(submission.file_path)
+                reader = PdfReader(body_submission.file_path)
                 calculated_pages = len(reader.pages) if reader.pages else 1
                 calculated_words = calculated_pages * 275
-                file_size = os.path.getsize(submission.file_path)
+                file_size = os.path.getsize(body_submission.file_path)
                 file_size_kb = file_size / 1024
                 render_document_as_html = True
                 document_content = f'''
@@ -1290,7 +1303,7 @@ def draft_detail(draft_name):
                 document_content = f"Document content cannot be displayed for {ext.upper()} files. Please download to view."
         except Exception as e:
             document_content = f"Error loading document content: {str(e)}"
-        if submission:
+        if body_submission:
             draft['pages'] = calculated_pages
             draft['words'] = calculated_words
 
@@ -1815,6 +1828,9 @@ Meta-Layer Initiative
                 }})();
                 </script>'''
 
+    revision_count = count_family_revision_entries(submission or draft_name)
+    revisions_btn_label = f'View Revisions ({revision_count})'
+
     patches_sidebar_html = ''
     if draft.get('status') == 'approved' and _sub:
         from services.document_patches_page import (
@@ -1901,7 +1917,7 @@ Meta-Layer Initiative
                         {f'<a href="/doc/draft/{draft["name"]}/comments/" class="btn btn-primary w-100 mb-2">View Comments ({count_comments_for_draft_ref(draft_name)})</a>' if draft.get('status') == 'approved' else ''}
                         {patches_sidebar_html}
                         <a href="/doc/draft/{draft['name']}/history/" class="btn btn-secondary w-100 mb-2">View History</a>
-                        <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">View Revisions</a>
+                        <a href="/doc/draft/{draft['name']}/revisions/" class="btn btn-info w-100 mb-2">{revisions_btn_label}</a>
 
                         {display_body_card_html}
                         {f'<a href="/submit/revision/{draft["name"]}/" class="btn btn-success w-100 mb-2"><i class="fas fa-plus me-1"></i>Submit New Revision</a>' if current_user and draft.get('status') == 'approved' else ''}
@@ -2289,6 +2305,9 @@ def draft_comments(draft_name):
                     </div>
                 </div>'''
 
+    revision_count = count_family_revision_entries(draft_name)
+    revisions_nav_label = f'Revisions ({revision_count})'
+
     content = f"""
     <div class="gh-page container mt-4">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('Comments', None)])}
@@ -2299,7 +2318,7 @@ def draft_comments(draft_name):
             </a>
             <a href="/doc/draft/{draft_name}/patches/" class="btn btn-outline-secondary me-2">Patches</a>
             <a href="/doc/draft/{draft_name}/history/" class="btn btn-outline-secondary me-2">History</a>
-            <a href="/doc/draft/{draft_name}/revisions/" class="btn btn-outline-secondary">Revisions</a>
+            <a href="/doc/draft/{draft_name}/revisions/" class="btn btn-outline-secondary">{revisions_nav_label}</a>
         </div>
 
         <div class="row">
@@ -2614,6 +2633,9 @@ def draft_history(draft_name):
         </div>
         """
 
+    revision_count = count_family_revision_entries(draft_name)
+    revisions_nav_label = f'Revisions ({revision_count})'
+
     content = f"""
     <div class="gh-page container mt-4">
         {gh_breadcrumb([('Home', '/'), ('Documents', '/doc/all/'), (display_id, f'/doc/draft/{draft_name}/'), ('History', None)])}
@@ -2624,7 +2646,7 @@ def draft_history(draft_name):
             </a>
             <a href="/doc/draft/{draft_name}/comments/" class="btn btn-outline-secondary me-2">Comments</a>
             <a href="/doc/draft/{draft_name}/patches/" class="btn btn-outline-secondary me-2">Patches</a>
-            <a href="/doc/draft/{draft_name}/revisions/" class="btn btn-outline-secondary">Revisions</a>
+            <a href="/doc/draft/{draft_name}/revisions/" class="btn btn-outline-secondary">{revisions_nav_label}</a>
         </div>
 
         {history_html}
@@ -2815,6 +2837,7 @@ def _revision_diff_panel(timeline, draft_name, requested_from, requested_to) -> 
             '<div class="alert alert-secondary mb-0" role="note">'
             'Pick two revisions to compare.</div>'
         )
+        compact_label = 'revisions'
     else:
         try:
             body = render_revision_diff(
@@ -2829,15 +2852,51 @@ def _revision_diff_panel(timeline, draft_name, requested_from, requested_to) -> 
                 '<div class="alert alert-warning mb-0" role="alert">'
                 'The diff could not be generated for these revisions.</div>'
             )
+        compact_label = (
+            f'{html_mod.escape(from_entry["label"])} → '
+            f'{html_mod.escape(to_entry["label"])}'
+        )
+
+    auto_expand = bool(requested_from or requested_to)
+    collapse_cls = 'collapse show' if auto_expand else 'collapse'
+    trigger_hidden = ' d-none' if auto_expand else ''
 
     return f'''
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802revdiff">
-    <div class="card mb-4" id="revision-diff">
-      <div class="card-header"><h6 class="mb-0">
-        <i class="fas fa-code-compare me-2" aria-hidden="true"></i>What changed between revisions
-      </h6></div>
-      <div class="card-body gh-revdiff">{picker}{body}</div>
-    </div>'''
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260805revdiff">
+    <div class="card mb-4 gh-revdiff-card" id="revision-diff">
+      <div class="card-body py-2 gh-revdiff-trigger-wrap{trigger_hidden}">
+        <button type="button" class="btn btn-sm btn-outline-secondary gh-revdiff-expand"
+            data-bs-toggle="collapse" data-bs-target="#revision-diff-panel"
+            aria-expanded="false" aria-controls="revision-diff-panel">
+          <i class="fas fa-code-compare me-1" aria-hidden="true"></i>
+          Compare {compact_label}
+          <i class="fas fa-chevron-down ms-1 small" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="{collapse_cls}" id="revision-diff-panel">
+        <div class="card-header d-flex justify-content-between align-items-center border-top rounded-0">
+          <h6 class="mb-0">
+            <i class="fas fa-code-compare me-2" aria-hidden="true"></i>What changed between revisions
+          </h6>
+          <button type="button" class="btn btn-sm btn-outline-secondary gh-revdiff-collapse"
+              data-bs-toggle="collapse" data-bs-target="#revision-diff-panel"
+              aria-expanded="true" aria-controls="revision-diff-panel"
+              aria-label="Hide comparison">
+            <i class="fas fa-times me-1" aria-hidden="true"></i>Hide comparison
+          </button>
+        </div>
+        <div class="card-body gh-revdiff">{picker}{body}</div>
+      </div>
+    </div>
+    <script>
+    (function () {{
+      var panel = document.getElementById('revision-diff-panel');
+      var trigger = document.querySelector('#revision-diff .gh-revdiff-trigger-wrap');
+      if (!panel || !trigger) return;
+      panel.addEventListener('shown.bs.collapse', function () {{ trigger.classList.add('d-none'); }});
+      panel.addEventListener('hidden.bs.collapse', function () {{ trigger.classList.remove('d-none'); }});
+    }})();
+    </script>'''
 
 
 def _compare_with_previous_link(timeline, draft_name, entry_id) -> str:
