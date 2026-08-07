@@ -79,6 +79,7 @@ _DESIRABLE_PROPERTIES_META_LAYER_LEGACY_TITLES = frozenset({
 _DESIRABLE_PROPERTIES_FRONT_MATTER_TITLES = frozenset({
     'About This Digital Monument',
     'Acknowledgements',
+    'The Layered Web',
 })
 
 
