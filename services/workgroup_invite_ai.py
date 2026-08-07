@@ -266,6 +266,29 @@ def research_external_contact(
     }, 200
 
 
+def _invitee_greeting_name(name: str) -> str:
+    """First name when available, else full name, else a neutral fallback."""
+    cleaned = re.sub(r'\s+', ' ', (name or '').strip())
+    if not cleaned:
+        return 'there'
+    first = cleaned.split(' ', 1)[0]
+    # Drop trailing punctuation from titles/initials edge cases.
+    first = first.strip('.,;:')
+    return first or cleaned
+
+
+def ensure_invite_greeting(draft: str, invitee_name: str) -> str:
+    """Guarantee the email body opens with Hi {name}, (LLM sometimes omits it)."""
+    text = (draft or '').strip()
+    if not text:
+        return text
+    # Already starts with a salutation (Hi / Hello / Dear …).
+    if re.match(r'^(hi|hello|dear)\b', text, flags=re.IGNORECASE):
+        return text
+    greet = _invitee_greeting_name(invitee_name)
+    return f'Hi {greet},\n\n{text}'
+
+
 def draft_invitation_email(
     *,
     workgroup: Workgroup,
@@ -320,8 +343,13 @@ def draft_invitation_email(
             f"{latest.get('created_at', '')[:10]} — acknowledge naturally if appropriate."
         )
 
+    invitee_display = (name or '').strip()
+    greet_name = _invitee_greeting_name(invitee_display)
+
     system = (
         'Write a personal invitation email body (plain text, no subject line). '
+        f'The FIRST line MUST be a greeting using the invitee\'s first name, e.g. "Hi {greet_name}," '
+        '(or "Hi {full name}," if only one name token). Never skip the greeting. '
         'Lead with the primary workgroup. Mention any additional workgroups briefly. '
         'Do NOT include URLs — placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
         f'Tone: {tone_key}. Length: {_LENGTH_GUIDANCE[length_key]}. '
@@ -329,11 +357,12 @@ def draft_invitation_email(
     )
     user_msg = json.dumps({
         'inviter_name': inviter_name,
-        'invitee_name': name.strip(),
+        'invitee_name': invitee_display,
+        'invitee_first_name': greet_name,
         'primary_workgroup': workgroup.name,
         'primary_description': (workgroup.description or workgroup.charter or '')[:600],
         'additional_workgroups': extra_wgs,
-        'resolved_person': resolved_person or {'name': name.strip()},
+        'resolved_person': resolved_person or {'name': invitee_display},
         'previous_interaction': (previous_interaction or '').strip(),
         'extra_guidance': (extra_guidance or '').strip(),
         'prior_invite_note': prior_note,
@@ -344,6 +373,7 @@ def draft_invitation_email(
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user_msg},
         ], cfg))
+        draft = ensure_invite_greeting(draft, invitee_display)
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:
         return {'error': f'AI draft failed: {exc}'}, 502
 
