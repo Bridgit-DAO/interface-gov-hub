@@ -108,7 +108,7 @@ class ResendMailTests(unittest.TestCase):
                 )
             self.assertTrue(result.get('ok'))
             self.assertEqual(captured.get('from'), 'Jane Doe <invitations@desirableproperties.org>')
-            self.assertIn('jane@example.com', str(captured.get('reply_to')))
+            self.assertEqual(captured.get('reply_to'), 'Jane Doe <jane@example.com>')
         finally:
             if old_key is None:
                 os.environ.pop('RESEND_API_KEY', None)

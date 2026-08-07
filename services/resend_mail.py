@@ -241,22 +241,29 @@ def send_resend_email_result(
 
     reply_raw = reply_to if reply_to is not None else get_resend_reply_to()
     if reply_raw:
+        # Bare emails must not inherit parse_resend_from's default "Gov Hub" name.
+        reply_display = (
+            display_override
+            or (from_config or {}).get('displayName')
+            or DEFAULT_RESEND_FROM_NAME
+        )
         reply_list: List[str] = []
         for entry in reply_raw if isinstance(reply_raw, list) else [reply_raw]:
-            parsed = parse_resend_from(str(entry))
-            if parsed:
-                formatted = format_resend_from(name=parsed.get('name') or DEFAULT_RESEND_FROM_NAME, email=parsed['email'])
-                if formatted:
-                    reply_list.append(formatted)
-            else:
-                email = normalize_email(str(entry))
+            raw = strip_outer_env_quotes(str(entry))
+            named_match = NAMED_FROM_RE.match(raw)
+            if named_match:
+                name = strip_display_name_quotes(named_match.group(1).strip())
+                email = named_match.group(2).strip().lower()
                 if EMAIL_ONLY_RE.match(email):
-                    formatted = format_resend_from(
-                        name=(from_config or {}).get('displayName') or DEFAULT_RESEND_FROM_NAME,
-                        email=email,
-                    )
+                    formatted = format_resend_from(name=name or reply_display, email=email)
                     if formatted:
                         reply_list.append(formatted)
+                continue
+            email = normalize_email(raw)
+            if EMAIL_ONLY_RE.match(email):
+                formatted = format_resend_from(name=reply_display, email=email)
+                if formatted:
+                    reply_list.append(formatted)
         if reply_list:
             params['reply_to'] = reply_list[0] if len(reply_list) == 1 else reply_list
 

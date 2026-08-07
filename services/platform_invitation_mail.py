@@ -9,9 +9,46 @@ from urllib.parse import quote
 
 from models import PlatformInvitation, User
 from services.email_layout import email_shell, user_display
-from services.resend_mail import EMAIL_ONLY_RE, normalize_email, send_resend_email
+from services.resend_mail import (
+    EMAIL_ONLY_RE,
+    format_resend_from,
+    normalize_email,
+    send_resend_email,
+)
 
 MULTI_WG_INVITE_SUBJECT = 'Invitation to join a Desirable Properties workgroup'
+
+
+def _bcc_inviter_enabled(override: Optional[bool] = None) -> bool:
+    if override is not None:
+        return bool(override)
+    return os.environ.get('WORKGROUP_INVITE_BCC_INVITER', '1').strip().lower() not in (
+        '0', 'false', 'no', 'off',
+    )
+
+
+def inviter_delivery_options(
+    inviter: User,
+    *,
+    bcc_inviter: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """From display name, Reply-To, and optional BCC derived from inviter profile.
+
+    From address stays the verified Resend domain; only the display name is overridden.
+    Reply-To uses the inviter's profile email so replies go to them.
+    BCC defaults on (``WORKGROUP_INVITE_BCC_INVITER``; set ``0``/``false`` to disable).
+    """
+    display = user_display(inviter)
+    inviter_email = normalize_email(getattr(inviter, 'email', None))
+    reply_to = None
+    if EMAIL_ONLY_RE.match(inviter_email):
+        reply_to = format_resend_from(name=display, email=inviter_email) or inviter_email
+    bcc = [inviter_email] if (_bcc_inviter_enabled(bcc_inviter) and reply_to) else None
+    return {
+        'from_display_name': display,
+        'reply_to': reply_to,
+        'bcc': bcc,
+    }
 
 
 def build_multi_workgroup_invite_plain_body(
@@ -97,6 +134,7 @@ def send_platform_invitation_email(
     invitee_email: str,
     landing_url: str,
     target_title: str,
+    bcc_inviter: Optional[bool] = None,
 ) -> bool:
     try:
         target = json.loads(invitation.target_json or '{}')
@@ -147,10 +185,14 @@ def send_platform_invitation_email(
 <p style="font-size:13px;color:#666;">Or copy this link:<br><code>{accept_url}</code></p>
 """
     html_doc = email_shell(f'Invitation – {short_name}', body)
+    delivery = inviter_delivery_options(inviter, bcc_inviter=bcc_inviter)
     return send_resend_email(
         to=[invitee_email.strip()],
         subject=f'Invitation: {short_name} on Gov Hub',
         html=html_doc,
+        from_display_name=delivery['from_display_name'],
+        reply_to=delivery['reply_to'],
+        bcc=delivery['bcc'],
     )
 
 
@@ -206,21 +248,14 @@ def send_multi_workgroup_invitation_email(
         body_text=body_text,
         links=links,
     )
-
-    inviter_email = normalize_email(getattr(inviter, 'email', None))
-    reply_to = inviter_email if EMAIL_ONLY_RE.match(inviter_email) else None
-    if bcc_inviter is None:
-        bcc_inviter = os.environ.get('WORKGROUP_INVITE_BCC_INVITER', '1').strip().lower() not in (
-            '0', 'false', 'no', 'off',
-        )
-    bcc = [inviter_email] if (bcc_inviter and reply_to) else None
+    delivery = inviter_delivery_options(inviter, bcc_inviter=bcc_inviter)
 
     return send_resend_email(
         to=[invitee_email.strip()],
         subject=MULTI_WG_INVITE_SUBJECT,
         html=html_doc,
         text=plain,
-        from_display_name=user_display(inviter),
-        reply_to=reply_to,
-        bcc=bcc,
+        from_display_name=delivery['from_display_name'],
+        reply_to=delivery['reply_to'],
+        bcc=delivery['bcc'],
     )
