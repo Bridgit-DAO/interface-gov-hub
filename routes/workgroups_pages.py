@@ -506,8 +506,30 @@ def workgroup_detail(workgroup_slug):
         'username': current_user.get('username') or '',
     }) if current_user else 'null'
 
+    # Staging collab banner: DP workgroups → challenge-site /workgroups/<slug>
+    import os
+    from html import escape as _esc
+    _collab_base = (
+        os.environ.get('DP_COLLAB_BASE')
+        or os.environ.get('DP_CHALLENGE_SITE_BASE')
+        or ''
+    ).rstrip('/')
+    _collab_banner = ''
+    if _collab_base:
+        from models import Workgroup
+        from services.workgroup_links import is_dp_workgroup
+        _wg_row = Workgroup.query.filter_by(slug=workgroup_slug).first()
+        if _wg_row and is_dp_workgroup(_wg_row):
+            _collab_url = f'{_collab_base}/workgroups/{_esc(workgroup_slug)}'
+            _collab_banner = f'''
+        <div class="alert alert-info d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3" role="status">
+            <span>Chat, AI invites, and collaboration now live on Desirable Properties.</span>
+            <a class="btn btn-sm btn-primary" href="{_collab_url}">Open collaboration on Desirable Properties</a>
+        </div>'''
+
     content = f"""
     <div class="gh-page container mt-4">
+        {_collab_banner}
         <div id="workgroup-header" class="gh-detail-hero mb-0">
             <div class="d-flex justify-content-center py-4">
                 <div class="spinner-border text-primary" role="status">

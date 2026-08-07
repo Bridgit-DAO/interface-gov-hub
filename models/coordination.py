@@ -71,6 +71,32 @@ class WorkingGroupMember(db.Model):
     )
 
 
+class WorkgroupMessage(db.Model):
+    """Member chat messages scoped to a workgroup."""
+    __tablename__ = 'workgroup_message'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
+    workgroup_id = db.Column(db.String(36), db.ForeignKey('working_group.id'), nullable=False, index=True)
+    author_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)
+    hidden_by_user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+
+    workgroup = db.relationship('Workgroup', backref=db.backref('messages', lazy='dynamic'))
+    author = db.relationship('User', foreign_keys=[author_user_id], backref='workgroup_messages')
+
+    def to_dict(self, *, author_name: str = '') -> dict:
+        return {
+            'id': self.id,
+            'workgroup_id': self.workgroup_id,
+            'author_user_id': self.author_user_id,
+            'author_name': author_name,
+            'body': self.body,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 # ============================================================================
 # Badge System Models (BadgeSkin, BadgeCycle, OneTimeBadge)
 # ============================================================================

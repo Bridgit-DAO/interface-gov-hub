@@ -201,6 +201,7 @@ def send_resend_email_result(
     text: Optional[str] = None,
     bcc: Optional[Union[str, List[str]]] = None,
     reply_to: Optional[Union[str, List[str]]] = None,
+    from_display_name: Optional[str] = None,
     tags: Optional[List[ResendTag]] = None,
     list_unsubscribe_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
@@ -208,7 +209,12 @@ def send_resend_email_result(
     """Send one email via Resend. Returns structured result."""
     api_key = os.environ.get('RESEND_API_KEY', '').strip()
     from_config = get_resend_from()
-    from_addr = (from_config or {}).get('formatted', '')
+    from_email = (from_config or {}).get('email', '')
+    display_override = strip_display_name_quotes(from_display_name).strip() if from_display_name else ''
+    if display_override and from_email:
+        from_addr = format_resend_from(name=display_override, email=from_email) or ''
+    else:
+        from_addr = (from_config or {}).get('formatted', '')
     if not api_key:
         _log_resend_warning('RESEND_API_KEY not set – skipping email')
         return {'ok': False, 'error': 'RESEND_API_KEY is not set.'}
@@ -302,6 +308,7 @@ def send_resend_email(
     text: Optional[str] = None,
     bcc: Optional[Union[str, List[str]]] = None,
     reply_to: Optional[Union[str, List[str]]] = None,
+    from_display_name: Optional[str] = None,
     tags: Optional[List[ResendTag]] = None,
     list_unsubscribe_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
@@ -315,6 +322,7 @@ def send_resend_email(
             text=text,
             bcc=bcc,
             reply_to=reply_to,
+            from_display_name=from_display_name,
             tags=tags,
             list_unsubscribe_url=list_unsubscribe_url,
             headers=headers,

@@ -48,9 +48,11 @@
   var listModalEl = document.getElementById('dpProposalListModal');
   var pendingSelection = null;
   var composeMode = 'propose';
+  var patchMode = 'replace';
   var commentScopeMode = 'document';
   var COMPOSE_MODE_KEY = 'gh_compose_mode';
   var COMMENT_SCOPE_KEY = 'gh_comment_scope';
+  var PATCH_MODE_KEY = 'gh_patch_mode';
   var MAX_DISTANCE = 320;
   var PROXIMITY_SHOW_THRESHOLD = 0.04;
   var PROXIMITY_BADGE_MIN_OPACITY = 0.35;
@@ -415,7 +417,25 @@
    * loading delay; the API result only replaces it when the passage was not
    * sentence-truncated (the API diffs the untrimmed original/proposed text).
    */
-  function renderProposalBody(original, proposed, diffOn, patchId) {
+  function renderProposalBody(original, proposed, diffOn, patchId, mode) {
+    var isInsert = mode === 'insert';
+    if (isInsert) {
+      var insertHtml = display && display.formatPreHtml
+        ? display.formatPreHtml(proposed || '')
+        : esc(proposed || '');
+      var anchorHtml = display && display.formatPreHtml
+        ? display.formatPreHtml(original || '')
+        : esc(original || '');
+      return (
+        '<div class="dp-proposal-card-label">' +
+        esc(label('insert_label', 'Text to insert above selection')) +
+        '</div>' +
+        '<div class="dp-proposal-card-proposed dp-proposal-pre-block">' + insertHtml + '</div>' +
+        '<div class="dp-proposal-card-label mt-3">Selected passage (unchanged)</div>' +
+        '<div class="dp-proposal-card-original dp-proposal-pre-block dp-proposal-plain-original">' +
+        anchorHtml + '</div>'
+      );
+    }
     var trimmed = truncateTexts(original, proposed);
     var origHtml;
     if (diffOn && display && display.buildDiffHtml) {
@@ -1502,6 +1522,67 @@
     if (submitComm) submitComm.classList.toggle('d-none', composeMode !== 'comment');
   }
 
+  function readPatchModeFromStorage() {
+    try {
+      var v = sessionStorage.getItem(PATCH_MODE_KEY);
+      return v === 'insert' ? 'insert' : 'replace';
+    } catch (_e) {
+      return 'replace';
+    }
+  }
+
+  function setPatchMode(mode, opts) {
+    opts = opts || {};
+    patchMode = mode === 'insert' ? 'insert' : 'replace';
+    try {
+      sessionStorage.setItem(PATCH_MODE_KEY, patchMode);
+    } catch (_e) { /* ignore */ }
+    var btnReplace = document.getElementById('dpPatchModeReplace');
+    var btnInsert = document.getElementById('dpPatchModeInsert');
+    var label = document.getElementById('dpProposalProposedLabel');
+    var helper = document.getElementById('dpProposalInsertHelper');
+    var assistRow = document.getElementById('dpProposalReplaceAssistRow');
+    var labels = (meta && meta.labels) || {};
+    if (btnReplace) {
+      btnReplace.classList.toggle('btn-primary', patchMode === 'replace');
+      btnReplace.classList.toggle('btn-outline-primary', patchMode !== 'replace');
+      btnReplace.classList.toggle('active', patchMode === 'replace');
+    }
+    if (btnInsert) {
+      btnInsert.classList.toggle('btn-primary', patchMode === 'insert');
+      btnInsert.classList.toggle('btn-outline-primary', patchMode !== 'insert');
+      btnInsert.classList.toggle('active', patchMode === 'insert');
+    }
+    if (label) {
+      label.textContent = patchMode === 'insert'
+        ? (labels.insert_label || 'Text to insert above selection')
+        : (labels.proposed_label || 'Patched text');
+    }
+    if (helper) helper.classList.toggle('d-none', patchMode !== 'insert');
+    if (assistRow) assistRow.classList.toggle('d-none', patchMode === 'insert');
+    if (opts.syncProposed && pendingSelection) {
+      var prop = document.getElementById('dpProposalProposed');
+      var submit = document.getElementById('dpProposalSubmitBtn');
+      if (prop) {
+        if (patchMode === 'insert') {
+          prop.value = '';
+        } else if (!prop.value) {
+          prop.value = pendingSelection.original;
+        }
+        if (submit) {
+          var o = (document.getElementById('dpProposalOriginal') || {}).value || '';
+          o = String(o).replace(/^\s+|\s+$/g, '');
+          var v = prop.value.replace(/^\s+|\s+$/g, '');
+          if (patchMode === 'insert') {
+            submit.disabled = !v;
+          } else {
+            submit.disabled = !v || v === o;
+          }
+        }
+      }
+    }
+  }
+
   function commentsPageUrl() {
     return '/doc/draft/' + encodeURIComponent(draftRef) + '/comments/';
   }
@@ -1994,6 +2075,18 @@
         setComposeMode('comment');
       });
     }
+    var btnReplace = document.getElementById('dpPatchModeReplace');
+    var btnInsert = document.getElementById('dpPatchModeInsert');
+    if (btnReplace) {
+      btnReplace.addEventListener('click', function () {
+        setPatchMode('replace', { syncProposed: true });
+      });
+    }
+    if (btnInsert) {
+      btnInsert.addEventListener('click', function () {
+        setPatchMode('insert', { syncProposed: true });
+      });
+    }
     bindCommentScopeToggle();
     var commentEl = document.getElementById('dpCommentText');
     var submitComm = document.getElementById('dpCommentSubmitBtn');
@@ -2017,9 +2110,11 @@
     if (!isDocumentComment && (!orig || !prop || !submit || !pendingSelection)) {
       return false;
     }
+    setPatchMode(readPatchModeFromStorage());
     if (pendingSelection && orig && prop) {
       orig.value = pendingSelection.original;
-      prop.value = pendingSelection.original;
+      // Insert starts empty; Replace prefills with selection for editing.
+      prop.value = patchMode === 'insert' ? '' : pendingSelection.original;
       if (passageComment) passageComment.value = pendingSelection.original;
     } else if (passageComment) {
       passageComment.value = '';
@@ -2034,7 +2129,11 @@
         prop.oninput = function () {
           var o = orig.value.replace(/^\s+|\s+$/g, '');
           var v = prop.value.replace(/^\s+|\s+$/g, '');
-          submit.disabled = !v || v === o;
+          if (patchMode === 'insert') {
+            submit.disabled = !v;
+          } else {
+            submit.disabled = !v || v === o;
+          }
         };
         submit.onclick = submitProposal;
       }
@@ -2305,18 +2404,34 @@
     var submit = document.getElementById('dpProposalSubmitBtn');
     if (!orig || !prop || !pendingSelection) return;
     submit.disabled = true;
-    var trimmed = trimTextsForSubmit(orig.value, prop.value);
-    if (!trimmed.original || !trimmed.proposed || trimmed.original === trimmed.proposed) {
-      err.textContent = 'Proposed text must change at least one sentence in the selection.';
-      err.classList.remove('d-none');
-      submit.disabled = false;
-      return;
+    var mode = patchMode === 'insert' ? 'insert' : 'replace';
+    var trimmed;
+    if (mode === 'insert') {
+      trimmed = {
+        original: orig.value.replace(/^\s+|\s+$/g, ''),
+        proposed: prop.value.replace(/^\s+|\s+$/g, ''),
+      };
+      if (!trimmed.original || !trimmed.proposed) {
+        err.textContent = 'Enter text to insert above the selected passage.';
+        err.classList.remove('d-none');
+        submit.disabled = false;
+        return;
+      }
+    } else {
+      trimmed = trimTextsForSubmit(orig.value, prop.value);
+      if (!trimmed.original || !trimmed.proposed || trimmed.original === trimmed.proposed) {
+        err.textContent = 'Proposed text must change at least one sentence in the selection.';
+        err.classList.remove('d-none');
+        submit.disabled = false;
+        return;
+      }
     }
     var rationaleEl = document.getElementById('dpProposalRationale');
     var referenceEl = document.getElementById('dpProposalReferenceUrl');
     var payload = {
       original_text: trimmed.original,
       proposed_text: trimmed.proposed,
+      patch_mode: mode,
       scope: meta.scope || meta.mode || 'dp',
       context_anchor: {
         textQuote: tools.buildTextQuoteSelector(
@@ -2625,7 +2740,13 @@
         } else {
           html += renderProposalHeaderHtml(p);
         }
-        html += renderProposalBody(p.original_text, p.proposed_text, showDiff, p.id);
+        html += renderProposalBody(
+          p.original_text,
+          p.proposed_text,
+          showDiff,
+          p.id,
+          p.patch_mode
+        );
         if (!p.rationale) {
           html += renderProposalMetaHtml(p);
         }

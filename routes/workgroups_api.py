@@ -104,7 +104,8 @@ def api_workgroup_detail(workgroup_id):
     """Return full workgroup detail matching the fields the page JS reads."""
     workgroup = Workgroup.query.get_or_404(workgroup_id)
     payload = enrich_workgroup_dict(workgroup.to_dict(), workgroup)
-    current_user = get_current_user()
+    from services.api_auth import get_api_user
+    current_user = get_api_user()
     payload['can_edit'] = can_manage_workgroup(workgroup, current_user)
     payload['can_invite_members'] = can_invite_workgroup_member(workgroup, current_user)
     return jsonify(payload)

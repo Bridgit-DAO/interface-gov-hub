@@ -72,14 +72,32 @@ def patch_diff_route(patch_id):
 
     original = proposal.original_text or ''
     proposed = proposal.proposed_text or ''
+    mode = (getattr(proposal, 'patch_mode', None) or 'replace').strip().lower()
+    if mode == 'insert':
+        # Insert display: show insertion text + unchanged anchor (not a replace diff).
+        insert_html = (
+            f'<div class="dp-proposal-insert-preview">'
+            f'<div class="small text-muted mb-1">Text to insert above selection</div>'
+            f'<pre class="dp-proposal-pre mb-2">{html_mod.escape(proposed)}</pre>'
+            f'<div class="small text-muted mb-1">Selected passage (unchanged)</div>'
+            f'<pre class="dp-proposal-pre mb-0">{html_mod.escape(original)}</pre>'
+            f'</div>'
+        )
+        return jsonify({
+            'html': insert_html,
+            'added': len(proposed.split()) if proposed else 0,
+            'removed': 0,
+            'patch_mode': 'insert',
+        })
     if not original:
-        return jsonify({'html': html_mod.escape(proposed), 'added': 0, 'removed': 0})
+        return jsonify({'html': html_mod.escape(proposed), 'added': 0, 'removed': 0, 'patch_mode': mode})
 
     added, removed = change_counts(original, proposed)
     return jsonify({
         'html': build_diff_html(original, proposed),
         'added': added,
         'removed': removed,
+        'patch_mode': mode,
     })
 
 
@@ -184,6 +202,7 @@ def create_proposal(draft_ref):
         proposed_text=payload['proposed_text'],
         context_anchor=payload.get('context_anchor'),
         scope=payload['scope'],
+        patch_mode=payload.get('patch_mode') or 'replace',
         rationale=payload.get('rationale'),
         reference_url=payload.get('reference_url'),
         source_channel='hermes' if _trusted_hermes_origin() else 'gov-hub',

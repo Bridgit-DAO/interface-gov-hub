@@ -4052,3 +4052,62 @@ def migrate_hide_auth_layers_v1(app):
         )
     except Exception as e:
         print(f'⚠️  Error in migrate_hide_auth_layers_v1: {e}')
+
+
+def migrate_workgroup_chat_v1(app):
+    """Create workgroup_message table for member collaboration chat."""
+    try:
+        import sqlite3
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workgroup_message (
+                id VARCHAR(36) PRIMARY KEY,
+                workgroup_id VARCHAR(36) NOT NULL,
+                author_user_id VARCHAR(36) NOT NULL,
+                body TEXT NOT NULL,
+                created_at DATETIME NOT NULL,
+                deleted_at DATETIME,
+                hidden_by_user_id VARCHAR(36),
+                FOREIGN KEY (workgroup_id) REFERENCES working_group(id),
+                FOREIGN KEY (author_user_id) REFERENCES user(id),
+                FOREIGN KEY (hidden_by_user_id) REFERENCES user(id)
+            )
+        """)
+        for idx_sql in (
+            'CREATE INDEX IF NOT EXISTS idx_wgm_msg_workgroup ON workgroup_message(workgroup_id)',
+            'CREATE INDEX IF NOT EXISTS idx_wgm_msg_author ON workgroup_message(author_user_id)',
+            'CREATE INDEX IF NOT EXISTS idx_wgm_msg_created ON workgroup_message(created_at)',
+        ):
+            cursor.execute(idx_sql)
+        conn.commit()
+        conn.close()
+        print('✅ workgroup_message table ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_workgroup_chat_v1: {e}')
+
+
+def migrate_dp_proposal_patch_mode_v1(app):
+    """Add patch_mode (replace|insert) to dp_proposal; default replace."""
+    try:
+        import sqlite3
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(dp_proposal)')
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'patch_mode' not in cols:
+            cursor.execute(
+                "ALTER TABLE dp_proposal ADD COLUMN patch_mode VARCHAR(20) NOT NULL DEFAULT 'replace'"
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_dp_proposal_patch_mode ON dp_proposal(patch_mode)'
+            )
+        conn.commit()
+        conn.close()
+        print('✅ dp_proposal.patch_mode column ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_dp_proposal_patch_mode_v1: {e}')

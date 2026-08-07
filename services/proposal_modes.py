@@ -29,6 +29,10 @@ PATCH_LABELS: Dict[str, str] = {
     'count_word': 'patch',
     'hover_section': 'Patches',
     'proposed_label': 'Patched text',
+    'insert_label': 'Text to insert above selection',
+    'insert_helper': 'This will be inserted above the selected passage. The selected passage is unchanged.',
+    'patch_mode_replace': 'Replace',
+    'patch_mode_insert': 'Insert',
     'location_not_found': 'location not found in document',
 }
 

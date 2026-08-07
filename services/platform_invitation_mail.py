@@ -3,11 +3,62 @@ from __future__ import annotations
 
 import html
 import json
-from typing import Any, Dict, Optional
+import os
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from models import PlatformInvitation, User
 from services.email_layout import email_shell, user_display
-from services.resend_mail import send_resend_email
+from services.resend_mail import EMAIL_ONLY_RE, normalize_email, send_resend_email
+
+MULTI_WG_INVITE_SUBJECT = 'Invitation to join a Desirable Properties workgroup'
+
+
+def build_multi_workgroup_invite_plain_body(
+    *,
+    invitee_name: str,
+    body_text: str,
+    links: List[dict],
+) -> str:
+    """Plain-text body for platform HTML email and client mailto."""
+    name = (invitee_name or 'there').strip() or 'there'
+    parts = [f'Hi {name},', '']
+    text = (body_text or '').strip()
+    if text:
+        parts.append(text)
+        parts.append('')
+    parts.append('Join link(s):')
+    for item in links or []:
+        wg_name = (item.get('workgroup_name') or 'Workgroup').strip()
+        url = (item.get('landing_url') or '').strip()
+        if url:
+            parts.append(f'- {wg_name}: {url}')
+    parts.append('')
+    parts.append('Use the same email address this message was sent to when signing in.')
+    return '\n'.join(parts).strip() + '\n'
+
+
+def build_multi_workgroup_invite_mailto(
+    *,
+    invitee_email: str,
+    invitee_name: str,
+    body_text: str,
+    links: List[dict],
+) -> Dict[str, str]:
+    subject = MULTI_WG_INVITE_SUBJECT
+    body = build_multi_workgroup_invite_plain_body(
+        invitee_name=invitee_name,
+        body_text=body_text,
+        links=links,
+    )
+    to = normalize_email(invitee_email)
+    mailto = f'mailto:{to}?subject={quote(subject)}&body={quote(body)}'
+    return {
+        'mailto': mailto,
+        'subject': subject,
+        'body': body,
+        'to': to,
+    }
 
 
 def _passage_excerpt(target: Dict[str, Any]) -> str:
@@ -100,4 +151,76 @@ def send_platform_invitation_email(
         to=[invitee_email.strip()],
         subject=f'Invitation: {short_name} on Gov Hub',
         html=html_doc,
+    )
+
+
+def send_multi_workgroup_invitation_email(
+    *,
+    inviter: User,
+    invitee_email: str,
+    invitee_name: str,
+    body_text: str,
+    links: list,
+    bcc_inviter: Optional[bool] = None,
+) -> bool:
+    """Single email with custom body and one join link per workgroup.
+
+    From display name uses the inviter profile; Reply-To is the inviter email.
+    Optional BCC of the inviter (env WORKGROUP_INVITE_BCC_INVITER=0 to disable).
+    """
+    inviter_name = html.escape(user_display(inviter))
+    name_esc = html.escape(invitee_name or 'there')
+    note = (
+        f'<p style="white-space:pre-wrap;line-height:1.6;">{html.escape(body_text.strip())}</p>'
+        if body_text and body_text.strip()
+        else ''
+    )
+    link_blocks = []
+    for item in links or []:
+        wg_name = html.escape(item.get('workgroup_name') or 'Workgroup')
+        url = html.escape(item.get('landing_url') or '', quote=True)
+        if not url:
+            continue
+        link_blocks.append(
+            f'<p style="margin:12px 0;">'
+            f'<strong>{wg_name}</strong><br>'
+            f'<a href="{url}" style="display:inline-block;margin-top:6px;padding:8px 14px;'
+            f'background:#667eea;color:#fff;text-decoration:none;border-radius:6px;">Join workgroup</a>'
+            f'</p>',
+        )
+    links_html = ''.join(link_blocks) or '<p>Workgroup invitation links will be sent separately.</p>'
+    sign_in_note = (
+        '<p style="font-size:13px;color:#555;margin-top:16px;">'
+        'Use the same email address this message was sent to when signing in to Gov Hub.</p>'
+    )
+    body = f"""
+<p>Hi {name_esc},</p>
+{note}
+<p>{inviter_name} invited you to join workgroup(s) on Gov Hub:</p>
+{links_html}
+{sign_in_note}
+"""
+    html_doc = email_shell('Workgroup invitation', body)
+    plain = build_multi_workgroup_invite_plain_body(
+        invitee_name=invitee_name,
+        body_text=body_text,
+        links=links,
+    )
+
+    inviter_email = normalize_email(getattr(inviter, 'email', None))
+    reply_to = inviter_email if EMAIL_ONLY_RE.match(inviter_email) else None
+    if bcc_inviter is None:
+        bcc_inviter = os.environ.get('WORKGROUP_INVITE_BCC_INVITER', '1').strip().lower() not in (
+            '0', 'false', 'no', 'off',
+        )
+    bcc = [inviter_email] if (bcc_inviter and reply_to) else None
+
+    return send_resend_email(
+        to=[invitee_email.strip()],
+        subject=MULTI_WG_INVITE_SUBJECT,
+        html=html_doc,
+        text=plain,
+        from_display_name=user_display(inviter),
+        reply_to=reply_to,
+        bcc=bcc,
     )

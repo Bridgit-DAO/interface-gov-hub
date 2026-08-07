@@ -13,7 +13,7 @@ from models.layer_prefix import LayerPrefix
 from models.coordination import (
     Layer, LayerMember, LayerAdmin,
     Waitlist, WaitlistEntry, WaitlistMilestone, EmailUnsubscribe, WaitlistEmailSignup,
-    Workgroup, WorkgroupLayerLink, WorkingGroupMember, WorkingGroupChair, CoordinatorRequest, WorkgroupMemberRequest,
+    Workgroup, WorkgroupLayerLink, WorkingGroupMember, WorkgroupMessage, WorkingGroupChair, CoordinatorRequest, WorkgroupMemberRequest,
     Guild, GuildMembership, GuildInvitation, GuildLayerLink, GuildArtifactLink, GuildQuestLink,
     LayerConnectionType, LayerConnection,
     LAYER_CONNECTION_CONNECTOR_KINDS, LAYER_CONNECTION_STATUSES,
@@ -45,7 +45,7 @@ __all__ = [
     'EventLog', 'StatusChange',
     'Layer', 'LayerMember', 'LayerAdmin',
     'Waitlist', 'WaitlistEntry', 'WaitlistMilestone', 'EmailUnsubscribe', 'WaitlistEmailSignup',
-    'Workgroup', 'WorkgroupLayerLink', 'WorkingGroupMember', 'WorkingGroupChair', 'CoordinatorRequest', 'WorkgroupMemberRequest',
+    'Workgroup', 'WorkgroupLayerLink', 'WorkingGroupMember', 'WorkgroupMessage', 'WorkingGroupChair', 'CoordinatorRequest', 'WorkgroupMemberRequest',
     'Guild', 'GuildMembership', 'GuildInvitation', 'LayerInvitation', 'PlatformInvitation', 'PlatformInvitationAcceptance', 'GuildLayerLink', 'GuildArtifactLink', 'GuildQuestLink',
     'LayerConnectionType', 'LayerConnection',
     'LAYER_CONNECTION_CONNECTOR_KINDS', 'LAYER_CONNECTION_STATUSES',
