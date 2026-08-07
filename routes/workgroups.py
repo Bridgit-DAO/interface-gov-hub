@@ -26,7 +26,10 @@ from services.workgroup_links import (
     _canonical_parent_for_picker,
 )
 from services.workgroup_authority import can_invite_workgroup_member, can_manage_workgroup, user_is_dp_coordinator
-from services.workgroup_membership import join_or_request_workgroup_membership
+from services.workgroup_membership import (
+    join_or_request_workgroup_membership,
+    leave_workgroup_membership,
+)
 from services.workgroup_links import is_dp_workgroup
 from services.dp_welcome import (
     deliver_dp_welcome,
@@ -163,7 +166,7 @@ def get_workgroup(workgroup_id):
     """Get workgroup details."""
     workgroup = Workgroup.query.get_or_404(workgroup_id)
     d = enrich_workgroup_dict(workgroup.to_dict(), workgroup)
-    current_user = get_current_user()
+    current_user = get_api_user()
     d['can_edit'] = can_manage_workgroup(workgroup, current_user)
     d['can_invite_members'] = can_invite_workgroup_member(workgroup, current_user)
     return jsonify(d)
@@ -191,16 +194,12 @@ def get_workgroup_by_slug(workgroup_slug):
     )
     if not wg:
         return jsonify({'error': 'not found'}), 404
-    return jsonify({
-        'id': wg.id,
-        'slug': wg.slug,
-        'name': wg.name,
-        'layer_id': wg.layer_id,
-        'layer_name': wg.layer.name if wg.layer else None,
-        'state': wg.state,
-        'status': wg.status,
-        'approval_status': wg.approval_status,
-    })
+    current_user = get_api_user()
+    d = enrich_workgroup_dict(wg.to_dict(), wg)
+    d['layer_name'] = wg.layer.name if wg.layer else None
+    d['can_edit'] = can_manage_workgroup(wg, current_user)
+    d['can_invite_members'] = can_invite_workgroup_member(wg, current_user)
+    return jsonify(d)
 
 
 @bp.route('/workgroups/<workgroup_id>/', methods=['PATCH'])
@@ -424,11 +423,108 @@ def list_workgroup_members(workgroup_id):
     return jsonify({'members': members, 'count': len(members)})
 
 
+@bp.route('/workgroups/<workgroup_id>/messages/', methods=['GET'])
+def list_workgroup_messages_api(workgroup_id):
+    """List workgroup chat messages (teaser for non-members, full for members)."""
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    current_user = get_api_user()
+    full = request.args.get('full', '').lower() in ('1', 'true', 'yes')
+    payload = __import__('services.workgroup_chat', fromlist=['list_workgroup_messages']).list_workgroup_messages(
+        workgroup,
+        viewer=current_user,
+        full=full,
+    )
+    return jsonify(payload)
+
+
+@bp.route('/workgroups/<workgroup_id>/messages/', methods=['POST'])
+@require_api_auth
+def create_workgroup_message_api(workgroup_id):
+    """Post a workgroup chat message (members only)."""
+    current_user = get_api_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    data = request.get_json(silent=True) or {}
+    body = data.get('body') or data.get('message') or ''
+    from services.workgroup_chat import create_workgroup_message
+    payload, status = create_workgroup_message(workgroup, current_user, body)
+    return jsonify(payload), status
+
+
+@bp.route('/workgroups/<workgroup_id>/invite-ai/research/', methods=['POST'])
+@require_api_auth
+def workgroup_invite_ai_research(workgroup_id):
+    current_user = get_api_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    data = request.get_json(silent=True) or {}
+    from services.workgroup_invite_ai import research_external_contact
+    payload, status = research_external_contact(
+        workgroup=workgroup,
+        inviter=current_user,
+        name=(data.get('name') or '').strip(),
+        email=(data.get('email') or '').strip(),
+        linkedin_url=(data.get('linkedin_url') or data.get('linkedin') or '').strip(),
+        previous_interaction=(data.get('previous_interaction') or '').strip(),
+        extra_links=data.get('extra_links') or [],
+        selected_candidate_index=data.get('selected_candidate_index'),
+    )
+    return jsonify(payload), status
+
+
+@bp.route('/workgroups/<workgroup_id>/invite-ai/draft/', methods=['POST'])
+@require_api_auth
+def workgroup_invite_ai_draft(workgroup_id):
+    current_user = get_api_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    data = request.get_json(silent=True) or {}
+    from services.workgroup_invite_ai import draft_invitation_email
+    payload, status = draft_invitation_email(
+        workgroup=workgroup,
+        inviter=current_user,
+        name=(data.get('name') or '').strip(),
+        email=(data.get('email') or '').strip(),
+        tone=(data.get('tone') or 'warm').strip(),
+        length=(data.get('length') or 'medium').strip(),
+        previous_interaction=(data.get('previous_interaction') or '').strip(),
+        extra_guidance=(data.get('extra_guidance') or '').strip(),
+        resolved_person=data.get('resolved_person'),
+        additional_workgroup_ids=data.get('additional_workgroup_ids') or [],
+        prior_invitations=data.get('prior_invitations'),
+    )
+    return jsonify(payload), status
+
+
+@bp.route('/workgroups/<workgroup_id>/invite-ai/send/', methods=['POST'])
+@require_api_auth
+def workgroup_invite_ai_send(workgroup_id):
+    current_user = get_api_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    data = request.get_json(silent=True) or {}
+    from services.workgroup_invite_ai import send_ai_workgroup_invitations
+    payload, status = send_ai_workgroup_invitations(
+        workgroup=workgroup,
+        inviter_id=current_user['id'],
+        name=(data.get('name') or '').strip(),
+        email=(data.get('email') or '').strip(),
+        body=(data.get('body') or data.get('draft') or '').strip(),
+        additional_workgroup_ids=data.get('additional_workgroup_ids') or [],
+        send_mode=(data.get('send_mode') or 'platform').strip(),
+    )
+    return jsonify(payload), status
+
+
 @bp.route('/workgroups/<workgroup_id>/join/', methods=['POST'])
-@require_auth
+@require_api_auth
 def join_workgroup(workgroup_id):
-    """Join a workgroup as a member."""
-    current_user = get_current_user()
+    """Join a workgroup as a member (session cookie or Bearer idToken)."""
+    current_user = get_api_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
 
@@ -473,6 +569,39 @@ def join_workgroup(workgroup_id):
     return jsonify(payload)
 
 
+@bp.route('/workgroups/<workgroup_id>/leave/', methods=['POST'])
+@require_api_auth
+def leave_workgroup(workgroup_id):
+    """Leave a workgroup (session cookie or Bearer idToken)."""
+    current_user = get_api_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    user = User.query.get(current_user['id'])
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    result = leave_workgroup_membership(workgroup=workgroup, user=user)
+    if not result.get('ok'):
+        return jsonify({'error': result.get('error') or 'Leave failed'}), result.get(
+            'status_code', 400
+        )
+
+    db.session.commit()
+
+    if result.get('left'):
+        message = 'Successfully left workgroup'
+    else:
+        message = 'Membership request cancelled'
+    return jsonify({
+        'success': True,
+        'message': message,
+        'left': bool(result.get('left')),
+        'cancelled_request': bool(result.get('cancelled_request')),
+    })
+
+
 @bp.route('/me/dp-welcome/', methods=['GET'])
 @require_api_auth
 def api_me_dp_welcome():
@@ -499,10 +628,13 @@ def api_me_dp_welcome():
 
 @bp.route('/workgroups/<workgroup_id>/nominate-chair/', methods=['POST'])
 @bp.route('/workgroups/<workgroup_id>/nominate/', methods=['POST'])
-@require_auth
+@require_api_auth
 def nominate_position(workgroup_id):
-    """Nominate a person (self or another) for a workgroup position (chair, co-lead, editor, etc.)."""
-    current_user = get_current_user()
+    """Nominate a person (self or another) for a workgroup position (chair, co-lead, editor, etc.).
+
+    Accepts Flask session or Authorization: Bearer idToken (challenge-site proxy).
+    """
+    current_user = get_api_user()
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
 

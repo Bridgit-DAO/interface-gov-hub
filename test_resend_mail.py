@@ -73,6 +73,60 @@ class ResendMailTests(unittest.TestCase):
             if old_key is not None:
                 os.environ['RESEND_API_KEY'] = old_key
 
+    def test_from_display_name_override_uses_verified_email(self):
+        from services import resend_mail
+        from unittest.mock import patch
+
+        old_key = os.environ.get('RESEND_API_KEY')
+        old_from = os.environ.get('RESEND_FROM')
+        old_name = os.environ.get('RESEND_FROM_NAME')
+        old_email = os.environ.get('RESEND_FROM_EMAIL')
+        try:
+            os.environ['RESEND_API_KEY'] = 're_test'
+            os.environ['RESEND_FROM_EMAIL'] = 'invitations@desirableproperties.org'
+            os.environ['RESEND_FROM_NAME'] = 'Gov Hub'
+            os.environ.pop('RESEND_FROM', None)
+            captured = {}
+
+            class FakeResend:
+                class Emails:
+                    @staticmethod
+                    def send(params):
+                        captured.update(params)
+                        return {'id': 'msg_1'}
+
+            with patch.dict('sys.modules', {'resend': FakeResend()}):
+                # Re-import path uses import resend inside function
+                import sys
+                sys.modules['resend'] = FakeResend()
+                result = resend_mail.send_resend_email_result(
+                    to=['someone@example.com'],
+                    subject='Test',
+                    html='<p>Hi</p>',
+                    from_display_name='Jane Doe',
+                    reply_to='jane@example.com',
+                )
+            self.assertTrue(result.get('ok'))
+            self.assertEqual(captured.get('from'), 'Jane Doe <invitations@desirableproperties.org>')
+            self.assertEqual(captured.get('reply_to'), 'Jane Doe <jane@example.com>')
+        finally:
+            if old_key is None:
+                os.environ.pop('RESEND_API_KEY', None)
+            else:
+                os.environ['RESEND_API_KEY'] = old_key
+            if old_from is None:
+                os.environ.pop('RESEND_FROM', None)
+            else:
+                os.environ['RESEND_FROM'] = old_from
+            if old_name is None:
+                os.environ.pop('RESEND_FROM_NAME', None)
+            else:
+                os.environ['RESEND_FROM_NAME'] = old_name
+            if old_email is None:
+                os.environ.pop('RESEND_FROM_EMAIL', None)
+            else:
+                os.environ['RESEND_FROM_EMAIL'] = old_email
+
 
 if __name__ == '__main__':
     unittest.main()

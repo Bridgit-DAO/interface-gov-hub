@@ -80,6 +80,37 @@ def validate_invitee_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(normalize_invitee_email(email)))
 
 
+def lookup_prior_workgroup_invitations(email: str, *, limit: int = 10) -> list:
+    """Prior join_workgroup invitations for an email (any workgroup)."""
+    norm = normalize_invitee_email(email)
+    if not norm:
+        return []
+    rows = (
+        PlatformInvitation.query.filter_by(
+            invite_type='join_workgroup',
+            invitee_email=norm,
+        )
+        .order_by(PlatformInvitation.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    out = []
+    for inv in rows:
+        try:
+            target = json.loads(inv.target_json or '{}')
+        except json.JSONDecodeError:
+            target = {}
+        out.append({
+            'id': inv.id,
+            'status': inv.status,
+            'created_at': inv.created_at.isoformat() if inv.created_at else None,
+            'workgroup_name': target.get('workgroup_name') or target.get('workgroup_slug') or '',
+            'workgroup_id': target.get('workgroup_id') or '',
+            'message_preview': (inv.message or '')[:120],
+        })
+    return out
+
+
 def _utc_day_start() -> datetime:
     now = datetime.utcnow()
     return datetime(now.year, now.month, now.day)
@@ -201,7 +232,7 @@ def can_invite(inviter_id: str, invite_type: str, target: dict) -> Tuple[bool, s
             'role': inviter.role,
         }):
             return True, ''
-        return False, 'Only workgroup leads, co-leads, or layer admins can invite'
+        return False, 'Only workgroup members, layer admins, or site staff can invite'
 
     return False, 'Unsupported invitation type'
 

@@ -41,6 +41,11 @@ REGISTERED_EVENT_TYPES: Dict[str, EventTypeDef] = {
     'brc333_badges_admin': EventTypeDef('BRC333 badges admin edit', True, None),
     'member_joined': EventTypeDef('Member joined layer', True, None),
     'member_removed': EventTypeDef('Member left layer', True, None),
+    'workgroup_message_posted': EventTypeDef('Workgroup chat message', True, None),
+    'workgroup_invite_sent': EventTypeDef('Workgroup invitation sent', True, None),
+    'workgroup_invite_accepted': EventTypeDef('Workgroup invitation accepted', True, None),
+    'workgroup_member_joined': EventTypeDef('Member joined workgroup', True, None),
+    'workgroup_member_left': EventTypeDef('Member left workgroup', True, None),
     'contribution_type_filter_applied': EventTypeDef('Contribution filter used', False, None),
     # –– Guilds ––
     'guild_layer_linked': EventTypeDef('Guild linked to layer', True, None),

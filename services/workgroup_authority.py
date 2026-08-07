@@ -98,5 +98,9 @@ def can_manage_workgroup(workgroup: Optional[Workgroup], user: Optional[dict]) -
 
 
 def can_invite_workgroup_member(workgroup: Optional[Workgroup], user: Optional[dict]) -> bool:
-    """Leads/co-leads, layer admins, and site staff can recruit members."""
-    return can_manage_workgroup(workgroup, user)
+    """Any active member, layer admins, and site staff can recruit members."""
+    if not workgroup or not user:
+        return False
+    if can_manage_workgroup(workgroup, user):
+        return True
+    return is_workgroup_member(workgroup.acronym, user)

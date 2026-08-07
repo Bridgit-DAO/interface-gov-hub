@@ -14,6 +14,7 @@ DP_PROPOSAL_STATUSES = frozenset({
 })
 
 DP_PROPOSAL_SCOPES = frozenset({'dp', 'document'})
+DP_PROPOSAL_PATCH_MODES = frozenset({'replace', 'insert'})
 
 
 class DpProposal(db.Model):
@@ -24,6 +25,7 @@ class DpProposal(db.Model):
     submission_id = db.Column(db.String(36), db.ForeignKey('submission.id'), nullable=False, index=True)
     scope = db.Column(db.String(20), default='dp', nullable=False, index=True)
     status = db.Column(db.String(20), default='pending', nullable=False, index=True)
+    patch_mode = db.Column(db.String(20), default='replace', nullable=False, index=True)
     anchor_hash = db.Column(db.String(64), nullable=False, index=True)
     context_anchor = db.Column(db.Text, nullable=True)
     original_text = db.Column(db.Text, nullable=False)
@@ -55,6 +57,9 @@ class DpProposal(db.Model):
     )
 
     def status_label(self) -> str:
+        mode = (self.patch_mode or 'replace').strip().lower()
+        if self.status == 'pending' and mode == 'insert':
+            return 'Insert'
         labels = {
             'pending': 'Patch',
             'accepted': 'Merged',
@@ -72,12 +77,16 @@ class DpProposal(db.Model):
         reviewer_name = None
         if self.reviewed_by:
             reviewer_name = self.reviewed_by.displayName or self.reviewed_by.username
+        mode = (self.patch_mode or 'replace').strip().lower()
+        if mode not in DP_PROPOSAL_PATCH_MODES:
+            mode = 'replace'
         data = {
             'id': self.id,
             'submission_id': self.submission_id,
             'scope': self.scope,
             'status': self.status,
             'status_label': self.status_label(),
+            'patch_mode': mode,
             'anchor_hash': self.anchor_hash,
             'original_text': self.original_text,
             'proposed_text': self.proposed_text,

@@ -201,6 +201,7 @@ def send_resend_email_result(
     text: Optional[str] = None,
     bcc: Optional[Union[str, List[str]]] = None,
     reply_to: Optional[Union[str, List[str]]] = None,
+    from_display_name: Optional[str] = None,
     tags: Optional[List[ResendTag]] = None,
     list_unsubscribe_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
@@ -208,7 +209,12 @@ def send_resend_email_result(
     """Send one email via Resend. Returns structured result."""
     api_key = os.environ.get('RESEND_API_KEY', '').strip()
     from_config = get_resend_from()
-    from_addr = (from_config or {}).get('formatted', '')
+    from_email = (from_config or {}).get('email', '')
+    display_override = strip_display_name_quotes(from_display_name).strip() if from_display_name else ''
+    if display_override and from_email:
+        from_addr = format_resend_from(name=display_override, email=from_email) or ''
+    else:
+        from_addr = (from_config or {}).get('formatted', '')
     if not api_key:
         _log_resend_warning('RESEND_API_KEY not set – skipping email')
         return {'ok': False, 'error': 'RESEND_API_KEY is not set.'}
@@ -235,22 +241,29 @@ def send_resend_email_result(
 
     reply_raw = reply_to if reply_to is not None else get_resend_reply_to()
     if reply_raw:
+        # Bare emails must not inherit parse_resend_from's default "Gov Hub" name.
+        reply_display = (
+            display_override
+            or (from_config or {}).get('displayName')
+            or DEFAULT_RESEND_FROM_NAME
+        )
         reply_list: List[str] = []
         for entry in reply_raw if isinstance(reply_raw, list) else [reply_raw]:
-            parsed = parse_resend_from(str(entry))
-            if parsed:
-                formatted = format_resend_from(name=parsed.get('name') or DEFAULT_RESEND_FROM_NAME, email=parsed['email'])
-                if formatted:
-                    reply_list.append(formatted)
-            else:
-                email = normalize_email(str(entry))
+            raw = strip_outer_env_quotes(str(entry))
+            named_match = NAMED_FROM_RE.match(raw)
+            if named_match:
+                name = strip_display_name_quotes(named_match.group(1).strip())
+                email = named_match.group(2).strip().lower()
                 if EMAIL_ONLY_RE.match(email):
-                    formatted = format_resend_from(
-                        name=(from_config or {}).get('displayName') or DEFAULT_RESEND_FROM_NAME,
-                        email=email,
-                    )
+                    formatted = format_resend_from(name=name or reply_display, email=email)
                     if formatted:
                         reply_list.append(formatted)
+                continue
+            email = normalize_email(raw)
+            if EMAIL_ONLY_RE.match(email):
+                formatted = format_resend_from(name=reply_display, email=email)
+                if formatted:
+                    reply_list.append(formatted)
         if reply_list:
             params['reply_to'] = reply_list[0] if len(reply_list) == 1 else reply_list
 
@@ -302,6 +315,7 @@ def send_resend_email(
     text: Optional[str] = None,
     bcc: Optional[Union[str, List[str]]] = None,
     reply_to: Optional[Union[str, List[str]]] = None,
+    from_display_name: Optional[str] = None,
     tags: Optional[List[ResendTag]] = None,
     list_unsubscribe_url: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
@@ -315,6 +329,7 @@ def send_resend_email(
             text=text,
             bcc=bcc,
             reply_to=reply_to,
+            from_display_name=from_display_name,
             tags=tags,
             list_unsubscribe_url=list_unsubscribe_url,
             headers=headers,

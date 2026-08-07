@@ -81,6 +81,8 @@ def init_db(app):
             migrate_layer_display_status_v1,
             migrate_delete_test_layers_v1,
             migrate_hide_auth_layers_v1,
+            migrate_workgroup_chat_v1,
+            migrate_dp_proposal_patch_mode_v1,
         )
 
         migrate_submission_layer_id(app)
@@ -165,5 +167,7 @@ def init_db(app):
         migrate_layer_display_status_v1(app)
         migrate_delete_test_layers_v1(app)
         migrate_hide_auth_layers_v1(app)
+        migrate_workgroup_chat_v1(app)
+        migrate_dp_proposal_patch_mode_v1(app)
 
         print(f"Database initialized: {User.query.count()} users")

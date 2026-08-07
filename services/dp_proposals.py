@@ -309,19 +309,29 @@ def get_proposal_mode(mode: str):
 def validate_create_payload(data: Any) -> Tuple[Optional[dict], Optional[str]]:
     if not isinstance(data, dict):
         return None, 'JSON body required'
+    from models.dp_proposal import DP_PROPOSAL_PATCH_MODES
+
+    patch_mode = (data.get('patch_mode') or 'replace').strip().lower()
+    if patch_mode not in DP_PROPOSAL_PATCH_MODES:
+        return None, 'patch_mode must be replace or insert'
+
     original = normalize_proposal_text(data.get('original_text') or '')
     proposed = normalize_proposal_text(data.get('proposed_text') or '')
     if not original:
         return None, 'original_text is required'
     if not proposed:
         return None, 'proposed_text is required'
-    original, proposed = focused_passage_core(original, proposed)
-    if not original:
-        return None, 'original_text is required'
-    if not proposed:
-        return None, 'proposed_text is required'
-    if original == proposed:
-        return None, 'proposed_text must differ from original_text'
+
+    if patch_mode == 'replace':
+        original, proposed = focused_passage_core(original, proposed)
+        if not original:
+            return None, 'original_text is required'
+        if not proposed:
+            return None, 'proposed_text is required'
+        if original == proposed:
+            return None, 'proposed_text must differ from original_text'
+    # insert: keep full selection as anchor; skip differ + focused_passage_core
+
     context_anchor = align_context_anchor_to_original(
         data.get('context_anchor'),
         original,
@@ -337,11 +347,39 @@ def validate_create_payload(data: Any) -> Tuple[Optional[dict], Optional[str]]:
     return {
         'original_text': original,
         'proposed_text': proposed,
+        'patch_mode': patch_mode,
         'context_anchor': context_anchor,
         'scope': scope,
         'rationale': normalize_rationale(data.get('rationale')),
         'reference_url': reference_url,
     }, None
+
+
+def apply_patch_to_body(
+    body: str,
+    *,
+    original_text: str,
+    proposed_text: str,
+    patch_mode: str = 'replace',
+) -> Optional[str]:
+    """Apply a replace or insert-before-anchor splice to a document body.
+
+    Returns None if the anchor passage is not found. Accept/merge today is
+    status-only; this helper is the shared apply path for revision compose
+    and future contribution pipeline use.
+    """
+    haystack = body or ''
+    needle = normalize_proposal_text(original_text or '')
+    insertion = normalize_proposal_text(proposed_text or '')
+    if not needle or not insertion:
+        return None
+    idx = haystack.find(needle)
+    if idx < 0:
+        return None
+    mode = (patch_mode or 'replace').strip().lower()
+    if mode == 'insert':
+        return haystack[:idx] + insertion + haystack[idx:]
+    return haystack[:idx] + insertion + haystack[idx + len(needle):]
 
 
 def serialize_context_anchor(raw: Any) -> Optional[str]:
@@ -838,12 +876,16 @@ def create_dp_proposal(
     proposed_text: str,
     context_anchor: Any = None,
     scope: str = 'dp',
+    patch_mode: str = 'replace',
     rationale: Optional[str] = None,
     reference_url: Optional[str] = None,
     source_channel: str = 'gov-hub',
     external_id: Optional[str] = None,
     canopi_overlay_id: Optional[str] = None,
 ) -> DpProposal:
+    mode = (patch_mode or 'replace').strip().lower()
+    if mode not in ('replace', 'insert'):
+        mode = 'replace'
     anchor_hash = compute_anchor_hash(
         submission.id,
         submission.content_hash,
@@ -853,6 +895,7 @@ def create_dp_proposal(
         submission_id=submission.id,
         scope=scope,
         status='pending',
+        patch_mode=mode,
         anchor_hash=anchor_hash,
         context_anchor=serialize_context_anchor(context_anchor),
         original_text=original_text,
