@@ -8,10 +8,9 @@ from models import (
 )
 from services.identity import get_current_user, require_auth, require_role
 from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
-from services.workgroup_membership import join_or_request_workgroup_membership
-from services.dp_welcome import (
-    invalidate_dp_welcomes_for_workgroup,
-    stale_member_welcome_variants,
+from services.workgroup_membership import (
+    join_or_request_workgroup_membership,
+    leave_workgroup_membership,
 )
 
 bp = Blueprint('group', __name__, url_prefix='')
@@ -316,27 +315,33 @@ def leave_group(acronym):
     if not user_id:
         return jsonify({'success': False, 'message': 'You must be logged in to leave'}), 400
 
-    membership = WorkingGroupMember.query.filter_by(
-        group_acronym=full_acronym,
-        user_id=user_id
-    ).first()
-    if not membership:
-        return jsonify({'success': False, 'message': f'Not a member (user_id={user_id}, group={full_acronym})'}), 400
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
 
-    db.session.delete(membership)
-    db.session.flush()
-
-    # A welcome guide is only valid while its grant is. Archive the member
-    # welcome now that membership is gone; an approved lead role (and its
-    # combined welcome) is untouched because leaving does not revoke a role.
     workgroup = Workgroup.query.filter_by(acronym=full_acronym).first()
-    stale = stale_member_welcome_variants(user_id=user_id, workgroup=workgroup)
-    if stale:
-        invalidate_dp_welcomes_for_workgroup(
+    if not workgroup:
+        # Legacy GROUPS acronym with no DB workgroup row: delete membership only.
+        membership = WorkingGroupMember.query.filter_by(
+            group_acronym=full_acronym,
             user_id=user_id,
-            workgroup=workgroup,
-            variants=stale,
-        )
+        ).first()
+        if not membership:
+            return jsonify({
+                'success': False,
+                'message': f'Not a member (user_id={user_id}, group={full_acronym})',
+            }), 400
+        db.session.delete(membership)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Left successfully'})
+
+    result = leave_workgroup_membership(workgroup=workgroup, user=user)
+    if not result.get('ok'):
+        return jsonify({
+            'success': False,
+            'message': result.get('error') or 'Leave failed',
+        }), result.get('status_code', 400)
+
     db.session.commit()
     return jsonify({'success': True, 'message': 'Left successfully'})
 

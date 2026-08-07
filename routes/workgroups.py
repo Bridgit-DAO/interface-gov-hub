@@ -26,7 +26,10 @@ from services.workgroup_links import (
     _canonical_parent_for_picker,
 )
 from services.workgroup_authority import can_invite_workgroup_member, can_manage_workgroup, user_is_dp_coordinator
-from services.workgroup_membership import join_or_request_workgroup_membership
+from services.workgroup_membership import (
+    join_or_request_workgroup_membership,
+    leave_workgroup_membership,
+)
 from services.workgroup_links import is_dp_workgroup
 from services.dp_welcome import (
     deliver_dp_welcome,
@@ -564,6 +567,39 @@ def join_workgroup(workgroup_id):
     if welcome_url:
         payload['welcome_url'] = welcome_url
     return jsonify(payload)
+
+
+@bp.route('/workgroups/<workgroup_id>/leave/', methods=['POST'])
+@require_api_auth
+def leave_workgroup(workgroup_id):
+    """Leave a workgroup (session cookie or Bearer idToken)."""
+    current_user = get_api_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    workgroup = Workgroup.query.get_or_404(workgroup_id)
+    user = User.query.get(current_user['id'])
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    result = leave_workgroup_membership(workgroup=workgroup, user=user)
+    if not result.get('ok'):
+        return jsonify({'error': result.get('error') or 'Leave failed'}), result.get(
+            'status_code', 400
+        )
+
+    db.session.commit()
+
+    if result.get('left'):
+        message = 'Successfully left workgroup'
+    else:
+        message = 'Membership request cancelled'
+    return jsonify({
+        'success': True,
+        'message': message,
+        'left': bool(result.get('left')),
+        'cancelled_request': bool(result.get('cancelled_request')),
+    })
 
 
 @bp.route('/me/dp-welcome/', methods=['GET'])

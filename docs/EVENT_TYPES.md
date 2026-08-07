@@ -17,6 +17,7 @@ All `emit_event(...)` call sites should use a key defined there. If you add a ne
 | `guild_layer_linked` | `routes/layers.py`, `routes/guilds.py` |
 | `guild_layer_unlinked` | `routes/layers.py`, `routes/guilds.py` |
 | `member_joined` / `member_removed` | `routes/layers.py` |
+| `workgroup_member_joined` / `workgroup_member_left` | `services/workgroup_membership.py` |
 | `artifact_collection_created` / `artifact_collection_item_added` | `routes/collections.py` |
 | `brick_placed` | `routes/civic_mason.py` |
 | `draft_comment_added` | `routes/documents.py` |
