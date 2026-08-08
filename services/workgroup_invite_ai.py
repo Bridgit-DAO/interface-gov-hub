@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from extensions import db
 from models import PlatformInvitation, User, Workgroup, WorkgroupMemberRequest
 from services.assist import LlmCallFailed, LlmTemporarilyBusy, call_llm, clean_draft, llm_configured, resolve_llm_config
-from services.events import emit_event
 from services.platform_invitation_mail import (
     build_multi_workgroup_invite_mailto,
     send_multi_workgroup_invitation_email,
@@ -491,22 +490,26 @@ def send_ai_workgroup_invitations(
         )
 
     primary_inv, _ = invitations[0]
-    emit_event(
+    from services.workgroup_membership import (
+        emit_workgroup_invite_event,
+        workgroup_invite_event_payload,
+    )
+
+    payload = workgroup_invite_event_payload(
+        workgroup,
+        invitee_email=norm_email,
+        invitee_name=name.strip(),
+        invitation_id=primary_inv.id,
+    )
+    payload['workgroup_ids'] = wg_ids
+    payload['send_mode'] = mode
+    emit_workgroup_invite_event(
         'workgroup_invite_sent',
-        actor_type='user',
-        actor_id=inviter_id,
+        workgroup=workgroup,
+        actor_user_id=inviter_id,
         subject_type='platform_invitation',
         subject_id=primary_inv.id,
-        layer_id=workgroup.layer_id,
-        payload={
-            'invitee_email': norm_email,
-            'invitee_name': name.strip(),
-            'workgroup_ids': wg_ids,
-            'workgroup_id': workgroup.id,
-            'workgroup_name': workgroup.name,
-            'workgroup_slug': workgroup.slug or workgroup.acronym,
-            'send_mode': mode,
-        },
+        payload=payload,
     )
     db.session.commit()
 
