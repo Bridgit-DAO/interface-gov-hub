@@ -121,6 +121,27 @@ def test_extract_dp_number_from_title():
     assert extract_dp_number_from_title('DP19 - Amplifying') == 19
     assert extract_dp_number_from_title('Not DP1') is None
     assert extract_dp_number_from_title('') is None
+    assert extract_dp_number_from_title('DP Discovery') is None
+
+
+def test_is_dp_workgroup_includes_discovery():
+    from services.workgroup_links import is_dp_discovery_workgroup, is_dp_workgroup
+
+    class _Wg:
+        def __init__(self, acronym='', slug='', name=''):
+            self.acronym = acronym
+            self.slug = slug
+            self.name = name
+
+    discovery = _Wg(acronym='dp-discovery', slug='dp-discovery', name='DP Discovery')
+    numbered = _Wg(acronym='dp1-federated-auth', slug='dp1-federated-auth', name='DP1 - Federated Auth')
+    other = _Wg(acronym='ml-governance', slug='meta-layer-governance', name='Meta-Layer Governance')
+
+    assert is_dp_discovery_workgroup(discovery)
+    assert is_dp_workgroup(discovery)
+    assert is_dp_workgroup(numbered)
+    assert not is_dp_discovery_workgroup(numbered)
+    assert not is_dp_workgroup(other)
 
 
 def test_resolve_document_workgroup_meta_empty():

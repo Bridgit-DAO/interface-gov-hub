@@ -8,10 +8,28 @@ from services.groups import dp_image_url, extract_dp_number
 from services.submissions import get_submission_by_ref
 
 _DP_TITLE_RE = re.compile(r'^DP\s*(\d+)\b', re.IGNORECASE)
+DP_DISCOVERY_SLUG = 'dp-discovery'
+
+
+def is_dp_discovery_workgroup(workgroup) -> bool:
+    """True for the shared DP Discovery meta-workgroup (not a numbered DP)."""
+    acronym = (getattr(workgroup, 'acronym', '') or '').strip().lower()
+    slug = (getattr(workgroup, 'slug', '') or '').strip().lower()
+    name = (getattr(workgroup, 'name', '') or '').strip().casefold()
+    return (
+        acronym == DP_DISCOVERY_SLUG
+        or slug == DP_DISCOVERY_SLUG
+        or name == 'dp discovery'
+    )
 
 
 def is_dp_workgroup(workgroup) -> bool:
-    """True when acronym or title identifies a Desirable Property workgroup."""
+    """True when acronym or title identifies a Desirable Property workgroup.
+
+    Includes numbered DP1–DPn workgroups and the shared DP Discovery group.
+    """
+    if is_dp_discovery_workgroup(workgroup):
+        return True
     if extract_dp_number(getattr(workgroup, 'acronym', '') or ''):
         return True
     return extract_dp_number_from_title(getattr(workgroup, 'name', '') or '') is not None
@@ -119,7 +137,9 @@ def query_workgroups_for_layer(
 
 
 def workgroup_display_sort_key(workgroup) -> tuple:
-    """DP workgroups by number ascending; others A–Z by name."""
+    """DP workgroups by number ascending; Discovery after numbered DPs; others A–Z."""
+    if is_dp_discovery_workgroup(workgroup):
+        return (0, 999, '')
     dp = extract_dp_number(workgroup.acronym or '') or extract_dp_number_from_title(
         workgroup.name or ''
     )
