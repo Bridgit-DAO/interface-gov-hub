@@ -1,4 +1,5 @@
 """Tests for services.workgroup_membership.user_workgroup_status and its API."""
+import json
 from uuid import uuid4
 
 from app import app
@@ -258,6 +259,38 @@ def test_leave_cancels_pending_member_request():
             ).count() == 0
         finally:
             WorkgroupMemberRequest.query.filter_by(group_acronym=wg.acronym).delete()
+            db.session.delete(wg)
+            db.session.delete(user)
+            db.session.commit()
+
+
+def test_ensure_workgroup_membership_emits_join_event():
+    from services.workgroup_membership import ensure_workgroup_membership
+
+    with app.app_context():
+        user = _make_user('wgensure')
+        wg = _make_workgroup('wg-ensure-emit')
+        try:
+            member, created = ensure_workgroup_membership(
+                acronym=wg.acronym,
+                user_id=user.id,
+                display_name=user.username,
+            )
+            assert created is True
+            assert member is not None
+            db.session.commit()
+
+            events = EventLog.query.filter_by(
+                event_type='workgroup_member_joined',
+                subject_id=wg.id,
+            ).all()
+            assert len(events) == 1
+            payload = json.loads(events[0].payload_json or '{}')
+            assert payload['workgroup_id'] == wg.id
+            assert payload['slug'] == wg.slug
+        finally:
+            EventLog.query.filter_by(subject_id=wg.id).delete()
+            WorkingGroupMember.query.filter_by(group_acronym=wg.acronym).delete()
             db.session.delete(wg)
             db.session.delete(user)
             db.session.commit()

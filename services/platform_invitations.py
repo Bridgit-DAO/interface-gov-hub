@@ -33,7 +33,9 @@ from services.public_urls import public_base_url
 from services.utils import generate_invitation_token
 from services.workgroup_authority import can_invite_workgroup_member, is_workgroup_member
 from services.workgroup_membership import (
+    emit_workgroup_invite_event,
     join_or_request_workgroup_membership,
+    workgroup_invite_event_payload,
 )
 
 _INVITE_TTL_DAYS = 7
@@ -430,6 +432,59 @@ def _record_shareable_acceptance(inv: PlatformInvitation, user: User) -> None:
         db.session.commit()
 
 
+def _workgroup_from_target(target: dict) -> Optional[Workgroup]:
+    if not isinstance(target, dict):
+        return None
+    wg_id = (target.get('workgroup_id') or '').strip()
+    if wg_id:
+        wg = Workgroup.query.get(wg_id)
+        if wg:
+            return wg
+    acronym = (target.get('workgroup_acronym') or '').strip()
+    if acronym:
+        return Workgroup.query.filter_by(acronym=acronym).first()
+    return None
+
+
+def _emit_workgroup_invite_sent(
+    inv: PlatformInvitation,
+    inviter: User,
+    workgroup: Workgroup,
+) -> None:
+    emit_workgroup_invite_event(
+        'workgroup_invite_sent',
+        workgroup=workgroup,
+        actor_user_id=inviter.id,
+        subject_type='platform_invitation',
+        subject_id=inv.id,
+        payload=workgroup_invite_event_payload(
+            workgroup,
+            invitee_email=inv.invitee_email or '',
+            invitation_id=inv.id,
+        ),
+    )
+
+
+def _emit_workgroup_invite_accepted(
+    inv: PlatformInvitation,
+    user: User,
+    workgroup: Workgroup,
+) -> None:
+    emit_workgroup_invite_event(
+        'workgroup_invite_accepted',
+        workgroup=workgroup,
+        actor_user_id=user.id,
+        subject_type='platform_invitation',
+        subject_id=inv.id,
+        payload=workgroup_invite_event_payload(
+            workgroup,
+            invitee_email=inv.invitee_email or user.email or '',
+            invitee_name=(user.displayName or user.username or '').strip(),
+            invitation_id=inv.id,
+        ),
+    )
+
+
 def create_invitation(
     *,
     invite_type: str,
@@ -547,6 +602,11 @@ def create_invitation(
         pending_match.expires_at = now + timedelta(days=_INVITE_TTL_DAYS)
         if invitee:
             pending_match.invitee_id = invitee.id
+        db.session.flush()
+        if invite_type == 'join_workgroup':
+            wg = _workgroup_from_target(target)
+            if wg:
+                _emit_workgroup_invite_sent(pending_match, inviter, wg)
         db.session.commit()
         sent = send_platform_invitation_email(
             invitation=pending_match,
@@ -574,6 +634,11 @@ def create_invitation(
         expires_at=now + timedelta(days=_INVITE_TTL_DAYS),
     )
     db.session.add(inv)
+    db.session.flush()
+    if invite_type == 'join_workgroup':
+        wg = _workgroup_from_target(target)
+        if wg:
+            _emit_workgroup_invite_sent(inv, inviter, wg)
     db.session.commit()
 
     sent = send_platform_invitation_email(
@@ -631,6 +696,13 @@ def _create_shareable_platform_invitation(
         target=target,
         message=message,
     )
+
+    if invite_type == 'join_workgroup' and _created:
+        wg = _workgroup_from_target(target)
+        if wg:
+            db.session.flush()
+            _emit_workgroup_invite_sent(inv, inviter, wg)
+            db.session.commit()
 
     email = normalize_invitee_email(invitee_email)
     sent = False
@@ -967,6 +1039,10 @@ def _accept_join_workgroup(inv: PlatformInvitation, user: User, *, finalize_invi
     )
     if not result.get('ok'):
         return {'error': result.get('error') or 'Could not join workgroup'}, 400
+
+    workgroup = Workgroup.query.filter_by(acronym=acronym).first()
+    if workgroup:
+        _emit_workgroup_invite_accepted(inv, user, workgroup)
 
     if finalize_invite:
         inv.status = 'accepted'

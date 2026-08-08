@@ -98,6 +98,7 @@ def create_workgroup_message(workgroup: Workgroup, user: dict, body: str) -> tup
         layer_id=workgroup.layer_id,
         payload={
             'workgroup_id': workgroup.id,
+            'slug': workgroup.slug or workgroup.acronym,
             'workgroup_slug': workgroup.slug or workgroup.acronym,
             'workgroup_name': workgroup.name,
             'body_preview': text[:200],

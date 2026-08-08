@@ -59,6 +59,53 @@ def emit_workgroup_membership_event(
     )
 
 
+def workgroup_invite_event_payload(
+    workgroup: Workgroup,
+    *,
+    invitee_email: str = '',
+    invitee_name: str = '',
+    invitation_id: Optional[str] = None,
+) -> dict:
+    """Canonical payload for workgroup_invite_sent / workgroup_invite_accepted."""
+    slug = (workgroup.slug or workgroup.acronym or '').strip()
+    payload = {
+        'workgroup_id': workgroup.id,
+        'slug': slug,
+        'workgroup_slug': slug,
+        'workgroup_name': workgroup.name,
+        'name': workgroup.name,
+        'acronym': workgroup.acronym,
+        'invitee_email': (invitee_email or '').strip(),
+    }
+    if invitee_name:
+        payload['invitee_name'] = invitee_name.strip()
+    if invitation_id:
+        payload['invitation_id'] = invitation_id
+    return payload
+
+
+def emit_workgroup_invite_event(
+    event_type: str,
+    *,
+    workgroup: Workgroup,
+    actor_user_id: str,
+    subject_type: str,
+    subject_id: str,
+    payload: dict,
+) -> None:
+    from services.events import emit_event
+
+    emit_event(
+        event_type,
+        actor_type='user',
+        actor_id=actor_user_id,
+        subject_type=subject_type,
+        subject_id=subject_id,
+        layer_id=workgroup.layer_id,
+        payload=payload,
+    )
+
+
 def _workgroup_for_acronym(acronym: str) -> Optional[Workgroup]:
     if not acronym:
         return None
@@ -118,6 +165,17 @@ def ensure_workgroup_membership(
         raise RuntimeError(
             f'Membership for {user_id} in {acronym} could not be created or found'
         )
+
+    if created:
+        workgroup = _workgroup_for_acronym(acronym)
+        user = User.query.get(user_id)
+        if workgroup and user:
+            emit_workgroup_membership_event(
+                'workgroup_member_joined',
+                workgroup=workgroup,
+                user=user,
+            )
+
     return member, created
 
 
@@ -188,13 +246,6 @@ def join_or_request_workgroup_membership(
     if not created:
         return {'ok': True, 'duplicate': True, 'status': 'already_member'}
 
-    workgroup = _workgroup_for_acronym(acronym)
-    if workgroup:
-        emit_workgroup_membership_event(
-            'workgroup_member_joined',
-            workgroup=workgroup,
-            user=user,
-        )
     return {'ok': True, 'joined': True, 'status': 'joined'}
 
 
