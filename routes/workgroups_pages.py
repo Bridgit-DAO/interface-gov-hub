@@ -5,6 +5,7 @@ import json
 import requests
 from flask import Blueprint, redirect, session
 
+from services.dp_images import resolve_image_url_from_slug
 from services.identity import get_current_user
 
 bp = Blueprint('workgroups_pages', __name__, url_prefix='')
@@ -302,11 +303,23 @@ def workgroups_join_landing():
                 all_layer_ids.insert(0, primary_layer_id)
             layers_attr = _escape_text(' '.join(all_layer_ids))
             primary_attr = _escape_text(primary_layer_id)
+            img_url = (wg.get('image_url') or '').strip() or resolve_image_url_from_slug(
+                wg.get('slug', ''), wg.get('name', '')
+            )
+            img_html = ''
+            if img_url:
+                img_esc = _escape_text(img_url)
+                img_html = (
+                    f'<a href="/workgroups/{slug_esc}/" class="wg-join-card-visual">'
+                    f'<img src="{img_esc}" alt="" loading="lazy">'
+                    f'</a>'
+                )
             cards_html_parts.append(
                 '<div class="col-md-6 col-lg-4 wg-join-card-col"'
                 f' data-layer="{primary_attr}"'
                 f' data-layers="{layers_attr}">'
-                '<div class="card h-100 living-module">'
+                '<div class="card h-100 living-module wg-join-card">'
+                f'{img_html}'
                 '<div class="card-body d-flex flex-column">'
                 f'<h5 class="card-title mb-1"><a href="/workgroups/{slug_esc}/">{name_esc}</a></h5>'
                 f'<p class="card-text text-muted small mb-2 flex-grow-1" data-gh-clamp-6>{desc_esc}</p>'
@@ -875,8 +888,9 @@ def workgroup_detail(workgroup_slug):
             '<li class="breadcrumb-item"><a href="/layers/">Layers</a></li>' +
             (projectSlug ? '<li class="breadcrumb-item"><a href="/layers/' + projectSlug + '/">' + projectName + '</a></li>' : '<li class="breadcrumb-item">' + projectName + '</li>') +
             '<li class="breadcrumb-item active">' + (workgroup.name || '') + '</li></ol></nav>';
-        const mediaHtml = workgroup.image_url
-            ? '<div class="gh-detail-hero-media"><img src="' + workgroup.image_url + '" alt=""></div>'
+        const heroSrc = workgroup.hero_image_url || workgroup.image_url;
+        const mediaHtml = heroSrc
+            ? '<div class="gh-detail-hero-media gh-detail-hero-media--dp"><img src="' + heroSrc + '" alt=""></div>'
             : '<div class="gh-detail-hero-media"><i class="fas fa-users-cog fa-2x text-muted opacity-50"></i></div>';
         const backBtn = projectSlug
             ? '<a href="/layers/' + projectSlug + '/" class="btn btn-outline-secondary btn-sm w-100"><i class="fas fa-arrow-left me-2"></i>Back</a>'

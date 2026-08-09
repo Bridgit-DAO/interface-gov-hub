@@ -149,9 +149,11 @@ DP_ABBREVIATIONS = {
 
 def dp_image_url(dp_num: int) -> Optional[str]:
     """Static URL for a DP workgroup card image, or None if unknown."""
+    from services.dp_images import dp_card_image_url
+
     if dp_num not in DP_ABBREVIATIONS:
         return None
-    return f'/static/images/dp/dp{dp_num}.png'
+    return dp_card_image_url(dp_num)
 
 
 def _build_group_entry(group_name: str) -> dict:
