@@ -21,6 +21,10 @@ _MAX_DP_NUM = 23
 
 DpImageVariant = Literal['card', 'full', 'badge']
 
+DP_DISCOVERY_CARD_IMAGE = 'dp-discovery.webp'
+DP_DISCOVERY_FULL_IMAGE = 'dp-discovery.webp'
+DP_DISCOVERY_BADGE_IMAGE = 'dp-discovery.webp'
+
 
 def normalize_dp_number(dp_id: str | None) -> int | None:
     """Parse ``DP1`` / ``DP 01`` style ids; returns 1–23 or None."""
@@ -74,6 +78,20 @@ def dp_badge_image_url(dp_num: int) -> str | None:
     return f'{dp_images_base_url()}/badge/dp{dp_num:02d}.webp'
 
 
+def dp_discovery_image_url(variant: DpImageVariant = 'card') -> str:
+    """Artwork for the shared DP Discovery meta-workgroup (not a numbered DP)."""
+    if variant == 'full':
+        filename = DP_DISCOVERY_FULL_IMAGE
+        folder = 'full'
+    elif variant == 'badge':
+        filename = DP_DISCOVERY_BADGE_IMAGE
+        folder = 'badge'
+    else:
+        filename = DP_DISCOVERY_CARD_IMAGE
+        folder = 'card'
+    return f'{dp_images_base_url()}/{folder}/{filename}'
+
+
 def dp_image_url_for_number(dp_num: int, variant: DpImageVariant = 'card') -> str | None:
     if variant == 'full':
         return dp_full_image_url(dp_num)
@@ -89,7 +107,7 @@ def resolve_workgroup_image_url(
 ) -> str | None:
     """Card/badge/full URL for DP workgroups; stored image_url for others."""
     if is_dp_discovery_workgroup(workgroup):
-        return None
+        return dp_discovery_image_url(variant)
     dp_num = dp_number_from_workgroup(workgroup)
     if dp_num is not None:
         return dp_image_url_for_number(dp_num, variant)

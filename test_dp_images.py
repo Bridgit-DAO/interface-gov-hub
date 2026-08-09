@@ -2,6 +2,7 @@
 from services.dp_images import (
     dp_badge_image_url,
     dp_card_image_url,
+    dp_discovery_image_url,
     dp_full_image_url,
     dp_number_from_workgroup,
     normalize_dp_number,
@@ -41,7 +42,9 @@ def test_resolve_from_slug():
     assert resolve_image_url_from_slug('dp1-federated-auth') == (
         '/static/images/dps/card/DP1.webp'
     )
-    assert resolve_image_url_from_slug('dp-discovery', 'DP Discovery') is None
+    assert resolve_image_url_from_slug('dp-discovery', 'DP Discovery') == (
+        '/static/images/dps/card/dp-discovery.webp'
+    )
 
 
 def test_resolve_workgroup_image_url_dp23():
@@ -59,7 +62,14 @@ def test_dp_number_from_workgroup_title_fallback():
     assert dp_number_from_workgroup(wg) == 11
 
 
-def test_dp_discovery_has_no_artwork():
+def test_dp_discovery_has_artwork():
     wg = _Wg(acronym='dp-discovery', slug='dp-discovery', name='DP Discovery')
     assert is_dp_discovery_workgroup(wg)
-    assert resolve_workgroup_image_url(wg) is None
+    assert resolve_workgroup_image_url(wg) == '/static/images/dps/card/dp-discovery.webp'
+    assert resolve_workgroup_image_url(wg, variant='full') == (
+        '/static/images/dps/full/dp-discovery.webp'
+    )
+    assert resolve_workgroup_image_url(wg, variant='badge') == (
+        '/static/images/dps/badge/dp-discovery.webp'
+    )
+    assert dp_discovery_image_url() == '/static/images/dps/card/dp-discovery.webp'
