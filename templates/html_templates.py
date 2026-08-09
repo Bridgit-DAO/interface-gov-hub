@@ -1635,7 +1635,10 @@ BASE_TEMPLATE = """
             if (ghShouldUseSocialLoginOnly()) {{
                 return loginWithWeb3AuthGoogle();
             }}
-            return performWeb3AuthLogin(null);
+            const here = window.location.pathname + window.location.search + window.location.hash;
+            storePostLoginReturnPath(here);
+            const next = encodeURIComponent(normalizeReturnPath(here));
+            window.location.href = '/login/?next=' + next;
         }}
 
         async function loginWithWeb3AuthGoogle() {{
