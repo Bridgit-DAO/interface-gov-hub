@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -17,6 +18,34 @@ from services.resend_mail import (
 )
 
 MULTI_WG_INVITE_SUBJECT = 'Invitation to join a Desirable Properties workgroup'
+
+_JOIN_PRIMARY_RE = re.compile(r'\[JOIN_PRIMARY\]', re.IGNORECASE)
+_JOIN_EXTRA_RE = re.compile(r'\[JOIN_EXTRA_(\d+)\]', re.IGNORECASE)
+
+
+def invite_body_uses_join_placeholders(body_text: str) -> bool:
+    """True when the draft expects inline join URLs instead of appended link blocks."""
+    text = body_text or ''
+    return bool(_JOIN_PRIMARY_RE.search(text) or _JOIN_EXTRA_RE.search(text))
+
+
+def substitute_workgroup_join_placeholders(body_text: str, links: List[dict]) -> str:
+    """Replace [JOIN_PRIMARY] and [JOIN_EXTRA_N] with invitation landing URLs."""
+    text = body_text or ''
+    if not text:
+        return text
+
+    primary_url = ''
+    if links:
+        primary_url = (links[0].get('landing_url') or '').strip()
+    text = _JOIN_PRIMARY_RE.sub(primary_url, text)
+
+    for index, item in enumerate(links[1:], start=1):
+        url = (item.get('landing_url') or '').strip()
+        text = re.sub(rf'\[JOIN_EXTRA_{index}\]', url, text, flags=re.IGNORECASE)
+
+    text = _JOIN_EXTRA_RE.sub('', text)
+    return text
 
 
 def _bcc_inviter_enabled(override: Optional[bool] = None) -> bool:
@@ -56,6 +85,7 @@ def build_multi_workgroup_invite_plain_body(
     invitee_name: str,
     body_text: str,
     links: List[dict],
+    inline_join_links: bool = False,
 ) -> str:
     """Plain-text body for platform HTML email and client mailto."""
     name = (invitee_name or 'there').strip() or 'there'
@@ -64,13 +94,14 @@ def build_multi_workgroup_invite_plain_body(
     if text:
         parts.append(text)
         parts.append('')
-    parts.append('Join link(s):')
-    for item in links or []:
-        wg_name = (item.get('workgroup_name') or 'Workgroup').strip()
-        url = (item.get('landing_url') or '').strip()
-        if url:
-            parts.append(f'- {wg_name}: {url}')
-    parts.append('')
+    if not inline_join_links:
+        parts.append('Join link(s):')
+        for item in links or []:
+            wg_name = (item.get('workgroup_name') or 'Workgroup').strip()
+            url = (item.get('landing_url') or '').strip()
+            if url:
+                parts.append(f'- {wg_name}: {url}')
+        parts.append('')
     parts.append('Use the same email address this message was sent to when signing in.')
     return '\n'.join(parts).strip() + '\n'
 
@@ -81,12 +112,14 @@ def build_multi_workgroup_invite_mailto(
     invitee_name: str,
     body_text: str,
     links: List[dict],
+    inline_join_links: bool = False,
 ) -> Dict[str, str]:
     subject = MULTI_WG_INVITE_SUBJECT
     body = build_multi_workgroup_invite_plain_body(
         invitee_name=invitee_name,
         body_text=body_text,
         links=links,
+        inline_join_links=inline_join_links,
     )
     to = normalize_email(invitee_email)
     mailto = f'mailto:{to}?subject={quote(subject)}&body={quote(body)}'
@@ -204,11 +237,13 @@ def send_multi_workgroup_invitation_email(
     body_text: str,
     links: list,
     bcc_inviter: Optional[bool] = None,
+    inline_join_links: bool = False,
 ) -> bool:
     """Single email with custom body and one join link per workgroup.
 
     From display name uses the inviter profile; Reply-To is the inviter email.
     Optional BCC of the inviter (env WORKGROUP_INVITE_BCC_INVITER=0 to disable).
+    When ``inline_join_links`` is true, join URLs are expected in ``body_text`` already.
     """
     inviter_name = html.escape(user_display(inviter))
     name_esc = html.escape(invitee_name or 'there')
@@ -217,25 +252,32 @@ def send_multi_workgroup_invitation_email(
         if body_text and body_text.strip()
         else ''
     )
-    link_blocks = []
-    for item in links or []:
-        wg_name = html.escape(item.get('workgroup_name') or 'Workgroup')
-        url = html.escape(item.get('landing_url') or '', quote=True)
-        if not url:
-            continue
-        link_blocks.append(
-            f'<p style="margin:12px 0;">'
-            f'<strong>{wg_name}</strong><br>'
-            f'<a href="{url}" style="display:inline-block;margin-top:6px;padding:8px 14px;'
-            f'background:#667eea;color:#fff;text-decoration:none;border-radius:6px;">Join workgroup</a>'
-            f'</p>',
-        )
-    links_html = ''.join(link_blocks) or '<p>Workgroup invitation links will be sent separately.</p>'
     sign_in_note = (
         '<p style="font-size:13px;color:#555;margin-top:16px;">'
         'Use the same email address this message was sent to when signing in to Gov Hub.</p>'
     )
-    body = f"""
+    if inline_join_links:
+        body = f"""
+<p>Hi {name_esc},</p>
+{note}
+{sign_in_note}
+"""
+    else:
+        link_blocks = []
+        for item in links or []:
+            wg_name = html.escape(item.get('workgroup_name') or 'Workgroup')
+            url = html.escape(item.get('landing_url') or '', quote=True)
+            if not url:
+                continue
+            link_blocks.append(
+                f'<p style="margin:12px 0;">'
+                f'<strong>{wg_name}</strong><br>'
+                f'<a href="{url}" style="display:inline-block;margin-top:6px;padding:8px 14px;'
+                f'background:#667eea;color:#fff;text-decoration:none;border-radius:6px;">Join workgroup</a>'
+                f'</p>',
+            )
+        links_html = ''.join(link_blocks) or '<p>Workgroup invitation links will be sent separately.</p>'
+        body = f"""
 <p>Hi {name_esc},</p>
 {note}
 <p>{inviter_name} invited you to join workgroup(s) on Gov Hub:</p>
@@ -247,6 +289,7 @@ def send_multi_workgroup_invitation_email(
         invitee_name=invitee_name,
         body_text=body_text,
         links=links,
+        inline_join_links=inline_join_links,
     )
     delivery = inviter_delivery_options(inviter, bcc_inviter=bcc_inviter)
 
