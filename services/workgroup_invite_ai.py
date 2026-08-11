@@ -11,7 +11,9 @@ from models import PlatformInvitation, User, Workgroup, WorkgroupMemberRequest
 from services.assist import LlmCallFailed, LlmTemporarilyBusy, call_llm, clean_draft, llm_configured, resolve_llm_config
 from services.platform_invitation_mail import (
     build_multi_workgroup_invite_mailto,
+    invite_body_uses_join_placeholders,
     send_multi_workgroup_invitation_email,
+    substitute_workgroup_join_placeholders,
 )
 from services.platform_invitations import (
     build_landing_path,
@@ -471,6 +473,11 @@ def send_ai_workgroup_invitations(
         for inv, wg in invitations
     ]
 
+    inline_join_links = invite_body_uses_join_placeholders(text)
+    resolved_text = substitute_workgroup_join_placeholders(text, links)
+    primary_inv, _ = invitations[0]
+    primary_inv.message = resolved_text
+
     sent = False
     mailto_payload = None
     if mode == 'platform':
@@ -478,18 +485,19 @@ def send_ai_workgroup_invitations(
             inviter=inviter,
             invitee_email=norm_email,
             invitee_name=name.strip(),
-            body_text=text,
+            body_text=resolved_text,
             links=links,
+            inline_join_links=inline_join_links,
         )
     else:
         mailto_payload = build_multi_workgroup_invite_mailto(
             invitee_email=norm_email,
             invitee_name=name.strip(),
-            body_text=text,
+            body_text=resolved_text,
             links=links,
+            inline_join_links=inline_join_links,
         )
 
-    primary_inv, _ = invitations[0]
     from services.workgroup_membership import (
         emit_workgroup_invite_event,
         workgroup_invite_event_payload,
