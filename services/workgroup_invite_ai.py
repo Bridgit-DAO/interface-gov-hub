@@ -621,6 +621,7 @@ def draft_invitation_email(
     tone_guidance = _TONE_GUIDANCE.get(tone_key, _TONE_GUIDANCE['warm'])
     system = (
         'Write a personal invitation email body (plain text, no subject line). '
+        'Output only the email text – no analysis, planning, or XML tags. '
         f'The FIRST line MUST be a greeting using the invitee\'s first name, e.g. "Hi {greet_name}," '
         '(or "Hi {full name}," if only one name token). Never skip the greeting. '
         f'{_NO_EM_DASH_RULE}'
@@ -678,13 +679,43 @@ def draft_invitation_email(
         has_invite_content=bool(invite_content_for_llm),
     )
 
+    messages = [
+        {'role': 'system', 'content': system},
+        {'role': 'user', 'content': user_msg},
+    ]
+
     try:
-        draft = clean_draft(call_llm([
-            {'role': 'system', 'content': system},
-            {'role': 'user', 'content': user_msg},
-        ], cfg, temperature=llm_temperature, max_tokens=draft_max_tokens))
+        draft = clean_draft(call_llm(
+            messages,
+            cfg,
+            temperature=llm_temperature,
+            max_tokens=draft_max_tokens,
+        ))
         draft = ensure_invite_greeting(draft, invitee_display)
         draft = strip_em_dashes(draft)
+
+        min_words = {'short': 100, 'medium': 180, 'long': 300}.get(length_key, 180)
+        needs_retry = (
+            len(draft.split()) < min_words
+            or not invite_draft_looks_complete(draft)
+            or '[JOIN_PRIMARY]' not in draft.upper()
+        )
+        if needs_retry:
+            retry_user = json.dumps({
+                **json.loads(user_msg),
+                'retry_note': (
+                    'The previous draft was incomplete or missing [JOIN_PRIMARY]. '
+                    'Write the complete invitation email body only (no analysis or XML tags). '
+                    f'Target {_LENGTH_GUIDANCE[length_key]} End with [JOIN_PRIMARY] on its own line.'
+                ),
+                'previous_attempt': draft[:1200],
+            })
+            draft = clean_draft(call_llm([
+                {'role': 'system', 'content': system},
+                {'role': 'user', 'content': retry_user},
+            ], cfg, temperature=min(llm_temperature + 0.1, 0.7), max_tokens=draft_max_tokens))
+            draft = ensure_invite_greeting(draft, invitee_display)
+            draft = strip_em_dashes(draft)
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:
         return {'error': f'AI draft failed: {exc}'}, 502
 
