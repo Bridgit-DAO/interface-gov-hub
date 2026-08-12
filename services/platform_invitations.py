@@ -951,6 +951,63 @@ def _document_abstract_from_target(target: dict) -> str:
     return abstract
 
 
+def _workgroup_description(wg: Workgroup) -> str:
+    return (wg.description or wg.charter or '').strip()
+
+
+def _invited_workgroup_from_invitation(inv: PlatformInvitation) -> dict:
+    try:
+        target = json.loads(inv.target_json or '{}')
+    except json.JSONDecodeError:
+        target = {}
+    slug = (target.get('workgroup_slug') or '').strip()
+    name = (target.get('workgroup_name') or 'Workgroup').strip()
+    description = ''
+    wg_id = target.get('workgroup_id')
+    if wg_id:
+        wg = Workgroup.query.get(wg_id)
+        if wg:
+            slug = (wg.slug or wg.acronym or slug).strip()
+            name = (wg.name or name).strip()
+            description = _workgroup_description(wg)
+    return {
+        'name': name or 'Workgroup',
+        'slug': slug,
+        'description': description or None,
+        'token': inv.token,
+    }
+
+
+def _related_join_workgroup_invitations(inv: PlatformInvitation) -> list:
+    """Sibling invitations from the same multi-workgroup AI invite batch."""
+    if inv.invite_type != 'join_workgroup':
+        return [inv]
+    email = normalize_invitee_email(inv.invitee_email or '')
+    if not email or not inv.created_at:
+        return [inv]
+    window_start = inv.created_at - timedelta(seconds=5)
+    window_end = inv.created_at + timedelta(seconds=5)
+    siblings = (
+        PlatformInvitation.query.filter_by(
+            invite_type='join_workgroup',
+            inviter_id=inv.inviter_id,
+            invitee_email=email,
+            status='pending',
+        )
+        .filter(PlatformInvitation.created_at >= window_start)
+        .filter(PlatformInvitation.created_at <= window_end)
+        .filter(PlatformInvitation.revoked_at.is_(None))
+        .order_by(PlatformInvitation.created_at.asc(), PlatformInvitation.id.asc())
+        .all()
+    )
+    if len(siblings) <= 1:
+        return siblings or [inv]
+    # Current token's workgroup first, then the rest in creation order.
+    ordered = [s for s in siblings if s.id == inv.id]
+    ordered.extend(s for s in siblings if s.id != inv.id)
+    return ordered
+
+
 def preview_invitation(token: str) -> Tuple[dict, int]:
     from flask import session
 
@@ -1001,6 +1058,11 @@ def preview_invitation(token: str) -> Tuple[dict, int]:
         abstract = _document_abstract_from_target(target)
         if abstract:
             body['document_abstract'] = abstract
+    if inv.invite_type == 'join_workgroup':
+        body['invited_workgroups'] = [
+            _invited_workgroup_from_invitation(sibling)
+            for sibling in _related_join_workgroup_invitations(inv)
+        ]
     return body, 200
 
 
