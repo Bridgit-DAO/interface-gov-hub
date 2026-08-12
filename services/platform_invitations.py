@@ -1111,7 +1111,8 @@ def accept_invitation(token: str, user_id: str) -> Tuple[dict, int]:
         _record_shareable_acceptance(inv, user)
         finalize = False
     else:
-        if not _email_matches_invite(inv, user):
+        # join_workgroup: token is the trust boundary; invitee may sign in with any email.
+        if inv.invite_type != 'join_workgroup' and not _email_matches_invite(inv, user):
             return {'error': 'This invitation was sent to a different email address'}, 403
         finalize = True
 
