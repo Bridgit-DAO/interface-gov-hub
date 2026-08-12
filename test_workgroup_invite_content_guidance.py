@@ -3,6 +3,8 @@ from services.workgroup_invite_ai import _DP_ENGAGEMENT_PARAGRAPH, _invite_conte
 
 
 def test_invite_content_guidance_empty():
+    assert _DP_ENGAGEMENT_PARAGRAPH
+    assert '\u2014' not in _DP_ENGAGEMENT_PARAGRAPH
     assert _invite_content_guidance(None) == ''
     assert _invite_content_guidance({}) == ''
     assert _invite_content_guidance({'events': [], 'perspectives': []}) == ''
