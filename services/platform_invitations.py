@@ -951,8 +951,41 @@ def _document_abstract_from_target(target: dict) -> str:
     return abstract
 
 
+def _join_workgroup_target(inv: PlatformInvitation) -> tuple[str, str]:
+    target = _load_target(inv)
+    acronym = (target.get('workgroup_acronym') or '').strip()
+    slug = (target.get('workgroup_slug') or '').strip()
+    return acronym, slug
+
+
+def _already_accepted_join_workgroup_response(
+    inv: PlatformInvitation,
+    user_id: Optional[str],
+) -> Optional[Tuple[dict, int]]:
+    """When invite status is accepted but the viewer is already a member, treat as success."""
+    if inv.invite_type != 'join_workgroup' or inv.status != 'accepted':
+        return None
+    if not user_id:
+        return None
+    user = User.query.get(user_id)
+    if not user:
+        return None
+    acronym, slug = _join_workgroup_target(inv)
+    if not acronym or not is_workgroup_member(acronym, user.id):
+        return None
+    return {
+        'success': True,
+        'valid': True,
+        'already_accepted': True,
+        'invite_type': inv.invite_type,
+        'redirect_path': workgroup_post_accept_path(slug),
+    }, 200
+
+
 def preview_invitation(token: str) -> Tuple[dict, int]:
     from flask import session
+
+    from services.api_auth import get_api_user
 
     inv = PlatformInvitation.query.filter_by(token=token.strip()).first()
     if not inv:
@@ -964,6 +997,24 @@ def preview_invitation(token: str) -> Tuple[dict, int]:
     if inv.status == 'revoked' or _invitation_is_revoked(inv):
         return {'error': 'This invitation has been revoked'}, 410
     if inv.status != 'pending':
+        api_user = get_api_user()
+        resume = _already_accepted_join_workgroup_response(
+            inv,
+            api_user['id'] if api_user else None,
+        )
+        if resume:
+            body, status = resume
+            target = _load_target(inv)
+            body['target'] = target
+            body['target_title'] = _target_title(inv)
+            body['landing_path'] = invitation_landing_path(inv)
+            body['landing_url'] = invitation_landing_url(inv)
+            body['authenticated'] = 'user' in session
+            body['invited_workgroups'] = [
+                _invited_workgroup_from_invitation(sibling)
+                for sibling in _related_join_workgroup_invitations(inv)
+            ]
+            return body, status
         return {'error': f'Invitation is {inv.status}'}, 404
     shareable = platform_invitation_is_shareable(inv)
     if not shareable and inv.expires_at and inv.expires_at < datetime.utcnow():
@@ -1093,6 +1144,9 @@ def accept_invitation(token: str, user_id: str) -> Tuple[dict, int]:
     if _invitation_is_revoked(inv):
         return {'error': 'This invitation has been revoked'}, 410
     if inv.status != 'pending':
+        resume = _already_accepted_join_workgroup_response(inv, user_id)
+        if resume:
+            return resume
         return {'error': f'Invitation is {inv.status}'}, 404
 
     shareable = platform_invitation_is_shareable(inv)
