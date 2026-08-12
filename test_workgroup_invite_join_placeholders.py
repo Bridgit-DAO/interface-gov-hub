@@ -24,9 +24,9 @@ def test_invite_body_uses_join_placeholders_false_for_plain_text():
 
 
 def test_substitute_join_primary():
-    body = 'Please join here: [JOIN_PRIMARY] — thanks!'
+    body = 'Please join here: [JOIN_PRIMARY] – thanks!'
     out = substitute_workgroup_join_placeholders(body, LINKS)
-    assert out == 'Please join here: https://gov.example/invite/primary — thanks!'
+    assert out == 'Please join here: https://gov.example/invite/primary – thanks!'
 
 
 def test_substitute_join_extra_numbered():
