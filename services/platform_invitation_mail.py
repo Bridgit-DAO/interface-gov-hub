@@ -21,6 +21,15 @@ MULTI_WG_INVITE_SUBJECT = 'Invitation to join a Desirable Properties workgroup'
 
 _JOIN_PRIMARY_RE = re.compile(r'\[JOIN_PRIMARY\]', re.IGNORECASE)
 _JOIN_EXTRA_RE = re.compile(r'\[JOIN_EXTRA_(\d+)\]', re.IGNORECASE)
+_GREETING_PREFIX_RE = re.compile(r'^(hi|hello|dear)\b', re.IGNORECASE)
+
+
+def body_text_has_greeting(body_text: str) -> bool:
+    """True when draft body already opens with Hi/Hello/Dear (avoid double greeting in shell)."""
+    text = (body_text or '').strip()
+    if not text:
+        return False
+    return bool(_GREETING_PREFIX_RE.match(text))
 
 
 def invite_body_uses_join_placeholders(body_text: str) -> bool:
@@ -89,11 +98,15 @@ def build_multi_workgroup_invite_plain_body(
 ) -> str:
     """Plain-text body for platform HTML email and client mailto."""
     name = (invitee_name or 'there').strip() or 'there'
-    parts = [f'Hi {name},', '']
     text = (body_text or '').strip()
+    parts: List[str] = []
     if text:
-        parts.append(text)
-        parts.append('')
+        if not body_text_has_greeting(text):
+            parts.extend([f'Hi {name},', '', text, ''])
+        else:
+            parts.extend([text, ''])
+    else:
+        parts.extend([f'Hi {name},', ''])
     if not inline_join_links:
         parts.append('Join link(s):')
         for item in links or []:
@@ -252,13 +265,16 @@ def send_multi_workgroup_invitation_email(
         if body_text and body_text.strip()
         else ''
     )
+    greeting_html = ''
+    if not body_text_has_greeting(body_text):
+        greeting_html = f'<p>Hi {name_esc},</p>'
     sign_in_note = (
         '<p style="font-size:13px;color:#555;margin-top:16px;">'
         'Use the same email address this message was sent to when signing in to Desirable Properties.</p>'
     )
     if inline_join_links:
         body = f"""
-<p>Hi {name_esc},</p>
+{greeting_html}
 {note}
 {sign_in_note}
 """
@@ -278,7 +294,7 @@ def send_multi_workgroup_invitation_email(
             )
         links_html = ''.join(link_blocks) or '<p>Workgroup invitation links will be sent separately.</p>'
         body = f"""
-<p>Hi {name_esc},</p>
+{greeting_html}
 {note}
 <p>{inviter_name} invited you to join workgroup(s) on Desirable Properties:</p>
 {links_html}

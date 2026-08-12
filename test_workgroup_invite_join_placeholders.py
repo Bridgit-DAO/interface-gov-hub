@@ -69,3 +69,25 @@ def test_plain_body_appends_links_when_not_inline():
     )
     assert 'Join link(s):' in plain
     assert '- Primary WG: https://gov.example/invite/primary' in plain
+
+
+def test_plain_body_skips_greeting_when_body_already_has_one():
+    plain = build_multi_workgroup_invite_plain_body(
+        invitee_name='Daveed Benjamin',
+        body_text='Hi Daveed,\n\nOur many conversations...',
+        links=LINKS,
+        inline_join_links=True,
+    )
+    assert plain.count('Hi ') == 1
+    assert plain.startswith('Hi Daveed,')
+    assert 'Hi Daveed Benjamin' not in plain
+
+
+def test_plain_body_adds_greeting_when_body_missing_one():
+    plain = build_multi_workgroup_invite_plain_body(
+        invitee_name='Daveed Benjamin',
+        body_text='Our many conversations...',
+        links=LINKS,
+        inline_join_links=True,
+    )
+    assert plain.startswith('Hi Daveed Benjamin,')

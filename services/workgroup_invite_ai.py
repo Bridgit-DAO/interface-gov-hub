@@ -305,28 +305,63 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
         return ''
 
     lead = (invite_content.get('lead') or 'events').strip().lower()
-    if lead not in ('events', 'perspectives'):
+    if lead not in ('events', 'perspectives', 'engagement'):
         lead = 'events'
 
+    def engagement_block() -> str:
+        return (
+            'DESIRABLE PROPERTIES ENGAGEMENT (include this paragraph verbatim in prose):\n'
+            f'{_DP_ENGAGEMENT_PARAGRAPH}'
+        )
+
     def event_block() -> str:
-        lines = ['EVENTS TO MENTION (include URLs in prose):']
+        lines = [
+            'EVENTS TO MENTION (include FULL absolute URLs in prose — never relative paths):',
+        ]
         for item in events:
             title = (item.get('title') or '').strip()
             url = (item.get('url') or '').strip()
             desc = (item.get('description') or '').strip()
-            date = (item.get('event_date') or item.get('eventDate') or '')[:10]
-            detail = f'- {title}'
-            if date:
-                detail += f' ({date})'
+            kind = (item.get('kind') or 'single').strip().lower()
+            if kind not in ('series', 'session', 'single'):
+                kind = 'single'
+            event_date = (item.get('event_date') or item.get('eventDate') or '')[:10]
+            next_session = (item.get('next_session_date') or item.get('nextSessionDate') or '')[:10]
+            series_started = (item.get('series_started') or item.get('seriesStarted') or '')[:10]
+            detail = f'- {title} [kind={kind}]'
             if url:
                 detail += f' — {url}'
             if desc:
                 detail += f'. {desc}'
+            if kind == 'series':
+                if next_session:
+                    detail += f'. DATE WORDING: say the next session is on {next_session}'
+                elif event_date:
+                    detail += f'. DATE WORDING: say the next session is on {event_date}'
+                if series_started:
+                    detail += (
+                        f'; the series already started on {series_started}'
+                        ' — do NOT say the series is starting or coming up on the next session date'
+                    )
+                else:
+                    detail += (
+                        '. Do NOT say the series is starting or coming up on the next session date'
+                        ' — use phrasing like "the next session is on …" or "join us for the next session on …"'
+                    )
+            elif kind == 'session':
+                session_date = next_session or event_date
+                if session_date:
+                    detail += f'. DATE WORDING: this session is on {session_date}'
+            else:
+                if event_date:
+                    detail += f'. DATE WORDING: this event is on {event_date}'
             lines.append(detail)
         return '\n'.join(lines)
 
     def perspective_block() -> str:
-        lines = ['PERSPECTIVES TO MENTION (include URLs in prose):']
+        lines = [
+            'PERSPECTIVES TO MENTION (include FULL absolute URLs in prose — never relative paths):',
+        ]
         for item in perspectives:
             title = (item.get('title') or '').strip()
             url = (item.get('url') or '').strip()
@@ -340,23 +375,48 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
         return '\n'.join(lines)
 
     blocks = []
-    if lead == 'events':
-        if events:
-            blocks.append(event_block())
-        if perspectives:
-            blocks.append(perspective_block())
+    content_blocks = []
+    if events:
+        content_blocks.append(('events', event_block()))
+    if perspectives:
+        content_blocks.append(('perspectives', perspective_block()))
+
+    if lead == 'engagement':
+        blocks.append(engagement_block())
+        for _, block in content_blocks:
+            blocks.append(block)
+    elif lead == 'perspectives':
+        for kind, block in content_blocks:
+            if kind == 'perspectives':
+                blocks.insert(0, block)
+            else:
+                blocks.append(block)
     else:
-        if perspectives:
-            blocks.append(perspective_block())
-        if events:
-            blocks.append(event_block())
+        for kind, block in content_blocks:
+            if kind == 'events':
+                blocks.insert(0, block)
+            else:
+                blocks.append(block)
+
+    structure_lines = [
+        'INVITE CONTENT STRUCTURE (before the workgroup invitation):',
+    ]
+    if lead == 'engagement':
+        structure_lines.extend([
+            '1. Desirable Properties engagement paragraph (verbatim).',
+            '2. Events and/or perspectives blocks in the order listed below.',
+            '3. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
+        ])
+    else:
+        structure_lines.extend([
+            '1. Lead block as specified by invite_lead.',
+            '2. Second block if both events and perspectives are selected.',
+            f'3. Include this Desirable Properties engagement paragraph verbatim:\n{_DP_ENGAGEMENT_PARAGRAPH}',
+            '4. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
+        ])
 
     structure = [
-        'INVITE CONTENT STRUCTURE (before the workgroup invitation):',
-        '1. Lead block as specified by invite_lead.',
-        '2. Second block if both events and perspectives are selected.',
-        f'3. Include this Desirable Properties engagement paragraph verbatim:\n{_DP_ENGAGEMENT_PARAGRAPH}',
-        '4. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
+        *structure_lines,
         '',
         *blocks,
     ]
@@ -444,7 +504,7 @@ def draft_invitation_email(
         'Lead with the primary workgroup unless invite content blocks come first per structure. '
         'Mention any additional workgroups briefly. '
         'Do NOT include URLs for workgroup joins — placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
-        'Include full URLs for events and perspectives when provided. '
+        'Include full absolute URLs (https://…) for events and perspectives when provided — never relative paths. '
         f'Tone: {tone_key}. Length: {_LENGTH_GUIDANCE[length_key]}. '
         'Reference previous interaction naturally when provided.'
     )
