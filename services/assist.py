@@ -414,7 +414,13 @@ def _sanitize_error_detail(exc: Exception) -> str:
     return raw[:200]
 
 
-def call_llm(messages: List[dict], cfg: LlmConfig, *, temperature: float = 0.3) -> str:
+def call_llm(
+    messages: List[dict],
+    cfg: LlmConfig,
+    *,
+    temperature: float = 0.3,
+    max_tokens: Optional[int] = None,
+) -> str:
     try:
         response = requests.post(
             cfg.url,
@@ -426,7 +432,7 @@ def call_llm(messages: List[dict], cfg: LlmConfig, *, temperature: float = 0.3) 
                 'model': cfg.model,
                 'messages': messages,
                 'temperature': temperature,
-                'max_tokens': MAX_OUTPUT_TOKENS,
+                'max_tokens': max_tokens if max_tokens is not None else MAX_OUTPUT_TOKENS,
             },
             timeout=60,
         )

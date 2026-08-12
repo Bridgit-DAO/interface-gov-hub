@@ -46,6 +46,18 @@ _LENGTH_GUIDANCE = {
     'long': 'About 380–520 words.',
 }
 
+# Output token budgets for invite draft LLM calls (higher than generic assist
+# because long drafts plus invite-content blocks can exceed MAX_OUTPUT_TOKENS).
+_INVITE_DRAFT_MAX_TOKENS = {
+    'short': 900,
+    'medium': 1600,
+    'long': 4000,
+}
+_INVITE_RESEARCH_MAX_TOKENS = 2400
+_INVITE_CONTENT_TOKEN_BONUS = 600
+
+_COMPLETE_DRAFT_SUFFIX_RE = re.compile(r'[\]\).!?]["\']?\s*$')
+
 _TONE_GUIDANCE = {
     'warm': (
         'Warm and personable: friendly greeting, genuine enthusiasm, inviting language, '
@@ -75,6 +87,31 @@ _DP_ENGAGEMENT_PARAGRAPH = (
 _NO_EM_DASH_RULE = (
     'Never use em dashes (Unicode U+2014); use en dashes (Unicode U+2013), commas, or hyphens instead. '
 )
+
+
+def invite_draft_max_tokens(
+    length_key: str,
+    *,
+    has_invite_content: bool = False,
+) -> int:
+    """Return the LLM max_tokens budget for an invite draft request."""
+    key = (length_key or 'medium').strip().lower()
+    if key not in LENGTH_PRESETS:
+        key = 'medium'
+    budget = _INVITE_DRAFT_MAX_TOKENS.get(key, _INVITE_DRAFT_MAX_TOKENS['medium'])
+    if has_invite_content:
+        budget += _INVITE_CONTENT_TOKEN_BONUS
+    return budget
+
+
+def invite_draft_looks_complete(draft: str) -> bool:
+    """Heuristic: draft ends on a sentence boundary (not mid-clause truncation)."""
+    text = (draft or '').strip()
+    if not text:
+        return False
+    if '[JOIN_PRIMARY]' in text.upper():
+        return True
+    return bool(_COMPLETE_DRAFT_SUFFIX_RE.search(text))
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -265,7 +302,7 @@ def research_external_contact(
         raw = clean_draft(call_llm([
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user_msg},
-        ], cfg))
+        ], cfg, max_tokens=_INVITE_RESEARCH_MAX_TOKENS))
         analysis = _parse_json_object(raw)
     except (json.JSONDecodeError, LlmCallFailed, LlmTemporarilyBusy) as exc:
         return {'error': f'AI research failed: {exc}'}, 502
@@ -597,7 +634,9 @@ def draft_invitation_email(
     system += (
         'Lead with the primary workgroup unless invite content blocks come first per structure. '
         'Mention any additional workgroups briefly. '
-        'Do NOT include URLs for workgroup joins – placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
+        'End with a complete closing sentence and sign-off – never stop mid-sentence. '
+        'Put the join call-to-action on its own final line using [JOIN_PRIMARY] '
+        '(and [JOIN_EXTRA_N] for additional workgroups). Never use raw workgroup join URLs. '
         'Include full absolute URLs (https://…) for events and perspectives when provided – never relative paths. '
         f'TONE ({tone_key}): {tone_guidance} '
         f'LENGTH: {_LENGTH_GUIDANCE[length_key]}. '
@@ -634,12 +673,16 @@ def draft_invitation_email(
     })
 
     llm_temperature = 0.55 if regenerate else 0.4
+    draft_max_tokens = invite_draft_max_tokens(
+        length_key,
+        has_invite_content=bool(invite_content_for_llm),
+    )
 
     try:
         draft = clean_draft(call_llm([
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user_msg},
-        ], cfg, temperature=llm_temperature))
+        ], cfg, temperature=llm_temperature, max_tokens=draft_max_tokens))
         draft = ensure_invite_greeting(draft, invitee_display)
         draft = strip_em_dashes(draft)
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:
