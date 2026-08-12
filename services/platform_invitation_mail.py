@@ -254,7 +254,7 @@ def send_multi_workgroup_invitation_email(
     )
     sign_in_note = (
         '<p style="font-size:13px;color:#555;margin-top:16px;">'
-        'Use the same email address this message was sent to when signing in to Gov Hub.</p>'
+        'Use the same email address this message was sent to when signing in to Desirable Properties.</p>'
     )
     if inline_join_links:
         body = f"""
@@ -280,7 +280,7 @@ def send_multi_workgroup_invitation_email(
         body = f"""
 <p>Hi {name_esc},</p>
 {note}
-<p>{inviter_name} invited you to join workgroup(s) on Gov Hub:</p>
+<p>{inviter_name} invited you to join workgroup(s) on Desirable Properties:</p>
 {links_html}
 {sign_in_note}
 """

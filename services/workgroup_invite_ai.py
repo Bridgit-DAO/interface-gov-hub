@@ -16,13 +16,12 @@ from services.platform_invitation_mail import (
     substitute_workgroup_join_placeholders,
 )
 from services.platform_invitations import (
-    build_landing_path,
     can_invite,
+    invitation_landing_url,
     lookup_prior_workgroup_invitations,
     normalize_invitee_email,
     validate_invitee_email,
 )
-from services.public_urls import public_base_url
 from services.utils import generate_invitation_token
 from services.web_research import research_person_corpus
 from services.workgroup_authority import is_workgroup_member
@@ -558,11 +557,10 @@ def send_ai_workgroup_invitations(
     if not invitations:
         return {'error': 'No invitations created'}, 400
 
-    base = public_base_url()
     links = [
         {
             'workgroup_name': wg.name,
-            'landing_url': base + build_landing_path(inv),
+            'landing_url': invitation_landing_url(inv),
         }
         for inv, wg in invitations
     ]
