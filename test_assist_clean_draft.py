@@ -70,3 +70,43 @@ def test_clean_draft_keeps_answer_after_think_block():
     assert 'planning the email' not in cleaned
     assert 'Hi Pat,' in cleaned
     assert '[JOIN_PRIMARY]' in cleaned
+
+
+def test_clean_draft_truncates_after_first_join_primary():
+    raw = (
+        'Hi Daveed,\n\n'
+        'First complete draft with enough words to pass validation checks.\n\n'
+        'Best regards,\nDaveed\n\n'
+        '[JOIN_PRIMARY]\n\n'
+        '---\n\n'
+        'Let me count words approximately:\n'
+        '- Hi Daveed, (2)\n'
+        'Total: ~352 words. Slightly under target.\n\n'
+        'Let me expand a bit.\n\n'
+        '---\n\n'
+        'Hi Daveed,\n\n'
+        'Second revised draft body.\n\n'
+        '[JOIN_PRIMARY]\n\n'
+        'Hmm let me recount:\n'
+        'Total: ~367 words.\n'
+    )
+    cleaned = clean_draft(raw)
+    assert cleaned.endswith('[JOIN_PRIMARY]')
+    assert cleaned.count('[JOIN_PRIMARY]') == 1
+    assert 'Let me count' not in cleaned
+    assert 'Second revised draft' not in cleaned
+    assert 'Hmm let me recount' not in cleaned
+
+
+def test_clean_draft_strips_meta_divider_without_join_primary():
+    raw = (
+        'Hi Pat,\n\n'
+        'Thanks for your thoughtful contributions to the workgroup.\n\n'
+        'Best regards,\nPat\n\n'
+        '---\n\n'
+        'Let me reconsider the tone and expand this to about 200 words.\n'
+    )
+    cleaned = clean_draft(raw)
+    assert 'Let me reconsider' not in cleaned
+    assert cleaned.endswith('Pat')
+    assert '---' not in cleaned

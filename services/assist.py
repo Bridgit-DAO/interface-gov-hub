@@ -493,6 +493,66 @@ _THINK_UNWRAP_PATTERN = (
     r'<(?:think|redacted_thinking)>([\s\S]*?)</(?:think|redacted_thinking)>'
 )
 _GREETING_LINE_RE = re.compile(r'(?im)^(Hi\s+[^,\n]{1,60},)')
+_JOIN_PRIMARY_MARKER = '[JOIN_PRIMARY]'
+_META_DIVIDER_RE = re.compile(r'\n---\s*(?:\n|$)')
+_META_PLANNING_LINE_RE = re.compile(
+    r'(?i)^(?:let me (?:count|expand|reconsider|recount|revise|add)|'
+    r'hmm let me|total:\s*~?\d+|\d+\s*words\.?\s*$)',
+)
+_META_PLANNING_BULLET_RE = re.compile(r'(?i)^-\s+.+\(\d+\)\s*$')
+_META_PLANNING_SNIPPET_RE = re.compile(
+    r'(?i)(?:word count|approximately:|~?\d+\s+words|slightly under target)',
+)
+
+
+def _join_primary_search_start(text: str) -> int:
+    """Only treat [JOIN_PRIMARY] after the greeting as the draft terminator."""
+    match = _GREETING_LINE_RE.search(text or '')
+    return match.start() if match else 0
+
+
+def _truncate_at_first_join_primary(text: str) -> str:
+    """Keep the first completed invite draft; models often append revised copies."""
+    cleaned = (text or '').strip()
+    if not cleaned:
+        return cleaned
+    search_start = _join_primary_search_start(cleaned)
+    upper = cleaned.upper()
+    join_idx = upper.find(_JOIN_PRIMARY_MARKER, search_start)
+    if join_idx < 0:
+        return cleaned
+    end = join_idx + len(_JOIN_PRIMARY_MARKER)
+    line_end = cleaned.find('\n', end)
+    return cleaned[:line_end].strip() if line_end >= 0 else cleaned[:end].strip()
+
+
+def _strip_draft_meta_tail(text: str) -> str:
+    """Drop --- sections and word-count / revision planning after the email."""
+    cleaned = (text or '').strip()
+    if not cleaned:
+        return cleaned
+
+    divider = _META_DIVIDER_RE.search(cleaned)
+    if divider:
+        after = cleaned[divider.end():].lstrip()
+        if _META_PLANNING_SNIPPET_RE.search(after[:400]) or _META_PLANNING_LINE_RE.search(after):
+            cleaned = cleaned[:divider.start()].rstrip()
+
+    lines = cleaned.split('\n')
+    while lines:
+        tail = lines[-1].strip()
+        if not tail:
+            lines.pop()
+            continue
+        if (
+            _META_PLANNING_LINE_RE.match(tail)
+            or _META_PLANNING_BULLET_RE.match(tail)
+            or _META_PLANNING_SNIPPET_RE.search(tail)
+        ):
+            lines.pop()
+            continue
+        break
+    return '\n'.join(lines).strip()
 
 
 def _tail_after_last_think_block(text: str) -> str:
@@ -531,17 +591,9 @@ def _trim_leading_model_reasoning(text: str) -> str:
 
 
 def _trim_trailing_model_reasoning(text: str) -> str:
-    """Stop at [JOIN_PRIMARY] or a completed sign-off when the model keeps planning."""
-    cleaned = (text or '').strip()
-    if not cleaned:
-        return cleaned
-    upper = cleaned.upper()
-    join_idx = upper.rfind('[JOIN_PRIMARY]')
-    if join_idx >= 0:
-        end = join_idx + len('[JOIN_PRIMARY]')
-        line_end = cleaned.find('\n', end)
-        return cleaned[:line_end].strip() if line_end >= 0 else cleaned[:end].strip()
-    return cleaned
+    """Stop at the first [JOIN_PRIMARY] after the greeting; strip trailing meta."""
+    cleaned = _truncate_at_first_join_primary(text)
+    return _strip_draft_meta_tail(cleaned)
 
 
 def clean_draft(text: str) -> str:
