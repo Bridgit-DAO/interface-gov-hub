@@ -305,8 +305,14 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
         return ''
 
     lead = (invite_content.get('lead') or 'events').strip().lower()
-    if lead not in ('events', 'perspectives'):
+    if lead not in ('events', 'perspectives', 'engagement'):
         lead = 'events'
+
+    def engagement_block() -> str:
+        return (
+            'DESIRABLE PROPERTIES ENGAGEMENT (include this paragraph verbatim in prose):\n'
+            f'{_DP_ENGAGEMENT_PARAGRAPH}'
+        )
 
     def event_block() -> str:
         lines = ['EVENTS TO MENTION (include URLs in prose):']
@@ -340,23 +346,48 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
         return '\n'.join(lines)
 
     blocks = []
-    if lead == 'events':
-        if events:
-            blocks.append(event_block())
-        if perspectives:
-            blocks.append(perspective_block())
+    content_blocks = []
+    if events:
+        content_blocks.append(('events', event_block()))
+    if perspectives:
+        content_blocks.append(('perspectives', perspective_block()))
+
+    if lead == 'engagement':
+        blocks.append(engagement_block())
+        for _, block in content_blocks:
+            blocks.append(block)
+    elif lead == 'perspectives':
+        for kind, block in content_blocks:
+            if kind == 'perspectives':
+                blocks.insert(0, block)
+            else:
+                blocks.append(block)
     else:
-        if perspectives:
-            blocks.append(perspective_block())
-        if events:
-            blocks.append(event_block())
+        for kind, block in content_blocks:
+            if kind == 'events':
+                blocks.insert(0, block)
+            else:
+                blocks.append(block)
+
+    structure_lines = [
+        'INVITE CONTENT STRUCTURE (before the workgroup invitation):',
+    ]
+    if lead == 'engagement':
+        structure_lines.extend([
+            '1. Desirable Properties engagement paragraph (verbatim).',
+            '2. Events and/or perspectives blocks in the order listed below.',
+            '3. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
+        ])
+    else:
+        structure_lines.extend([
+            '1. Lead block as specified by invite_lead.',
+            '2. Second block if both events and perspectives are selected.',
+            f'3. Include this Desirable Properties engagement paragraph verbatim:\n{_DP_ENGAGEMENT_PARAGRAPH}',
+            '4. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
+        ])
 
     structure = [
-        'INVITE CONTENT STRUCTURE (before the workgroup invitation):',
-        '1. Lead block as specified by invite_lead.',
-        '2. Second block if both events and perspectives are selected.',
-        f'3. Include this Desirable Properties engagement paragraph verbatim:\n{_DP_ENGAGEMENT_PARAGRAPH}',
-        '4. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
+        *structure_lines,
         '',
         *blocks,
     ]
