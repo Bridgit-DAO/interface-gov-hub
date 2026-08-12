@@ -1,7 +1,7 @@
 """Platform invitation API (unified invite flows)."""
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request
 
-from services.identity import get_current_user
+from services.api_auth import get_api_user
 from services.platform_invitations import (
     accept_invitation,
     create_invitation,
@@ -15,21 +15,19 @@ from services.platform_invitations import (
 bp = Blueprint('platform_invitations', __name__, url_prefix='/api/invitations')
 
 
-def _auth_required_json():
-    """Return 401 JSON for API clients (avoid HTML redirect from @require_auth)."""
-    if 'user' not in session:
-        return jsonify({'error': 'Authentication required'}), 401
-    return None
+def _require_api_user():
+    """Flask session or Authorization: Bearer idToken (DP challenge-site proxy)."""
+    current_user = get_api_user()
+    if not current_user:
+        return None, (jsonify({'error': 'Authentication required'}), 401)
+    return current_user, None
 
 
 @bp.route('/', methods=['POST'])
 def create_invite():
-    auth_err = _auth_required_json()
+    current_user, auth_err = _require_api_user()
     if auth_err:
         return auth_err
-    current_user = get_current_user()
-    if not current_user:
-        return jsonify({'error': 'Authentication required'}), 401
     body = request.get_json(silent=True) or {}
     invite_type = (body.get('type') or body.get('invite_type') or '').strip()
     email = (body.get('email') or body.get('invitee_email') or '').strip()
@@ -50,12 +48,9 @@ def create_invite():
 @bp.route('/campaign/', methods=['POST'])
 def shareable_campaign():
     """Create or return the shareable invitation link for this type+target (no email)."""
-    auth_err = _auth_required_json()
+    current_user, auth_err = _require_api_user()
     if auth_err:
         return auth_err
-    current_user = get_current_user()
-    if not current_user:
-        return jsonify({'error': 'Authentication required'}), 401
     body = request.get_json(silent=True) or {}
     invite_type = (body.get('type') or body.get('invite_type') or '').strip()
     message = body.get('message')
@@ -74,12 +69,9 @@ def shareable_campaign():
 @bp.route('/batch/', methods=['POST'])
 def create_invite_batch():
     """Send the same invitation to multiple emails and/or Gov Hub users."""
-    auth_err = _auth_required_json()
+    current_user, auth_err = _require_api_user()
     if auth_err:
         return auth_err
-    current_user = get_current_user()
-    if not current_user:
-        return jsonify({'error': 'Authentication required'}), 401
     body = request.get_json(silent=True) or {}
     invite_type = (body.get('type') or body.get('invite_type') or '').strip()
     message = body.get('message')
@@ -111,35 +103,26 @@ def preview_invite(token):
 
 @bp.route('/by-token/<token>/accept/', methods=['POST'])
 def accept_invite(token):
-    auth_err = _auth_required_json()
+    current_user, auth_err = _require_api_user()
     if auth_err:
         return auth_err
-    current_user = get_current_user()
-    if not current_user:
-        return jsonify({'error': 'Authentication required'}), 401
     body, status = accept_invitation(token, current_user['id'])
     return jsonify(body), status
 
 
 @bp.route('/by-token/<token>/revoke/', methods=['POST'])
 def revoke_invite(token):
-    auth_err = _auth_required_json()
+    current_user, auth_err = _require_api_user()
     if auth_err:
         return auth_err
-    current_user = get_current_user()
-    if not current_user:
-        return jsonify({'error': 'Authentication required'}), 401
     body, status = revoke_invitation(token, current_user['id'])
     return jsonify(body), status
 
 
 @bp.route('/by-token/<token>/decline/', methods=['POST'])
 def decline_invite(token):
-    auth_err = _auth_required_json()
+    current_user, auth_err = _require_api_user()
     if auth_err:
         return auth_err
-    current_user = get_current_user()
-    if not current_user:
-        return jsonify({'error': 'Authentication required'}), 401
     body, status = decline_invitation(token, current_user['id'])
     return jsonify(body), status
