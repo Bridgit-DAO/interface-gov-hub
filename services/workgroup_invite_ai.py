@@ -41,10 +41,37 @@ TONE_PRESETS = ('warm', 'professional', 'direct')
 LENGTH_PRESETS = ('short', 'medium', 'long')
 
 _LENGTH_GUIDANCE = {
-    'short': 'About 120–180 words.',
-    'medium': 'About 220–320 words.',
-    'long': 'About 380–520 words.',
+    'short': (
+        'About 120–180 words total (strict band). '
+        'Structure: at most 3 short paragraphs before the workgroup invitation; '
+        'keep event or workshop mentions to one tight line each; '
+        'for Desirable Properties engagement, use a single-sentence summary instead of the full paragraph; '
+        'brief workgroup pitch and a crisp close. Must be clearly shorter than medium.'
+    ),
+    'medium': (
+        'About 220–320 words total. '
+        'Structure: standard flow—invite content blocks (events, perspectives, engagement as guided), '
+        'then workgroup invitation with primary and any additional workgroups, then close with [JOIN_PRIMARY]. '
+        'This is the baseline length; do not pad or trim aggressively.'
+    ),
+    'long': (
+        'About 380–520 words total (strict band). '
+        'Must be at least ~100 words longer than a medium draft would be for the same invite. '
+        'Structure: same opening blocks as medium, then AFTER the workgroup description and BEFORE the closing ask, '
+        'add 1–2 extra paragraphs that (a) explain why this specific person is a fit using resolved_person context, '
+        '(b) describe what participation looks like (meetings, async contribution, outcomes), and '
+        '(c) include role-specific detail tied to the workgroup charter or description. '
+        'Do NOT meet the word target by repeating the intro or stretching the sign-off.'
+    ),
 }
+
+_LENGTH_MIN_WORDS = {
+    'short': 100,
+    'medium': 180,
+    'long': 350,
+}
+
+_LENGTH_LONG_EXPAND_THRESHOLD = 350
 
 # Output token budgets for invite draft LLM calls (higher than generic assist
 # because long drafts plus invite-content blocks can exceed MAX_OUTPUT_TOKENS).
@@ -60,16 +87,19 @@ _COMPLETE_DRAFT_SUFFIX_RE = re.compile(r'[\]\).!?]["\']?\s*$')
 
 _TONE_GUIDANCE = {
     'warm': (
-        'Warm and personable: friendly greeting, genuine enthusiasm, inviting language, '
-        'and a conversational flow. Sound like a colleague who is excited to connect.'
+        'Warm and personable: open with a friendly greeting, use inclusive "you" language, '
+        'express genuine enthusiasm for their expertise, add a human touch (shared interests or prior context), '
+        'and close invitingly. Sentences may be slightly longer and conversational.'
     ),
     'professional': (
-        'Professional and polished: respectful, clear structure, measured enthusiasm, '
-        'and business-appropriate phrasing without being stiff or cold.'
+        'Professional and polished: courteous greeting, balanced formality, clear topic sentences, '
+        'measured enthusiasm without exclamation marks, precise wording, and a respectful close. '
+        'Avoid slang and overly casual contractions.'
     ),
     'direct': (
-        'Direct and concise: short sentences, minimal filler, state purpose quickly, '
-        'and make a clear ask. Skip pleasantries beyond the required greeting.'
+        'Direct and concise: minimal preamble after the greeting, short declarative sentences, '
+        'state the invitation purpose in the first paragraph, favor bullet-like clarity without bullets, '
+        'and a firm clear call to action. Omit filler pleasantries beyond the required greeting.'
     ),
 }
 
@@ -412,7 +442,26 @@ def _normalize_invite_content_for_llm(invite_content: Optional[dict]) -> Optiona
     }
 
 
-def _invite_content_guidance(invite_content: Optional[dict]) -> str:
+def _dp_engagement_instruction(*, length_key: str) -> str:
+    """How the LLM should handle the Desirable Properties engagement block."""
+    if (length_key or 'medium').strip().lower() == 'short':
+        return (
+            'DESIRABLE PROPERTIES ENGAGEMENT (one sentence only—do NOT use the full paragraph):\n'
+            'Summarize in a single sentence that the Desirable Properties Challenge is a community effort '
+            'to define governance patterns, interoperability, and human agency, and that workgroups turn '
+            'those ideas into practice.'
+        )
+    return (
+        'DESIRABLE PROPERTIES ENGAGEMENT (include this paragraph verbatim in prose):\n'
+        f'{_DP_ENGAGEMENT_PARAGRAPH}'
+    )
+
+
+def _invite_content_guidance(
+    invite_content: Optional[dict],
+    *,
+    length_key: str = 'medium',
+) -> str:
     if not invite_content:
         return ''
 
@@ -426,10 +475,7 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
         lead = 'events'
 
     def engagement_block() -> str:
-        return (
-            'DESIRABLE PROPERTIES ENGAGEMENT (include this paragraph verbatim in prose):\n'
-            f'{_DP_ENGAGEMENT_PARAGRAPH}'
-        )
+        return _dp_engagement_instruction(length_key=length_key)
 
     def event_block() -> str:
         lines = [
@@ -526,17 +572,31 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
     structure_lines = [
         'INVITE CONTENT STRUCTURE (before the workgroup invitation):',
     ]
+    is_short = (length_key or 'medium').strip().lower() == 'short'
+    dp_step = (
+        '1. Desirable Properties engagement (one sentence summary only).'
+        if is_short
+        else '1. Desirable Properties engagement paragraph (verbatim).'
+    )
     if lead == 'engagement':
         structure_lines.extend([
-            '1. Desirable Properties engagement paragraph (verbatim).',
+            dp_step,
             '2. Events and/or perspectives blocks in the order listed below.',
             '3. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
         ])
     else:
+        dp_inline = (
+            '3. One-sentence Desirable Properties engagement summary (not the full paragraph).'
+            if is_short
+            else (
+                '3. Include this Desirable Properties engagement paragraph verbatim:\n'
+                f'{_DP_ENGAGEMENT_PARAGRAPH}'
+            )
+        )
         structure_lines.extend([
             '1. Lead block as specified by invite_lead.',
             '2. Second block if both events and perspectives are selected.',
-            f'3. Include this Desirable Properties engagement paragraph verbatim:\n{_DP_ENGAGEMENT_PARAGRAPH}',
+            dp_inline,
             '4. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
         ])
 
@@ -609,7 +669,7 @@ def draft_invitation_email(
     greet_name = _invitee_greeting_name(invitee_display)
 
     invite_content_for_llm = _normalize_invite_content_for_llm(invite_content)
-    invite_content_note = _invite_content_guidance(invite_content_for_llm)
+    invite_content_note = _invite_content_guidance(invite_content_for_llm, length_key=length_key)
     combined_guidance = (extra_guidance or '').strip()
     if invite_content_note:
         combined_guidance = (
@@ -619,6 +679,11 @@ def draft_invitation_email(
         )
 
     tone_guidance = _TONE_GUIDANCE.get(tone_key, _TONE_GUIDANCE['warm'])
+    length_guidance = _LENGTH_GUIDANCE[length_key]
+    length_band_rule = (
+        'Honor the word-count band strictly: short 120–180, medium 220–320, long 380–520. '
+        'Long must exceed medium by at least ~100 words via substantive middle paragraphs, not padding.'
+    )
     system = (
         'Write a personal invitation email body (plain text, no subject line). '
         'Output only the email text – no analysis, planning, or XML tags. '
@@ -632,6 +697,16 @@ def draft_invitation_email(
             'When invite content is provided, follow the INVITE CONTENT STRUCTURE before the '
             'workgroup invitation. '
         )
+    if length_key == 'short':
+        system += (
+            'SHORT length: keep pre-invite content to at most 3 brief paragraphs; compress workshops/events '
+            'to one line each; use a one-sentence DP engagement summary when required. '
+        )
+    elif length_key == 'long':
+        system += (
+            'LONG length: after describing the workgroup(s), add 1–2 paragraphs on why this person specifically, '
+            'what participation looks like, and role-specific workgroup detail before the closing ask. '
+        )
     system += (
         'Lead with the primary workgroup unless invite content blocks come first per structure. '
         'Mention any additional workgroups briefly. '
@@ -640,7 +715,8 @@ def draft_invitation_email(
         '(and [JOIN_EXTRA_N] for additional workgroups). Never use raw workgroup join URLs. '
         'Include full absolute URLs (https://…) for events and perspectives when provided – never relative paths. '
         f'TONE ({tone_key}): {tone_guidance} '
-        f'LENGTH: {_LENGTH_GUIDANCE[length_key]}. '
+        f'LENGTH ({length_key}): {length_guidance} '
+        f'{length_band_rule} '
         'Reference previous interaction naturally when provided.'
     )
 
@@ -664,7 +740,7 @@ def draft_invitation_email(
         'tone': tone_key,
         'length': length_key,
         'tone_guidance': tone_guidance,
-        'length_guidance': _LENGTH_GUIDANCE[length_key],
+        'length_guidance': length_guidance,
         'extra_guidance': combined_guidance,
         'invite_content': invite_content_for_llm,
         'prior_invite_note': prior_note,
@@ -694,20 +770,33 @@ def draft_invitation_email(
         draft = ensure_invite_greeting(draft, invitee_display)
         draft = strip_em_dashes(draft)
 
-        min_words = {'short': 100, 'medium': 180, 'long': 300}.get(length_key, 180)
+        word_count = len(draft.split())
+        min_words = _LENGTH_MIN_WORDS.get(length_key, 180)
+        long_too_short = length_key == 'long' and word_count < _LENGTH_LONG_EXPAND_THRESHOLD
         needs_retry = (
-            len(draft.split()) < min_words
+            word_count < min_words
             or not invite_draft_looks_complete(draft)
             or '[JOIN_PRIMARY]' not in draft.upper()
+            or long_too_short
         )
         if needs_retry:
-            retry_user = json.dumps({
-                **json.loads(user_msg),
-                'retry_note': (
+            if long_too_short:
+                retry_note = (
+                    'The previous draft is too short for LONG length. '
+                    'Expand the MIDDLE sections: add 1–2 paragraphs after the workgroup description '
+                    'on why this person specifically, what participation looks like, and role-specific '
+                    f'workgroup detail. Target {length_guidance} '
+                    'End with [JOIN_PRIMARY] on its own line.'
+                )
+            else:
+                retry_note = (
                     'The previous draft was incomplete or missing [JOIN_PRIMARY]. '
                     'Write the complete invitation email body only (no analysis or XML tags). '
-                    f'Target {_LENGTH_GUIDANCE[length_key]} End with [JOIN_PRIMARY] on its own line.'
-                ),
+                    f'Target {length_guidance} End with [JOIN_PRIMARY] on its own line.'
+                )
+            retry_user = json.dumps({
+                **json.loads(user_msg),
+                'retry_note': retry_note,
                 'previous_attempt': draft[:1200],
             })
             draft = clean_draft(call_llm([
