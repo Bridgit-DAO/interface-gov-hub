@@ -115,7 +115,6 @@ def build_multi_workgroup_invite_plain_body(
             if url:
                 parts.append(f'- {wg_name}: {url}')
         parts.append('')
-    parts.append('Use the same email address this message was sent to when signing in.')
     return '\n'.join(parts).strip() + '\n'
 
 
@@ -268,15 +267,10 @@ def send_multi_workgroup_invitation_email(
     greeting_html = ''
     if not body_text_has_greeting(body_text):
         greeting_html = f'<p>Hi {name_esc},</p>'
-    sign_in_note = (
-        '<p style="font-size:13px;color:#555;margin-top:16px;">'
-        'Use the same email address this message was sent to when signing in to Desirable Properties.</p>'
-    )
     if inline_join_links:
         body = f"""
 {greeting_html}
 {note}
-{sign_in_note}
 """
     else:
         link_blocks = []
@@ -298,7 +292,6 @@ def send_multi_workgroup_invitation_email(
 {note}
 <p>{inviter_name} invited you to join workgroup(s) on Desirable Properties:</p>
 {links_html}
-{sign_in_note}
 """
     html_doc = email_shell('Workgroup invitation', body)
     plain = build_multi_workgroup_invite_plain_body(

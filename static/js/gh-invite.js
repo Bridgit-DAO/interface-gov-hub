@@ -196,7 +196,7 @@
       return '<p class="small text-muted mb-0">After you accept, you can read the document and follow any review guidance from the inviter.</p>';
     }
     if (inviteType === 'join_workgroup') {
-      return '<p class="small text-muted mb-0">After you accept, you will be joined or asked to join the workgroup (approval may be required).</p>';
+      return '<p class="small text-muted mb-0">After you accept, you will be joined or asked to join the workgroup (approval may be required). Sign in with any email — the invite link is what authorizes you.</p>';
     }
     if (inviteType === 'participate_dp') {
       return '<p class="small text-muted mb-0">After you accept, you can browse DP drafts and propose patches from the DP Challenge page.</p>';
@@ -215,7 +215,7 @@
     if (preview.shareable) {
       html +=
         '<p class="small mb-3 text-muted">Anyone with this link can participate after signing in (any email).</p>';
-    } else if (preview.invitee_email_masked) {
+    } else if (preview.invite_type !== 'join_workgroup' && preview.invitee_email_masked) {
       html +=
         '<p class="small mb-3">This invitation was sent to <strong>' +
         esc(preview.invitee_email_masked) +
@@ -390,6 +390,8 @@
   }
 
   function acceptInvitation(token, preview, onDone, retryOn401) {
+    var inviteType = preview && preview.invite_type;
+    var isWorkgroupInvite = inviteType === 'join_workgroup';
     return fetch('/api/invitations/by-token/' + encodeURIComponent(token) + '/accept/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -403,7 +405,9 @@
               return acceptInvitation(token, preview, onDone, true);
             }
             setWelcomeAlert(
-              'Please sign in with the invited email (or Google/OAuth linked to it), then accept again.',
+              isWorkgroupInvite
+                ? 'Please sign in, then accept again.'
+                : 'Please sign in with the invited email (or Google/OAuth linked to it), then accept again.',
               'warning'
             );
             updateWelcomeAuthUi(false);
@@ -412,7 +416,9 @@
         }
         if (res.status === 401) {
           setWelcomeAlert(
-            'Your session expired. Sign in again with the invited email, then accept.',
+            isWorkgroupInvite
+              ? 'Your session expired. Sign in again, then accept.'
+              : 'Your session expired. Sign in again with the invited email, then accept.',
             'warning'
           );
           updateWelcomeAuthUi(false);
@@ -420,7 +426,7 @@
         }
         if (!res.ok) {
           var errMsg = res.data.error || 'Could not accept invitation';
-          if (res.status === 403 && errMsg.toLowerCase().indexOf('email') >= 0) {
+          if (!isWorkgroupInvite && res.status === 403 && errMsg.toLowerCase().indexOf('email') >= 0) {
             errMsg =
               'This invitation was sent to a different email address. Sign in with the invited account, or ask ' +
               (preview.inviter_name || 'the sender') +
