@@ -315,24 +315,53 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
         )
 
     def event_block() -> str:
-        lines = ['EVENTS TO MENTION (include URLs in prose):']
+        lines = [
+            'EVENTS TO MENTION (include FULL absolute URLs in prose — never relative paths):',
+        ]
         for item in events:
             title = (item.get('title') or '').strip()
             url = (item.get('url') or '').strip()
             desc = (item.get('description') or '').strip()
-            date = (item.get('event_date') or item.get('eventDate') or '')[:10]
-            detail = f'- {title}'
-            if date:
-                detail += f' ({date})'
+            kind = (item.get('kind') or 'single').strip().lower()
+            if kind not in ('series', 'session', 'single'):
+                kind = 'single'
+            event_date = (item.get('event_date') or item.get('eventDate') or '')[:10]
+            next_session = (item.get('next_session_date') or item.get('nextSessionDate') or '')[:10]
+            series_started = (item.get('series_started') or item.get('seriesStarted') or '')[:10]
+            detail = f'- {title} [kind={kind}]'
             if url:
                 detail += f' — {url}'
             if desc:
                 detail += f'. {desc}'
+            if kind == 'series':
+                if next_session:
+                    detail += f'. DATE WORDING: say the next session is on {next_session}'
+                elif event_date:
+                    detail += f'. DATE WORDING: say the next session is on {event_date}'
+                if series_started:
+                    detail += (
+                        f'; the series already started on {series_started}'
+                        ' — do NOT say the series is starting or coming up on the next session date'
+                    )
+                else:
+                    detail += (
+                        '. Do NOT say the series is starting or coming up on the next session date'
+                        ' — use phrasing like "the next session is on …" or "join us for the next session on …"'
+                    )
+            elif kind == 'session':
+                session_date = next_session or event_date
+                if session_date:
+                    detail += f'. DATE WORDING: this session is on {session_date}'
+            else:
+                if event_date:
+                    detail += f'. DATE WORDING: this event is on {event_date}'
             lines.append(detail)
         return '\n'.join(lines)
 
     def perspective_block() -> str:
-        lines = ['PERSPECTIVES TO MENTION (include URLs in prose):']
+        lines = [
+            'PERSPECTIVES TO MENTION (include FULL absolute URLs in prose — never relative paths):',
+        ]
         for item in perspectives:
             title = (item.get('title') or '').strip()
             url = (item.get('url') or '').strip()
@@ -475,7 +504,7 @@ def draft_invitation_email(
         'Lead with the primary workgroup unless invite content blocks come first per structure. '
         'Mention any additional workgroups briefly. '
         'Do NOT include URLs for workgroup joins — placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
-        'Include full URLs for events and perspectives when provided. '
+        'Include full absolute URLs (https://…) for events and perspectives when provided — never relative paths. '
         f'Tone: {tone_key}. Length: {_LENGTH_GUIDANCE[length_key]}. '
         'Reference previous interaction naturally when provided.'
     )
