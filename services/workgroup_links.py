@@ -575,6 +575,7 @@ def normalize_document_draft_ref(ref: Optional[str]) -> Optional[str]:
 
 def enrich_workgroup_dict(data: dict, workgroup) -> dict:
     """Add document_href, reader_href, document_label, and effective document ref."""
+    from services.dp_images import resolve_workgroup_image_url
     from services.read_navigation import read_page_url
 
     ref = effective_document_draft_ref(workgroup)
@@ -589,6 +590,12 @@ def enrich_workgroup_dict(data: dict, workgroup) -> dict:
             data['document_href'] = f'/doc/draft/{submission.id}/'
             data['reader_href'] = read_page_url(submission.id)
             data['document_label'] = format_draft_display_name(submission)
+    card_url = resolve_workgroup_image_url(workgroup, variant='card')
+    if card_url:
+        data['image_url'] = card_url
+    hero_url = resolve_workgroup_image_url(workgroup, variant='card')
+    if hero_url:
+        data['hero_image_url'] = hero_url
     return data
 
 

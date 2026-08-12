@@ -1769,22 +1769,22 @@ img.gh-entity-thumb {
 }
 
 .gh-card-entity-visual {
-  height: 120px;
-  padding: var(--gh-space-md);
-  background: var(--gh-gradient-map);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  display: block;
 }
 
 .gh-card-entity-visual img {
-  max-height: 100%;
-  max-width: 100%;
-  object-fit: contain;
-  border-radius: var(--gh-radius-xl);
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .card .card-img-top {
@@ -2700,6 +2700,41 @@ a.gh-passage-comment-link:focus {
 #wg-join-grid .wg-join-empty {
   grid-column: 1 / -1;
   color: var(--text-muted);
+}
+
+/* DP artwork on /workgroups/join/ cards */
+.wg-join-card .wg-join-card-visual {
+  display: block;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: var(--gh-radius-xl) var(--gh-radius-xl) 0 0;
+  background: var(--bg-tertiary);
+}
+
+.wg-join-card .wg-join-card-visual img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* DP workgroup detail hero — larger square art like challenge-site */
+.gh-detail-hero-media--dp {
+  width: 10rem;
+  height: 10rem;
+  border-radius: var(--gh-radius-xl);
+}
+
+.gh-detail-hero-media--dp img {
+  object-fit: cover;
+}
+
+@media (min-width: 768px) {
+  .gh-detail-hero-media--dp {
+    width: 12rem;
+    height: 12rem;
+  }
 }
 
 /* Workgroup card description clamping (site-wide) */

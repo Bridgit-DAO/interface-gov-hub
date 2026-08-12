@@ -495,6 +495,7 @@ def workgroup_invite_ai_draft(workgroup_id):
         resolved_person=data.get('resolved_person'),
         additional_workgroup_ids=data.get('additional_workgroup_ids') or [],
         prior_invitations=data.get('prior_invitations'),
+        invite_content=data.get('invite_content'),
     )
     return jsonify(payload), status
 

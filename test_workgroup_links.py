@@ -10,8 +10,9 @@ def test_extract_dp_number():
 
 
 def test_dp_image_url():
-    assert dp_image_url(1) == '/static/images/dp/dp1.png'
-    assert dp_image_url(22) == '/static/images/dp/dp22.png'
+    assert dp_image_url(1) == '/static/images/dps/card/DP1.webp'
+    assert dp_image_url(22) == '/static/images/dps/card/DP22.webp'
+    assert dp_image_url(23) == '/static/images/dps/card/DP23.webp'
     assert dp_image_url(99) is None
 
 

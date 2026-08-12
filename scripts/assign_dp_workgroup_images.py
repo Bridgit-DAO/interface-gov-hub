@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Copy DP pictogram images into static/ and assign image_url on DP workgroups."""
+"""Copy DP WebP artwork into static/ and assign image_url on DP workgroups."""
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -12,24 +13,28 @@ from app import app
 from extensions import db
 from services.workgroup_links import sync_all_dp_workgroup_images
 
-DEFAULT_SOURCE = Path('/home/ubuntu/.cursor/projects/home-ubuntu/assets/dp-icons')
-STATIC_DP_DIR = REPO_ROOT / 'static' / 'images' / 'dp'
-EXTRACT_SCRIPT = REPO_ROOT / 'scripts' / 'extract_dp_icons.py'
+DEFAULT_SOURCE = Path('/home/ubuntu/desirable-properties/challenge-site/public/images/dps')
+STATIC_DPS_DIR = REPO_ROOT / 'static' / 'images' / 'dps'
 
 
 def copy_dp_images(source_dir: Path = DEFAULT_SOURCE) -> list[Path]:
-    """Build icon-only PNGs from card slices, written to static/images/dp/."""
-    import subprocess
-
-    if not EXTRACT_SCRIPT.is_file():
-        raise FileNotFoundError(f'Missing extract script: {EXTRACT_SCRIPT}')
-    subprocess.run([sys.executable, str(EXTRACT_SCRIPT)], check=True)
-    return sorted(STATIC_DP_DIR.glob('dp*.png'))
+    """Copy card/full/badge WebP assets into static/images/dps/."""
+    if not source_dir.is_dir():
+        raise FileNotFoundError(f'Missing DP artwork source: {source_dir}')
+    STATIC_DPS_DIR.mkdir(parents=True, exist_ok=True)
+    copied: list[Path] = []
+    for src in source_dir.rglob('*.webp'):
+        rel = src.relative_to(source_dir)
+        dest = STATIC_DPS_DIR / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        copied.append(dest)
+    return copied
 
 
 def main(dry_run: bool = False, force: bool = False, source_dir: Path = DEFAULT_SOURCE) -> int:
     copied = copy_dp_images(source_dir)
-    print(f'Copied {len(copied)} image(s) to {STATIC_DP_DIR}/')
+    print(f'Copied {len(copied)} image(s) to {STATIC_DPS_DIR}/')
 
     with app.app_context():
         stats = sync_all_dp_workgroup_images(force=force)
