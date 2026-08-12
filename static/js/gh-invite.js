@@ -196,7 +196,7 @@
       return '<p class="small text-muted mb-0">After you accept, you can read the document and follow any review guidance from the inviter.</p>';
     }
     if (inviteType === 'join_workgroup') {
-      return '<p class="small text-muted mb-0">After you accept, you will be joined or asked to join the workgroup (approval may be required). Sign in with any email — the invite link is what authorizes you.</p>';
+      return '<p class="small text-muted mb-0">After you accept, you will be joined or asked to join the workgroup (approval may be required). Sign in with any email – the invite link is what authorizes you.</p>';
     }
     if (inviteType === 'participate_dp') {
       return '<p class="small text-muted mb-0">After you accept, you can browse DP drafts and propose patches from the DP Challenge page.</p>';

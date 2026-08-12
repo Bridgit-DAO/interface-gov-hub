@@ -81,8 +81,8 @@ def deliver_dp_welcome(
 ) -> Optional[str]:
     """Create an in-app notification pointing at the DP welcome page.
 
-    Idempotent per (user, workgroup, variant): a repeated call — a retried
-    approval, a rejoin, a replayed request — returns the same URL without adding
+    Idempotent per (user, workgroup, variant): a repeated call – a retried
+    approval, a rejoin, a replayed request – returns the same URL without adding
     a second notification. Caller commits.
     """
     if not is_dp_workgroup(workgroup) or not user_id:
@@ -105,7 +105,7 @@ def deliver_dp_welcome(
 
     if variant == 'lead':
         pos = position_label(position_key or 'chair')
-        title = f'Welcome — {pos} for {workgroup.name}'
+        title = f'Welcome – {pos} for {workgroup.name}'
         body = f"You're approved as workgroup {pos.lower()}. Open your combined welcome guide."
     else:
         title = f'Welcome to {workgroup.name}'

@@ -22,7 +22,7 @@
       "steps": [
         "Ask for workgroup name/slug and layer URL.",
         "For email invites, confirm the user opened the invite link and signed in (any email is fine for DP workgroup invites).",
-        "Direct membership changes to workgroup lead or layer admin — support does not override roles."
+        "Direct membership changes to workgroup lead or layer admin – support does not override roles."
       ]
     },
     {
