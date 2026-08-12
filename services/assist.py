@@ -414,7 +414,7 @@ def _sanitize_error_detail(exc: Exception) -> str:
     return raw[:200]
 
 
-def call_llm(messages: List[dict], cfg: LlmConfig) -> str:
+def call_llm(messages: List[dict], cfg: LlmConfig, *, temperature: float = 0.3) -> str:
     try:
         response = requests.post(
             cfg.url,
@@ -425,7 +425,7 @@ def call_llm(messages: List[dict], cfg: LlmConfig) -> str:
             json={
                 'model': cfg.model,
                 'messages': messages,
-                'temperature': 0.3,
+                'temperature': temperature,
                 'max_tokens': MAX_OUTPUT_TOKENS,
             },
             timeout=60,

@@ -46,6 +46,26 @@ _LENGTH_GUIDANCE = {
     'long': 'About 380–520 words.',
 }
 
+_TONE_GUIDANCE = {
+    'warm': (
+        'Warm and personable: friendly greeting, genuine enthusiasm, inviting language, '
+        'and a conversational flow. Sound like a colleague who is excited to connect.'
+    ),
+    'professional': (
+        'Professional and polished: respectful, clear structure, measured enthusiasm, '
+        'and business-appropriate phrasing without being stiff or cold.'
+    ),
+    'direct': (
+        'Direct and concise: short sentences, minimal filler, state purpose quickly, '
+        'and make a clear ask. Skip pleasantries beyond the required greeting.'
+    ),
+}
+
+_DATE_FORMAT_RULE = (
+    'Use natural calendar dates in prose (e.g. "August 10, 2026"), never ISO YYYY-MM-DD. '
+    'Do not wrap perspective or event titles in quotation marks when mentioning them in prose.'
+)
+
 _DP_ENGAGEMENT_PARAGRAPH = (
     'The Desirable Properties Challenge is a community-led effort to define what we want from '
     'the layered web – governance patterns, interoperability, and human agency. Workgroups like '
@@ -308,6 +328,53 @@ def ensure_invite_greeting(draft: str, invitee_name: str) -> str:
     return f'Hi {greet},\n\n{text}'
 
 
+def _format_invite_date(raw: str) -> str:
+    """Format ISO-ish dates as natural prose (e.g. August 10, 2026)."""
+    cleaned = (raw or '').strip()
+    if not cleaned:
+        return ''
+    date_part = cleaned[:10]
+    if len(date_part) == 10 and date_part[4] == '-' and date_part[7] == '-':
+        try:
+            dt = datetime.strptime(date_part, '%Y-%m-%d')
+            return f'{dt.strftime("%B")} {dt.day}, {dt.year}'
+        except ValueError:
+            pass
+    return cleaned
+
+
+def _normalize_invite_content_for_llm(invite_content: Optional[dict]) -> Optional[dict]:
+    """Format invite content dates for LLM guidance (human-readable, not ISO)."""
+    if not invite_content:
+        return None
+
+    events_out = []
+    for item in invite_content.get('events') or []:
+        if not isinstance(item, dict):
+            continue
+        event = dict(item)
+        for key in ('event_date', 'eventDate', 'next_session_date', 'nextSessionDate', 'series_started', 'seriesStarted'):
+            raw = event.get(key)
+            if raw:
+                event[key] = _format_invite_date(str(raw))
+        events_out.append(event)
+
+    perspectives_out = []
+    for item in invite_content.get('perspectives') or []:
+        if isinstance(item, dict):
+            perspectives_out.append(dict(item))
+
+    lead = (invite_content.get('lead') or 'events').strip().lower()
+    if lead not in ('events', 'perspectives', 'engagement'):
+        lead = 'events'
+
+    return {
+        'lead': lead,
+        'events': events_out,
+        'perspectives': perspectives_out,
+    }
+
+
 def _invite_content_guidance(invite_content: Optional[dict]) -> str:
     if not invite_content:
         return ''
@@ -330,6 +397,7 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
     def event_block() -> str:
         lines = [
             'EVENTS TO MENTION (include FULL absolute URLs in prose – never relative paths):',
+            _DATE_FORMAT_RULE,
         ]
         for item in events:
             title = (item.get('title') or '').strip()
@@ -338,9 +406,15 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
             kind = (item.get('kind') or 'single').strip().lower()
             if kind not in ('series', 'session', 'single'):
                 kind = 'single'
-            event_date = (item.get('event_date') or item.get('eventDate') or '')[:10]
-            next_session = (item.get('next_session_date') or item.get('nextSessionDate') or '')[:10]
-            series_started = (item.get('series_started') or item.get('seriesStarted') or '')[:10]
+            event_date = _format_invite_date(
+                str(item.get('event_date') or item.get('eventDate') or ''),
+            )
+            next_session = _format_invite_date(
+                str(item.get('next_session_date') or item.get('nextSessionDate') or ''),
+            )
+            series_started = _format_invite_date(
+                str(item.get('series_started') or item.get('seriesStarted') or ''),
+            )
             detail = f'- {title} [kind={kind}]'
             if url:
                 detail += f' – {url}'
@@ -353,13 +427,13 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
                     detail += f'. DATE WORDING: say the next session is on {event_date}'
                 if series_started:
                     detail += (
-                        f'; the series already started on {series_started}'
+                        f'; the series is ongoing (started {series_started})'
                         ' – do NOT say the series is starting or coming up on the next session date'
                     )
                 else:
                     detail += (
-                        '. Do NOT say the series is starting or coming up on the next session date'
-                        ' – use phrasing like "the next session is on …" or "join us for the next session on …"'
+                        '. The series is ongoing – use phrasing like "the next session is on …" '
+                        'or "join us for the next session on …"'
                     )
             elif kind == 'session':
                 session_date = next_session or event_date
@@ -374,6 +448,7 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
     def perspective_block() -> str:
         lines = [
             'PERSPECTIVES TO MENTION (include FULL absolute URLs in prose – never relative paths):',
+            'Mention perspective titles in plain prose without wrapping them in quotation marks.',
         ]
         for item in perspectives:
             title = (item.get('title') or '').strip()
@@ -450,6 +525,8 @@ def draft_invitation_email(
     additional_workgroup_ids: Optional[List[str]] = None,
     prior_invitations: Optional[List[dict]] = None,
     invite_content: Optional[dict] = None,
+    regenerate: bool = False,
+    previous_draft: str = '',
 ) -> Tuple[dict, int]:
     if not is_workgroup_member(workgroup.acronym, inviter):
         return {'error': 'Only workgroup members can use the AI invite tool'}, 403
@@ -494,7 +571,8 @@ def draft_invitation_email(
     invitee_display = (name or '').strip()
     greet_name = _invitee_greeting_name(invitee_display)
 
-    invite_content_note = _invite_content_guidance(invite_content)
+    invite_content_for_llm = _normalize_invite_content_for_llm(invite_content)
+    invite_content_note = _invite_content_guidance(invite_content_for_llm)
     combined_guidance = (extra_guidance or '').strip()
     if invite_content_note:
         combined_guidance = (
@@ -503,11 +581,13 @@ def draft_invitation_email(
             else invite_content_note
         )
 
+    tone_guidance = _TONE_GUIDANCE.get(tone_key, _TONE_GUIDANCE['warm'])
     system = (
         'Write a personal invitation email body (plain text, no subject line). '
         f'The FIRST line MUST be a greeting using the invitee\'s first name, e.g. "Hi {greet_name}," '
         '(or "Hi {full name}," if only one name token). Never skip the greeting. '
         f'{_NO_EM_DASH_RULE}'
+        f'{_DATE_FORMAT_RULE} '
     )
     if invite_content_note:
         system += (
@@ -519,9 +599,19 @@ def draft_invitation_email(
         'Mention any additional workgroups briefly. '
         'Do NOT include URLs for workgroup joins – placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
         'Include full absolute URLs (https://…) for events and perspectives when provided – never relative paths. '
-        f'Tone: {tone_key}. Length: {_LENGTH_GUIDANCE[length_key]}. '
+        f'TONE ({tone_key}): {tone_guidance} '
+        f'LENGTH: {_LENGTH_GUIDANCE[length_key]}. '
         'Reference previous interaction naturally when provided.'
     )
+
+    previous_draft_text = (previous_draft or '').strip()
+    regenerate_note = ''
+    if regenerate and previous_draft_text:
+        regenerate_note = (
+            'Regenerate the invitation: rewrite the previous draft in the requested tone and length. '
+            'Change phrasing and structure noticeably while preserving factual content, URLs, and join placeholders.'
+        )
+
     user_msg = json.dumps({
         'inviter_name': inviter_name,
         'invitee_name': invitee_display,
@@ -531,16 +621,25 @@ def draft_invitation_email(
         'additional_workgroups': extra_wgs,
         'resolved_person': resolved_person or {'name': invitee_display},
         'previous_interaction': (previous_interaction or '').strip(),
+        'tone': tone_key,
+        'length': length_key,
+        'tone_guidance': tone_guidance,
+        'length_guidance': _LENGTH_GUIDANCE[length_key],
         'extra_guidance': combined_guidance,
-        'invite_content': invite_content or None,
+        'invite_content': invite_content_for_llm,
         'prior_invite_note': prior_note,
+        'regenerate': bool(regenerate),
+        'previous_draft': previous_draft_text if regenerate else '',
+        'regenerate_note': regenerate_note,
     })
+
+    llm_temperature = 0.55 if regenerate else 0.4
 
     try:
         draft = clean_draft(call_llm([
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user_msg},
-        ], cfg))
+        ], cfg, temperature=llm_temperature))
         draft = ensure_invite_greeting(draft, invitee_display)
         draft = strip_em_dashes(draft)
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:

@@ -1,5 +1,30 @@
 """Unit tests for invite content guidance in AI draft emails."""
-from services.workgroup_invite_ai import _DP_ENGAGEMENT_PARAGRAPH, _invite_content_guidance
+from services.workgroup_invite_ai import (
+    _DP_ENGAGEMENT_PARAGRAPH,
+    _format_invite_date,
+    _invite_content_guidance,
+    _normalize_invite_content_for_llm,
+)
+
+
+def test_format_invite_date():
+    assert _format_invite_date('2026-08-10') == 'August 10, 2026'
+    assert _format_invite_date('2026-08-10T00:00:00.000Z') == 'August 10, 2026'
+
+
+def test_normalize_invite_content_for_llm_dates():
+    normalized = _normalize_invite_content_for_llm({
+        'lead': 'events',
+        'events': [{
+            'title': 'Series',
+            'kind': 'series',
+            'next_session_date': '2026-08-17',
+            'series_started': '2026-08-10',
+        }],
+        'perspectives': [],
+    })
+    assert normalized['events'][0]['next_session_date'] == 'August 17, 2026'
+    assert normalized['events'][0]['series_started'] == 'August 10, 2026'
 
 
 def test_invite_content_guidance_empty():
@@ -82,6 +107,7 @@ def test_invite_content_guidance_series_kind_date_wording():
         'perspectives': [],
     })
     assert 'kind=series' in guidance
-    assert 'next session is on 2026-08-17' in guidance
-    assert 'series already started on 2026-06-01' in guidance
+    assert 'next session is on August 17, 2026' in guidance
+    assert 'ongoing (started June 1, 2026)' in guidance
+    assert '2026-08-17' not in guidance
     assert 'FULL absolute URLs' in guidance
