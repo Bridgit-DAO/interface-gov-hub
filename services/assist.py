@@ -479,25 +479,88 @@ def strip_em_dashes(text: str) -> str:
     return (text or '').replace(_EM_DASH, _EN_DASH)
 
 
-def clean_draft(text: str) -> str:
-    # Mirrors canopi/services/assistService.js: cleanAssistDraft. The chatty
-    # MiniMax M3 model wraps its chain-of-thought in  / <reasoning>
-    # / <analysis> / <reflection> tags; we remove those tags AND the content
-    # between them so the user only sees the final answer. Without this, the
-    # tags come back as plain text in the draft and the user sees model
-    # reasoning interleaved with the real output.
+_THINK_CLOSE_TAGS = (
+    '</' + 'think' + '>',
+    '</think>',
+)
+_MIN_ANSWER_AFTER_THINK_CHARS = 80
+_REASONING_TAG_PATTERNS = [
+    r'<reasoning>[\s\S]*?</reasoning>',
+    r'<analysis>[\s\S]*?</analysis>',
+    r'<reflection>[\s\S]*?</reflection>',
+]
+_THINK_UNWRAP_PATTERN = (
+    r'<(?:think|redacted_thinking)>([\s\S]*?)</(?:think|redacted_thinking)>'
+)
+_GREETING_LINE_RE = re.compile(r'(?im)^(Hi\s+[^,\n]{1,60},)')
+
+
+def _tail_after_last_think_block(text: str) -> str:
+    """Return text after the final closed think block, if any."""
+    last_idx = -1
+    last_tag = ''
+    for tag in _THINK_CLOSE_TAGS:
+        idx = text.rfind(tag)
+        if idx > last_idx:
+            last_idx = idx
+            last_tag = tag
+    if last_idx < 0:
+        return ''
+    return text[last_idx + len(last_tag):].strip()
+
+
+def _unwrap_think_blocks(text: str) -> str:
+    """Keep think-block inner text instead of deleting it (MiniMax often drafts inside)."""
+    return re.sub(_THINK_UNWRAP_PATTERN, r'\1', text or '', flags=re.I)
+
+
+def _strip_reasoning_tag_blocks(text: str) -> str:
     cleaned = text or ''
-    tag_patterns = [
-        r'<(?:think|redacted_thinking)>[\s\S]*?</(?:think|redacted_thinking)>',
-        r'<reasoning>[\s\S]*?</reasoning>',
-        r'<analysis>[\s\S]*?</analysis>',
-        r'<reflection>[\s\S]*?</reflection>',
-    ]
-    for pat in tag_patterns:
+    for pat in _REASONING_TAG_PATTERNS:
         cleaned = re.sub(pat, '', cleaned, flags=re.I)
-    # Drop any orphaned opening/closing tags that escaped the block match.
-    cleaned = re.sub(r'</?(?:think|redacted_thinking)>', '', cleaned, flags=re.I)
     cleaned = re.sub(r'</?(?:reasoning|analysis|reflection)>', '', cleaned, flags=re.I)
+    return cleaned
+
+
+def _trim_leading_model_reasoning(text: str) -> str:
+    """Drop planning preamble before the first greeting line when present."""
+    match = _GREETING_LINE_RE.search(text or '')
+    if match:
+        return text[match.start():].strip()
+    return (text or '').strip()
+
+
+def _trim_trailing_model_reasoning(text: str) -> str:
+    """Stop at [JOIN_PRIMARY] or a completed sign-off when the model keeps planning."""
+    cleaned = (text or '').strip()
+    if not cleaned:
+        return cleaned
+    upper = cleaned.upper()
+    join_idx = upper.rfind('[JOIN_PRIMARY]')
+    if join_idx >= 0:
+        end = join_idx + len('[JOIN_PRIMARY]')
+        line_end = cleaned.find('\n', end)
+        return cleaned[:line_end].strip() if line_end >= 0 else cleaned[:end].strip()
+    return cleaned
+
+
+def clean_draft(text: str) -> str:
+    # Mirrors canopi/services/assistService.js: cleanAssistDraft. MiniMax M3 often
+    # emits chain-of-thought in  / <reasoning> blocks. The draft may appear
+    # AFTER the last  (classic) or INSIDE a think block (common for long
+    # invite emails). Deleting think blocks wholesale therefore truncates drafts.
+    cleaned = text or ''
+
+    tail_after_think = _tail_after_last_think_block(cleaned)
+    if len(tail_after_think) >= _MIN_ANSWER_AFTER_THINK_CHARS:
+        cleaned = tail_after_think
+    else:
+        cleaned = _unwrap_think_blocks(cleaned)
+
+    cleaned = _strip_reasoning_tag_blocks(cleaned)
+    cleaned = re.sub(r'</?(?:think|redacted_thinking)>', '', cleaned, flags=re.I)
+    cleaned = _trim_leading_model_reasoning(cleaned)
+    cleaned = _trim_trailing_model_reasoning(cleaned)
     cleaned = strip_em_dashes(cleaned)
     return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 

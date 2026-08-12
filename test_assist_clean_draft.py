@@ -34,3 +34,39 @@ def test_clean_draft_removes_reasoning_tags_and_em_dashes():
     assert 'thinking' not in cleaned
     assert _EM not in cleaned
     assert f'missed {_EN} triaging' in cleaned
+
+
+def test_clean_draft_unwraps_think_block_with_draft_inside():
+    think_open = '<' + 'think' + '>'
+    think_close = '</' + 'think' + '>'
+    raw = (
+        'Hi Daveed,\n'
+        'Our many conversations about the layered web.\n\n'
+        'https://desirableproperties.org/perspectives/a-fork-in-the-web\n\n'
+        'There is also\n'
+        f'{think_open}\n'
+        'more about the Desirable Properties Challenge and why this workgroup matters. '
+        'Your perspective would strengthen our work.\n\n'
+        '[JOIN_PRIMARY]\n'
+        f'{think_close}'
+    )
+    cleaned = clean_draft(raw)
+    assert 'There is also' in cleaned
+    assert 'Desirable Properties Challenge' in cleaned
+    assert '[JOIN_PRIMARY]' in cleaned
+    assert think_open not in cleaned
+    assert think_close not in cleaned
+
+
+def test_clean_draft_keeps_answer_after_think_block():
+    think_open = '<' + 'think' + '>'
+    think_close = '</' + 'think' + '>'
+    raw = (
+        f'{think_open}planning the email{think_close}\n\n'
+        'Hi Pat,\n\nThanks for your work on governance patterns.\n\n'
+        '[JOIN_PRIMARY]'
+    )
+    cleaned = clean_draft(raw)
+    assert 'planning the email' not in cleaned
+    assert 'Hi Pat,' in cleaned
+    assert '[JOIN_PRIMARY]' in cleaned
