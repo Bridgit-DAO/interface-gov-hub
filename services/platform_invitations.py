@@ -29,6 +29,11 @@ from services.dp_proposals import (
 )
 from services.platform_invitation_mail import send_platform_invitation_email
 from services.proposal_modes import is_mode_enabled, proposal_mode_for_submission
+from services.dp_public_urls import (
+    workgroup_invite_landing_path,
+    workgroup_invite_landing_url,
+    workgroup_post_accept_path,
+)
 from services.public_urls import public_base_url
 from services.utils import generate_invitation_token
 from services.workgroup_authority import can_invite_workgroup_member, is_workgroup_member
@@ -258,7 +263,25 @@ def strip_invite_query_params(path: str) -> str:
 
 
 def build_post_accept_redirect(inv: PlatformInvitation) -> str:
+    if inv.invite_type == 'join_workgroup':
+        target = _load_target(inv)
+        slug = (target.get('workgroup_slug') or '').strip()
+        return workgroup_post_accept_path(slug)
     return strip_invite_query_params(build_landing_path(inv))
+
+
+def invitation_landing_url(inv: PlatformInvitation) -> str:
+    """Full URL for emails and share links (DP for workgroup invites)."""
+    if inv.invite_type == 'join_workgroup':
+        return workgroup_invite_landing_url(inv)
+    return public_base_url() + build_landing_path(inv)
+
+
+def invitation_landing_path(inv: PlatformInvitation) -> str:
+    """Path portion of invitation_landing_url (DP-relative for workgroup invites)."""
+    if inv.invite_type == 'join_workgroup':
+        return workgroup_invite_landing_path(inv)
+    return build_landing_path(inv)
 
 
 def build_landing_path(inv: PlatformInvitation) -> str:
@@ -300,7 +323,7 @@ def _target_title(inv: PlatformInvitation) -> str:
 
 def _invitation_response(inv: PlatformInvitation, *, email_sent: bool = False) -> dict:
     inviter = User.query.get(inv.inviter_id)
-    path = build_landing_path(inv)
+    path = invitation_landing_path(inv)
     shareable = platform_invitation_is_shareable(inv)
     return {
         'success': True,
@@ -309,7 +332,7 @@ def _invitation_response(inv: PlatformInvitation, *, email_sent: bool = False) -
         'binding_mode': getattr(inv, 'binding_mode', None) or ('shareable' if shareable else 'private'),
         'invitation': inv.to_dict(),
         'invite_path': path,
-        'landing_url': None,  # filled by route with origin if needed
+        'landing_url': invitation_landing_url(inv),
         'inviter_name': (inviter.displayName or inviter.username) if inviter else None,
         'target_title': _target_title(inv),
     }
@@ -612,7 +635,7 @@ def create_invitation(
             invitation=pending_match,
             inviter=inviter,
             invitee_email=email,
-            landing_url=public_base_url() + build_landing_path(pending_match),
+            landing_url=invitation_landing_url(pending_match),
             target_title=_target_title(pending_match),
         )
         body = _invitation_response(pending_match, email_sent=sent)
@@ -645,7 +668,7 @@ def create_invitation(
         invitation=inv,
         inviter=inviter,
         invitee_email=email,
-        landing_url=public_base_url() + build_landing_path(inv),
+        landing_url=invitation_landing_url(inv),
         target_title=_target_title(inv),
     )
     body = _invitation_response(inv, email_sent=sent)
@@ -719,7 +742,7 @@ def _create_shareable_platform_invitation(
             invitation=inv,
             inviter=inviter,
             invitee_email=email,
-            landing_url=public_base_url() + build_landing_path(inv),
+            landing_url=invitation_landing_url(inv),
             target_title=_target_title(inv),
         )
 
@@ -854,8 +877,12 @@ def _create_shareable_platform_batch(
         return body, status
 
     inviter = User.query.get(inviter_id)
-    share_path = body.get('invite_path') or build_landing_path(inv)
-    landing_url = public_base_url() + share_path
+    share_path = body.get('invite_path') or invitation_landing_path(inv)
+    landing_url = (
+        workgroup_invite_landing_url(inv)
+        if inv.invite_type == 'join_workgroup'
+        else public_base_url() + share_path
+    )
     results = []
     sent_count = 0
     error_count = 0
@@ -958,7 +985,8 @@ def preview_invitation(token: str) -> Tuple[dict, int]:
         'inviter_name': (inviter.displayName or inviter.username) if inviter else None,
         'message': inv.message,
         'target_title': _target_title(inv),
-        'landing_path': build_landing_path(inv),
+        'landing_path': invitation_landing_path(inv),
+        'landing_url': invitation_landing_url(inv),
         'target': target,
         'authenticated': 'user' in session,
     }
@@ -1028,7 +1056,7 @@ def _accept_join_workgroup(inv: PlatformInvitation, user: User, *, finalize_invi
         return {
             'success': True,
             'duplicate': True,
-            'redirect_path': f'/workgroups/{slug}/' if slug else '/workgroups/',
+            'redirect_path': workgroup_post_accept_path(slug),
         }, 200
 
     result = join_or_request_workgroup_membership(
@@ -1053,7 +1081,7 @@ def _accept_join_workgroup(inv: PlatformInvitation, user: User, *, finalize_invi
         db.session.commit()
     return {
         'success': True,
-        'redirect_path': f'/workgroups/{slug}/' if slug else '/workgroups/',
+        'redirect_path': workgroup_post_accept_path(slug),
         'pending_approval': bool(result.get('pending_approval')),
     }, 200
 

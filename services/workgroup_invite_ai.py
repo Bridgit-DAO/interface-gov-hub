@@ -16,13 +16,12 @@ from services.platform_invitation_mail import (
     substitute_workgroup_join_placeholders,
 )
 from services.platform_invitations import (
-    build_landing_path,
     can_invite,
+    invitation_landing_url,
     lookup_prior_workgroup_invitations,
     normalize_invitee_email,
     validate_invitee_email,
 )
-from services.public_urls import public_base_url
 from services.utils import generate_invitation_token
 from services.web_research import research_person_corpus
 from services.workgroup_authority import is_workgroup_member
@@ -38,6 +37,12 @@ _LENGTH_GUIDANCE = {
     'medium': 'About 220–320 words.',
     'long': 'About 380–520 words.',
 }
+
+_DP_ENGAGEMENT_PARAGRAPH = (
+    'The Desirable Properties Challenge is a community-led effort to define what we want from '
+    'the layered web — governance patterns, interoperability, and human agency. Workgroups like '
+    'this one turn those ideas into practice, and your perspective would strengthen that work.'
+)
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -290,6 +295,74 @@ def ensure_invite_greeting(draft: str, invitee_name: str) -> str:
     return f'Hi {greet},\n\n{text}'
 
 
+def _invite_content_guidance(invite_content: Optional[dict]) -> str:
+    if not invite_content:
+        return ''
+
+    events = invite_content.get('events') or []
+    perspectives = invite_content.get('perspectives') or []
+    if not events and not perspectives:
+        return ''
+
+    lead = (invite_content.get('lead') or 'events').strip().lower()
+    if lead not in ('events', 'perspectives'):
+        lead = 'events'
+
+    def event_block() -> str:
+        lines = ['EVENTS TO MENTION (include URLs in prose):']
+        for item in events:
+            title = (item.get('title') or '').strip()
+            url = (item.get('url') or '').strip()
+            desc = (item.get('description') or '').strip()
+            date = (item.get('event_date') or item.get('eventDate') or '')[:10]
+            detail = f'- {title}'
+            if date:
+                detail += f' ({date})'
+            if url:
+                detail += f' — {url}'
+            if desc:
+                detail += f'. {desc}'
+            lines.append(detail)
+        return '\n'.join(lines)
+
+    def perspective_block() -> str:
+        lines = ['PERSPECTIVES TO MENTION (include URLs in prose):']
+        for item in perspectives:
+            title = (item.get('title') or '').strip()
+            url = (item.get('url') or '').strip()
+            slug = (item.get('slug') or '').strip()
+            detail = f'- {title}'
+            if url:
+                detail += f' — {url}'
+            if slug:
+                detail += f' (slug: {slug})'
+            lines.append(detail)
+        return '\n'.join(lines)
+
+    blocks = []
+    if lead == 'events':
+        if events:
+            blocks.append(event_block())
+        if perspectives:
+            blocks.append(perspective_block())
+    else:
+        if perspectives:
+            blocks.append(perspective_block())
+        if events:
+            blocks.append(event_block())
+
+    structure = [
+        'INVITE CONTENT STRUCTURE (before the workgroup invitation):',
+        '1. Lead block as specified by invite_lead.',
+        '2. Second block if both events and perspectives are selected.',
+        f'3. Include this Desirable Properties engagement paragraph verbatim:\n{_DP_ENGAGEMENT_PARAGRAPH}',
+        '4. Then transition into the workgroup invitation (primary workgroup, extras, join placeholders).',
+        '',
+        *blocks,
+    ]
+    return '\n'.join(structure)
+
+
 def draft_invitation_email(
     *,
     workgroup: Workgroup,
@@ -303,6 +376,7 @@ def draft_invitation_email(
     resolved_person: Optional[dict] = None,
     additional_workgroup_ids: Optional[List[str]] = None,
     prior_invitations: Optional[List[dict]] = None,
+    invite_content: Optional[dict] = None,
 ) -> Tuple[dict, int]:
     if not is_workgroup_member(workgroup.acronym, inviter):
         return {'error': 'Only workgroup members can use the AI invite tool'}, 403
@@ -347,12 +421,30 @@ def draft_invitation_email(
     invitee_display = (name or '').strip()
     greet_name = _invitee_greeting_name(invitee_display)
 
+    invite_content_note = _invite_content_guidance(invite_content)
+    combined_guidance = (extra_guidance or '').strip()
+    if invite_content_note:
+        combined_guidance = (
+            f'{invite_content_note}\n\n{combined_guidance}'.strip()
+            if combined_guidance
+            else invite_content_note
+        )
+
     system = (
         'Write a personal invitation email body (plain text, no subject line). '
         f'The FIRST line MUST be a greeting using the invitee\'s first name, e.g. "Hi {greet_name}," '
         '(or "Hi {full name}," if only one name token). Never skip the greeting. '
-        'Lead with the primary workgroup. Mention any additional workgroups briefly. '
-        'Do NOT include URLs — placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
+    )
+    if invite_content_note:
+        system += (
+            'When invite content is provided, follow the INVITE CONTENT STRUCTURE before the '
+            'workgroup invitation. '
+        )
+    system += (
+        'Lead with the primary workgroup unless invite content blocks come first per structure. '
+        'Mention any additional workgroups briefly. '
+        'Do NOT include URLs for workgroup joins — placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
+        'Include full URLs for events and perspectives when provided. '
         f'Tone: {tone_key}. Length: {_LENGTH_GUIDANCE[length_key]}. '
         'Reference previous interaction naturally when provided.'
     )
@@ -365,7 +457,8 @@ def draft_invitation_email(
         'additional_workgroups': extra_wgs,
         'resolved_person': resolved_person or {'name': invitee_display},
         'previous_interaction': (previous_interaction or '').strip(),
-        'extra_guidance': (extra_guidance or '').strip(),
+        'extra_guidance': combined_guidance,
+        'invite_content': invite_content or None,
         'prior_invite_note': prior_note,
     })
 
@@ -464,11 +557,10 @@ def send_ai_workgroup_invitations(
     if not invitations:
         return {'error': 'No invitations created'}, 400
 
-    base = public_base_url()
     links = [
         {
             'workgroup_name': wg.name,
-            'landing_url': base + build_landing_path(inv),
+            'landing_url': invitation_landing_url(inv),
         }
         for inv, wg in invitations
     ]
