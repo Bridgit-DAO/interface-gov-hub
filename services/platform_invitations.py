@@ -951,6 +951,7 @@ def _document_abstract_from_target(target: dict) -> str:
     return abstract
 
 
+
 def _workgroup_description(wg: Workgroup) -> str:
     return (wg.description or wg.charter or '').strip()
 
