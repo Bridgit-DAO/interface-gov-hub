@@ -8,7 +8,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from extensions import db
 from models import PlatformInvitation, User, Workgroup, WorkgroupMemberRequest
-from services.assist import LlmCallFailed, LlmTemporarilyBusy, call_llm, clean_draft, llm_configured, resolve_llm_config
+from services.assist import (
+    LlmCallFailed,
+    LlmTemporarilyBusy,
+    call_llm,
+    clean_draft,
+    llm_configured,
+    resolve_llm_config,
+    strip_em_dashes,
+)
 from services.platform_invitation_mail import (
     build_multi_workgroup_invite_mailto,
     invite_body_uses_join_placeholders,
@@ -40,8 +48,12 @@ _LENGTH_GUIDANCE = {
 
 _DP_ENGAGEMENT_PARAGRAPH = (
     'The Desirable Properties Challenge is a community-led effort to define what we want from '
-    'the layered web — governance patterns, interoperability, and human agency. Workgroups like '
+    'the layered web – governance patterns, interoperability, and human agency. Workgroups like '
     'this one turn those ideas into practice, and your perspective would strengthen that work.'
+)
+
+_NO_EM_DASH_RULE = (
+    'Never use em dashes (Unicode U+2014); use en dashes (Unicode U+2013), commas, or hyphens instead. '
 )
 
 
@@ -205,7 +217,8 @@ def research_external_contact(
 
     system = (
         'You analyze public information about a person for a workgroup recruitment email. '
-        'Respond with a single JSON object only — no markdown fences, no commentary before or after. '
+        'Respond with a single JSON object only – no markdown fences, no commentary before or after. '
+        f'{_NO_EM_DASH_RULE}'
         'Required keys: '
         'ambiguous (boolean), candidates (array of {name, headline, source_urls[]}), '
         'resolved_person ({name, headline, summary, expertise_tags[]}), '
@@ -316,7 +329,7 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
 
     def event_block() -> str:
         lines = [
-            'EVENTS TO MENTION (include FULL absolute URLs in prose — never relative paths):',
+            'EVENTS TO MENTION (include FULL absolute URLs in prose – never relative paths):',
         ]
         for item in events:
             title = (item.get('title') or '').strip()
@@ -330,7 +343,7 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
             series_started = (item.get('series_started') or item.get('seriesStarted') or '')[:10]
             detail = f'- {title} [kind={kind}]'
             if url:
-                detail += f' — {url}'
+                detail += f' – {url}'
             if desc:
                 detail += f'. {desc}'
             if kind == 'series':
@@ -341,12 +354,12 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
                 if series_started:
                     detail += (
                         f'; the series already started on {series_started}'
-                        ' — do NOT say the series is starting or coming up on the next session date'
+                        ' – do NOT say the series is starting or coming up on the next session date'
                     )
                 else:
                     detail += (
                         '. Do NOT say the series is starting or coming up on the next session date'
-                        ' — use phrasing like "the next session is on …" or "join us for the next session on …"'
+                        ' – use phrasing like "the next session is on …" or "join us for the next session on …"'
                     )
             elif kind == 'session':
                 session_date = next_session or event_date
@@ -360,7 +373,7 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
 
     def perspective_block() -> str:
         lines = [
-            'PERSPECTIVES TO MENTION (include FULL absolute URLs in prose — never relative paths):',
+            'PERSPECTIVES TO MENTION (include FULL absolute URLs in prose – never relative paths):',
         ]
         for item in perspectives:
             title = (item.get('title') or '').strip()
@@ -368,7 +381,7 @@ def _invite_content_guidance(invite_content: Optional[dict]) -> str:
             slug = (item.get('slug') or '').strip()
             detail = f'- {title}'
             if url:
-                detail += f' — {url}'
+                detail += f' – {url}'
             if slug:
                 detail += f' (slug: {slug})'
             lines.append(detail)
@@ -475,7 +488,7 @@ def draft_invitation_email(
         latest = prior[0]
         prior_note = (
             f"We previously invited this person ({latest.get('status')}) on "
-            f"{latest.get('created_at', '')[:10]} — acknowledge naturally if appropriate."
+            f"{latest.get('created_at', '')[:10]} – acknowledge naturally if appropriate."
         )
 
     invitee_display = (name or '').strip()
@@ -494,6 +507,7 @@ def draft_invitation_email(
         'Write a personal invitation email body (plain text, no subject line). '
         f'The FIRST line MUST be a greeting using the invitee\'s first name, e.g. "Hi {greet_name}," '
         '(or "Hi {full name}," if only one name token). Never skip the greeting. '
+        f'{_NO_EM_DASH_RULE}'
     )
     if invite_content_note:
         system += (
@@ -503,8 +517,8 @@ def draft_invitation_email(
     system += (
         'Lead with the primary workgroup unless invite content blocks come first per structure. '
         'Mention any additional workgroups briefly. '
-        'Do NOT include URLs for workgroup joins — placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
-        'Include full absolute URLs (https://…) for events and perspectives when provided — never relative paths. '
+        'Do NOT include URLs for workgroup joins – placeholders [JOIN_PRIMARY] and [JOIN_EXTRA_N] will be inserted later. '
+        'Include full absolute URLs (https://…) for events and perspectives when provided – never relative paths. '
         f'Tone: {tone_key}. Length: {_LENGTH_GUIDANCE[length_key]}. '
         'Reference previous interaction naturally when provided.'
     )
@@ -528,6 +542,7 @@ def draft_invitation_email(
             {'role': 'user', 'content': user_msg},
         ], cfg))
         draft = ensure_invite_greeting(draft, invitee_display)
+        draft = strip_em_dashes(draft)
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:
         return {'error': f'AI draft failed: {exc}'}, 502
 
@@ -570,7 +585,7 @@ def send_ai_workgroup_invitations(
     if block:
         return {'blocked': True, 'error': block}, 400
 
-    text = (body or '').strip()
+    text = strip_em_dashes((body or '').strip())
     if not text:
         return {'error': 'Email body is required'}, 400
 

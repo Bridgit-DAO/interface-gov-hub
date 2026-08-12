@@ -464,6 +464,15 @@ def call_llm(messages: List[dict], cfg: LlmConfig) -> str:
     return content
 
 
+_EM_DASH = '\u2014'
+_EN_DASH = '\u2013'
+
+
+def strip_em_dashes(text: str) -> str:
+    """Replace em dashes (U+2014) with en dashes (U+2013). En dashes are allowed."""
+    return (text or '').replace(_EM_DASH, _EN_DASH)
+
+
 def clean_draft(text: str) -> str:
     # Mirrors canopi/services/assistService.js: cleanAssistDraft. The chatty
     # MiniMax M3 model wraps its chain-of-thought in  / <reasoning>
@@ -483,7 +492,7 @@ def clean_draft(text: str) -> str:
     # Drop any orphaned opening/closing tags that escaped the block match.
     cleaned = re.sub(r'</?(?:think|redacted_thinking)>', '', cleaned, flags=re.I)
     cleaned = re.sub(r'</?(?:reasoning|analysis|reflection)>', '', cleaned, flags=re.I)
-    cleaned = cleaned.replace('–', '–')
+    cleaned = strip_em_dashes(cleaned)
     return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 
 
