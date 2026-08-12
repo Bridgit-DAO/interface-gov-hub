@@ -91,3 +91,14 @@ def test_plain_body_adds_greeting_when_body_missing_one():
         inline_join_links=True,
     )
     assert plain.startswith('Hi Daveed Benjamin,')
+
+
+def test_plain_body_omits_sign_in_email_note():
+    plain = build_multi_workgroup_invite_plain_body(
+        invitee_name='Alex',
+        body_text='Would love your perspective.',
+        links=LINKS,
+        inline_join_links=False,
+    )
+    assert 'same email' not in plain.lower()
+    assert 'signing in' not in plain.lower()

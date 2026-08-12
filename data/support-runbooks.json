@@ -21,7 +21,7 @@
       "symptoms": ["workgroup", "join", "member", "invite", "slug"],
       "steps": [
         "Ask for workgroup name/slug and layer URL.",
-        "Confirm user is signed in with the same email used for invitations.",
+        "For email invites, confirm the user opened the invite link and signed in (any email is fine for DP workgroup invites).",
         "Direct membership changes to workgroup lead or layer admin — support does not override roles."
       ]
     },
