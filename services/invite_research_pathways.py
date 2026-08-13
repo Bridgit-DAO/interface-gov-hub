@@ -6,9 +6,9 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.assist import LlmCallFailed, LlmTemporarilyBusy, call_llm, llm_configured, resolve_llm_config
-from services.web_research import fetch_url_text, web_search
+from services.web_research import extract_linkedin_vanity, fetch_url_text, web_search
 from services.workgroup_invite_ai import _NO_EM_DASH_RULE, _parse_json_object
-from services.zoho_mail import search_meta_layer_contacts, zoho_mail_configured
+from services.zoho_mail import search_meta_layer_contacts, zoho_mail_pathway_available
 
 _PATHWAY_RESEARCH_MAX_TOKENS = 2400
 
@@ -109,7 +109,7 @@ def pathway_zoho_mail_contacts() -> Tuple[dict, int]:
         raw = search_meta_layer_contacts()
     except Exception as exc:  # noqa: BLE001 - surface provider errors to admin UI
         return {
-            'configured': zoho_mail_configured(),
+            'configured': zoho_mail_pathway_available(),
             'error': str(exc)[:300],
             'contacts': [],
         }, 502
@@ -125,6 +125,8 @@ def pathway_zoho_mail_contacts() -> Tuple[dict, int]:
     return {
         'success': True,
         'configured': True,
+        'source': raw.get('source') or 'live',
+        'exported_at': raw.get('exported_at') or '',
         'message_count': raw.get('message_count') or 0,
         'contacts': contacts,
     }, 200
@@ -330,9 +332,20 @@ def build_pathway_context_bundle(
             if title or rationale:
                 previous_parts.append(f'{title}: {rationale}'.strip(': '))
 
+    linkedin_url = ''
+    for link in extra_links:
+        if extract_linkedin_vanity(link):
+            linkedin_url = link
+            break
+    if not linkedin_url and url_author:
+        source = (url_author.get('source_url') or '').strip()
+        if extract_linkedin_vanity(source):
+            linkedin_url = source
+
     return {
         'name': name,
         'email': email,
         'previous_interaction': '\n\n'.join(part for part in previous_parts if part).strip(),
         'extra_links': extra_links,
+        'linkedin_url': linkedin_url,
     }

@@ -87,6 +87,24 @@ _INVITE_DRAFT_MAX_TOKENS = {
     'long': 4000,
 }
 _INVITE_RESEARCH_MAX_TOKENS = 2400
+
+_WORKGROUP_MATCHING_RULE = (
+    'Infer workgroup fit from corpus and search_results: roles, headline, skills, employers, '
+    'publications, and projects. When linkedin_url is provided, treat it as the primary identity '
+    'anchor. previous_interaction is mainly for email personalization – do not rank workgroups from '
+    'certification anecdotes or one-off notes alone unless corroborated by profile/search evidence.'
+)
+
+
+def _corpus_meta_payload(corpus: dict) -> dict:
+    return {
+        'urls_fetched': len(corpus.get('url_corpus') or []),
+        'search_hits': len(corpus.get('search_results') or []),
+        'search_available': corpus.get('search_available'),
+        'linkedin_fetch_ok': corpus.get('linkedin_fetch_ok'),
+        'linkedin_vanity': corpus.get('linkedin_vanity') or '',
+        'research_warnings': corpus.get('research_warnings') or [],
+    }
 _INVITE_CONTENT_TOKEN_BONUS = 600
 
 _COMPLETE_DRAFT_SUFFIX_RE = re.compile(r'[\]\).!?]["\']?\s*$')
@@ -405,7 +423,8 @@ def research_external_contact(
         'suggested_workgroups (array of {workgroup_id, rationale}). '
         'Mark ambiguous=true when multiple distinct people match or roles conflict. '
         'When linkedin_url is provided and identifies one person, set ambiguous=false '
-        'and populate resolved_person from that profile. '
+        'and populate resolved_person from that profile and search_results. '
+        f'{_WORKGROUP_MATCHING_RULE} '
         'Only suggest workgroup_id values from the provided catalog.'
     )
     catalog = _dp_workgroup_catalog(workgroup)
@@ -464,11 +483,7 @@ def research_external_contact(
         'resolved_person': resolved_person,
         'suggested_workgroups': suggested,
         'prior_invitations': prior,
-        'corpus_meta': {
-            'urls_fetched': len(corpus.get('url_corpus') or []),
-            'search_hits': len(corpus.get('search_results') or []),
-            'search_available': corpus.get('search_available'),
-        },
+        'corpus_meta': _corpus_meta_payload(corpus),
     }, 200
 
 
@@ -578,7 +593,8 @@ def research_admin_invite_contact(
         'workgroup_matches (array of {workgroup_id, confidence, score, rationale}). '
         'confidence must be high, medium, or low. score is an integer 0-100 fit score. '
         'Return 3-8 workgroup_matches sorted best-first. Only use workgroup_id values from the catalog. '
-        'Mark ambiguous=true only when multiple distinct people match the name or profile.'
+        'Mark ambiguous=true only when multiple distinct people match the name or profile. '
+        f'{_WORKGROUP_MATCHING_RULE}'
     )
     user_msg = json.dumps({
         'target_name': name.strip(),
@@ -617,11 +633,7 @@ def research_admin_invite_contact(
         'workgroup_matches': workgroup_matches,
         'workgroup_catalog': catalog,
         'prior_invitations': prior,
-        'corpus_meta': {
-            'urls_fetched': len(corpus.get('url_corpus') or []),
-            'search_hits': len(corpus.get('search_results') or []),
-            'search_available': corpus.get('search_available'),
-        },
+        'corpus_meta': _corpus_meta_payload(corpus),
     }, 200
 
 
@@ -1056,7 +1068,8 @@ def draft_invitation_email(
         f'TONE ({tone_key}): {tone_guidance} '
         f'LENGTH ({length_key}): {length_guidance} '
         f'{length_band_rule} '
-        'Reference previous interaction naturally when provided.'
+        'Reference previous interaction naturally when provided (personal context such as how you know them). '
+        'Ground role-specific paragraphs in resolved_person (headline, summary, expertise_tags), not only in previous_interaction.'
     )
 
     previous_draft_text = (previous_draft or '').strip()

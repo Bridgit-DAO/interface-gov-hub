@@ -22,8 +22,8 @@ datatracker.sublime-workspace
 /dist
 /docker/docker-compose.extend-custom.yml
 /env
-# Local secrets (never commit)
-.env
+/instance_dev/invite_zoho_contacts_snapshot.json
+/instance/invite_zoho_contacts_snapshot.json
 .env.local
 .env.*.local
 

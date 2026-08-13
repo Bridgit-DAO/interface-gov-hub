@@ -26,6 +26,19 @@ def test_build_pathway_context_bundle_merges_search_and_url():
     assert 'https://example.com/post' in bundle['extra_links']
 
 
+def test_build_pathway_context_bundle_extracts_linkedin_url():
+    bundle = build_pathway_context_bundle(
+        search_results=[
+            {
+                'url': 'https://www.linkedin.com/in/kpbarry/',
+                'title': 'Kevin Barry',
+                'snippet': 'Engineer',
+            },
+        ],
+    )
+    assert bundle['linkedin_url'] == 'https://www.linkedin.com/in/kpbarry/'
+
+
 def test_pathway_name_search_requires_name():
     payload, status = pathway_name_search(name='')
     assert status == 400
