@@ -71,6 +71,12 @@ _LENGTH_MIN_WORDS = {
     'long': 350,
 }
 
+_LENGTH_MAX_WORDS = {
+    'short': 200,
+    'medium': 380,
+    'long': 600,
+}
+
 _LENGTH_LONG_EXPAND_THRESHOLD = 350
 
 # Output token budgets for invite draft LLM calls (higher than generic assist
@@ -84,6 +90,9 @@ _INVITE_RESEARCH_MAX_TOKENS = 2400
 _INVITE_CONTENT_TOKEN_BONUS = 600
 
 _COMPLETE_DRAFT_SUFFIX_RE = re.compile(r'[\]\).!?]["\']?\s*$')
+_PLANNING_LEAK_RE = re.compile(
+    r'(?i)let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?)',
+)
 
 _TONE_GUIDANCE = {
     'warm': (
@@ -142,6 +151,15 @@ def invite_draft_looks_complete(draft: str) -> bool:
     if '[JOIN_PRIMARY]' in text.upper():
         return True
     return bool(_COMPLETE_DRAFT_SUFFIX_RE.search(text))
+
+
+def invite_draft_contains_planning_leak(draft: str) -> bool:
+    """True when LLM planning/meta leaked into the visible draft body."""
+    return bool(_PLANNING_LEAK_RE.search(draft or ''))
+
+
+def _invite_word_count(draft: str) -> int:
+    return len((draft or '').split())
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -766,18 +784,23 @@ def draft_invitation_email(
             cfg,
             temperature=llm_temperature,
             max_tokens=draft_max_tokens,
-        ))
+        ), length_preference=length_key)
         draft = ensure_invite_greeting(draft, invitee_display)
         draft = strip_em_dashes(draft)
 
-        word_count = len(draft.split())
+        word_count = _invite_word_count(draft)
         min_words = _LENGTH_MIN_WORDS.get(length_key, 180)
+        max_words = _LENGTH_MAX_WORDS.get(length_key, 380)
         long_too_short = length_key == 'long' and word_count < _LENGTH_LONG_EXPAND_THRESHOLD
+        short_too_long = length_key == 'short' and word_count > max_words
+        planning_leak = invite_draft_contains_planning_leak(draft)
         needs_retry = (
             word_count < min_words
             or not invite_draft_looks_complete(draft)
             or '[JOIN_PRIMARY]' not in draft.upper()
             or long_too_short
+            or short_too_long
+            or planning_leak
         )
         if needs_retry:
             if long_too_short:
@@ -786,6 +809,14 @@ def draft_invitation_email(
                     'Expand the MIDDLE sections: add 1–2 paragraphs after the workgroup description '
                     'on why this person specifically, what participation looks like, and role-specific '
                     f'workgroup detail. Target {length_guidance} '
+                    'End with [JOIN_PRIMARY] on its own line.'
+                )
+            elif short_too_long or planning_leak:
+                retry_note = (
+                    'The previous draft is too long for SHORT length or included planning/meta text. '
+                    'Output ONLY the final invitation email body (no analysis, word counts, or revision notes). '
+                    'Cut to 120–180 words maximum. '
+                    'Keep at most 3 brief paragraphs before the workgroup invitation; compress events to one line each. '
                     'End with [JOIN_PRIMARY] on its own line.'
                 )
             else:
@@ -802,7 +833,8 @@ def draft_invitation_email(
             draft = clean_draft(call_llm([
                 {'role': 'system', 'content': system},
                 {'role': 'user', 'content': retry_user},
-            ], cfg, temperature=min(llm_temperature + 0.1, 0.7), max_tokens=draft_max_tokens))
+            ], cfg, temperature=min(llm_temperature + 0.1, 0.7), max_tokens=draft_max_tokens),
+                length_preference=length_key)
             draft = ensure_invite_greeting(draft, invitee_display)
             draft = strip_em_dashes(draft)
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:

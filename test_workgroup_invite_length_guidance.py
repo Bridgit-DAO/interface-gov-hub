@@ -3,10 +3,12 @@ from services.workgroup_invite_ai import (
     _DP_ENGAGEMENT_PARAGRAPH,
     _LENGTH_GUIDANCE,
     _LENGTH_LONG_EXPAND_THRESHOLD,
+    _LENGTH_MAX_WORDS,
     _LENGTH_MIN_WORDS,
     _TONE_GUIDANCE,
     _dp_engagement_instruction,
     _invite_content_guidance,
+    invite_draft_contains_planning_leak,
 )
 
 
@@ -26,6 +28,15 @@ def test_length_guidance_structural_rules():
 
 def test_length_min_words_long_threshold():
     assert _LENGTH_MIN_WORDS['long'] == _LENGTH_LONG_EXPAND_THRESHOLD == 350
+
+
+def test_length_max_words_short_cap():
+    assert _LENGTH_MAX_WORDS['short'] == 200
+
+
+def test_invite_draft_contains_planning_leak():
+    assert invite_draft_contains_planning_leak('Hi Pat,\n\nLet me count words:\n- intro (2)')
+    assert not invite_draft_contains_planning_leak('Hi Pat,\n\nThanks for joining.\n\n[JOIN_PRIMARY]')
 
 
 def test_tone_guidance_differentiation():

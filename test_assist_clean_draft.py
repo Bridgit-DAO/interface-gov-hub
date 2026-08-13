@@ -110,3 +110,63 @@ def test_clean_draft_strips_meta_divider_without_join_primary():
     assert 'Let me reconsider' not in cleaned
     assert cleaned.endswith('Pat')
     assert '---' not in cleaned
+
+
+def test_clean_draft_strips_mid_response_planning_before_revised_draft():
+  """User sample: first draft + word-count planning + second draft with JOIN_PRIMARY."""
+  raw = (
+      'Hi Daveed,\n\n'
+      'Our conversations about the meta-layer still sit with me, and a new piece just went live '
+      'that I think lands right in that territory. Fork in the Web revisits familiar tensions '
+      'around the layered web and what it should make possible: '
+      'https://desirableproperties.org/perspectives/a-fork-in-the-web.\n\n'
+      'That framing is now moving into practice through the Fork in the Web workshops, an ongoing '
+      'series that began on August 10, 2026, with the next session on August 17, 2026: '
+      'https://desirableproperties.org/series/fork-in-the-web-workshops.\n\n'
+      'The Desirable Properties Challenge is a community-led effort to turn questions of governance, '
+      'interoperability, and human agency into a sharper, more useful set of properties.\n\n'
+      "Which brings me to the ask: I'd love to invite you to join DP Discovery. The workgroup "
+      'curates, evaluates, and surfaces desirable properties the current 23 may have missed, '
+      'triages community submissions, runs open calls for emerging challenges, and shepherds '
+      'promising new properties from candidate to draft to Challenge inclusion. Your eye for hidden '
+      "assumptions across the meta-layer would be a real asset here, and I'd enjoy being in the "
+      'room with you.\n\n'
+      'Let me count words:\n'
+      '- "Hi Daveed," - 2\n'
+      '- "Our conversations about the meta-layer still sit with me, and a new piece just went live '
+      'that I think lands right in that territory." - 25\n'
+      "That's about 172 words without sign-off. I need to add a closing and sign-off.\n\n"
+      'Let me adjust to get within 120-180 range. Maybe I should add a brief closer.\n\n'
+      'Let me draft more carefully:\n\n'
+      'Hi Daveed,\n\n'
+      'Our conversations about the meta-layer still shape how I think about this space, and a new '
+      'piece just went live that sits right in that territory. Fork in the Web revisits familiar '
+      'tensions around the layered web and what it should make possible: '
+      'https://desirableproperties.org/perspectives/a-fork-in-the-web.\n\n'
+      'That framing is now moving into practice through the Fork in the Web workshops, an ongoing '
+      'series that began on August 10, 2026, with the next session on August 17, 2026: '
+      'https://desirableproperties.org/series/fork-in-the-web-workshops.\n\n'
+      'The Desirable Properties Challenge is a community-led effort to turn questions of governance, '
+      'interoperability, and human agency into a sharper, more useful set of properties.\n\n'
+      "Which brings me to the ask. I'd love to invite you to join DP Discovery, where the workgroup "
+      'curates, evaluates, and surfaces desirable properties the current 23 may have missed, '
+      'triages community submissions, runs open calls for emerging challenges, and shepherds '
+      'promising new properties from candidate to draft to Challenge inclusion. Your eye for hidden '
+      "assumptions across the meta-layer would be a real asset, and I'd enjoy being in the room with "
+      'you on this. Let me know when you have a moment to talk.\n\n'
+      'Warm regards,\n'
+      'Daveed\n\n'
+      '[JOIN_PRIMARY]'
+  )
+  before_words = len(raw.split())
+  cleaned = clean_draft(raw, length_preference='short')
+  after_words = len(cleaned.split())
+
+  assert before_words > 400
+  assert 100 <= after_words <= 200
+  assert 'Let me count' not in cleaned
+  assert 'Let me adjust' not in cleaned
+  assert 'Let me draft more carefully' not in cleaned
+  assert cleaned.count('Hi Daveed,') == 1
+  assert cleaned.endswith('[JOIN_PRIMARY]')
+  assert 'Warm regards' in cleaned
