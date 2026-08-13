@@ -784,7 +784,7 @@ def draft_invitation_email(
             cfg,
             temperature=llm_temperature,
             max_tokens=draft_max_tokens,
-        ), length_preference=length_key)
+        ), length_preference=length_key, invitee_name=invitee_display)
         draft = ensure_invite_greeting(draft, invitee_display)
         draft = strip_em_dashes(draft)
 
@@ -834,7 +834,7 @@ def draft_invitation_email(
                 {'role': 'system', 'content': system},
                 {'role': 'user', 'content': retry_user},
             ], cfg, temperature=min(llm_temperature + 0.1, 0.7), max_tokens=draft_max_tokens),
-                length_preference=length_key)
+                length_preference=length_key, invitee_name=invitee_display)
             draft = ensure_invite_greeting(draft, invitee_display)
             draft = strip_em_dashes(draft)
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:

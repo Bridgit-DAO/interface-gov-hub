@@ -170,3 +170,53 @@ def test_clean_draft_strips_mid_response_planning_before_revised_draft():
   assert cleaned.count('Hi Daveed,') == 1
   assert cleaned.endswith('[JOIN_PRIMARY]')
   assert 'Warm regards' in cleaned
+
+
+def test_clean_draft_removes_orphan_greeting_fragment_ed_after_hi_daveed():
+    """User bug: LONG invite draft showed lone 'ed,' between greeting and body."""
+    raw = (
+        'Hi Daveed,\n\n'
+        'ed,\n\n'
+        'Our meta-layer conversations still sit with me, and a new piece just went live '
+        'that I think lands right in that territory.\n\n'
+        '[JOIN_PRIMARY]'
+    )
+    cleaned = clean_draft(raw, length_preference='long')
+    lines = [line.strip() for line in cleaned.split('\n')]
+    assert cleaned.startswith('Hi Daveed,')
+    assert 'ed,' not in lines
+    assert 'Our meta-layer conversations' in cleaned
+    assert cleaned.endswith('[JOIN_PRIMARY]')
+
+
+def test_clean_draft_removes_veed_fragment_and_duplicate_salutation():
+    raw = (
+        'Hi Daveed,\n\n'
+        'veed,\n\n'
+        'Hi Daveed,\n\n'
+        'Body paragraph about the workgroup invitation.\n\n'
+        '[JOIN_PRIMARY]'
+    )
+    cleaned = clean_draft(raw, length_preference='long')
+    lines = [line.strip() for line in cleaned.split('\n')]
+    assert cleaned.count('Hi Daveed,') == 1
+    assert 'veed,' not in lines
+    assert 'Body paragraph' in cleaned
+
+
+def test_clean_draft_removes_orphan_fragment_after_think_unwrap():
+    think_open = '<' + 'think' + '>'
+    think_close = '</' + 'think' + '>'
+    raw = (
+        f'{think_open}\n'
+        'Hi Daveed,\n\n'
+        'ed,\n\n'
+        'Our meta-layer conversations about governance patterns.\n\n'
+        '[JOIN_PRIMARY]\n'
+        f'{think_close}'
+    )
+    cleaned = clean_draft(raw, length_preference='long')
+    lines = [line.strip() for line in cleaned.split('\n')]
+    assert 'ed,' not in lines
+    assert 'Our meta-layer conversations' in cleaned
+    assert '[JOIN_PRIMARY]' in cleaned
