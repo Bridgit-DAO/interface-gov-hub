@@ -496,12 +496,18 @@ _GREETING_LINE_RE = re.compile(r'(?im)^(Hi\s+[^,\n]{1,60},)')
 _JOIN_PRIMARY_MARKER = '[JOIN_PRIMARY]'
 _META_DIVIDER_RE = re.compile(r'\n---\s*(?:\n|$)')
 _META_PLANNING_LINE_RE = re.compile(
-    r'(?i)^(?:let me (?:count|expand|reconsider|recount|revise|add)|'
-    r'hmm let me|total:\s*~?\d+|\d+\s*words\.?\s*$)',
+    r'(?i)^(?:let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?|'
+    r'expand|reconsider|recount|revise|add)|'
+    r'hmm let me|that\'?s about \d+ words|total:\s*~?\d+|\d+\s*words\.?\s*$)',
 )
-_META_PLANNING_BULLET_RE = re.compile(r'(?i)^-\s+.+\(\d+\)\s*$')
+_META_PLANNING_BULLET_RE = re.compile(r'(?i)^-\s+.+[\s(]\d+\)?\s*$')
 _META_PLANNING_SNIPPET_RE = re.compile(
-    r'(?i)(?:word count|approximately:|~?\d+\s+words|slightly under target)',
+    r'(?i)(?:word count|approximately:|~?\d+\s+words|slightly under target|'
+    r'without sign-off|within \d+[-–]\d+ range)',
+)
+_PLANNING_SECTION_RE = re.compile(
+    r'(?im)^(?:---\s*$|let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?|'
+    r'expand|reconsider|recount|revise|add)|hmm let me|that\'?s about \d+ words)',
 )
 
 
@@ -509,6 +515,65 @@ def _join_primary_search_start(text: str) -> int:
     """Only treat [JOIN_PRIMARY] after the greeting as the draft terminator."""
     match = _GREETING_LINE_RE.search(text or '')
     return match.start() if match else 0
+
+
+def _find_inline_planning_start(text: str, start: int = 0, limit: Optional[int] = None) -> Optional[int]:
+    """Return index where inline LLM planning begins (mid-response or tail)."""
+    segment = (text or '')[start:limit]
+    if not segment:
+        return None
+    match = _PLANNING_SECTION_RE.search(segment)
+    if not match:
+        return None
+    return start + match.start()
+
+
+def _iter_greeting_draft_blocks(text: str) -> List[str]:
+    """Split on greeting lines; drop inline planning between candidate drafts."""
+    cleaned = (text or '').strip()
+    if not cleaned:
+        return []
+    matches = list(_GREETING_LINE_RE.finditer(cleaned))
+    if not matches:
+        return [cleaned]
+
+    blocks: List[str] = []
+    for idx, match in enumerate(matches):
+        start = match.start()
+        end = len(cleaned)
+        if idx + 1 < len(matches):
+            end = matches[idx + 1].start()
+        planning = _find_inline_planning_start(cleaned, match.end(), end)
+        if planning is not None:
+            end = planning
+        block = cleaned[start:end].strip()
+        if block:
+            blocks.append(block)
+    return blocks
+
+
+def _select_best_draft_block(
+    blocks: List[str],
+    *,
+    length_preference: Optional[str] = None,
+) -> str:
+    """Pick the final invite email when the model emits multiple drafts."""
+    if not blocks:
+        return ''
+    if len(blocks) == 1:
+        return blocks[0]
+
+    with_join = [block for block in blocks if _JOIN_PRIMARY_MARKER in block.upper()]
+    candidates = with_join or blocks
+    pref = (length_preference or '').strip().lower()
+
+    if pref == 'short':
+        return min(candidates, key=lambda block: len(block.split()))
+    if pref == 'long':
+        return max(candidates, key=lambda block: len(block.split()))
+    if with_join:
+        return with_join[0]
+    return blocks[0]
 
 
 def _truncate_at_first_join_primary(text: str) -> str:
@@ -531,6 +596,10 @@ def _strip_draft_meta_tail(text: str) -> str:
     cleaned = (text or '').strip()
     if not cleaned:
         return cleaned
+
+    planning = _find_inline_planning_start(cleaned, _join_primary_search_start(cleaned))
+    if planning is not None:
+        cleaned = cleaned[:planning].rstrip()
 
     divider = _META_DIVIDER_RE.search(cleaned)
     if divider:
@@ -590,13 +659,23 @@ def _trim_leading_model_reasoning(text: str) -> str:
     return (text or '').strip()
 
 
-def _trim_trailing_model_reasoning(text: str) -> str:
-    """Stop at the first [JOIN_PRIMARY] after the greeting; strip trailing meta."""
+def _trim_trailing_model_reasoning(
+    text: str,
+    *,
+    length_preference: Optional[str] = None,
+) -> str:
+    """Extract the best greeting-to-close block; strip planning and duplicate drafts."""
+    blocks = _iter_greeting_draft_blocks(text)
+    if blocks:
+        selected = _select_best_draft_block(blocks, length_preference=length_preference)
+        if selected:
+            cleaned = _truncate_at_first_join_primary(selected)
+            return _strip_draft_meta_tail(cleaned)
     cleaned = _truncate_at_first_join_primary(text)
     return _strip_draft_meta_tail(cleaned)
 
 
-def clean_draft(text: str) -> str:
+def clean_draft(text: str, *, length_preference: Optional[str] = None) -> str:
     # Mirrors canopi/services/assistService.js: cleanAssistDraft. MiniMax M3 often
     # emits chain-of-thought in  / <reasoning> blocks. The draft may appear
     # AFTER the last  (classic) or INSIDE a think block (common for long
@@ -612,7 +691,7 @@ def clean_draft(text: str) -> str:
     cleaned = _strip_reasoning_tag_blocks(cleaned)
     cleaned = re.sub(r'</?(?:think|redacted_thinking)>', '', cleaned, flags=re.I)
     cleaned = _trim_leading_model_reasoning(cleaned)
-    cleaned = _trim_trailing_model_reasoning(cleaned)
+    cleaned = _trim_trailing_model_reasoning(cleaned, length_preference=length_preference)
     cleaned = strip_em_dashes(cleaned)
     return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 
