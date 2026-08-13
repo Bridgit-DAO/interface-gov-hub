@@ -493,6 +493,8 @@ _THINK_UNWRAP_PATTERN = (
     r'<(?:think|redacted_thinking)>([\s\S]*?)</(?:think|redacted_thinking)>'
 )
 _GREETING_LINE_RE = re.compile(r'(?im)^(Hi\s+[^,\n]{1,60},)')
+_NAME_FRAGMENT_LINE_RE = re.compile(r'^[A-Za-z]{1,12},$')
+_DUPLICATE_SALUTATION_RE = re.compile(r'^(hi|hello|dear)\b', re.I)
 _JOIN_PRIMARY_MARKER = '[JOIN_PRIMARY]'
 _META_DIVIDER_RE = re.compile(r'\n---\s*(?:\n|$)')
 _META_PLANNING_LINE_RE = re.compile(
@@ -659,6 +661,82 @@ def _trim_leading_model_reasoning(text: str) -> str:
     return (text or '').strip()
 
 
+def _invitee_first_name_token(name: str) -> str:
+    """First name token for greeting-fragment heuristics (no workgroup_invite_ai import)."""
+    cleaned = re.sub(r'\s+', ' ', (name or '').strip())
+    if not cleaned:
+        return ''
+    first = cleaned.split(' ', 1)[0].strip('.,;:')
+    return first or cleaned
+
+
+def _greeting_name_from_line(line: str) -> Optional[str]:
+    match = _GREETING_LINE_RE.match((line or '').strip())
+    if not match:
+        return None
+    inner = re.match(r'Hi\s+([^,\n]+),', match.group(1), re.I)
+    return inner.group(1).strip() if inner else None
+
+
+def _looks_like_name_fragment(fragment: str, full_name: str) -> bool:
+    """True when fragment is a duplicate or trailing suffix of the invitee greeting name."""
+    if not fragment or not full_name:
+        return False
+    fragment = fragment.strip('.,;:')
+    full_name = full_name.strip()
+    if not fragment or not full_name:
+        return False
+    if fragment.lower() == full_name.lower():
+        return True
+    if len(fragment) >= len(full_name):
+        return False
+    return full_name.lower().endswith(fragment.lower())
+
+
+def _strip_orphan_greeting_fragments(
+    text: str,
+    *,
+    invitee_name: Optional[str] = None,
+) -> str:
+    """Remove duplicate salutations and lone name fragments after the first Hi line."""
+    lines = (text or '').split('\n')
+    if not lines:
+        return (text or '').strip()
+
+    greeting_idx: Optional[int] = None
+    greeting_name = ''
+    for idx, line in enumerate(lines):
+        name = _greeting_name_from_line(line)
+        if name:
+            greeting_idx = idx
+            greeting_name = name
+            break
+    if greeting_idx is None:
+        return (text or '').strip()
+
+    reference_name = greeting_name or _invitee_first_name_token(invitee_name or '')
+    head = lines[:greeting_idx + 1]
+    tail_start = greeting_idx + 1
+    while tail_start < len(lines):
+        stripped = lines[tail_start].strip()
+        if not stripped:
+            tail_start += 1
+            continue
+        if _DUPLICATE_SALUTATION_RE.match(stripped):
+            tail_start += 1
+            continue
+        fragment_match = _NAME_FRAGMENT_LINE_RE.match(stripped)
+        if fragment_match and reference_name:
+            if _looks_like_name_fragment(fragment_match.group(0)[:-1], reference_name):
+                tail_start += 1
+                continue
+        break
+
+    if tail_start >= len(lines):
+        return '\n'.join(head).strip()
+    return '\n'.join(head + lines[tail_start:]).strip()
+
+
 def _trim_trailing_model_reasoning(
     text: str,
     *,
@@ -675,7 +753,12 @@ def _trim_trailing_model_reasoning(
     return _strip_draft_meta_tail(cleaned)
 
 
-def clean_draft(text: str, *, length_preference: Optional[str] = None) -> str:
+def clean_draft(
+    text: str,
+    *,
+    length_preference: Optional[str] = None,
+    invitee_name: Optional[str] = None,
+) -> str:
     # Mirrors canopi/services/assistService.js: cleanAssistDraft. MiniMax M3 often
     # emits chain-of-thought in  / <reasoning> blocks. The draft may appear
     # AFTER the last  (classic) or INSIDE a think block (common for long
@@ -692,6 +775,7 @@ def clean_draft(text: str, *, length_preference: Optional[str] = None) -> str:
     cleaned = re.sub(r'</?(?:think|redacted_thinking)>', '', cleaned, flags=re.I)
     cleaned = _trim_leading_model_reasoning(cleaned)
     cleaned = _trim_trailing_model_reasoning(cleaned, length_preference=length_preference)
+    cleaned = _strip_orphan_greeting_fragments(cleaned, invitee_name=invitee_name)
     cleaned = strip_em_dashes(cleaned)
     return re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 
