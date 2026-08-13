@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.assist import LlmCallFailed, LlmTemporarilyBusy, call_llm, llm_configured, resolve_llm_config
 from services.web_research import extract_linkedin_vanity, fetch_url_text, web_search
 from services.workgroup_invite_ai import _NO_EM_DASH_RULE, _parse_json_object
-from services.zoho_mail import search_meta_layer_contacts, zoho_mail_pathway_available
+from services.zoho_mail import normalize_admin_email, search_meta_layer_contacts, zoho_mail_pathway_available
 
 _PATHWAY_RESEARCH_MAX_TOKENS = 2400
 
@@ -24,6 +25,136 @@ def _confidence_from_score(score: int) -> str:
     if score >= 45:
         return 'medium'
     return 'low'
+
+
+def format_contact_recency(last_contact: str) -> str:
+    """Turn last_contact ISO-ish timestamp into natural recency phrasing for drafts."""
+    cleaned = (last_contact or '').strip()
+    if not cleaned:
+        return 'unknown recency'
+    date_part = cleaned[:10]
+    try:
+        contact_dt = datetime.strptime(date_part, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    except ValueError:
+        return 'recently' if cleaned else 'unknown recency'
+    now = datetime.now(timezone.utc)
+    days = (now - contact_dt).days
+    if days < 0:
+        return 'recently'
+    if days <= 7:
+        return 'within the past week'
+    if days <= 31:
+        return 'within the past month'
+    if days <= 90:
+        return 'a few months ago'
+    if days <= 365:
+        return 'earlier this year' if days > 120 else 'several months ago'
+    if days <= 730:
+        return 'over a year ago'
+    return 'quite a while ago'
+
+
+def infer_communication_style(
+    snippets: Optional[List[str]] = None,
+    subjects: Optional[List[str]] = None,
+) -> dict:
+    """Lightweight style labels from prior email snippets (no LLM call)."""
+    text = ' '.join(snippets or []).strip()
+    subjects_text = ' '.join(subjects or [])
+    combined = f'{text} {subjects_text}'.lower()
+    if not combined.strip():
+        return {
+            'labels': [],
+            'notes': 'No prior email content available.',
+            'formality': 'neutral',
+            'verbosity': 'medium',
+        }
+
+    labels: List[str] = []
+    formal_signals = (
+        'dear', 'regards', 'sincerely', 'respectfully', 'please find attached', 'kindly',
+    )
+    casual_signals = (
+        'hey', 'hi there', 'thanks!', 'cheers', 'gonna', 'awesome', 'cool', 'lol',
+    )
+    formal_count = sum(1 for signal in formal_signals if signal in combined)
+    casual_count = sum(1 for signal in casual_signals if signal in combined)
+    if formal_count > casual_count + 1:
+        formality = 'formal'
+        labels.append('formal')
+    elif casual_count > formal_count:
+        formality = 'casual'
+        labels.append('casual')
+    else:
+        formality = 'neutral'
+        labels.append('professional')
+
+    word_count = len(text.split())
+    if word_count < 30:
+        verbosity = 'terse'
+        labels.append('terse')
+    elif word_count > 120:
+        verbosity = 'verbose'
+        labels.append('verbose')
+    else:
+        verbosity = 'medium'
+
+    tech_signals = (
+        'api', 'schema', 'deploy', 'github', 'json', 'protocol', 'rfc',
+        'implementation', 'architecture', 'interoperability',
+    )
+    if any(signal in combined for signal in tech_signals):
+        labels.append('technical')
+
+    warm_signals = (
+        'great to', 'wonderful', 'appreciate', 'thank you so much',
+        'looking forward', 'excited', 'hope you', 'lovely', 'grateful',
+    )
+    if any(signal in combined for signal in warm_signals):
+        labels.append('warm')
+
+    notes_parts: List[str] = []
+    if formality == 'formal':
+        notes_parts.append('Uses formal salutations and closing language.')
+    elif formality == 'casual':
+        notes_parts.append('Uses casual, conversational tone.')
+    if verbosity == 'terse':
+        notes_parts.append('Keeps messages brief.')
+    elif verbosity == 'verbose':
+        notes_parts.append('Writes longer, detailed messages.')
+    if 'technical' in labels:
+        notes_parts.append('Discusses technical or implementation details.')
+    if 'warm' in labels:
+        notes_parts.append('Expresses warmth and enthusiasm.')
+
+    return {
+        'labels': list(dict.fromkeys(labels))[:5],
+        'notes': ' '.join(notes_parts) or 'Standard business email tone.',
+        'formality': formality,
+        'verbosity': verbosity,
+    }
+
+
+def build_zoho_contact_context(zoho_contact: dict) -> dict:
+    """Structured Zoho mail history for invite research and draft prompts."""
+    snippets = list(zoho_contact.get('snippets') or [])
+    subjects = list(
+        zoho_contact.get('sample_subjects') or zoho_contact.get('subjects') or [],
+    )
+    style = infer_communication_style(snippets, subjects)
+    last_contact = (zoho_contact.get('last_contact') or '').strip()
+    return {
+        'source': 'zoho_mail',
+        'email': (zoho_contact.get('email') or '').strip(),
+        'name': (zoho_contact.get('name') or '').strip(),
+        'last_contact': last_contact,
+        'last_contact_recency': format_contact_recency(last_contact),
+        'message_count': int(zoho_contact.get('message_count') or 0),
+        'subjects': subjects[:6],
+        'snippets': [str(snippet)[:400] for snippet in snippets[:4]],
+        'summary': (zoho_contact.get('summary') or '')[:500],
+        'communication_style': style,
+    }
 
 
 def _llm_json(system: str, user_payload: dict) -> dict:
@@ -47,20 +178,25 @@ def _rank_zoho_contacts(contacts: List[dict]) -> List[dict]:
     if not contacts:
         return []
     if not llm_configured():
-        return [
-            {
+        ranked_fallback: List[dict] = []
+        for row in contacts[:20]:
+            snippets = (row.get('snippets') or [])[:3]
+            subjects = (row.get('subjects') or [])[:4]
+            style = infer_communication_style(snippets, subjects)
+            ranked_fallback.append({
                 'id': row['email'],
                 'name': row.get('name') or row['email'],
                 'email': row['email'],
                 'confidence': 'medium',
                 'score': 55,
-                'summary': '; '.join((row.get('subjects') or [])[:2])[:400],
+                'summary': '; '.join(subjects[:2])[:400],
                 'message_count': row.get('message_count') or 0,
                 'last_contact': row.get('last_contact') or '',
-                'sample_subjects': (row.get('subjects') or [])[:4],
-            }
-            for row in contacts[:20]
-        ]
+                'sample_subjects': subjects,
+                'snippets': snippets,
+                'communication_style': style,
+            })
+        return ranked_fallback
 
     system = (
         'You rank email contacts for a Desirable Properties / meta-layer outreach workflow. '
@@ -88,25 +224,29 @@ def _rank_zoho_contacts(contacts: List[dict]) -> List[dict]:
         except (TypeError, ValueError):
             score = min(95, 40 + int(row.get('message_count') or 0) * 8)
         score = max(0, min(100, score))
+        snippets = (row.get('snippets') or [])[:3]
+        subjects = (row.get('subjects') or [])[:4]
+        style = infer_communication_style(snippets, subjects)
         out.append({
             'id': email,
             'name': row.get('name') or email,
             'email': email,
             'confidence': _confidence_from_score(score),
             'score': score,
-            'summary': (ranked.get('summary') or '; '.join((row.get('subjects') or [])[:2]))[:500],
+            'summary': (ranked.get('summary') or '; '.join(subjects[:2]))[:500],
             'message_count': row.get('message_count') or 0,
             'last_contact': row.get('last_contact') or '',
-            'sample_subjects': (row.get('subjects') or [])[:4],
-            'snippets': (row.get('snippets') or [])[:3],
+            'sample_subjects': subjects,
+            'snippets': snippets,
+            'communication_style': style,
         })
     out.sort(key=lambda item: (-item['score'], -item['message_count'], item['email']))
     return out[:25]
 
 
-def pathway_zoho_mail_contacts() -> Tuple[dict, int]:
+def pathway_zoho_mail_contacts(*, admin_email: str = '') -> Tuple[dict, int]:
     try:
-        raw = search_meta_layer_contacts()
+        raw = search_meta_layer_contacts(admin_email=admin_email)
     except Exception as exc:  # noqa: BLE001 - surface provider errors to admin UI
         return {
             'configured': zoho_mail_pathway_available(),
@@ -118,6 +258,7 @@ def pathway_zoho_mail_contacts() -> Tuple[dict, int]:
         return {
             'configured': False,
             'error': raw.get('error') or 'Zoho Mail is not configured',
+            'snapshot_path': raw.get('snapshot_path') or '',
             'contacts': [],
         }, 200
 
@@ -127,6 +268,8 @@ def pathway_zoho_mail_contacts() -> Tuple[dict, int]:
         'configured': True,
         'source': raw.get('source') or 'live',
         'exported_at': raw.get('exported_at') or '',
+        'owner_email': raw.get('owner_email') or normalize_admin_email(admin_email),
+        'snapshot_path': raw.get('snapshot_path') or '',
         'message_count': raw.get('message_count') or 0,
         'contacts': contacts,
     }, 200
@@ -295,17 +438,34 @@ def build_pathway_context_bundle(
     previous_parts: List[str] = []
     extra_links: List[str] = []
 
+    zoho_contact_context: Optional[dict] = None
     if zoho_contact:
-        name = (zoho_contact.get('name') or '').strip()
-        email = (zoho_contact.get('email') or '').strip()
+        zoho_contact_context = build_zoho_contact_context(zoho_contact)
+        name = (zoho_contact.get('name') or zoho_contact_context.get('name') or '').strip()
+        email = (zoho_contact.get('email') or zoho_contact_context.get('email') or '').strip()
         if zoho_contact.get('summary'):
             previous_parts.append(str(zoho_contact['summary']))
-        subjects = zoho_contact.get('sample_subjects') or []
+        subjects = zoho_contact_context.get('subjects') or []
         if subjects:
             previous_parts.append('Recent email subjects: ' + '; '.join(subjects[:4]))
-        snippets = zoho_contact.get('snippets') or []
+        snippets = zoho_contact_context.get('snippets') or []
         if snippets:
             previous_parts.append('Email context: ' + ' '.join(snippets[:2])[:800])
+        message_count = int(zoho_contact_context.get('message_count') or 0)
+        last_contact = (zoho_contact_context.get('last_contact') or '').strip()
+        if message_count or last_contact:
+            recency = zoho_contact_context.get('last_contact_recency') or ''
+            volume_note = f'{message_count} prior email{"s" if message_count != 1 else ""}'
+            if last_contact:
+                previous_parts.append(
+                    f'Email history: {volume_note}; last contact {last_contact[:10]} ({recency}).',
+                )
+            else:
+                previous_parts.append(f'Email history: {volume_note}.')
+        style = (zoho_contact_context.get('communication_style') or {})
+        style_labels = style.get('labels') or []
+        if style_labels:
+            previous_parts.append('Their communication style: ' + ', '.join(style_labels) + '.')
 
     if url_author:
         if not name:
@@ -348,4 +508,5 @@ def build_pathway_context_bundle(
         'previous_interaction': '\n\n'.join(part for part in previous_parts if part).strip(),
         'extra_links': extra_links,
         'linkedin_url': linkedin_url,
+        'zoho_contact_context': zoho_contact_context,
     }

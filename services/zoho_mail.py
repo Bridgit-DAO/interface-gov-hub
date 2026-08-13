@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from email.utils import parseaddr
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -25,6 +26,32 @@ _DEFAULT_META_LAYER_TERMS = (
 )
 
 _SNAPSHOT_FILENAME = 'invite_zoho_contacts_snapshot.json'
+_SNAPSHOT_DIRNAME = 'invite_zoho_snapshots'
+
+
+def normalize_admin_email(email: str) -> str:
+    return (email or '').strip().lower()
+
+
+def admin_snapshot_key(admin_email: str) -> str:
+    normalized = normalize_admin_email(admin_email)
+    if not normalized:
+        raise ValueError('admin email is required')
+    slug = normalized.replace('@', '_at_')
+    slug = re.sub(r'[^a-z0-9._-]+', '_', slug)
+    slug = re.sub(r'_+', '_', slug).strip('._-')
+    return slug or 'admin'
+
+
+def admin_snapshots_dir() -> str:
+    return os.path.join(INSTANCE_DIR, _SNAPSHOT_DIRNAME)
+
+
+def admin_contacts_snapshot_path(admin_email: str) -> str:
+    return os.path.join(
+        admin_snapshots_dir(),
+        f'{admin_snapshot_key(admin_email)}.json',
+    )
 
 
 def zoho_mail_configured() -> bool:
@@ -141,8 +168,7 @@ def aggregate_external_contacts(
     )[:max_contacts]
 
 
-def _load_contacts_snapshot() -> Optional[Dict[str, Any]]:
-    path = contacts_snapshot_path()
+def _snapshot_payload_from_file(path: str) -> Optional[Dict[str, Any]]:
     if not os.path.isfile(path):
         return None
     with open(path, encoding='utf-8') as handle:
@@ -156,20 +182,44 @@ def _load_contacts_snapshot() -> Optional[Dict[str, Any]]:
         'configured': True,
         'source': 'snapshot',
         'snapshot_path': path,
+        'owner_email': normalize_admin_email(payload.get('owner_email') or ''),
         'exported_at': payload.get('exported_at') or '',
         'message_count': int(payload.get('message_count') or 0),
         'contacts': contacts[:40],
     }
 
 
-def _not_configured_payload() -> Dict[str, Any]:
-    snapshot_path = contacts_snapshot_path()
+def _load_contacts_snapshot(*, admin_email: str = '') -> Optional[Dict[str, Any]]:
+    owner = normalize_admin_email(admin_email)
+    if owner:
+        per_admin = _snapshot_payload_from_file(admin_contacts_snapshot_path(owner))
+        if per_admin:
+            snapshot_owner = per_admin.get('owner_email') or owner
+            if snapshot_owner and snapshot_owner != owner:
+                return None
+            return per_admin
+
+    legacy_path = contacts_snapshot_path()
+    legacy = _snapshot_payload_from_file(legacy_path)
+    if not legacy:
+        return None
+    snapshot_owner = legacy.get('owner_email') or ''
+    if owner and snapshot_owner and snapshot_owner != owner:
+        return None
+    return legacy
+
+
+def _not_configured_payload(*, admin_email: str = '') -> Dict[str, Any]:
+    owner = normalize_admin_email(admin_email)
+    snapshot_path = admin_contacts_snapshot_path(owner) if owner else contacts_snapshot_path()
     return {
         'configured': False,
+        'snapshot_path': snapshot_path,
         'error': (
-            'Zoho Mail is not configured. Either export mail and run '
-            'scripts/zoho_mail_ingest_export.py to create a snapshot at '
-            f'{snapshot_path}, or set ZOHO_MAIL_CLIENT_ID, ZOHO_MAIL_CLIENT_SECRET, '
+            'Zoho Mail is not configured. Export mail and upload the ZIP to Meta-Console agent drop, '
+            'then use Ingest from agent drop in the admin invite panel, or run '
+            'scripts/zoho_mail_ingest_export.py --owner YOUR_EMAIL --input PATH --output '
+            f'{snapshot_path}. Alternatively set ZOHO_MAIL_CLIENT_ID, ZOHO_MAIL_CLIENT_SECRET, '
             'and ZOHO_MAIL_REFRESH_TOKEN for live API access.'
         ),
         'contacts': [],
@@ -264,13 +314,22 @@ def _search_live_meta_layer_contacts(*, limit_per_term: int = 20) -> Dict[str, A
     }
 
 
-def search_meta_layer_contacts(*, limit_per_term: int = 20) -> Dict[str, Any]:
-    """Load meta-layer contacts from export snapshot or live Zoho Mail API."""
-    snapshot = _load_contacts_snapshot()
+def search_meta_layer_contacts(
+    *,
+    admin_email: str = '',
+    limit_per_term: int = 20,
+) -> Dict[str, Any]:
+    """Load meta-layer contacts from per-admin export snapshot or live Zoho Mail API."""
+    owner = normalize_admin_email(admin_email)
+    snapshot = _load_contacts_snapshot(admin_email=owner)
     if snapshot:
         return snapshot
 
     if not zoho_mail_configured():
-        return _not_configured_payload()
+        payload = _not_configured_payload(admin_email=owner)
+        return payload
 
-    return _search_live_meta_layer_contacts(limit_per_term=limit_per_term)
+    live = _search_live_meta_layer_contacts(limit_per_term=limit_per_term)
+    if owner:
+        live['owner_email'] = owner
+    return live

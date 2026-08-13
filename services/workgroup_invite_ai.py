@@ -649,6 +649,41 @@ def _resolve_admin_primary_workgroup(primary_workgroup_id: str) -> Tuple[Optiona
     return workgroup, None
 
 
+def _zoho_contact_draft_guidance(zoho_contact_context: Optional[dict]) -> str:
+    """LLM instructions when structured Zoho mail history is available."""
+    if not zoho_contact_context or not isinstance(zoho_contact_context, dict):
+        return ''
+
+    style = zoho_contact_context.get('communication_style') or {}
+    labels = style.get('labels') or []
+    style_line = ', '.join(labels) if labels else 'professional'
+    recency = zoho_contact_context.get('last_contact_recency') or 'unknown'
+    message_count = int(zoho_contact_context.get('message_count') or 0)
+    subjects = zoho_contact_context.get('subjects') or []
+    snippets = zoho_contact_context.get('snippets') or []
+
+    lines = [
+        'ZOHO EMAIL HISTORY (personalize from this – avoid generic filler):',
+        f'- Last contact recency: {recency} (last_contact={zoho_contact_context.get("last_contact") or "unknown"}).',
+        f'- Prior message volume: {message_count} email{"s" if message_count != 1 else ""}.',
+        f'- Inferred communication style: {style_line}. {style.get("notes") or ""}'.strip(),
+        '- Mirror their formality and verbosity in your draft (formal/terse → shorter, polished sentences; '
+        'casual/warm → conversational warmth; technical → precise domain terms from their threads).',
+        '- Reference recency naturally (e.g. "great connecting last month" vs "it has been a while" '
+        'when recency is quite a while ago).',
+    ]
+    if subjects:
+        lines.append('- Prior subjects to weave in when relevant: ' + '; '.join(subjects[:4]) + '.')
+    if snippets:
+        lines.append('- Prior email snippets (use specific details, not vague "our conversation"):')
+        for index, snippet in enumerate(snippets[:3], start=1):
+            lines.append(f'  {index}. {snippet[:350]}')
+    summary = (zoho_contact_context.get('summary') or '').strip()
+    if summary:
+        lines.append(f'- Outreach summary: {summary[:400]}')
+    return '\n'.join(lines)
+
+
 def draft_admin_invitation_email(
     *,
     primary_workgroup_id: str,
@@ -663,6 +698,7 @@ def draft_admin_invitation_email(
     additional_workgroup_ids: Optional[List[str]] = None,
     prior_invitations: Optional[List[dict]] = None,
     invite_content: Optional[dict] = None,
+    zoho_contact_context: Optional[dict] = None,
     regenerate: bool = False,
     previous_draft: str = '',
 ) -> Tuple[dict, int]:
@@ -684,6 +720,7 @@ def draft_admin_invitation_email(
         additional_workgroup_ids=additional_workgroup_ids,
         prior_invitations=prior_invitations,
         invite_content=invite_content,
+        zoho_contact_context=zoho_contact_context,
         regenerate=regenerate,
         previous_draft=previous_draft,
     )
@@ -698,6 +735,8 @@ def send_admin_invitation_email(
     body: str,
     additional_workgroup_ids: Optional[List[str]] = None,
     send_mode: str = 'platform',
+    audit_source: str = 'manual',
+    audit_status: Optional[str] = None,
 ) -> Tuple[dict, int]:
     inviter = User.query.get(inviter_id)
     if not inviter:
@@ -712,7 +751,7 @@ def send_admin_invitation_email(
     workgroup, err = _resolve_admin_primary_workgroup(primary_workgroup_id)
     if err or not workgroup:
         return {'error': err or 'Invalid primary workgroup'}, 400
-    return send_ai_workgroup_invitations(
+    payload, status = send_ai_workgroup_invitations(
         workgroup=workgroup,
         inviter_id=inviter_id,
         name=name,
@@ -721,6 +760,32 @@ def send_admin_invitation_email(
         additional_workgroup_ids=additional_workgroup_ids,
         send_mode=send_mode,
     )
+    if status >= 400 or payload.get('blocked') or payload.get('error'):
+        return payload, status
+
+    from services.dp_admin_invite_store import record_admin_invite_send
+
+    wg_ids = [primary_workgroup_id]
+    for wg_id in additional_workgroup_ids or []:
+        if wg_id and wg_id not in wg_ids:
+            wg_ids.append(wg_id)
+    invitation_ids = payload.get('invitation_ids') or []
+    record_status = audit_status or (
+        'client_prepared' if (send_mode or '').strip().lower() == 'client' else 'sent'
+    )
+    row = record_admin_invite_send(
+        admin=inviter_dict,
+        recipient_email=email,
+        recipient_name=name,
+        workgroup_ids=wg_ids,
+        body=body,
+        status=record_status,
+        invitation_id=invitation_ids[0] if invitation_ids else None,
+        send_mode=send_mode,
+        source=audit_source,
+    )
+    payload['send_record_id'] = row.id
+    return payload, status
 
 
 def _invitee_greeting_name(name: str) -> str:
@@ -973,6 +1038,7 @@ def draft_invitation_email(
     additional_workgroup_ids: Optional[List[str]] = None,
     prior_invitations: Optional[List[dict]] = None,
     invite_content: Optional[dict] = None,
+    zoho_contact_context: Optional[dict] = None,
     regenerate: bool = False,
     previous_draft: str = '',
 ) -> Tuple[dict, int]:
@@ -1021,7 +1087,14 @@ def draft_invitation_email(
 
     invite_content_for_llm = _normalize_invite_content_for_llm(invite_content)
     invite_content_note = _invite_content_guidance(invite_content_for_llm, length_key=length_key)
+    zoho_guidance = _zoho_contact_draft_guidance(zoho_contact_context)
     combined_guidance = (extra_guidance or '').strip()
+    if zoho_guidance:
+        combined_guidance = (
+            f'{zoho_guidance}\n\n{combined_guidance}'.strip()
+            if combined_guidance
+            else zoho_guidance
+        )
     if invite_content_note:
         combined_guidance = (
             f'{invite_content_note}\n\n{combined_guidance}'.strip()
@@ -1048,6 +1121,13 @@ def draft_invitation_email(
             'When invite content is provided, follow the INVITE CONTENT STRUCTURE before the '
             'workgroup invitation. '
         )
+    if zoho_guidance:
+        system += (
+            'When zoho_contact_context is provided, personalize opening and tone from prior email '
+            'history: match their communication style (formality, warmth, length), reference recency '
+            'of last contact naturally, and cite specific subjects or snippet details – never generic '
+            '"hope you are well" filler when thread context exists. '
+        )
     if length_key == 'short':
         system += (
             'SHORT length: keep pre-invite content to at most 3 brief paragraphs; compress workshops/events '
@@ -1071,6 +1151,11 @@ def draft_invitation_email(
         'Reference previous interaction naturally when provided (personal context such as how you know them). '
         'Ground role-specific paragraphs in resolved_person (headline, summary, expertise_tags), not only in previous_interaction.'
     )
+    if zoho_guidance:
+        system += (
+            ' When zoho_contact_context is present, calibrate warmth and length to their inferred style '
+            'even if the selected tone preset differs slightly – still honor the tone preset but adapt register.'
+        )
 
     previous_draft_text = (previous_draft or '').strip()
     regenerate_note = ''
@@ -1089,6 +1174,7 @@ def draft_invitation_email(
         'additional_workgroups': extra_wgs,
         'resolved_person': resolved_person or {'name': invitee_display},
         'previous_interaction': (previous_interaction or '').strip(),
+        'zoho_contact_context': zoho_contact_context,
         'tone': tone_key,
         'length': length_key,
         'tone_guidance': tone_guidance,
