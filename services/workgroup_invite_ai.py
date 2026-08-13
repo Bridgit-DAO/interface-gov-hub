@@ -32,7 +32,7 @@ from services.platform_invitations import (
 )
 from services.utils import generate_invitation_token
 from services.web_research import research_person_corpus
-from services.workgroup_authority import is_workgroup_member
+from services.workgroup_authority import can_invite_workgroup_member, is_workgroup_member
 from services.workgroup_links import is_dp_workgroup, query_workgroups_for_layer
 
 _INVITE_TTL_DAYS = 7
@@ -300,8 +300,8 @@ def research_external_contact(
     extra_links: Optional[List[str]] = None,
     selected_candidate_index: Optional[int] = None,
 ) -> Tuple[dict, int]:
-    if not is_workgroup_member(workgroup.acronym, inviter):
-        return {'error': 'Only workgroup members can use the AI invite tool'}, 403
+    if not can_invite_workgroup_member(workgroup, inviter):
+        return {'error': 'Only workgroup members or DP site admins can use the AI invite tool'}, 403
 
     block = check_invite_blocked(workgroup, email)
     if block:
@@ -643,8 +643,8 @@ def draft_invitation_email(
     regenerate: bool = False,
     previous_draft: str = '',
 ) -> Tuple[dict, int]:
-    if not is_workgroup_member(workgroup.acronym, inviter):
-        return {'error': 'Only workgroup members can use the AI invite tool'}, 403
+    if not can_invite_workgroup_member(workgroup, inviter):
+        return {'error': 'Only workgroup members or DP site admins can use the AI invite tool'}, 403
 
     block = check_invite_blocked(workgroup, email)
     if block:

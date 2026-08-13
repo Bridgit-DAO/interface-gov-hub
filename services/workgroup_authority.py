@@ -5,7 +5,9 @@ from typing import Optional
 
 from extensions import db
 from models import Layer, Workgroup, WorkingGroupChair, WorkingGroupMember
+from config import DP_ADMIN_EMAILS
 from services.coordination import is_layer_admin
+from services.workgroup_links import is_dp_workgroup
 from services.workgroup_positions import NOMINATION_STATUS_APPROVED
 
 WORKGROUP_LEAD_POSITION = 'chair'
@@ -26,6 +28,16 @@ def _user_id(user_or_id) -> Optional[str]:
 
 def is_site_moderation_staff(user: Optional[dict]) -> bool:
     return bool(user and user.get('role') in ('admin', 'editor'))
+
+
+def is_dp_site_admin(user: Optional[dict]) -> bool:
+    """True when the signed-in user's email is a Desirable Properties site admin."""
+    if not user:
+        return False
+    email = (user.get('email') or '').strip().lower()
+    if not email:
+        return False
+    return email in DP_ADMIN_EMAILS
 
 
 def is_workgroup_member(group_acronym: str, user_or_id) -> bool:
@@ -98,9 +110,11 @@ def can_manage_workgroup(workgroup: Optional[Workgroup], user: Optional[dict]) -
 
 
 def can_invite_workgroup_member(workgroup: Optional[Workgroup], user: Optional[dict]) -> bool:
-    """Any active member, layer admins, and site staff can recruit members."""
+    """Any active member, layer admins, site staff, and DP site admins can recruit members."""
     if not workgroup or not user:
         return False
     if can_manage_workgroup(workgroup, user):
+        return True
+    if is_dp_site_admin(user) and is_dp_workgroup(workgroup):
         return True
     return is_workgroup_member(workgroup.acronym, user)
