@@ -693,6 +693,25 @@ def _looks_like_name_fragment(fragment: str, full_name: str) -> bool:
     return full_name.lower().endswith(fragment.lower())
 
 
+def _normalize_greeting_blank_line(text: str) -> str:
+    """Ensure exactly one blank line between the greeting and the body."""
+    lines = (text or '').split('\n')
+    greeting_idx: Optional[int] = None
+    for idx, line in enumerate(lines):
+        if _greeting_name_from_line(line):
+            greeting_idx = idx
+            break
+    if greeting_idx is None:
+        return (text or '').strip()
+
+    body_idx = greeting_idx + 1
+    while body_idx < len(lines) and not lines[body_idx].strip():
+        body_idx += 1
+    if body_idx >= len(lines):
+        return '\n'.join(lines[:greeting_idx + 1]).strip()
+    return '\n'.join(lines[:greeting_idx + 1] + [''] + lines[body_idx:]).strip()
+
+
 def _strip_orphan_greeting_fragments(
     text: str,
     *,
@@ -716,25 +735,25 @@ def _strip_orphan_greeting_fragments(
 
     reference_name = greeting_name or _invitee_first_name_token(invitee_name or '')
     head = lines[:greeting_idx + 1]
-    tail_start = greeting_idx + 1
-    while tail_start < len(lines):
-        stripped = lines[tail_start].strip()
+    filtered_tail: List[str] = []
+    for line in lines[greeting_idx + 1:]:
+        stripped = line.strip()
         if not stripped:
-            tail_start += 1
+            filtered_tail.append(line)
             continue
         if _DUPLICATE_SALUTATION_RE.match(stripped):
-            tail_start += 1
             continue
         fragment_match = _NAME_FRAGMENT_LINE_RE.match(stripped)
         if fragment_match and reference_name:
             if _looks_like_name_fragment(fragment_match.group(0)[:-1], reference_name):
-                tail_start += 1
                 continue
-        break
+        filtered_tail.append(line)
 
-    if tail_start >= len(lines):
-        return '\n'.join(head).strip()
-    return '\n'.join(head + lines[tail_start:]).strip()
+    if not filtered_tail:
+        result = '\n'.join(head).strip()
+    else:
+        result = '\n'.join(head + filtered_tail).strip()
+    return _normalize_greeting_blank_line(result)
 
 
 def _trim_trailing_model_reasoning(
