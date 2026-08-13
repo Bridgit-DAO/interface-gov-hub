@@ -31,9 +31,9 @@ from services.platform_invitations import (
     validate_invitee_email,
 )
 from services.utils import generate_invitation_token
-from services.web_research import research_person_corpus
-from services.workgroup_authority import can_invite_workgroup_member, is_workgroup_member
-from services.workgroup_links import is_dp_workgroup, query_workgroups_for_layer
+from services.web_research import normalize_linkedin_url, research_person_corpus
+from services.workgroup_authority import can_invite_workgroup_member, is_dp_site_admin, is_workgroup_member
+from services.workgroup_links import is_dp_workgroup, list_approved_dp_workgroups, query_workgroups_for_layer
 
 _INVITE_TTL_DAYS = 7
 
@@ -268,6 +268,80 @@ def _dp_workgroup_catalog(primary: Workgroup) -> List[dict]:
     return catalog
 
 
+def _fallback_resolved_person(
+    *,
+    name: str,
+    linkedin_url: str = '',
+    previous_interaction: str = '',
+    resolved: Optional[dict] = None,
+) -> dict:
+    base = dict(resolved) if isinstance(resolved, dict) else {}
+    clean_name = (name or '').strip() or (base.get('name') or '').strip()
+    headline = (base.get('headline') or '').strip()
+    if not headline and linkedin_url.strip():
+        headline = 'LinkedIn profile provided'
+    summary = (base.get('summary') or '').strip()
+    if not summary and previous_interaction.strip():
+        summary = previous_interaction.strip()[:500]
+    tags = base.get('expertise_tags') if isinstance(base.get('expertise_tags'), list) else []
+    source_urls = [u for u in (base.get('source_urls') or []) if isinstance(u, str) and u.strip()]
+    if linkedin_url.strip() and linkedin_url.strip() not in source_urls:
+        source_urls.insert(0, linkedin_url.strip())
+    return {
+        'name': clean_name or 'Recipient',
+        'headline': headline,
+        'summary': summary,
+        'expertise_tags': tags,
+        'source_urls': source_urls[:5],
+    }
+
+
+def _finalize_research_analysis(
+    analysis: dict,
+    *,
+    name: str,
+    linkedin_url: str = '',
+    previous_interaction: str = '',
+    selected_candidate_index: Optional[int] = None,
+) -> Tuple[bool, List[dict], dict]:
+    ambiguous = bool(analysis.get('ambiguous'))
+    candidates = analysis.get('candidates') or []
+    if not isinstance(candidates, list):
+        candidates = []
+
+    resolved = analysis.get('resolved_person')
+    if not isinstance(resolved, dict):
+        resolved = None
+
+    if selected_candidate_index is not None and resolved:
+        ambiguous = False
+
+    has_anchor = bool((name or '').strip()) and bool(
+        linkedin_url.strip() or previous_interaction.strip() or resolved,
+    )
+
+    # Empty candidate list with a LinkedIn URL or prior context should not block drafting.
+    if ambiguous and not candidates and has_anchor:
+        ambiguous = False
+        resolved = _fallback_resolved_person(
+            name=name,
+            linkedin_url=linkedin_url,
+            previous_interaction=previous_interaction,
+            resolved=resolved,
+        )
+    elif ambiguous and resolved and len(candidates) <= 1:
+        ambiguous = False
+
+    if not resolved and has_anchor:
+        resolved = _fallback_resolved_person(
+            name=name,
+            linkedin_url=linkedin_url,
+            previous_interaction=previous_interaction,
+        )
+
+    return ambiguous, candidates, resolved or {}
+
+
 def check_invite_blocked(workgroup: Workgroup, email: str) -> Optional[str]:
     norm = normalize_invitee_email(email)
     if not norm:
@@ -307,6 +381,7 @@ def research_external_contact(
     if block:
         return {'blocked': True, 'error': block}, 200
 
+    linkedin_url = normalize_linkedin_url(linkedin_url)
     corpus = research_person_corpus(
         name=name,
         linkedin_url=linkedin_url,
@@ -329,12 +404,15 @@ def research_external_contact(
         'resolved_person ({name, headline, summary, expertise_tags[]}), '
         'suggested_workgroups (array of {workgroup_id, rationale}). '
         'Mark ambiguous=true when multiple distinct people match or roles conflict. '
+        'When linkedin_url is provided and identifies one person, set ambiguous=false '
+        'and populate resolved_person from that profile. '
         'Only suggest workgroup_id values from the provided catalog.'
     )
     catalog = _dp_workgroup_catalog(workgroup)
     user_msg = json.dumps({
         'target_name': name.strip(),
         'email': normalize_invitee_email(email),
+        'linkedin_url': linkedin_url,
         'previous_interaction': (previous_interaction or '').strip(),
         'corpus': corpus.get('combined_text', '')[:8000],
         'search_results': corpus.get('search_results', [])[:6],
@@ -357,9 +435,13 @@ def research_external_contact(
 
     prior = lookup_prior_workgroup_invitations(normalize_invitee_email(email))
 
-    ambiguous = bool(analysis.get('ambiguous'))
-    if selected_candidate_index is not None and analysis.get('resolved_person'):
-        ambiguous = False
+    ambiguous, candidates, resolved_person = _finalize_research_analysis(
+        analysis,
+        name=name,
+        linkedin_url=linkedin_url,
+        previous_interaction=previous_interaction,
+        selected_candidate_index=selected_candidate_index,
+    )
 
     suggested = []
     for item in analysis.get('suggested_workgroups') or []:
@@ -378,8 +460,8 @@ def research_external_contact(
     return {
         'success': True,
         'ambiguous': ambiguous,
-        'candidates': analysis.get('candidates') or [],
-        'resolved_person': analysis.get('resolved_person'),
+        'candidates': candidates,
+        'resolved_person': resolved_person,
         'suggested_workgroups': suggested,
         'prior_invitations': prior,
         'corpus_meta': {
@@ -388,6 +470,245 @@ def research_external_contact(
             'search_available': corpus.get('search_available'),
         },
     }, 200
+
+
+_CONFIDENCE_SCORE_DEFAULTS = {'high': 85, 'medium': 60, 'low': 35}
+
+
+def _dp_workgroup_catalog_entry(workgroup: Workgroup) -> dict:
+    return {
+        'id': workgroup.id,
+        'name': workgroup.name,
+        'slug': workgroup.slug or workgroup.acronym,
+        'description': (workgroup.description or '')[:500],
+        'charter': (workgroup.charter or '')[:800],
+    }
+
+
+def _all_dp_workgroup_catalog() -> List[dict]:
+    return [_dp_workgroup_catalog_entry(wg) for wg in list_approved_dp_workgroups()]
+
+
+def _normalize_match_confidence(value: Any) -> str:
+    raw = str(value or '').strip().lower()
+    if raw in ('high', 'strong', 'excellent'):
+        return 'high'
+    if raw in ('medium', 'moderate', 'fair'):
+        return 'medium'
+    return 'low'
+
+
+def _normalize_workgroup_matches(
+    analysis: dict,
+    catalog_by_id: Dict[str, dict],
+) -> List[dict]:
+    matches: List[dict] = []
+    for item in analysis.get('workgroup_matches') or []:
+        if not isinstance(item, dict):
+            continue
+        wg_id = (item.get('workgroup_id') or '').strip()
+        catalog_entry = catalog_by_id.get(wg_id)
+        if not catalog_entry:
+            continue
+        score_raw = item.get('score')
+        try:
+            score = int(score_raw)
+        except (TypeError, ValueError):
+            conf = _normalize_match_confidence(item.get('confidence'))
+            score = _CONFIDENCE_SCORE_DEFAULTS[conf]
+        score = max(0, min(100, score))
+        if score >= 75:
+            confidence = 'high'
+        elif score >= 45:
+            confidence = 'medium'
+        else:
+            confidence = 'low'
+        matches.append({
+            'workgroup_id': wg_id,
+            'name': catalog_entry['name'],
+            'slug': catalog_entry['slug'],
+            'confidence': confidence,
+            'score': score,
+            'rationale': (item.get('rationale') or '')[:400],
+        })
+    matches.sort(key=lambda row: (-row['score'], row['name'].casefold()))
+    return matches
+
+
+def research_admin_invite_contact(
+    *,
+    inviter: dict,
+    name: str,
+    email: str,
+    linkedin_url: str = '',
+    previous_interaction: str = '',
+    extra_links: Optional[List[str]] = None,
+    selected_candidate_index: Optional[int] = None,
+) -> Tuple[dict, int]:
+    if not is_dp_site_admin(inviter):
+        return {'error': 'DP site admin required'}, 403
+
+    linkedin_url = normalize_linkedin_url(linkedin_url)
+    catalog = _all_dp_workgroup_catalog()
+    if not catalog:
+        return {'error': 'No DP workgroups available for matching'}, 503
+
+    catalog_by_id = {entry['id']: entry for entry in catalog}
+
+    corpus = research_person_corpus(
+        name=name,
+        linkedin_url=linkedin_url,
+        extra_links=extra_links or [],
+    )
+
+    if not llm_configured():
+        return {'error': 'No LLM API key configured for AI invite'}, 503
+    cfg = resolve_llm_config()
+    if not cfg:
+        return {'error': 'No LLM API key configured for AI invite'}, 503
+
+    system = (
+        'You analyze public information about a person and rank Desirable Properties workgroups '
+        'they would be a strong fit for. '
+        'Respond with a single JSON object only – no markdown fences, no commentary before or after. '
+        f'{_NO_EM_DASH_RULE}'
+        'Required keys: '
+        'ambiguous (boolean), candidates (array of {name, headline, source_urls[]}), '
+        'resolved_person ({name, headline, summary, expertise_tags[]}), '
+        'workgroup_matches (array of {workgroup_id, confidence, score, rationale}). '
+        'confidence must be high, medium, or low. score is an integer 0-100 fit score. '
+        'Return 3-8 workgroup_matches sorted best-first. Only use workgroup_id values from the catalog. '
+        'Mark ambiguous=true only when multiple distinct people match the name or profile.'
+    )
+    user_msg = json.dumps({
+        'target_name': name.strip(),
+        'email': normalize_invitee_email(email),
+        'linkedin_url': linkedin_url,
+        'previous_interaction': (previous_interaction or '').strip(),
+        'corpus': corpus.get('combined_text', '')[:8000],
+        'search_results': corpus.get('search_results', [])[:6],
+        'workgroups_catalog': catalog,
+        'selected_candidate_index': selected_candidate_index,
+    })
+    try:
+        raw = clean_draft(call_llm([
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': user_msg},
+        ], cfg, max_tokens=_INVITE_RESEARCH_MAX_TOKENS))
+        analysis = _parse_json_object(raw)
+    except (json.JSONDecodeError, LlmCallFailed, LlmTemporarilyBusy) as exc:
+        return {'error': f'AI research failed: {exc}'}, 502
+
+    prior = lookup_prior_workgroup_invitations(normalize_invitee_email(email))
+    ambiguous, candidates, resolved_person = _finalize_research_analysis(
+        analysis,
+        name=name,
+        linkedin_url=linkedin_url,
+        previous_interaction=previous_interaction,
+        selected_candidate_index=selected_candidate_index,
+    )
+    workgroup_matches = _normalize_workgroup_matches(analysis, catalog_by_id)
+
+    return {
+        'success': True,
+        'ambiguous': ambiguous,
+        'candidates': candidates,
+        'resolved_person': resolved_person,
+        'workgroup_matches': workgroup_matches,
+        'workgroup_catalog': catalog,
+        'prior_invitations': prior,
+        'corpus_meta': {
+            'urls_fetched': len(corpus.get('url_corpus') or []),
+            'search_hits': len(corpus.get('search_results') or []),
+            'search_available': corpus.get('search_available'),
+        },
+    }, 200
+
+
+def _resolve_admin_primary_workgroup(primary_workgroup_id: str) -> Tuple[Optional[Workgroup], Optional[str]]:
+    wg_id = (primary_workgroup_id or '').strip()
+    if not wg_id:
+        return None, 'primary_workgroup_id is required'
+    workgroup = Workgroup.query.get(wg_id)
+    if not workgroup or not is_dp_workgroup(workgroup):
+        return None, 'Invalid primary workgroup'
+    if workgroup.approval_status != 'approved':
+        return None, 'Primary workgroup must be approved'
+    return workgroup, None
+
+
+def draft_admin_invitation_email(
+    *,
+    primary_workgroup_id: str,
+    inviter: dict,
+    name: str,
+    email: str,
+    tone: str = 'warm',
+    length: str = 'medium',
+    previous_interaction: str = '',
+    extra_guidance: str = '',
+    resolved_person: Optional[dict] = None,
+    additional_workgroup_ids: Optional[List[str]] = None,
+    prior_invitations: Optional[List[dict]] = None,
+    invite_content: Optional[dict] = None,
+    regenerate: bool = False,
+    previous_draft: str = '',
+) -> Tuple[dict, int]:
+    if not is_dp_site_admin(inviter):
+        return {'error': 'DP site admin required'}, 403
+    workgroup, err = _resolve_admin_primary_workgroup(primary_workgroup_id)
+    if err or not workgroup:
+        return {'error': err or 'Invalid primary workgroup'}, 400
+    return draft_invitation_email(
+        workgroup=workgroup,
+        inviter=inviter,
+        name=name,
+        email=email,
+        tone=tone,
+        length=length,
+        previous_interaction=previous_interaction,
+        extra_guidance=extra_guidance,
+        resolved_person=resolved_person,
+        additional_workgroup_ids=additional_workgroup_ids,
+        prior_invitations=prior_invitations,
+        invite_content=invite_content,
+        regenerate=regenerate,
+        previous_draft=previous_draft,
+    )
+
+
+def send_admin_invitation_email(
+    *,
+    primary_workgroup_id: str,
+    inviter_id: str,
+    name: str,
+    email: str,
+    body: str,
+    additional_workgroup_ids: Optional[List[str]] = None,
+    send_mode: str = 'platform',
+) -> Tuple[dict, int]:
+    inviter = User.query.get(inviter_id)
+    if not inviter:
+        return {'error': 'Inviter not found'}, 404
+    inviter_dict = {
+        'id': inviter.id,
+        'role': inviter.role,
+        'email': inviter.email,
+    }
+    if not is_dp_site_admin(inviter_dict):
+        return {'error': 'DP site admin required'}, 403
+    workgroup, err = _resolve_admin_primary_workgroup(primary_workgroup_id)
+    if err or not workgroup:
+        return {'error': err or 'Invalid primary workgroup'}, 400
+    return send_ai_workgroup_invitations(
+        workgroup=workgroup,
+        inviter_id=inviter_id,
+        name=name,
+        email=email,
+        body=body,
+        additional_workgroup_ids=additional_workgroup_ids,
+        send_mode=send_mode,
+    )
 
 
 def _invitee_greeting_name(name: str) -> str:

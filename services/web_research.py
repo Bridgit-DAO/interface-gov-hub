@@ -124,15 +124,26 @@ def build_search_query(name: str, linkedin_url: str = '', extra: Optional[List[s
     return ' '.join(parts)
 
 
+def normalize_linkedin_url(url: str) -> str:
+    """Normalize user-entered LinkedIn URLs for fetch and research."""
+    raw = (url or '').strip()
+    if not raw:
+        return ''
+    if not raw.startswith(('http://', 'https://')):
+        raw = f'https://{raw.lstrip("/")}'
+    return raw
+
+
 def research_person_corpus(
     *,
     name: str,
     linkedin_url: str = '',
     extra_links: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    linkedin_url = normalize_linkedin_url(linkedin_url)
     urls = []
-    if linkedin_url.strip():
-        urls.append(linkedin_url.strip())
+    if linkedin_url:
+        urls.append(linkedin_url)
     for link in extra_links or []:
         if link and link.strip():
             urls.append(link.strip())
