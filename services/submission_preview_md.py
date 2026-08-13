@@ -12,6 +12,35 @@ _ALLOWED_TAGS = [
 
 _HEADING_RE = re.compile(r'^(?: {0,3})#{1,6}\s+')
 _HR_RE = re.compile(r'^(?: {0,3})(?:-{3,}|_{3,}|\*{3,})\s*$')
+_DP_ILLUSTRATION_MD_RE = re.compile(
+    r'!\[([^\]]*)\]\(/content/local/assets/dp/(DP\d+)\.webp\)',
+    re.IGNORECASE,
+)
+_DP_ILLUSTRATION_SRC_RE = re.compile(
+    r'src="(?:https://ordinals\.com)?/content/local/assets/dp/(DP\d+)\.webp"',
+    re.IGNORECASE,
+)
+
+
+def rewrite_dp_illustration_markdown(text: str) -> str:
+    """Map book-local DP hero paths to Gov Hub static artwork."""
+
+    def repl(match: re.Match[str]) -> str:
+        alt = match.group(1)
+        dp_id = match.group(2).upper()
+        return f'![{alt}](/static/images/dps/full/{dp_id}.webp)'
+
+    return _DP_ILLUSTRATION_MD_RE.sub(repl, text)
+
+
+def rewrite_dp_illustration_img_src(html: str) -> str:
+    """Fix img src after markdown conversion (including legacy ordinals.com rewrite)."""
+
+    def repl(match: re.Match[str]) -> str:
+        dp_id = match.group(1).upper()
+        return f'src="/static/images/dps/full/{dp_id}.webp"'
+
+    return _DP_ILLUSTRATION_SRC_RE.sub(repl, html)
 
 
 def strip_hr_adjacent_to_headings(text: str) -> str:
@@ -87,6 +116,7 @@ def markdown_to_safe_preview_html(markdown_text: str) -> Optional[str]:
         return None
     text = normalize_backslash_escaped_markdown(text)
     text = strip_hr_adjacent_to_headings(text)
+    text = rewrite_dp_illustration_markdown(text)
 
     html_raw: Optional[str] = None
     try:
@@ -118,8 +148,9 @@ def markdown_to_safe_preview_html(markdown_text: str) -> Optional[str]:
             attributes=_ALLOWED_ATTRS,
             strip=True,
         )
+        cleaned = rewrite_dp_illustration_img_src(cleaned)
         return re.sub(
-            r'src="(/content/[^"]+)"',
+            r'src="(/content/(?!local/assets/dp/)[^"]+)"',
             r'src="https://ordinals.com\1"',
             cleaned,
         )
