@@ -183,10 +183,34 @@ def test_clean_draft_removes_orphan_greeting_fragment_ed_after_hi_daveed():
     )
     cleaned = clean_draft(raw, length_preference='long')
     lines = [line.strip() for line in cleaned.split('\n')]
-    assert cleaned.startswith('Hi Daveed,')
+    assert cleaned.startswith('Hi Daveed,\n\n')
     assert 'ed,' not in lines
     assert 'Our meta-layer conversations' in cleaned
     assert cleaned.endswith('[JOIN_PRIMARY]')
+
+
+def test_clean_draft_preserves_blank_line_after_greeting_without_fragment():
+    """Invite drafts must keep a blank line between greeting and body."""
+    raw = (
+        'Hi Daveed,\n\n'
+        'I want to share some thoughts about the workgroup invitation.\n\n'
+        '[JOIN_PRIMARY]'
+    )
+    cleaned = clean_draft(raw, length_preference='long')
+    assert cleaned.startswith('Hi Daveed,\n\nI want to share some')
+
+
+def test_clean_draft_normalizes_blank_line_after_stripping_fragment():
+    """Stripping orphan fragments must not collapse greeting/body spacing."""
+    raw = (
+        'Hi Daveed,\n\n'
+        'ed,\n\n'
+        'I want to share some thoughts about the workgroup invitation.\n\n'
+        '[JOIN_PRIMARY]'
+    )
+    cleaned = clean_draft(raw, length_preference='long', invitee_name='Daveed')
+    assert cleaned.startswith('Hi Daveed,\n\nI want to share some')
+    assert 'ed,' not in [line.strip() for line in cleaned.split('\n')]
 
 
 def test_clean_draft_removes_veed_fragment_and_duplicate_salutation():
