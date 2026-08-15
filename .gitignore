@@ -24,6 +24,10 @@ datatracker.sublime-workspace
 /env
 # Local secrets (never commit)
 .env
+/instance_dev/invite_zoho_contacts_snapshot.json
+/instance_dev/invite_zoho_snapshots/
+/instance/invite_zoho_snapshots/
+/instance/invite_zoho_contacts_snapshot.json
 .env.local
 .env.*.local
 

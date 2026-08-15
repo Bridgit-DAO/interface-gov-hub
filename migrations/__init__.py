@@ -2875,6 +2875,49 @@ def migrate_scoped_email_v1(app):
         print(f'⚠️  Error in migrate_scoped_email_v1: {e}')
 
 
+def migrate_dp_admin_invite_v1(app):
+    """DP admin invite send audit log for Zoho batch outreach."""
+    try:
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dp_admin_invite_send_record (
+                id VARCHAR(36) PRIMARY KEY,
+                admin_id VARCHAR(36) NOT NULL,
+                admin_email VARCHAR(255) NOT NULL,
+                recipient_email VARCHAR(255) NOT NULL,
+                recipient_name VARCHAR(255) NOT NULL DEFAULT '',
+                workgroup_ids_json TEXT NOT NULL DEFAULT '[]',
+                draft_hash VARCHAR(64),
+                draft_excerpt TEXT,
+                status VARCHAR(24) NOT NULL DEFAULT 'sent',
+                invitation_id VARCHAR(36),
+                send_mode VARCHAR(20),
+                source VARCHAR(40) NOT NULL DEFAULT 'manual',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                FOREIGN KEY(admin_id) REFERENCES user(id)
+            )
+        """)
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_dp_admin_invite_send_admin '
+            'ON dp_admin_invite_send_record(admin_id, created_at DESC)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_dp_admin_invite_send_recipient '
+            'ON dp_admin_invite_send_record(recipient_email)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_dp_admin_invite_send_status '
+            'ON dp_admin_invite_send_record(status)'
+        )
+        conn.commit()
+        conn.close()
+        print('✅ DP admin invite send record table ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_dp_admin_invite_v1: {e}')
+
+
 def migrate_user_mfa_v1(app):
     """MFA tables: TOTP devices, recovery codes, login challenges."""
     try:

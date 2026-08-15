@@ -5,7 +5,8 @@ import re
 
 from flask import Blueprint, jsonify, request
 
-from models import User
+from models import DpProposal, Submission
+from extensions import db
 from services.support_auth import require_hermes
 
 bp = Blueprint('dp_internal', __name__)

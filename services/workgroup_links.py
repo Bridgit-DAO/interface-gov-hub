@@ -136,6 +136,16 @@ def query_workgroups_for_layer(
     return rows
 
 
+def list_approved_dp_workgroups():
+    """All approved Desirable Properties workgroups (numbered DPs + Discovery)."""
+    from models import Workgroup
+
+    rows = Workgroup.query.filter(Workgroup.approval_status == 'approved').all()
+    dp_rows = [wg for wg in rows if is_dp_workgroup(wg)]
+    dp_rows.sort(key=workgroup_display_sort_key)
+    return dp_rows
+
+
 def workgroup_display_sort_key(workgroup) -> tuple:
     """DP workgroups by number ascending; Discovery after numbered DPs; others A–Z."""
     if is_dp_discovery_workgroup(workgroup):

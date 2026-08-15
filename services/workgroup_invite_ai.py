@@ -20,6 +20,7 @@ from services.assist import (
 from services.platform_invitation_mail import (
     build_multi_workgroup_invite_mailto,
     invite_body_uses_join_placeholders,
+    sanitize_invite_email_body,
     send_multi_workgroup_invitation_email,
     substitute_workgroup_join_placeholders,
 )
@@ -30,10 +31,11 @@ from services.platform_invitations import (
     normalize_invitee_email,
     validate_invitee_email,
 )
+from services.invite_message_strategy import normalize_message_strategy, strategy_prompt_block
 from services.utils import generate_invitation_token
-from services.web_research import research_person_corpus
-from services.workgroup_authority import is_workgroup_member
-from services.workgroup_links import is_dp_workgroup, query_workgroups_for_layer
+from services.web_research import normalize_linkedin_url, research_person_corpus
+from services.workgroup_authority import can_invite_workgroup_member, is_dp_site_admin, is_workgroup_member
+from services.workgroup_links import is_dp_workgroup, list_approved_dp_workgroups, query_workgroups_for_layer
 
 _INVITE_TTL_DAYS = 7
 
@@ -51,7 +53,7 @@ _LENGTH_GUIDANCE = {
     'medium': (
         'About 220–320 words total. '
         'Structure: standard flow—invite content blocks (events, perspectives, engagement as guided), '
-        'then workgroup invitation with primary and any additional workgroups, then close with [JOIN_PRIMARY]. '
+        'then workgroup invitation with primary and any additional workgroups, then a warm close. '
         'This is the baseline length; do not pad or trim aggressively.'
     ),
     'long': (
@@ -87,11 +89,31 @@ _INVITE_DRAFT_MAX_TOKENS = {
     'long': 4000,
 }
 _INVITE_RESEARCH_MAX_TOKENS = 2400
+
+_WORKGROUP_MATCHING_RULE = (
+    'Infer workgroup fit from corpus and search_results: roles, headline, skills, employers, '
+    'publications, and projects. When linkedin_url is provided, treat it as the primary identity '
+    'anchor. previous_interaction is mainly for email personalization – do not rank workgroups from '
+    'certification anecdotes or one-off notes alone unless corroborated by profile/search evidence.'
+)
+
+
+def _corpus_meta_payload(corpus: dict) -> dict:
+    return {
+        'urls_fetched': len(corpus.get('url_corpus') or []),
+        'search_hits': len(corpus.get('search_results') or []),
+        'search_available': corpus.get('search_available'),
+        'linkedin_fetch_ok': corpus.get('linkedin_fetch_ok'),
+        'linkedin_vanity': corpus.get('linkedin_vanity') or '',
+        'research_warnings': corpus.get('research_warnings') or [],
+    }
 _INVITE_CONTENT_TOKEN_BONUS = 600
 
 _COMPLETE_DRAFT_SUFFIX_RE = re.compile(r'[\]\).!?]["\']?\s*$')
 _PLANNING_LEAK_RE = re.compile(
-    r'(?i)let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?)',
+    r'(?i)let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?|'
+    r'check(?:\s+requirements)?|finalize|reconsider|verify|double-?check|'
+    r'also (?:check|verify|consider))',
 )
 
 _TONE_GUIDANCE = {
@@ -145,11 +167,9 @@ def invite_draft_max_tokens(
 
 def invite_draft_looks_complete(draft: str) -> bool:
     """Heuristic: draft ends on a sentence boundary (not mid-clause truncation)."""
-    text = (draft or '').strip()
+    text = sanitize_invite_email_body(draft or '')
     if not text:
         return False
-    if '[JOIN_PRIMARY]' in text.upper():
-        return True
     return bool(_COMPLETE_DRAFT_SUFFIX_RE.search(text))
 
 
@@ -268,6 +288,80 @@ def _dp_workgroup_catalog(primary: Workgroup) -> List[dict]:
     return catalog
 
 
+def _fallback_resolved_person(
+    *,
+    name: str,
+    linkedin_url: str = '',
+    previous_interaction: str = '',
+    resolved: Optional[dict] = None,
+) -> dict:
+    base = dict(resolved) if isinstance(resolved, dict) else {}
+    clean_name = (name or '').strip() or (base.get('name') or '').strip()
+    headline = (base.get('headline') or '').strip()
+    if not headline and linkedin_url.strip():
+        headline = 'LinkedIn profile provided'
+    summary = (base.get('summary') or '').strip()
+    if not summary and previous_interaction.strip():
+        summary = previous_interaction.strip()[:500]
+    tags = base.get('expertise_tags') if isinstance(base.get('expertise_tags'), list) else []
+    source_urls = [u for u in (base.get('source_urls') or []) if isinstance(u, str) and u.strip()]
+    if linkedin_url.strip() and linkedin_url.strip() not in source_urls:
+        source_urls.insert(0, linkedin_url.strip())
+    return {
+        'name': clean_name or 'Recipient',
+        'headline': headline,
+        'summary': summary,
+        'expertise_tags': tags,
+        'source_urls': source_urls[:5],
+    }
+
+
+def _finalize_research_analysis(
+    analysis: dict,
+    *,
+    name: str,
+    linkedin_url: str = '',
+    previous_interaction: str = '',
+    selected_candidate_index: Optional[int] = None,
+) -> Tuple[bool, List[dict], dict]:
+    ambiguous = bool(analysis.get('ambiguous'))
+    candidates = analysis.get('candidates') or []
+    if not isinstance(candidates, list):
+        candidates = []
+
+    resolved = analysis.get('resolved_person')
+    if not isinstance(resolved, dict):
+        resolved = None
+
+    if selected_candidate_index is not None and resolved:
+        ambiguous = False
+
+    has_anchor = bool((name or '').strip()) and bool(
+        linkedin_url.strip() or previous_interaction.strip() or resolved,
+    )
+
+    # Empty candidate list with a LinkedIn URL or prior context should not block drafting.
+    if ambiguous and not candidates and has_anchor:
+        ambiguous = False
+        resolved = _fallback_resolved_person(
+            name=name,
+            linkedin_url=linkedin_url,
+            previous_interaction=previous_interaction,
+            resolved=resolved,
+        )
+    elif ambiguous and resolved and len(candidates) <= 1:
+        ambiguous = False
+
+    if not resolved and has_anchor:
+        resolved = _fallback_resolved_person(
+            name=name,
+            linkedin_url=linkedin_url,
+            previous_interaction=previous_interaction,
+        )
+
+    return ambiguous, candidates, resolved or {}
+
+
 def check_invite_blocked(workgroup: Workgroup, email: str) -> Optional[str]:
     norm = normalize_invitee_email(email)
     if not norm:
@@ -300,13 +394,14 @@ def research_external_contact(
     extra_links: Optional[List[str]] = None,
     selected_candidate_index: Optional[int] = None,
 ) -> Tuple[dict, int]:
-    if not is_workgroup_member(workgroup.acronym, inviter):
-        return {'error': 'Only workgroup members can use the AI invite tool'}, 403
+    if not can_invite_workgroup_member(workgroup, inviter):
+        return {'error': 'Only workgroup members or DP site admins can use the AI invite tool'}, 403
 
     block = check_invite_blocked(workgroup, email)
     if block:
         return {'blocked': True, 'error': block}, 200
 
+    linkedin_url = normalize_linkedin_url(linkedin_url)
     corpus = research_person_corpus(
         name=name,
         linkedin_url=linkedin_url,
@@ -329,12 +424,16 @@ def research_external_contact(
         'resolved_person ({name, headline, summary, expertise_tags[]}), '
         'suggested_workgroups (array of {workgroup_id, rationale}). '
         'Mark ambiguous=true when multiple distinct people match or roles conflict. '
+        'When linkedin_url is provided and identifies one person, set ambiguous=false '
+        'and populate resolved_person from that profile and search_results. '
+        f'{_WORKGROUP_MATCHING_RULE} '
         'Only suggest workgroup_id values from the provided catalog.'
     )
     catalog = _dp_workgroup_catalog(workgroup)
     user_msg = json.dumps({
         'target_name': name.strip(),
         'email': normalize_invitee_email(email),
+        'linkedin_url': linkedin_url,
         'previous_interaction': (previous_interaction or '').strip(),
         'corpus': corpus.get('combined_text', '')[:8000],
         'search_results': corpus.get('search_results', [])[:6],
@@ -357,9 +456,13 @@ def research_external_contact(
 
     prior = lookup_prior_workgroup_invitations(normalize_invitee_email(email))
 
-    ambiguous = bool(analysis.get('ambiguous'))
-    if selected_candidate_index is not None and analysis.get('resolved_person'):
-        ambiguous = False
+    ambiguous, candidates, resolved_person = _finalize_research_analysis(
+        analysis,
+        name=name,
+        linkedin_url=linkedin_url,
+        previous_interaction=previous_interaction,
+        selected_candidate_index=selected_candidate_index,
+    )
 
     suggested = []
     for item in analysis.get('suggested_workgroups') or []:
@@ -378,26 +481,351 @@ def research_external_contact(
     return {
         'success': True,
         'ambiguous': ambiguous,
-        'candidates': analysis.get('candidates') or [],
-        'resolved_person': analysis.get('resolved_person'),
+        'candidates': candidates,
+        'resolved_person': resolved_person,
         'suggested_workgroups': suggested,
         'prior_invitations': prior,
-        'corpus_meta': {
-            'urls_fetched': len(corpus.get('url_corpus') or []),
-            'search_hits': len(corpus.get('search_results') or []),
-            'search_available': corpus.get('search_available'),
-        },
+        'corpus_meta': _corpus_meta_payload(corpus),
     }, 200
+
+
+_CONFIDENCE_SCORE_DEFAULTS = {'high': 85, 'medium': 60, 'low': 35}
+
+
+def _dp_workgroup_catalog_entry(workgroup: Workgroup) -> dict:
+    return {
+        'id': workgroup.id,
+        'name': workgroup.name,
+        'slug': workgroup.slug or workgroup.acronym,
+        'description': (workgroup.description or '')[:500],
+        'charter': (workgroup.charter or '')[:800],
+    }
+
+
+def _all_dp_workgroup_catalog() -> List[dict]:
+    return [_dp_workgroup_catalog_entry(wg) for wg in list_approved_dp_workgroups()]
+
+
+def _normalize_match_confidence(value: Any) -> str:
+    raw = str(value or '').strip().lower()
+    if raw in ('high', 'strong', 'excellent'):
+        return 'high'
+    if raw in ('medium', 'moderate', 'fair'):
+        return 'medium'
+    return 'low'
+
+
+def _normalize_workgroup_matches(
+    analysis: dict,
+    catalog_by_id: Dict[str, dict],
+) -> List[dict]:
+    matches: List[dict] = []
+    for item in analysis.get('workgroup_matches') or []:
+        if not isinstance(item, dict):
+            continue
+        wg_id = (item.get('workgroup_id') or '').strip()
+        catalog_entry = catalog_by_id.get(wg_id)
+        if not catalog_entry:
+            continue
+        score_raw = item.get('score')
+        try:
+            score = int(score_raw)
+        except (TypeError, ValueError):
+            conf = _normalize_match_confidence(item.get('confidence'))
+            score = _CONFIDENCE_SCORE_DEFAULTS[conf]
+        score = max(0, min(100, score))
+        if score >= 75:
+            confidence = 'high'
+        elif score >= 45:
+            confidence = 'medium'
+        else:
+            confidence = 'low'
+        matches.append({
+            'workgroup_id': wg_id,
+            'name': catalog_entry['name'],
+            'slug': catalog_entry['slug'],
+            'confidence': confidence,
+            'score': score,
+            'rationale': (item.get('rationale') or '')[:400],
+        })
+    matches.sort(key=lambda row: (-row['score'], row['name'].casefold()))
+    return matches
+
+
+def research_admin_invite_contact(
+    *,
+    inviter: dict,
+    name: str,
+    email: str,
+    linkedin_url: str = '',
+    previous_interaction: str = '',
+    extra_links: Optional[List[str]] = None,
+    selected_candidate_index: Optional[int] = None,
+) -> Tuple[dict, int]:
+    if not is_dp_site_admin(inviter):
+        return {'error': 'DP site admin required'}, 403
+
+    linkedin_url = normalize_linkedin_url(linkedin_url)
+    catalog = _all_dp_workgroup_catalog()
+    if not catalog:
+        return {'error': 'No DP workgroups available for matching'}, 503
+
+    catalog_by_id = {entry['id']: entry for entry in catalog}
+
+    corpus = research_person_corpus(
+        name=name,
+        linkedin_url=linkedin_url,
+        extra_links=extra_links or [],
+    )
+
+    if not llm_configured():
+        return {'error': 'No LLM API key configured for AI invite'}, 503
+    cfg = resolve_llm_config()
+    if not cfg:
+        return {'error': 'No LLM API key configured for AI invite'}, 503
+
+    system = (
+        'You analyze public information about a person and rank Desirable Properties workgroups '
+        'they would be a strong fit for. '
+        'Respond with a single JSON object only – no markdown fences, no commentary before or after. '
+        f'{_NO_EM_DASH_RULE}'
+        'Required keys: '
+        'ambiguous (boolean), candidates (array of {name, headline, source_urls[]}), '
+        'resolved_person ({name, headline, summary, expertise_tags[]}), '
+        'workgroup_matches (array of {workgroup_id, confidence, score, rationale}). '
+        'confidence must be high, medium, or low. score is an integer 0-100 fit score. '
+        'Return 3-8 workgroup_matches sorted best-first. Only use workgroup_id values from the catalog. '
+        'Mark ambiguous=true only when multiple distinct people match the name or profile. '
+        f'{_WORKGROUP_MATCHING_RULE}'
+    )
+    user_msg = json.dumps({
+        'target_name': name.strip(),
+        'email': normalize_invitee_email(email),
+        'linkedin_url': linkedin_url,
+        'previous_interaction': (previous_interaction or '').strip(),
+        'corpus': corpus.get('combined_text', '')[:8000],
+        'search_results': corpus.get('search_results', [])[:6],
+        'workgroups_catalog': catalog,
+        'selected_candidate_index': selected_candidate_index,
+    })
+    try:
+        raw = clean_draft(call_llm([
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': user_msg},
+        ], cfg, max_tokens=_INVITE_RESEARCH_MAX_TOKENS))
+        analysis = _parse_json_object(raw)
+    except (json.JSONDecodeError, LlmCallFailed, LlmTemporarilyBusy) as exc:
+        return {'error': f'AI research failed: {exc}'}, 502
+
+    prior = lookup_prior_workgroup_invitations(normalize_invitee_email(email))
+    ambiguous, candidates, resolved_person = _finalize_research_analysis(
+        analysis,
+        name=name,
+        linkedin_url=linkedin_url,
+        previous_interaction=previous_interaction,
+        selected_candidate_index=selected_candidate_index,
+    )
+    workgroup_matches = _normalize_workgroup_matches(analysis, catalog_by_id)
+
+    return {
+        'success': True,
+        'ambiguous': ambiguous,
+        'candidates': candidates,
+        'resolved_person': resolved_person,
+        'workgroup_matches': workgroup_matches,
+        'workgroup_catalog': catalog,
+        'prior_invitations': prior,
+        'corpus_meta': _corpus_meta_payload(corpus),
+    }, 200
+
+
+def _resolve_admin_primary_workgroup(primary_workgroup_id: str) -> Tuple[Optional[Workgroup], Optional[str]]:
+    wg_id = (primary_workgroup_id or '').strip()
+    if not wg_id:
+        return None, 'primary_workgroup_id is required'
+    workgroup = Workgroup.query.get(wg_id)
+    if not workgroup or not is_dp_workgroup(workgroup):
+        return None, 'Invalid primary workgroup'
+    if workgroup.approval_status != 'approved':
+        return None, 'Primary workgroup must be approved'
+    return workgroup, None
+
+
+def _zoho_contact_draft_guidance(zoho_contact_context: Optional[dict]) -> str:
+    """LLM instructions when structured Zoho mail history is available."""
+    if not zoho_contact_context or not isinstance(zoho_contact_context, dict):
+        return ''
+
+    style = zoho_contact_context.get('communication_style') or {}
+    labels = style.get('labels') or []
+    style_line = ', '.join(labels) if labels else 'professional'
+    recency = zoho_contact_context.get('last_contact_recency') or 'unknown'
+    message_count = int(zoho_contact_context.get('message_count') or 0)
+    subjects = zoho_contact_context.get('subjects') or []
+    snippets = zoho_contact_context.get('snippets') or []
+
+    lines = [
+        'ZOHO EMAIL HISTORY (personalize from this – avoid generic filler):',
+        f'- Last contact recency: {recency} (last_contact={zoho_contact_context.get("last_contact") or "unknown"}).',
+        f'- Prior message volume: {message_count} email{"s" if message_count != 1 else ""}.',
+        f'- Inferred communication style: {style_line}. {style.get("notes") or ""}'.strip(),
+        '- Mirror their formality and verbosity in your draft (formal/terse → shorter, polished sentences; '
+        'casual/warm → conversational warmth; technical → precise domain terms from their threads).',
+        '- Reference recency naturally (e.g. "great connecting last month" vs "it has been a while" '
+        'when recency is quite a while ago).',
+    ]
+    if subjects:
+        lines.append('- Prior subjects to weave in when relevant: ' + '; '.join(subjects[:4]) + '.')
+    if snippets:
+        lines.append('- Prior email snippets (use specific details, not vague "our conversation"):')
+        for index, snippet in enumerate(snippets[:3], start=1):
+            lines.append(f'  {index}. {snippet[:350]}')
+    summary = (zoho_contact_context.get('summary') or '').strip()
+    if summary:
+        lines.append(f'- Outreach summary: {summary[:400]}')
+    return '\n'.join(lines)
+
+
+def draft_admin_invitation_email(
+    *,
+    primary_workgroup_id: str,
+    inviter: dict,
+    name: str,
+    email: str,
+    tone: str = 'warm',
+    length: str = 'medium',
+    previous_interaction: str = '',
+    extra_guidance: str = '',
+    resolved_person: Optional[dict] = None,
+    additional_workgroup_ids: Optional[List[str]] = None,
+    prior_invitations: Optional[List[dict]] = None,
+    invite_content: Optional[dict] = None,
+    zoho_contact_context: Optional[dict] = None,
+    message_strategy: str = '',
+    strategy_confirmed: bool = False,
+    regenerate: bool = False,
+    previous_draft: str = '',
+) -> Tuple[dict, int]:
+    if not is_dp_site_admin(inviter):
+        return {'error': 'DP site admin required'}, 403
+    workgroup, err = _resolve_admin_primary_workgroup(primary_workgroup_id)
+    if err or not workgroup:
+        return {'error': err or 'Invalid primary workgroup'}, 400
+    return draft_invitation_email(
+        workgroup=workgroup,
+        inviter=inviter,
+        name=name,
+        email=email,
+        tone=tone,
+        length=length,
+        previous_interaction=previous_interaction,
+        extra_guidance=extra_guidance,
+        resolved_person=resolved_person,
+        additional_workgroup_ids=additional_workgroup_ids,
+        prior_invitations=prior_invitations,
+        invite_content=invite_content,
+        zoho_contact_context=zoho_contact_context,
+        message_strategy=message_strategy,
+        strategy_confirmed=strategy_confirmed,
+        regenerate=regenerate,
+        previous_draft=previous_draft,
+    )
+
+
+def send_admin_invitation_email(
+    *,
+    primary_workgroup_id: str,
+    inviter_id: str,
+    name: str,
+    email: str,
+    body: str,
+    additional_workgroup_ids: Optional[List[str]] = None,
+    send_mode: str = 'platform',
+    audit_source: str = 'manual',
+    audit_status: Optional[str] = None,
+    message_strategy: str = '',
+    force_inline_join_links: bool = False,
+    long_gap_outreach: bool = False,
+    long_gap_dp_image_url: Optional[str] = None,
+) -> Tuple[dict, int]:
+    inviter = User.query.get(inviter_id)
+    if not inviter:
+        return {'error': 'Inviter not found'}, 404
+    inviter_dict = {
+        'id': inviter.id,
+        'role': inviter.role,
+        'email': inviter.email,
+    }
+    if not is_dp_site_admin(inviter_dict):
+        return {'error': 'DP site admin required'}, 403
+    workgroup, err = _resolve_admin_primary_workgroup(primary_workgroup_id)
+    if err or not workgroup:
+        return {'error': err or 'Invalid primary workgroup'}, 400
+    clean_body = sanitize_invite_email_body(strip_em_dashes((body or '').strip()))
+    payload, status = send_ai_workgroup_invitations(
+        workgroup=workgroup,
+        inviter_id=inviter_id,
+        name=name,
+        email=email,
+        body=clean_body,
+        additional_workgroup_ids=additional_workgroup_ids,
+        send_mode=send_mode,
+        force_inline_join_links=force_inline_join_links,
+        long_gap_outreach=long_gap_outreach,
+        long_gap_dp_image_url=long_gap_dp_image_url,
+    )
+    if status >= 400 or payload.get('blocked') or payload.get('error'):
+        return payload, status
+
+    from services.dp_admin_invite_store import record_admin_invite_send
+
+    wg_ids = [primary_workgroup_id]
+    for wg_id in additional_workgroup_ids or []:
+        if wg_id and wg_id not in wg_ids:
+            wg_ids.append(wg_id)
+    invitation_ids = payload.get('invitation_ids') or []
+    record_status = audit_status or (
+        'client_prepared' if (send_mode or '').strip().lower() == 'client' else 'sent'
+    )
+    row = record_admin_invite_send(
+        admin=inviter_dict,
+        recipient_email=email,
+        recipient_name=name,
+        workgroup_ids=wg_ids,
+        body=clean_body,
+        status=record_status,
+        invitation_id=invitation_ids[0] if invitation_ids else None,
+        send_mode=send_mode,
+        source=audit_source,
+        message_strategy=message_strategy,
+    )
+    payload['send_record_id'] = row.id
+    return payload, status
+
+
+_NAME_QUOTE_CHARS = '"\'"\u201c\u201d\u2018\u2019«»'
+
+
+def _strip_stray_name_punctuation(text: str) -> str:
+    """Strip wrapping quotes, smart quotes, and leading punctuation from a name token."""
+    s = (text or '').strip()
+    if not s:
+        return ''
+    while len(s) >= 2 and s[0] in _NAME_QUOTE_CHARS and s[-1] in _NAME_QUOTE_CHARS:
+        s = s[1:-1].strip()
+    s = s.lstrip(_NAME_QUOTE_CHARS + '.,;:')
+    s = s.rstrip(_NAME_QUOTE_CHARS + '.,;:')
+    return s
 
 
 def _invitee_greeting_name(name: str) -> str:
     """First name when available, else full name, else a neutral fallback."""
     cleaned = re.sub(r'\s+', ' ', (name or '').strip())
+    cleaned = _strip_stray_name_punctuation(cleaned)
     if not cleaned:
         return 'there'
     first = cleaned.split(' ', 1)[0]
-    # Drop trailing punctuation from titles/initials edge cases.
-    first = first.strip('.,;:')
+    first = _strip_stray_name_punctuation(first)
     return first or cleaned
 
 
@@ -640,11 +1068,14 @@ def draft_invitation_email(
     additional_workgroup_ids: Optional[List[str]] = None,
     prior_invitations: Optional[List[dict]] = None,
     invite_content: Optional[dict] = None,
+    zoho_contact_context: Optional[dict] = None,
+    message_strategy: str = '',
+    strategy_confirmed: bool = False,
     regenerate: bool = False,
     previous_draft: str = '',
 ) -> Tuple[dict, int]:
-    if not is_workgroup_member(workgroup.acronym, inviter):
-        return {'error': 'Only workgroup members can use the AI invite tool'}, 403
+    if not can_invite_workgroup_member(workgroup, inviter):
+        return {'error': 'Only workgroup members or DP site admins can use the AI invite tool'}, 403
 
     block = check_invite_blocked(workgroup, email)
     if block:
@@ -688,7 +1119,26 @@ def draft_invitation_email(
 
     invite_content_for_llm = _normalize_invite_content_for_llm(invite_content)
     invite_content_note = _invite_content_guidance(invite_content_for_llm, length_key=length_key)
+    zoho_guidance = _zoho_contact_draft_guidance(zoho_contact_context)
+    strategy_key = normalize_message_strategy(message_strategy) or ''
+    if not strategy_key and isinstance(zoho_contact_context, dict):
+        strategy_key = normalize_message_strategy(
+            str(zoho_contact_context.get('message_strategy') or zoho_contact_context.get('suggested_strategy') or ''),
+        ) or ''
+    strategy_guidance = strategy_prompt_block(strategy_key, confirmed=bool(strategy_confirmed))
     combined_guidance = (extra_guidance or '').strip()
+    if strategy_guidance:
+        combined_guidance = (
+            f'{strategy_guidance}\n\n{combined_guidance}'.strip()
+            if combined_guidance
+            else strategy_guidance
+        )
+    if zoho_guidance:
+        combined_guidance = (
+            f'{zoho_guidance}\n\n{combined_guidance}'.strip()
+            if combined_guidance
+            else zoho_guidance
+        )
     if invite_content_note:
         combined_guidance = (
             f'{invite_content_note}\n\n{combined_guidance}'.strip()
@@ -704,7 +1154,9 @@ def draft_invitation_email(
     )
     system = (
         'Write a personal invitation email body (plain text, no subject line). '
-        'Output only the email text – no analysis, planning, or XML tags. '
+        'Output ONLY the final email text – no analysis, planning, bracketed stage directions, '
+        'internal markers, or XML tags. Never echo prompt labels such as MESSAGE STRATEGY or '
+        'INVITE CONTENT STRUCTURE. Never output lines like "Email is off." '
         f'The FIRST line MUST be a greeting using the invitee\'s first name, e.g. "Hi {greet_name}," '
         '(or "Hi {full name}," if only one name token). Never skip the greeting. '
         f'{_NO_EM_DASH_RULE}'
@@ -714,6 +1166,18 @@ def draft_invitation_email(
         system += (
             'When invite content is provided, follow the INVITE CONTENT STRUCTURE before the '
             'workgroup invitation. '
+        )
+    if zoho_guidance:
+        system += (
+            'When zoho_contact_context is provided, personalize opening and tone from prior email '
+            'history: match their communication style (formality, warmth, length), reference recency '
+            'of last contact naturally, and cite specific subjects or snippet details – never generic '
+            '"hope you are well" filler when thread context exists. '
+        )
+    if strategy_guidance:
+        system += (
+            'When MESSAGE STRATEGY is provided and admin-confirmed, follow that block for opening tone '
+            'and how much Meta-Layer history to include. '
         )
     if length_key == 'short':
         system += (
@@ -728,22 +1192,30 @@ def draft_invitation_email(
     system += (
         'Lead with the primary workgroup unless invite content blocks come first per structure. '
         'Mention any additional workgroups briefly. '
-        'End with a complete closing sentence and sign-off – never stop mid-sentence. '
-        'Put the join call-to-action on its own final line using [JOIN_PRIMARY] '
-        '(and [JOIN_EXTRA_N] for additional workgroups). Never use raw workgroup join URLs. '
+        'End with a complete closing sentence and sign-off inviting them to join. '
+        'Do NOT use internal markers like [JOIN_PRIMARY] or bracketed instructions like [Then workgroup…]. '
+        'Join links are added separately when the email is sent – do not output join placeholder tokens '
+        'or workgroup invitation landing URLs. '
         'Include full absolute URLs (https://…) for events and perspectives when provided – never relative paths. '
         f'TONE ({tone_key}): {tone_guidance} '
         f'LENGTH ({length_key}): {length_guidance} '
         f'{length_band_rule} '
-        'Reference previous interaction naturally when provided.'
+        'Reference previous interaction naturally when provided (personal context such as how you know them). '
+        'Ground role-specific paragraphs in resolved_person (headline, summary, expertise_tags), not only in previous_interaction.'
     )
+    if zoho_guidance:
+        system += (
+            ' When zoho_contact_context is present, calibrate warmth and length to their inferred style '
+            'even if the selected tone preset differs slightly – still honor the tone preset but adapt register.'
+        )
 
     previous_draft_text = (previous_draft or '').strip()
     regenerate_note = ''
     if regenerate and previous_draft_text:
         regenerate_note = (
             'Regenerate the invitation: rewrite the previous draft in the requested tone and length. '
-            'Change phrasing and structure noticeably while preserving factual content, URLs, and join placeholders.'
+            'Change phrasing and structure noticeably while preserving factual content and event/perspective URLs. '
+            'Do not add internal markers or bracketed stage directions.'
         )
 
     user_msg = json.dumps({
@@ -755,6 +1227,9 @@ def draft_invitation_email(
         'additional_workgroups': extra_wgs,
         'resolved_person': resolved_person or {'name': invitee_display},
         'previous_interaction': (previous_interaction or '').strip(),
+        'zoho_contact_context': zoho_contact_context,
+        'message_strategy': strategy_key or None,
+        'strategy_confirmed': bool(strategy_confirmed),
         'tone': tone_key,
         'length': length_key,
         'tone_guidance': tone_guidance,
@@ -797,7 +1272,6 @@ def draft_invitation_email(
         needs_retry = (
             word_count < min_words
             or not invite_draft_looks_complete(draft)
-            or '[JOIN_PRIMARY]' not in draft.upper()
             or long_too_short
             or short_too_long
             or planning_leak
@@ -809,21 +1283,22 @@ def draft_invitation_email(
                     'Expand the MIDDLE sections: add 1–2 paragraphs after the workgroup description '
                     'on why this person specifically, what participation looks like, and role-specific '
                     f'workgroup detail. Target {length_guidance} '
-                    'End with [JOIN_PRIMARY] on its own line.'
+                    'End with a complete closing sentence and sign-off.'
                 )
             elif short_too_long or planning_leak:
                 retry_note = (
                     'The previous draft is too long for SHORT length or included planning/meta text. '
-                    'Output ONLY the final invitation email body (no analysis, word counts, or revision notes). '
+                    'Output ONLY the final invitation email body (no analysis, word counts, bracketed '
+                    'stage directions, or revision notes). '
                     'Cut to 120–180 words maximum. '
                     'Keep at most 3 brief paragraphs before the workgroup invitation; compress events to one line each. '
-                    'End with [JOIN_PRIMARY] on its own line.'
+                    'End with a complete closing sentence and sign-off.'
                 )
             else:
                 retry_note = (
-                    'The previous draft was incomplete or missing [JOIN_PRIMARY]. '
-                    'Write the complete invitation email body only (no analysis or XML tags). '
-                    f'Target {length_guidance} End with [JOIN_PRIMARY] on its own line.'
+                    'The previous draft was incomplete or truncated mid-sentence. '
+                    'Write the complete invitation email body only (no analysis, bracketed instructions, or XML tags). '
+                    f'Target {length_guidance} End with a complete closing sentence and sign-off.'
                 )
             retry_user = json.dumps({
                 **json.loads(user_msg),
@@ -840,11 +1315,15 @@ def draft_invitation_email(
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:
         return {'error': f'AI draft failed: {exc}'}, 502
 
+    display_draft = sanitize_invite_email_body(draft)
+
     return {
         'success': True,
-        'draft': draft,
+        'draft': display_draft,
         'tone': tone_key,
         'length': length_key,
+        'message_strategy': strategy_key or None,
+        'strategy_confirmed': bool(strategy_confirmed),
         'prior_invitations': prior,
     }, 200
 
@@ -858,6 +1337,9 @@ def send_ai_workgroup_invitations(
     body: str,
     additional_workgroup_ids: Optional[List[str]] = None,
     send_mode: str = 'platform',
+    force_inline_join_links: bool = False,
+    long_gap_outreach: bool = False,
+    long_gap_dp_image_url: Optional[str] = None,
 ) -> Tuple[dict, int]:
     mode = (send_mode or 'platform').strip().lower()
     if mode not in ('platform', 'client'):
@@ -879,7 +1361,7 @@ def send_ai_workgroup_invitations(
     if block:
         return {'blocked': True, 'error': block}, 400
 
-    text = strip_em_dashes((body or '').strip())
+    text = sanitize_invite_email_body(strip_em_dashes((body or '').strip()))
     if not text:
         return {'error': 'Email body is required'}, 400
 
@@ -934,7 +1416,7 @@ def send_ai_workgroup_invitations(
         for inv, wg in invitations
     ]
 
-    inline_join_links = invite_body_uses_join_placeholders(text)
+    inline_join_links = force_inline_join_links or invite_body_uses_join_placeholders(text)
     resolved_text = substitute_workgroup_join_placeholders(text, links)
     primary_inv, _ = invitations[0]
     primary_inv.message = resolved_text
@@ -949,6 +1431,8 @@ def send_ai_workgroup_invitations(
             body_text=resolved_text,
             links=links,
             inline_join_links=inline_join_links,
+            long_gap_outreach=long_gap_outreach,
+            long_gap_dp_image_url=long_gap_dp_image_url,
         )
     else:
         mailto_payload = build_multi_workgroup_invite_mailto(

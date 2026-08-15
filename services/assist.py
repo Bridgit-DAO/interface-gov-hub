@@ -499,17 +499,25 @@ _JOIN_PRIMARY_MARKER = '[JOIN_PRIMARY]'
 _META_DIVIDER_RE = re.compile(r'\n---\s*(?:\n|$)')
 _META_PLANNING_LINE_RE = re.compile(
     r'(?i)^(?:let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?|'
-    r'expand|reconsider|recount|revise|add)|'
-    r'hmm let me|that\'?s about \d+ words|total:\s*~?\d+|\d+\s*words\.?\s*$)',
+    r'expand|reconsider|recount|revise|add|check(?:\s+requirements)?|finalize|'
+    r'verify|double-?check|also (?:check|verify|consider))|'
+    r'hmm let me|that\'?s about \d+ words|total:\s*~?\d+|\d+\s*words\.?\s*$|'
+    r'[✓✔]\s*$)',
 )
-_META_PLANNING_BULLET_RE = re.compile(r'(?i)^-\s+.+[\s(]\d+\)?\s*$')
+_META_PLANNING_BULLET_RE = re.compile(
+    r'(?i)^-\s+(?:"[^"]+"|\'[^\']+\'|.+)[\s(]\d+\)?\s*$|'
+    r'^-\s+.+[✓✔]\s*$',
+)
 _META_PLANNING_SNIPPET_RE = re.compile(
     r'(?i)(?:word count|approximately:|~?\d+\s+words|slightly under target|'
-    r'without sign-off|within \d+[-–]\d+ range)',
+    r'without sign-off|within \d+[-–]\d+ range|check requirements|'
+    r'let me (?:check|finalize|reconsider|verify))',
 )
 _PLANNING_SECTION_RE = re.compile(
     r'(?im)^(?:---\s*$|let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?|'
-    r'expand|reconsider|recount|revise|add)|hmm let me|that\'?s about \d+ words)',
+    r'expand|reconsider|recount|revise|add|check(?:\s+requirements)?|finalize|'
+    r'verify|double-?check|also (?:check|verify|consider))|hmm let me|'
+    r'that\'?s about \d+ words)',
 )
 
 

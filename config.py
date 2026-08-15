@@ -108,6 +108,13 @@ GH_DISPATCH_TOKEN = os.environ.get('GH_DISPATCH_TOKEN', '').strip()
 GITHUB_REPO = os.environ.get('GITHUB_REPO', 'shiftshapr/desirable-properties').strip()
 DP_RAIL_SYNC_ENV = os.environ.get('DP_RAIL_SYNC_ENV', 'main').strip() or 'main'
 
+# Desirable Properties site admins (comma-separated emails). May invite to any DP workgroup.
+DP_ADMIN_EMAILS = tuple(
+    email.strip().lower()
+    for email in os.environ.get('DP_ADMIN_EMAILS', '').split(',')
+    if email.strip()
+)
+
 
 def _git_rev_list_count():
     """Total commits on HEAD when .git exists (optional fallback for dev checkouts)."""
