@@ -73,7 +73,7 @@ def render_reader_onboarding_assets() -> str:
     """Onboarding modal + script for approved read pages (not tied to proposal tooling)."""
     guide_gifs = reader_guide_gif_urls()
     return f'''
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260603guiderealgif">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802obsolete">
     <div class="modal fade" id="ghReaderGuideModal" tabindex="-1" aria-labelledby="ghReaderGuideTitle" aria-hidden="true">
       <div class="modal-dialog modal-dialog-scrollable gh-reader-guide-dialog">
         <div class="modal-content">
@@ -192,7 +192,7 @@ def render_dp_proposal_reader_assets(
     draft_ref_esc = html_mod.escape(draft_ref, quote=True)
 
     return f'''
-    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260604patch">
+    <link rel="stylesheet" href="/static/css/dp-proposals-reader.css?v=20260802obsolete">
     <div id="dp-proposal-reader-root" data-draft-ref="{draft_ref_esc}" data-meta="{meta_json}"></div>
 
     <div class="modal fade" id="dpProposalComposeModal" tabindex="-1" aria-labelledby="dpProposalComposeLabel" aria-hidden="true">
@@ -220,9 +220,16 @@ def render_dp_proposal_reader_assets(
               <label class="form-label" for="dpProposalProposed" id="dpProposalProposedLabel">{html_mod.escape(labels.get("proposed_label", "Patched text"))}</label>
               <p class="text-muted small d-none" id="dpProposalInsertHelper">{html_mod.escape(labels.get("insert_helper", "This will be inserted above the selected passage. The selected passage is unchanged."))}</p>
               <textarea id="dpProposalProposed" class="form-control font-monospace dp-proposal-pre mb-3" rows="5"></textarea>
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2" id="dpProposalReplaceAssistRow">
+                <button type="button" class="btn btn-sm btn-outline-primary gh-ai-assist-trigger"
+                  data-assist-target="patch_replacement">AI Assist</button>
+                <span id="dpProposalAiAssistedChip" class="badge bg-info text-dark d-none">AI-assisted draft</span>
+              </div>
               <label class="form-label" for="dpProposalRationale">Rationale <span class="text-muted fw-normal">(optional, public)</span></label>
               <textarea id="dpProposalRationale" class="form-control mb-3" rows="2" maxlength="4000"
                 placeholder="Why this change improves the standard…"></textarea>
+              <button type="button" class="btn btn-sm btn-outline-primary gh-ai-assist-trigger mb-3"
+                data-assist-target="patch_rationale">AI Assist for rationale</button>
               <label class="form-label" for="dpProposalReferenceUrl">Reference URL <span class="text-muted fw-normal">(optional)</span></label>
               <input type="url" id="dpProposalReferenceUrl" class="form-control" placeholder="https://…" inputmode="url" autocomplete="url">
             </div>
@@ -239,7 +246,34 @@ def render_dp_proposal_reader_assets(
               <label class="form-label" for="dpCommentText">Your comment</label>
               <textarea id="dpCommentText" class="form-control mb-2" rows="5" maxlength="8000"
                 placeholder="Share your feedback…"></textarea>
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <button type="button" class="btn btn-sm btn-outline-primary gh-ai-assist-trigger"
+                  data-assist-target="comment">AI Assist</button>
+                <span id="dpCommentAiAssistedChip" class="badge bg-info text-dark d-none">AI-assisted draft</span>
+              </div>
               <p class="form-text mb-0">Passage comments are linked to highlighted text. Whole-document comments are general feedback without a highlight.</p>
+            </div>
+            <div id="dpAiAssistPanel" class="card border-primary-subtle bg-light-subtle mt-3 d-none">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                  <div>
+                    <strong class="small">AI Assist</strong>
+                    <div class="small text-muted" id="dpAiAssistContextSummary">Preparing context…</div>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="dpAiAssistClose">Close</button>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mb-3" id="dpAiAssistActions"></div>
+                <div id="dpAiAssistPreviewWrap" class="d-none">
+                  <label class="form-label small mb-1" for="dpAiAssistPreview">Generated draft</label>
+                  <textarea id="dpAiAssistPreview" class="form-control mb-2" rows="5"></textarea>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-primary" id="dpAiAssistInsert">Insert</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="dpAiAssistReplace">Replace</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="dpAiAssistRegenerate">Regenerate</button>
+                  </div>
+                </div>
+                <div class="small text-muted mt-2" id="dpAiAssistStatus" aria-live="polite"></div>
+              </div>
             </div>
             <div id="dpProposalComposeError" class="alert alert-danger mt-3 d-none" role="alert"></div>
           </div>
@@ -274,5 +308,5 @@ def render_dp_proposal_reader_assets(
 
     <script src="/static/js/dp-proposals/sentence-tools.js?v=20260527h"></script>
     <script src="/static/js/dp-proposals/proposal-display.js?v=20260526h"></script>
-    <script defer src="/static/js/dp-proposals/reader.js?v=20260604patchpage"></script>
+    <script defer src="/static/js/dp-proposals/reader.js?v=20260802obsolete"></script>
     '''

@@ -47,3 +47,30 @@ def dp_broadcast_user_emails():
             emails[row.id] = email
 
     return jsonify({'ok': True, 'emails': emails, 'requested': len(user_ids), 'found': len(emails)})
+
+
+@bp.route('/api/internal/dp/broadcast-patch-status', methods=['POST'])
+@require_hermes
+def dp_broadcast_patch_status():
+    """Patch submission counts per Gov Hub author for DP broadcast audience filters."""
+    rows = (
+        db.session.query(DpProposal.author_user_id, Submission.ml_number)
+        .join(Submission, DpProposal.submission_id == Submission.id)
+        .filter(DpProposal.author_user_id.isnot(None))
+        .all()
+    )
+
+    users: dict[str, dict[str, object]] = {}
+    for author_user_id, ml_number in rows:
+        uid = str(author_user_id or '').strip()
+        if not _UUID_RE.match(uid):
+            continue
+        entry = users.setdefault(uid, {'patchCount': 0, 'mlNumbers': []})
+        entry['patchCount'] = int(entry['patchCount']) + 1
+        ml = str(ml_number or '').strip()
+        if ml:
+            ml_numbers = entry['mlNumbers']
+            if isinstance(ml_numbers, list) and ml not in ml_numbers:
+                ml_numbers.append(ml)
+
+    return jsonify({'ok': True, 'users': users, 'authorCount': len(users)})
