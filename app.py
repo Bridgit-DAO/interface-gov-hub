@@ -358,7 +358,7 @@ def create_app(database_uri=None, *, testing=False):
     # Log OAuth errors (token exchange failures, etc.) for debugging
     import logging
     import traceback
-    from flask import request
+    from flask import jsonify, request
     from werkzeug.exceptions import HTTPException
 
     _oauth_log = logging.getLogger('oauth_debug')
@@ -372,7 +372,25 @@ def create_app(database_uri=None, *, testing=False):
     @app.errorhandler(Exception)
     def _log_oauth_exceptions(exc):
         if isinstance(exc, HTTPException):
+            if request.path.startswith('/api/'):
+                return jsonify({
+                    'success': False,
+                    'error': exc.description or exc.name,
+                    'code': f'http_{exc.code}',
+                }), exc.code
             return exc
+        if request.path.startswith('/api/'):
+            _oauth_log.error(
+                "API error on %s: %s\n%s",
+                request.path,
+                exc,
+                traceback.format_exc(),
+            )
+            return jsonify({
+                'success': False,
+                'error': 'Internal server error',
+                'code': 'internal_server_error',
+            }), 500
         if request.path and '/auth/' in request.path and '/authorized' in request.path:
             _oauth_log.error(
                 "OAuth callback error on %s: %s\nrequest.args=%s\ntraceback:\n%s",

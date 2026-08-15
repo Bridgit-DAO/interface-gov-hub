@@ -7,9 +7,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.assist import LlmCallFailed, LlmTemporarilyBusy, call_llm, llm_configured, resolve_llm_config
+from services.invite_message_strategy import suggest_message_strategy
 from services.web_research import extract_linkedin_vanity, fetch_url_text, web_search
 from services.workgroup_invite_ai import _NO_EM_DASH_RULE, _parse_json_object
-from services.zoho_mail import normalize_admin_email, search_meta_layer_contacts, zoho_mail_pathway_available
+from services.zoho_mail import (
+    normalize_admin_email,
+    outreach_selection_reasons,
+    search_meta_layer_contacts,
+    zoho_mail_pathway_available,
+)
 
 _PATHWAY_RESEARCH_MAX_TOKENS = 2400
 
@@ -143,6 +149,7 @@ def build_zoho_contact_context(zoho_contact: dict) -> dict:
     )
     style = infer_communication_style(snippets, subjects)
     last_contact = (zoho_contact.get('last_contact') or '').strip()
+    suggested_strategy = suggest_message_strategy(last_contact)
     return {
         'source': 'zoho_mail',
         'email': (zoho_contact.get('email') or '').strip(),
@@ -154,6 +161,8 @@ def build_zoho_contact_context(zoho_contact: dict) -> dict:
         'snippets': [str(snippet)[:400] for snippet in snippets[:4]],
         'summary': (zoho_contact.get('summary') or '')[:500],
         'communication_style': style,
+        'suggested_strategy': suggested_strategy,
+        'message_strategy': suggested_strategy,
     }
 
 
@@ -174,29 +183,56 @@ def _llm_json(system: str, user_payload: dict) -> dict:
     return _parse_json_object(raw)
 
 
+_MAX_LLM_ZOHO_RANK = 60
+
+
+def _heuristic_zoho_score(row: dict) -> int:
+    meta_msgs = int(row.get('meta_layer_message_count') or 0)
+    msg_count = int(row.get('message_count') or 0)
+    keyword_score = int(row.get('keyword_score') or 0)
+    if meta_msgs > 0:
+        return min(
+            98,
+            40 + meta_msgs * 14 + min(keyword_score * 4, 20) + min(msg_count, 12),
+        )
+    return min(72, 20 + min(msg_count, 15) * 4)
+
+
+def _format_ranked_zoho_contact(row: dict, *, score: int, summary: str = '') -> dict:
+    snippets = (row.get('snippets') or [])[:3]
+    subjects = (row.get('subjects') or row.get('sample_subjects') or [])[:4]
+    style = infer_communication_style(snippets, subjects)
+    last_contact = (row.get('last_contact') or '').strip()
+    suggested_strategy = suggest_message_strategy(last_contact)
+    return {
+        'id': row['email'],
+        'name': row.get('name') or row['email'],
+        'email': row['email'],
+        'confidence': _confidence_from_score(score),
+        'score': score,
+        'summary': (summary or '; '.join(subjects[:2]))[:500],
+        'message_count': row.get('message_count') or 0,
+        'meta_layer_message_count': row.get('meta_layer_message_count') or 0,
+        'last_contact': last_contact,
+        'sample_subjects': subjects,
+        'snippets': snippets,
+        'communication_style': style,
+        'suggested_strategy': suggested_strategy,
+        'message_strategy': suggested_strategy,
+        'selection_reason': outreach_selection_reasons(row),
+    }
+
+
 def _rank_zoho_contacts(contacts: List[dict]) -> List[dict]:
     if not contacts:
         return []
-    if not llm_configured():
-        ranked_fallback: List[dict] = []
-        for row in contacts[:20]:
-            snippets = (row.get('snippets') or [])[:3]
-            subjects = (row.get('subjects') or [])[:4]
-            style = infer_communication_style(snippets, subjects)
-            ranked_fallback.append({
-                'id': row['email'],
-                'name': row.get('name') or row['email'],
-                'email': row['email'],
-                'confidence': 'medium',
-                'score': 55,
-                'summary': '; '.join(subjects[:2])[:400],
-                'message_count': row.get('message_count') or 0,
-                'last_contact': row.get('last_contact') or '',
-                'sample_subjects': subjects,
-                'snippets': snippets,
-                'communication_style': style,
-            })
-        return ranked_fallback
+    if not llm_configured() or len(contacts) > _MAX_LLM_ZOHO_RANK:
+        out: List[dict] = []
+        for row in contacts:
+            score = _heuristic_zoho_score(row)
+            out.append(_format_ranked_zoho_contact(row, score=score))
+        out.sort(key=lambda item: (-item['score'], -item['message_count'], item['email']))
+        return out
 
     system = (
         'You rank email contacts for a Desirable Properties / meta-layer outreach workflow. '
@@ -215,36 +251,32 @@ def _rank_zoho_contacts(contacts: List[dict]) -> List[dict]:
         for item in analysis.get('contacts') or []
         if isinstance(item, dict)
     }
-    out: List[dict] = []
+    out = []
     for row in contacts:
         email = row['email']
         ranked = ranked_by_email.get(email.lower(), {})
         try:
             score = int(ranked.get('score'))
         except (TypeError, ValueError):
-            score = min(95, 40 + int(row.get('message_count') or 0) * 8)
+            score = _heuristic_zoho_score(row)
         score = max(0, min(100, score))
-        snippets = (row.get('snippets') or [])[:3]
-        subjects = (row.get('subjects') or [])[:4]
-        style = infer_communication_style(snippets, subjects)
-        out.append({
-            'id': email,
-            'name': row.get('name') or email,
-            'email': email,
-            'confidence': _confidence_from_score(score),
-            'score': score,
-            'summary': (ranked.get('summary') or '; '.join(subjects[:2]))[:500],
-            'message_count': row.get('message_count') or 0,
-            'last_contact': row.get('last_contact') or '',
-            'sample_subjects': subjects,
-            'snippets': snippets,
-            'communication_style': style,
-        })
+        out.append(
+            _format_ranked_zoho_contact(
+                row,
+                score=score,
+                summary=(ranked.get('summary') or '')[:500],
+            ),
+        )
     out.sort(key=lambda item: (-item['score'], -item['message_count'], item['email']))
-    return out[:25]
+    return out
 
 
-def pathway_zoho_mail_contacts(*, admin_email: str = '') -> Tuple[dict, int]:
+def pathway_zoho_mail_contacts(
+    *,
+    admin_email: str = '',
+    admin: Optional[dict] = None,
+    show_hidden: bool = False,
+) -> Tuple[dict, int]:
     try:
         raw = search_meta_layer_contacts(admin_email=admin_email)
     except Exception as exc:  # noqa: BLE001 - surface provider errors to admin UI
@@ -263,6 +295,19 @@ def pathway_zoho_mail_contacts(*, admin_email: str = '') -> Tuple[dict, int]:
         }, 200
 
     contacts = _rank_zoho_contacts(raw.get('contacts') or [])
+    visibility_meta = {
+        'hidden_count': 0,
+        'visible_count': len(contacts),
+        'show_hidden': show_hidden,
+    }
+    if admin:
+        from services.dp_admin_invite_store import filter_visible_zoho_contacts
+
+        contacts, visibility_meta = filter_visible_zoho_contacts(
+            contacts,
+            admin,
+            show_hidden=show_hidden,
+        )
     return {
         'success': True,
         'configured': True,
@@ -271,7 +316,10 @@ def pathway_zoho_mail_contacts(*, admin_email: str = '') -> Tuple[dict, int]:
         'owner_email': raw.get('owner_email') or normalize_admin_email(admin_email),
         'snapshot_path': raw.get('snapshot_path') or '',
         'message_count': raw.get('message_count') or 0,
+        'snapshot_contact_count': raw.get('snapshot_contact_count'),
+        'outreach_contact_count': raw.get('outreach_contact_count'),
         'contacts': contacts,
+        **visibility_meta,
     }, 200
 
 

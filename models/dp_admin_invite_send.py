@@ -38,6 +38,7 @@ class DpAdminInviteSendRecord(db.Model):
         return [str(item) for item in data if str(item).strip()]
 
     def to_dict(self) -> dict:
+        strategy = message_strategy_from_source(self.source or '')
         return {
             'id': self.id,
             'admin_id': self.admin_id,
@@ -50,7 +51,8 @@ class DpAdminInviteSendRecord(db.Model):
             'status': self.status,
             'invitation_id': self.invitation_id,
             'send_mode': self.send_mode,
-            'source': self.source,
+            'source': source_without_strategy(self.source or ''),
+            'message_strategy': strategy or None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -62,3 +64,19 @@ def draft_hash(body: str) -> str:
 
 def draft_excerpt(body: str, *, limit: int = 500) -> str:
     return (body or '').strip()[:limit]
+
+
+def message_strategy_from_source(source: str) -> str:
+    raw = (source or '').strip()
+    marker = '|strategy='
+    if marker not in raw:
+        return ''
+    return raw.split(marker, 1)[1].strip().lower()
+
+
+def source_without_strategy(source: str) -> str:
+    raw = (source or '').strip()
+    marker = '|strategy='
+    if marker not in raw:
+        return raw or 'manual'
+    return raw.split(marker, 1)[0].strip() or 'manual'

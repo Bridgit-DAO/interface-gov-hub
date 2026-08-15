@@ -9,7 +9,18 @@ from app import app
 from extensions import db
 from models import User
 from models.dp_admin_invite_send import DpAdminInviteSendRecord
-from services.dp_admin_invite_store import list_admin_invite_sends, record_admin_invite_send
+from services.dp_admin_invite_store import (
+    filter_visible_zoho_contacts,
+    get_selected_invite_contacts,
+    hide_invite_contact,
+    list_admin_invite_sends,
+    manual_hidden_emails,
+    patch_selected_invite_emails,
+    record_admin_invite_send,
+    set_selected_invite_emails,
+    unhide_invite_contact,
+)
+from services.invite_research_pathways import pathway_zoho_mail_contacts
 from services.zoho_mail import (
     admin_contacts_snapshot_path,
     admin_snapshot_key,
@@ -153,3 +164,106 @@ def test_send_records_are_scoped_to_admin(monkeypatch):
             db.session.delete(user_a)
             db.session.delete(user_b)
             db.session.commit()
+
+
+def test_hide_and_filter_zoho_contacts(tmp_path, monkeypatch):
+    snapshots_dir = tmp_path / 'invite_zoho_snapshots'
+    snapshots_dir.mkdir()
+    admin_email = 'daveed@example.com'
+    snapshot_path = snapshots_dir / 'daveed_at_example.com.json'
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                'owner_email': admin_email,
+                'exported_at': '2026-01-01T00:00:00+00:00',
+                'message_count': 3,
+                'contacts': [
+                    {'email': 'kevin@example.com', 'name': 'Kevin', 'message_count': 3},
+                    {'email': 'noise@example.com', 'name': 'Noise', 'message_count': 2},
+                    {'email': 'nathan@example.com', 'name': 'Nathan', 'message_count': 1},
+                ],
+            },
+        ),
+        encoding='utf-8',
+    )
+
+    monkeypatch.setattr('services.zoho_mail.INSTANCE_DIR', str(tmp_path))
+    monkeypatch.setattr('services.dp_admin_invite_store.INSTANCE_DIR', str(tmp_path))
+    monkeypatch.setattr('services.zoho_mail.admin_snapshots_dir', lambda: str(snapshots_dir))
+    monkeypatch.setattr(
+        'services.zoho_mail.admin_contacts_snapshot_path',
+        lambda email: str(snapshots_dir / f'{admin_snapshot_key(email)}.json'),
+    )
+    monkeypatch.delenv('ZOHO_MAIL_REFRESH_TOKEN', raising=False)
+
+    admin = {'id': 'admin-1', 'email': admin_email}
+    contacts = [
+        {'email': 'kevin@example.com', 'name': 'Kevin', 'message_count': 3},
+        {'email': 'noise@example.com', 'name': 'Noise', 'message_count': 2},
+        {'email': 'nathan@example.com', 'name': 'Nathan', 'message_count': 1},
+    ]
+
+    with app.app_context():
+        visible, meta = filter_visible_zoho_contacts(contacts, admin)
+        assert len(visible) == 3
+        assert meta['hidden_count'] == 0
+
+        hide_invite_contact(admin, recipient_email='noise@example.com', note='not worth emailing')
+        assert 'noise@example.com' in manual_hidden_emails(admin_email)
+
+        visible, meta = filter_visible_zoho_contacts(contacts, admin)
+        assert [row['email'] for row in visible] == ['kevin@example.com', 'nathan@example.com']
+        assert meta['hidden_count'] == 1
+
+        payload, status = pathway_zoho_mail_contacts(admin_email=admin_email, admin=admin)
+        assert status == 200
+        assert payload['hidden_count'] == 1
+        assert {row['email'] for row in payload['contacts']} == {
+            'kevin@example.com',
+            'nathan@example.com',
+        }
+
+        payload_all, _status = pathway_zoho_mail_contacts(
+            admin_email=admin_email,
+            admin=admin,
+            show_hidden=True,
+        )
+        assert len(payload_all['contacts']) == 3
+
+        assert unhide_invite_contact(admin, recipient_email='noise@example.com') is True
+        visible, meta = filter_visible_zoho_contacts(contacts, admin)
+        assert len(visible) == 3
+        assert meta['hidden_count'] == 0
+
+
+def test_selected_invite_emails_persist_per_admin(tmp_path, monkeypatch):
+    monkeypatch.setattr('services.dp_admin_invite_store.INSTANCE_DIR', str(tmp_path))
+    admin_a = {'id': 'admin-a', 'email': 'daveed@example.com'}
+    admin_b = {'id': 'admin-b', 'email': 'other@example.com'}
+
+    empty = get_selected_invite_contacts(admin_a)
+    assert empty['emails'] == []
+
+    set_payload = set_selected_invite_emails(
+        admin_a,
+        ['Kevin@Example.com', 'kevin@example.com', 'nathan@example.com'],
+    )
+    assert set_payload['emails'] == ['kevin@example.com', 'nathan@example.com']
+    assert set_payload['updated_at']
+
+    patch_payload = patch_selected_invite_emails(
+        admin_a,
+        add=['noise@example.com'],
+        remove=['nathan@example.com'],
+    )
+    assert patch_payload['emails'] == ['kevin@example.com', 'noise@example.com']
+
+    other_payload = set_selected_invite_emails(admin_b, ['secret@example.com'])
+    assert other_payload['emails'] == ['secret@example.com']
+    assert get_selected_invite_contacts(admin_a)['emails'] == [
+        'kevin@example.com',
+        'noise@example.com',
+    ]
+
+    selected_path = tmp_path / 'invite_zoho_selected' / 'daveed_at_example.com.json'
+    assert selected_path.is_file()

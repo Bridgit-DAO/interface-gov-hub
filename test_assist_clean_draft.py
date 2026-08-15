@@ -112,6 +112,24 @@ def test_clean_draft_strips_meta_divider_without_join_primary():
     assert '---' not in cleaned
 
 
+def test_clean_draft_strips_let_me_check_requirements_tail():
+    """Long-gap generic draft without JOIN_PRIMARY – planning after sign-off."""
+    raw = (
+        'Hi Abeed,\n\n'
+        'Since we last caught up in March 2022, a lot has been cooking.\n\n'
+        'Hope to hear from you soon.\n\n'
+        'Daveed\n\n'
+        'Let me check requirements:\n'
+        '- "Hi Abeed," - ✓\n'
+        '- No em dashes - ✓\n'
+        'Let me finalize:'
+    )
+    cleaned = clean_draft(raw)
+    assert cleaned.endswith('Daveed')
+    assert 'Let me check' not in cleaned
+    assert 'Let me finalize' not in cleaned
+
+
 def test_clean_draft_strips_mid_response_planning_before_revised_draft():
   """User sample: first draft + word-count planning + second draft with JOIN_PRIMARY."""
   raw = (

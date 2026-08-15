@@ -13,7 +13,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from config import INSTANCE_DIR
 from services.zoho_mail import admin_contacts_snapshot_path, contacts_snapshot_path, normalize_admin_email
-from services.zoho_mail_ingest import build_snapshot
+from services.zoho_mail_ingest import (
+    build_snapshot,
+    prompt_export_password_if_needed,
+    resolve_export_password,
+)
 
 
 def main() -> int:
@@ -27,6 +31,11 @@ def main() -> int:
         '--owner',
         default=os.environ.get('ZOHO_MAIL_OWNER_EMAIL', ''),
         help='Your mailbox address (used to exclude self from contacts)',
+    )
+    parser.add_argument(
+        '--password',
+        default='',
+        help='Zoho export ZIP password (or set ZOHO_MAIL_EXPORT_PASSWORD)',
     )
     parser.add_argument(
         '--output',
@@ -48,10 +57,23 @@ def main() -> int:
     if not input_path.exists():
         raise SystemExit(f'Input path does not exist: {input_path}')
 
+    password = resolve_export_password(args.password)
+    password = prompt_export_password_if_needed([input_path], password)
+    if input_path.suffix.lower() == '.zip' and not password:
+        from services.zoho_mail_ingest import inspect_export_metadata
+
+        metadata = inspect_export_metadata([input_path])
+        if int(metadata.get('encrypted_eml_entries') or 0) > 0:
+            raise SystemExit(
+                'Encrypted export requires --password, ZOHO_MAIL_EXPORT_PASSWORD, '
+                'or an interactive prompt.',
+            )
+
     payload = build_snapshot(
         input_path=input_path,
         owner_email=owner_email,
         output_path=output_path,
+        password=password,
     )
     print(
         f'Wrote {len(payload["contacts"])} contacts from {payload["message_count"]} '

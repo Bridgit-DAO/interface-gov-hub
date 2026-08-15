@@ -20,6 +20,7 @@ from services.assist import (
 from services.platform_invitation_mail import (
     build_multi_workgroup_invite_mailto,
     invite_body_uses_join_placeholders,
+    sanitize_invite_email_body,
     send_multi_workgroup_invitation_email,
     substitute_workgroup_join_placeholders,
 )
@@ -30,6 +31,7 @@ from services.platform_invitations import (
     normalize_invitee_email,
     validate_invitee_email,
 )
+from services.invite_message_strategy import normalize_message_strategy, strategy_prompt_block
 from services.utils import generate_invitation_token
 from services.web_research import normalize_linkedin_url, research_person_corpus
 from services.workgroup_authority import can_invite_workgroup_member, is_dp_site_admin, is_workgroup_member
@@ -51,7 +53,7 @@ _LENGTH_GUIDANCE = {
     'medium': (
         'About 220–320 words total. '
         'Structure: standard flow—invite content blocks (events, perspectives, engagement as guided), '
-        'then workgroup invitation with primary and any additional workgroups, then close with [JOIN_PRIMARY]. '
+        'then workgroup invitation with primary and any additional workgroups, then a warm close. '
         'This is the baseline length; do not pad or trim aggressively.'
     ),
     'long': (
@@ -109,7 +111,9 @@ _INVITE_CONTENT_TOKEN_BONUS = 600
 
 _COMPLETE_DRAFT_SUFFIX_RE = re.compile(r'[\]\).!?]["\']?\s*$')
 _PLANNING_LEAK_RE = re.compile(
-    r'(?i)let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?)',
+    r'(?i)let me (?:count(?:\s+words)?|adjust|draft(?:\s+more carefully)?|'
+    r'check(?:\s+requirements)?|finalize|reconsider|verify|double-?check|'
+    r'also (?:check|verify|consider))',
 )
 
 _TONE_GUIDANCE = {
@@ -163,11 +167,9 @@ def invite_draft_max_tokens(
 
 def invite_draft_looks_complete(draft: str) -> bool:
     """Heuristic: draft ends on a sentence boundary (not mid-clause truncation)."""
-    text = (draft or '').strip()
+    text = sanitize_invite_email_body(draft or '')
     if not text:
         return False
-    if '[JOIN_PRIMARY]' in text.upper():
-        return True
     return bool(_COMPLETE_DRAFT_SUFFIX_RE.search(text))
 
 
@@ -699,6 +701,8 @@ def draft_admin_invitation_email(
     prior_invitations: Optional[List[dict]] = None,
     invite_content: Optional[dict] = None,
     zoho_contact_context: Optional[dict] = None,
+    message_strategy: str = '',
+    strategy_confirmed: bool = False,
     regenerate: bool = False,
     previous_draft: str = '',
 ) -> Tuple[dict, int]:
@@ -721,6 +725,8 @@ def draft_admin_invitation_email(
         prior_invitations=prior_invitations,
         invite_content=invite_content,
         zoho_contact_context=zoho_contact_context,
+        message_strategy=message_strategy,
+        strategy_confirmed=strategy_confirmed,
         regenerate=regenerate,
         previous_draft=previous_draft,
     )
@@ -737,6 +743,10 @@ def send_admin_invitation_email(
     send_mode: str = 'platform',
     audit_source: str = 'manual',
     audit_status: Optional[str] = None,
+    message_strategy: str = '',
+    force_inline_join_links: bool = False,
+    long_gap_outreach: bool = False,
+    long_gap_dp_image_url: Optional[str] = None,
 ) -> Tuple[dict, int]:
     inviter = User.query.get(inviter_id)
     if not inviter:
@@ -751,14 +761,18 @@ def send_admin_invitation_email(
     workgroup, err = _resolve_admin_primary_workgroup(primary_workgroup_id)
     if err or not workgroup:
         return {'error': err or 'Invalid primary workgroup'}, 400
+    clean_body = sanitize_invite_email_body(strip_em_dashes((body or '').strip()))
     payload, status = send_ai_workgroup_invitations(
         workgroup=workgroup,
         inviter_id=inviter_id,
         name=name,
         email=email,
-        body=body,
+        body=clean_body,
         additional_workgroup_ids=additional_workgroup_ids,
         send_mode=send_mode,
+        force_inline_join_links=force_inline_join_links,
+        long_gap_outreach=long_gap_outreach,
+        long_gap_dp_image_url=long_gap_dp_image_url,
     )
     if status >= 400 or payload.get('blocked') or payload.get('error'):
         return payload, status
@@ -778,24 +792,40 @@ def send_admin_invitation_email(
         recipient_email=email,
         recipient_name=name,
         workgroup_ids=wg_ids,
-        body=body,
+        body=clean_body,
         status=record_status,
         invitation_id=invitation_ids[0] if invitation_ids else None,
         send_mode=send_mode,
         source=audit_source,
+        message_strategy=message_strategy,
     )
     payload['send_record_id'] = row.id
     return payload, status
 
 
+_NAME_QUOTE_CHARS = '"\'"\u201c\u201d\u2018\u2019«»'
+
+
+def _strip_stray_name_punctuation(text: str) -> str:
+    """Strip wrapping quotes, smart quotes, and leading punctuation from a name token."""
+    s = (text or '').strip()
+    if not s:
+        return ''
+    while len(s) >= 2 and s[0] in _NAME_QUOTE_CHARS and s[-1] in _NAME_QUOTE_CHARS:
+        s = s[1:-1].strip()
+    s = s.lstrip(_NAME_QUOTE_CHARS + '.,;:')
+    s = s.rstrip(_NAME_QUOTE_CHARS + '.,;:')
+    return s
+
+
 def _invitee_greeting_name(name: str) -> str:
     """First name when available, else full name, else a neutral fallback."""
     cleaned = re.sub(r'\s+', ' ', (name or '').strip())
+    cleaned = _strip_stray_name_punctuation(cleaned)
     if not cleaned:
         return 'there'
     first = cleaned.split(' ', 1)[0]
-    # Drop trailing punctuation from titles/initials edge cases.
-    first = first.strip('.,;:')
+    first = _strip_stray_name_punctuation(first)
     return first or cleaned
 
 
@@ -1039,6 +1069,8 @@ def draft_invitation_email(
     prior_invitations: Optional[List[dict]] = None,
     invite_content: Optional[dict] = None,
     zoho_contact_context: Optional[dict] = None,
+    message_strategy: str = '',
+    strategy_confirmed: bool = False,
     regenerate: bool = False,
     previous_draft: str = '',
 ) -> Tuple[dict, int]:
@@ -1088,7 +1120,19 @@ def draft_invitation_email(
     invite_content_for_llm = _normalize_invite_content_for_llm(invite_content)
     invite_content_note = _invite_content_guidance(invite_content_for_llm, length_key=length_key)
     zoho_guidance = _zoho_contact_draft_guidance(zoho_contact_context)
+    strategy_key = normalize_message_strategy(message_strategy) or ''
+    if not strategy_key and isinstance(zoho_contact_context, dict):
+        strategy_key = normalize_message_strategy(
+            str(zoho_contact_context.get('message_strategy') or zoho_contact_context.get('suggested_strategy') or ''),
+        ) or ''
+    strategy_guidance = strategy_prompt_block(strategy_key, confirmed=bool(strategy_confirmed))
     combined_guidance = (extra_guidance or '').strip()
+    if strategy_guidance:
+        combined_guidance = (
+            f'{strategy_guidance}\n\n{combined_guidance}'.strip()
+            if combined_guidance
+            else strategy_guidance
+        )
     if zoho_guidance:
         combined_guidance = (
             f'{zoho_guidance}\n\n{combined_guidance}'.strip()
@@ -1110,7 +1154,9 @@ def draft_invitation_email(
     )
     system = (
         'Write a personal invitation email body (plain text, no subject line). '
-        'Output only the email text – no analysis, planning, or XML tags. '
+        'Output ONLY the final email text – no analysis, planning, bracketed stage directions, '
+        'internal markers, or XML tags. Never echo prompt labels such as MESSAGE STRATEGY or '
+        'INVITE CONTENT STRUCTURE. Never output lines like "Email is off." '
         f'The FIRST line MUST be a greeting using the invitee\'s first name, e.g. "Hi {greet_name}," '
         '(or "Hi {full name}," if only one name token). Never skip the greeting. '
         f'{_NO_EM_DASH_RULE}'
@@ -1128,6 +1174,11 @@ def draft_invitation_email(
             'of last contact naturally, and cite specific subjects or snippet details – never generic '
             '"hope you are well" filler when thread context exists. '
         )
+    if strategy_guidance:
+        system += (
+            'When MESSAGE STRATEGY is provided and admin-confirmed, follow that block for opening tone '
+            'and how much Meta-Layer history to include. '
+        )
     if length_key == 'short':
         system += (
             'SHORT length: keep pre-invite content to at most 3 brief paragraphs; compress workshops/events '
@@ -1141,9 +1192,10 @@ def draft_invitation_email(
     system += (
         'Lead with the primary workgroup unless invite content blocks come first per structure. '
         'Mention any additional workgroups briefly. '
-        'End with a complete closing sentence and sign-off – never stop mid-sentence. '
-        'Put the join call-to-action on its own final line using [JOIN_PRIMARY] '
-        '(and [JOIN_EXTRA_N] for additional workgroups). Never use raw workgroup join URLs. '
+        'End with a complete closing sentence and sign-off inviting them to join. '
+        'Do NOT use internal markers like [JOIN_PRIMARY] or bracketed instructions like [Then workgroup…]. '
+        'Join links are added separately when the email is sent – do not output join placeholder tokens '
+        'or workgroup invitation landing URLs. '
         'Include full absolute URLs (https://…) for events and perspectives when provided – never relative paths. '
         f'TONE ({tone_key}): {tone_guidance} '
         f'LENGTH ({length_key}): {length_guidance} '
@@ -1162,7 +1214,8 @@ def draft_invitation_email(
     if regenerate and previous_draft_text:
         regenerate_note = (
             'Regenerate the invitation: rewrite the previous draft in the requested tone and length. '
-            'Change phrasing and structure noticeably while preserving factual content, URLs, and join placeholders.'
+            'Change phrasing and structure noticeably while preserving factual content and event/perspective URLs. '
+            'Do not add internal markers or bracketed stage directions.'
         )
 
     user_msg = json.dumps({
@@ -1175,6 +1228,8 @@ def draft_invitation_email(
         'resolved_person': resolved_person or {'name': invitee_display},
         'previous_interaction': (previous_interaction or '').strip(),
         'zoho_contact_context': zoho_contact_context,
+        'message_strategy': strategy_key or None,
+        'strategy_confirmed': bool(strategy_confirmed),
         'tone': tone_key,
         'length': length_key,
         'tone_guidance': tone_guidance,
@@ -1217,7 +1272,6 @@ def draft_invitation_email(
         needs_retry = (
             word_count < min_words
             or not invite_draft_looks_complete(draft)
-            or '[JOIN_PRIMARY]' not in draft.upper()
             or long_too_short
             or short_too_long
             or planning_leak
@@ -1229,21 +1283,22 @@ def draft_invitation_email(
                     'Expand the MIDDLE sections: add 1–2 paragraphs after the workgroup description '
                     'on why this person specifically, what participation looks like, and role-specific '
                     f'workgroup detail. Target {length_guidance} '
-                    'End with [JOIN_PRIMARY] on its own line.'
+                    'End with a complete closing sentence and sign-off.'
                 )
             elif short_too_long or planning_leak:
                 retry_note = (
                     'The previous draft is too long for SHORT length or included planning/meta text. '
-                    'Output ONLY the final invitation email body (no analysis, word counts, or revision notes). '
+                    'Output ONLY the final invitation email body (no analysis, word counts, bracketed '
+                    'stage directions, or revision notes). '
                     'Cut to 120–180 words maximum. '
                     'Keep at most 3 brief paragraphs before the workgroup invitation; compress events to one line each. '
-                    'End with [JOIN_PRIMARY] on its own line.'
+                    'End with a complete closing sentence and sign-off.'
                 )
             else:
                 retry_note = (
-                    'The previous draft was incomplete or missing [JOIN_PRIMARY]. '
-                    'Write the complete invitation email body only (no analysis or XML tags). '
-                    f'Target {length_guidance} End with [JOIN_PRIMARY] on its own line.'
+                    'The previous draft was incomplete or truncated mid-sentence. '
+                    'Write the complete invitation email body only (no analysis, bracketed instructions, or XML tags). '
+                    f'Target {length_guidance} End with a complete closing sentence and sign-off.'
                 )
             retry_user = json.dumps({
                 **json.loads(user_msg),
@@ -1260,11 +1315,15 @@ def draft_invitation_email(
     except (LlmCallFailed, LlmTemporarilyBusy) as exc:
         return {'error': f'AI draft failed: {exc}'}, 502
 
+    display_draft = sanitize_invite_email_body(draft)
+
     return {
         'success': True,
-        'draft': draft,
+        'draft': display_draft,
         'tone': tone_key,
         'length': length_key,
+        'message_strategy': strategy_key or None,
+        'strategy_confirmed': bool(strategy_confirmed),
         'prior_invitations': prior,
     }, 200
 
@@ -1278,6 +1337,9 @@ def send_ai_workgroup_invitations(
     body: str,
     additional_workgroup_ids: Optional[List[str]] = None,
     send_mode: str = 'platform',
+    force_inline_join_links: bool = False,
+    long_gap_outreach: bool = False,
+    long_gap_dp_image_url: Optional[str] = None,
 ) -> Tuple[dict, int]:
     mode = (send_mode or 'platform').strip().lower()
     if mode not in ('platform', 'client'):
@@ -1299,7 +1361,7 @@ def send_ai_workgroup_invitations(
     if block:
         return {'blocked': True, 'error': block}, 400
 
-    text = strip_em_dashes((body or '').strip())
+    text = sanitize_invite_email_body(strip_em_dashes((body or '').strip()))
     if not text:
         return {'error': 'Email body is required'}, 400
 
@@ -1354,7 +1416,7 @@ def send_ai_workgroup_invitations(
         for inv, wg in invitations
     ]
 
-    inline_join_links = invite_body_uses_join_placeholders(text)
+    inline_join_links = force_inline_join_links or invite_body_uses_join_placeholders(text)
     resolved_text = substitute_workgroup_join_placeholders(text, links)
     primary_inv, _ = invitations[0]
     primary_inv.message = resolved_text
@@ -1369,6 +1431,8 @@ def send_ai_workgroup_invitations(
             body_text=resolved_text,
             links=links,
             inline_join_links=inline_join_links,
+            long_gap_outreach=long_gap_outreach,
+            long_gap_dp_image_url=long_gap_dp_image_url,
         )
     else:
         mailto_payload = build_multi_workgroup_invite_mailto(

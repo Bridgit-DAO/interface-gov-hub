@@ -5,11 +5,16 @@ from flask import Blueprint, jsonify, request
 
 from services.api_auth import get_api_user, require_api_auth
 from services.dp_admin_invite_store import (
+    get_selected_invite_contacts,
+    hide_invite_contact,
     list_admin_invite_sends,
-    normalize_admin_email,
+    list_hidden_invite_contacts,
+    patch_selected_invite_emails,
     record_admin_invite_send,
     resolve_agent_drop_file,
     send_history_by_recipient,
+    set_selected_invite_emails,
+    unhide_invite_contact,
 )
 from services.invite_research_pathways import (
     build_pathway_context_bundle,
@@ -18,12 +23,23 @@ from services.invite_research_pathways import (
     pathway_zoho_mail_contacts,
 )
 from services.workgroup_authority import is_dp_site_admin
+from services.invite_long_gap_dispatch import (
+    classify_long_gap_dispatch,
+    get_draft_long_gap_dispatch_job_status,
+    get_long_gap_dispatch_review,
+    get_long_gap_dispatch_template,
+    get_send_all_long_gap_dispatch_job_status,
+    patch_long_gap_dispatch_review,
+    send_long_gap_dispatch_email,
+    start_draft_long_gap_dispatch_job,
+    start_send_all_long_gap_dispatch_job,
+)
 from services.workgroup_invite_ai import (
     draft_admin_invitation_email,
     research_admin_invite_contact,
     send_admin_invitation_email,
 )
-from services.zoho_mail import admin_contacts_snapshot_path
+from services.zoho_mail import admin_contacts_snapshot_path, normalize_admin_email
 from services.zoho_mail_ingest import build_snapshot
 
 bp = Blueprint('dp_admin_invite', __name__)
@@ -44,10 +60,110 @@ def admin_dp_invite_pathway_zoho():
     current_user, err_resp, err_code = _require_dp_admin()
     if err_resp:
         return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    show_hidden = bool(data.get('show_hidden'))
     payload, status = pathway_zoho_mail_contacts(
         admin_email=normalize_admin_email(current_user.get('email') or ''),
+        admin=current_user,
+        show_hidden=show_hidden,
     )
     return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/contacts/hide/', methods=['POST'])
+@require_api_auth
+def admin_dp_invite_hide_contact():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    recipient_email = (data.get('recipient_email') or data.get('email') or '').strip()
+    if not recipient_email:
+        return jsonify({'error': 'recipient_email is required'}), 400
+    try:
+        row = hide_invite_contact(
+            current_user,
+            recipient_email=recipient_email,
+            note=(data.get('note') or '').strip(),
+        )
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return jsonify({'success': True, 'hidden': row}), 200
+
+
+@bp.route('/api/admin/dp-invite/contacts/unhide/', methods=['POST'])
+@require_api_auth
+def admin_dp_invite_unhide_contact():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    recipient_email = (data.get('recipient_email') or data.get('email') or '').strip()
+    if not recipient_email:
+        return jsonify({'error': 'recipient_email is required'}), 400
+    try:
+        removed = unhide_invite_contact(current_user, recipient_email=recipient_email)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return jsonify({'success': True, 'removed': removed}), 200
+
+
+@bp.route('/api/admin/dp-invite/contacts/hidden/', methods=['GET'])
+@require_api_auth
+def admin_dp_invite_hidden_contacts():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    rows = list_hidden_invite_contacts(current_user)
+    return jsonify({'success': True, 'hidden': rows}), 200
+
+
+@bp.route('/api/admin/dp-invite/contacts/selection/', methods=['GET'])
+@require_api_auth
+def admin_dp_invite_get_selection():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    payload = get_selected_invite_contacts(current_user)
+    return jsonify({'success': True, **payload}), 200
+
+
+@bp.route('/api/admin/dp-invite/contacts/selection/', methods=['POST'])
+@require_api_auth
+def admin_dp_invite_set_selection():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    emails = data.get('emails') or data.get('recipient_emails') or []
+    if not isinstance(emails, list):
+        return jsonify({'error': 'emails must be an array'}), 400
+    payload = set_selected_invite_emails(current_user, emails)
+    return jsonify({'success': True, **payload}), 200
+
+
+@bp.route('/api/admin/dp-invite/contacts/selection/', methods=['PATCH'])
+@require_api_auth
+def admin_dp_invite_patch_selection():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    add = data.get('add') or data.get('add_emails') or []
+    remove = data.get('remove') or data.get('remove_emails') or []
+    if data.get('email') or data.get('recipient_email'):
+        email = (data.get('email') or data.get('recipient_email') or '').strip()
+        action = (data.get('action') or '').strip().lower()
+        if action == 'add':
+            add = [email, *add]
+        elif action == 'remove':
+            remove = [email, *remove]
+        else:
+            return jsonify({'error': 'action must be add or remove when email is provided'}), 400
+    if not isinstance(add, list) or not isinstance(remove, list):
+        return jsonify({'error': 'add and remove must be arrays'}), 400
+    payload = patch_selected_invite_emails(current_user, add=add, remove=remove)
+    return jsonify({'success': True, **payload}), 200
 
 
 @bp.route('/api/admin/dp-invite/ingest-zoho/', methods=['POST'])
@@ -167,6 +283,7 @@ def admin_dp_invite_batch_record():
             body=(data.get('body') or data.get('draft') or '').strip(),
             status=status,
             source=(data.get('source') or 'zoho_batch').strip() or 'zoho_batch',
+            message_strategy=(data.get('message_strategy') or '').strip(),
         )
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
@@ -255,6 +372,8 @@ def admin_dp_invite_draft():
         prior_invitations=data.get('prior_invitations'),
         invite_content=data.get('invite_content'),
         zoho_contact_context=data.get('zoho_contact_context'),
+        message_strategy=(data.get('message_strategy') or '').strip(),
+        strategy_confirmed=bool(data.get('strategy_confirmed')),
         regenerate=bool(data.get('regenerate')),
         previous_draft=(data.get('previous_draft') or '').strip(),
     )
@@ -277,5 +396,140 @@ def admin_dp_invite_send():
         additional_workgroup_ids=data.get('additional_workgroup_ids') or [],
         send_mode=(data.get('send_mode') or 'platform').strip(),
         audit_source=(data.get('source') or 'manual').strip() or 'manual',
+        message_strategy=(data.get('message_strategy') or '').strip(),
     )
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/classify/', methods=['POST'])
+@require_api_auth
+def admin_dp_invite_dispatch_classify():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    emails = data.get('emails') or data.get('recipient_emails') or None
+    if emails is not None and not isinstance(emails, list):
+        return jsonify({'error': 'emails must be an array'}), 400
+    payload, status = classify_long_gap_dispatch(
+        current_user,
+        emails=emails,
+        force=bool(data.get('force')),
+    )
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/review/', methods=['GET'])
+@require_api_auth
+def admin_dp_invite_dispatch_review_get():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    payload, status = get_long_gap_dispatch_review(current_user)
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/review/', methods=['PATCH'])
+@require_api_auth
+def admin_dp_invite_dispatch_review_patch():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or data.get('recipient_email') or '').strip()
+    if not email:
+        return jsonify({'success': False, 'error': 'email is required'}), 400
+    patch = {key: data[key] for key in data if key not in {'email', 'recipient_email'}}
+    try:
+        payload, status = patch_long_gap_dispatch_review(current_user, email=email, patch=patch)
+    except Exception as exc:
+        import logging
+        logging.getLogger('dp_admin_invite').exception(
+            'dispatch review patch failed for %s: %s', email, exc,
+        )
+        return jsonify({
+            'success': False,
+            'error': 'Failed to update dispatch row',
+            'code': 'dispatch_patch_failed',
+        }), 500
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/draft/', methods=['POST'])
+@require_api_auth
+def admin_dp_invite_dispatch_draft():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    emails = data.get('emails') or data.get('recipient_emails') or None
+    if emails is not None and not isinstance(emails, list):
+        return jsonify({'error': 'emails must be an array'}), 400
+    payload, status = start_draft_long_gap_dispatch_job(
+        current_user,
+        emails=emails,
+        force=bool(data.get('force')),
+    )
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/draft/status/', methods=['GET'])
+@require_api_auth
+def admin_dp_invite_dispatch_draft_status():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    payload, status = get_draft_long_gap_dispatch_job_status(current_user)
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/template/', methods=['GET'])
+@require_api_auth
+def admin_dp_invite_dispatch_template():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    payload, status = get_long_gap_dispatch_template(current_user)
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/send/', methods=['POST'])
+@require_api_auth
+def admin_dp_invite_dispatch_send():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or data.get('recipient_email') or '').strip()
+    if not email:
+        return jsonify({'error': 'email is required'}), 400
+    payload, status = send_long_gap_dispatch_email(
+        current_user,
+        email=email,
+        test_mode=bool(data.get('test_mode')),
+        test_recipient_email=(data.get('test_recipient_email') or '').strip(),
+    )
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/send-all/', methods=['POST'])
+@require_api_auth
+def admin_dp_invite_dispatch_send_all():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    if bool(data.get('test_mode')):
+        return jsonify({'error': 'Bulk send requires test mode off (production sends only)'}), 400
+    payload, status = start_send_all_long_gap_dispatch_job(current_user)
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/send-all/status/', methods=['GET'])
+@require_api_auth
+def admin_dp_invite_dispatch_send_all_status():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    payload, status = get_send_all_long_gap_dispatch_job_status(current_user)
     return jsonify(payload), status

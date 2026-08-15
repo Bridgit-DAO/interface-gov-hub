@@ -18,10 +18,98 @@ from services.resend_mail import (
 )
 
 MULTI_WG_INVITE_SUBJECT = 'Invitation to join a Desirable Properties workgroup'
+LONG_GAP_EMAIL_SUBJECT = 'From the Metaweb to a Layered Web: Your Input is Requested'
+LONG_GAP_PROGRESSION_IMAGE_URL = 'https://desirableproperties.org/images/dp-challenge-arc.jpg'
+DP_CHALLENGE_SITE_BASE = 'https://desirableproperties.org'
 
 _JOIN_PRIMARY_RE = re.compile(r'\[JOIN_PRIMARY\]', re.IGNORECASE)
 _JOIN_EXTRA_RE = re.compile(r'\[JOIN_EXTRA_(\d+)\]', re.IGNORECASE)
+_JOIN_ANY_RE = re.compile(r'\[JOIN_[^\]]*\]', re.IGNORECASE)
+_INTERNAL_BRACKET_ONLY_LINE_RE = re.compile(
+    r'^\s*\[(?![^\]]*https?://)([^\]]{6,})\]\s*$',
+    re.IGNORECASE | re.MULTILINE,
+)
+_INTERNAL_BRACKET_INLINE_RE = re.compile(
+    r'\[(?:Then\s+workgroup|Close\s+warmly|Lead\s+with|MESSAGE\s+STRATEGY|'
+    r'transition\s+into|join\s+placeholders?|reference\s+shared)[^\]]*\]',
+    re.IGNORECASE,
+)
+_PROMPT_LEAK_LINE_RE = re.compile(
+    r'^\s*(?:MESSAGE STRATEGY|INVITE CONTENT STRUCTURE|EVENTS TO MENTION|'
+    r'PERSPECTIVES TO MENTION|ZOHO EMAIL HISTORY)(?:\s|\().*$',
+    re.IGNORECASE | re.MULTILINE,
+)
+_EMAIL_OFF_LINE_RE = re.compile(r'^\s*Email is off\.?\s*$', re.IGNORECASE | re.MULTILINE)
 _GREETING_PREFIX_RE = re.compile(r'^(hi|hello|dear)\b', re.IGNORECASE)
+_PLANNING_LEAK_SECTION_RE = re.compile(
+    r'\n\n(?:Let me (?:check(?:\s+requirements)?|finalize|reconsider|verify|'
+    r'double-?check|count(?:\s+words)?|adjust|draft(?:\s+more carefully)?|'
+    r'expand|recount|revise|add|also (?:check|verify|consider))|'
+    r'---\s*\n\nLet me )',
+    re.IGNORECASE,
+)
+_PLANNING_LEAK_LINE_RE = re.compile(
+    r'^\s*(?:Let me (?:check(?:\s+requirements)?|finalize|reconsider|verify|'
+    r'double-?check|count(?:\s+words)?|adjust|draft(?:\s+more carefully)?|'
+    r'expand|recount|revise|add|also (?:check|verify|consider))|'
+    r'Hmm let me|That\'?s about \d+ words|Total:\s*~?\d+).*$',
+    re.IGNORECASE | re.MULTILINE,
+)
+_PLANNING_CHECKLIST_LINE_RE = re.compile(
+    r'^\s*-\s+(?:"[^"]+"|\'[^\']+\'|.+)[\s(]\d+\)?\s*$|^\s*-\s+.+[✓✔]\s*$',
+    re.IGNORECASE | re.MULTILINE,
+)
+_HTTPS_URL_RE = re.compile(r'https?://[^\s<>"\'\]]+')
+
+
+def _trim_trailing_url_punctuation(url: str) -> str:
+    trimmed = url
+    while trimmed and trimmed[-1] in '.,);:]}>':
+        trimmed = trimmed[:-1]
+    return trimmed
+
+
+def body_text_to_html_paragraph(body_text: str) -> str:
+    """Escape plain invite body text and autolink https:// URLs for HTML email."""
+    text = (body_text or '').strip()
+    if not text:
+        return ''
+    parts: List[str] = []
+    pos = 0
+    for match in _HTTPS_URL_RE.finditer(text):
+        start, end = match.span()
+        parts.append(html.escape(text[pos:start]))
+        raw_url = _trim_trailing_url_punctuation(match.group(0))
+        end = start + len(raw_url)
+        href = html.escape(raw_url, quote=True)
+        label = html.escape(raw_url)
+        parts.append(f'<a href="{href}">{label}</a>')
+        pos = end
+    parts.append(html.escape(text[pos:]))
+    inner = ''.join(parts)
+    return f'<p style="white-space:pre-wrap;line-height:1.6;">{inner}</p>'
+
+
+def sanitize_invite_email_body(body_text: str) -> str:
+    """Remove internal join markers, bracket stage directions, and prompt leaks."""
+    text = (body_text or '').strip()
+    if not text:
+        return text
+
+    planning_match = _PLANNING_LEAK_SECTION_RE.search(text)
+    if planning_match:
+        text = text[:planning_match.start()].rstrip()
+
+    text = _JOIN_ANY_RE.sub('', text)
+    text = _INTERNAL_BRACKET_INLINE_RE.sub('', text)
+    text = _INTERNAL_BRACKET_ONLY_LINE_RE.sub('', text)
+    text = _PROMPT_LEAK_LINE_RE.sub('', text)
+    text = _EMAIL_OFF_LINE_RE.sub('', text)
+    text = _PLANNING_LEAK_LINE_RE.sub('', text)
+    text = _PLANNING_CHECKLIST_LINE_RE.sub('', text)
+    text = re.sub(r'[ \t]+\n', '\n', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 
 def body_text_has_greeting(body_text: str) -> bool:
@@ -30,6 +118,164 @@ def body_text_has_greeting(body_text: str) -> bool:
     if not text:
         return False
     return bool(_GREETING_PREFIX_RE.match(text))
+
+
+def dp_number_from_label(dp_label: str) -> Optional[int]:
+    """Extract DP number from labels like DP22 or DP6 - Commerce."""
+    match = re.search(r'DP\s*0*(\d+)', (dp_label or ''), re.IGNORECASE)
+    if not match:
+        return None
+    number = int(match.group(1))
+    return number if 1 <= number <= 23 else None
+
+
+def dp_workgroup_card_image_url(
+    *,
+    dp_label: str = '',
+    dp_number: Optional[int] = None,
+) -> Optional[str]:
+    """Absolute HTTPS URL for a numbered DP card image on desirableproperties.org."""
+    number = dp_number if dp_number is not None else dp_number_from_label(dp_label)
+    if number is None:
+        return None
+    return f'{DP_CHALLENGE_SITE_BASE}/images/dps/card/DP{number}.webp'
+
+
+def normalize_long_gap_greeting_in_body(body_text: str, invitee_name: str) -> str:
+    """Replace a stale or quoted greeting line with Hi {sanitized_first_name},"""
+    from services.workgroup_invite_ai import _invitee_greeting_name
+
+    first_name = _invitee_greeting_name(invitee_name)
+    text = (body_text or '').strip()
+    if not text:
+        return f'Hi {first_name},'
+    paragraphs = text.split('\n\n')
+    if paragraphs and _GREETING_PREFIX_RE.match(paragraphs[0].strip()):
+        paragraphs[0] = f'Hi {first_name},'
+        return '\n\n'.join(paragraphs)
+    return text
+
+
+def build_long_gap_progression_image_html(
+    *,
+    link_url: Optional[str] = None,
+) -> str:
+    """Full-width progression diagram (DPs to Overweb) for long-gap outreach HTML."""
+    src = html.escape(LONG_GAP_PROGRESSION_IMAGE_URL, quote=True)
+    alt = html.escape(
+        'Desirable Properties Challenge, Requirements, ADRs, and Overweb progression',
+    )
+    img = (
+        f'<img src="{src}" alt="{alt}" '
+        'style="width:100%;max-width:600px;height:auto;display:block;border-radius:8px;margin:0 auto;" />'
+    )
+    if link_url:
+        href = html.escape(link_url.strip(), quote=True)
+        return (
+            f'<p style="margin:0 0 20px;text-align:center;">'
+            f'<a href="{href}" style="text-decoration:none;">{img}</a></p>'
+        )
+    return f'<p style="margin:0 0 20px;text-align:center;">{img}</p>'
+
+
+def build_long_gap_dp_card_image_html(image_url: str, *, alt: str = 'Workgroup illustration') -> str:
+    src = html.escape((image_url or '').strip(), quote=True)
+    if not src:
+        return ''
+    alt_esc = html.escape(alt)
+    return (
+        f'<p style="margin:20px 0 12px;text-align:center;">'
+        f'<img src="{src}" alt="{alt_esc}" '
+        'style="width:100%;max-width:480px;height:auto;display:block;border-radius:8px;margin:0 auto;" />'
+        '</p>'
+    )
+
+
+def build_long_gap_outreach_html(
+    body_text: str,
+    invitee_name: str,
+    *,
+    dp_card_image_url: Optional[str] = None,
+    progression_link_url: Optional[str] = None,
+) -> str:
+    """HTML body for long-gap outreach: progression image, greeting, paragraphs, optional DP art."""
+    from services.workgroup_invite_ai import _invitee_greeting_name
+
+    normalized = normalize_long_gap_greeting_in_body(body_text, invitee_name)
+    paragraphs = [part.strip() for part in normalized.split('\n\n') if part.strip()]
+
+    main_paragraphs: List[str] = []
+    signoff_paragraphs: List[str] = []
+    in_signoff = False
+    greeting_skipped = False
+    dp_insert_index: Optional[int] = None
+
+    for paragraph in paragraphs:
+        if not greeting_skipped and _GREETING_PREFIX_RE.match(paragraph):
+            greeting_skipped = True
+            continue
+        if paragraph.startswith('Warmly'):
+            in_signoff = True
+        if in_signoff:
+            signoff_paragraphs.append(paragraph)
+            continue
+        if dp_card_image_url and dp_insert_index is None:
+            lowered = paragraph.lower()
+            if 'would love your input on' in lowered or 'take a look here:' in lowered:
+                dp_insert_index = len(main_paragraphs)
+        main_paragraphs.append(paragraph)
+
+    greet = html.escape(_invitee_greeting_name(invitee_name))
+    parts: List[str] = [build_long_gap_progression_image_html(link_url=progression_link_url)]
+    parts.append(f'<p>Hi {greet},</p>')
+
+    for index, paragraph in enumerate(main_paragraphs):
+        if (
+            dp_card_image_url
+            and dp_insert_index is not None
+            and index == dp_insert_index
+        ):
+            parts.append(build_long_gap_dp_card_image_html(dp_card_image_url))
+        parts.append(body_text_to_html_paragraph(paragraph))
+
+    for paragraph in signoff_paragraphs:
+        parts.append(body_text_to_html_paragraph(paragraph))
+
+    return '\n'.join(parts)
+
+
+def send_long_gap_outreach_email(
+    inviter: User,
+    to_email: str,
+    to_name: str,
+    body_text: str,
+    *,
+    dp_card_image_url: Optional[str] = None,
+    progression_link_url: Optional[str] = None,
+    bcc_inviter: Optional[bool] = None,
+) -> bool:
+    """Send long-gap outreach with progression/DP images and the standard subject line."""
+    clean_body = sanitize_invite_email_body((body_text or '').strip())
+    if not clean_body:
+        return False
+    clean_body = normalize_long_gap_greeting_in_body(clean_body, to_name)
+    html_inner = build_long_gap_outreach_html(
+        clean_body,
+        to_name,
+        dp_card_image_url=dp_card_image_url,
+        progression_link_url=progression_link_url,
+    )
+    html_doc = email_shell('Desirable Properties', html_inner)
+    delivery = inviter_delivery_options(inviter, bcc_inviter=bcc_inviter)
+    return send_resend_email(
+        to=[normalize_email(to_email)],
+        subject=LONG_GAP_EMAIL_SUBJECT,
+        html=html_doc,
+        text=clean_body,
+        from_display_name=delivery['from_display_name'],
+        reply_to=delivery['reply_to'],
+        bcc=delivery['bcc'],
+    )
 
 
 def invite_body_uses_join_placeholders(body_text: str) -> bool:
@@ -250,28 +496,69 @@ def send_multi_workgroup_invitation_email(
     links: list,
     bcc_inviter: Optional[bool] = None,
     inline_join_links: bool = False,
+    long_gap_outreach: bool = False,
+    long_gap_dp_image_url: Optional[str] = None,
+    subject_override: Optional[str] = None,
 ) -> bool:
     """Single email with custom body and one join link per workgroup.
 
     From display name uses the inviter profile; Reply-To is the inviter email.
     Optional BCC of the inviter (env WORKGROUP_INVITE_BCC_INVITER=0 to disable).
     When ``inline_join_links`` is true, join URLs are expected in ``body_text`` already.
+  When ``long_gap_outreach`` is true, use the long-gap HTML layout with progression/DP images.
     """
     inviter_name = html.escape(user_display(inviter))
     name_esc = html.escape(invitee_name or 'there')
-    note = (
-        f'<p style="white-space:pre-wrap;line-height:1.6;">{html.escape(body_text.strip())}</p>'
-        if body_text and body_text.strip()
-        else ''
-    )
+    resolved_body = normalize_long_gap_greeting_in_body(body_text, invitee_name) if long_gap_outreach else body_text
+    note = body_text_to_html_paragraph(resolved_body) if resolved_body and resolved_body.strip() else ''
     greeting_html = ''
-    if not body_text_has_greeting(body_text):
+    if not body_text_has_greeting(resolved_body):
         greeting_html = f'<p>Hi {name_esc},</p>'
-    if inline_join_links:
+    if long_gap_outreach:
+        html_inner = build_long_gap_outreach_html(
+            resolved_body,
+            invitee_name,
+            dp_card_image_url=long_gap_dp_image_url,
+        )
+        if inline_join_links:
+            body = html_inner
+        else:
+            link_blocks = []
+            for item in links or []:
+                wg_name = html.escape(item.get('workgroup_name') or 'Workgroup')
+                url = html.escape(item.get('landing_url') or '', quote=True)
+                if not url:
+                    continue
+                link_blocks.append(
+                    f'<p style="margin:12px 0;">'
+                    f'<strong>{wg_name}</strong><br>'
+                    f'<a href="{url}" style="display:inline-block;margin-top:6px;padding:8px 14px;'
+                    f'background:#667eea;color:#fff;text-decoration:none;border-radius:6px;">Join workgroup</a>'
+                    f'</p>',
+                )
+            links_html = ''.join(link_blocks)
+            body = f'{html_inner}\n{links_html}'
+        html_doc = email_shell('Desirable Properties', body)
+        plain = build_multi_workgroup_invite_plain_body(
+            invitee_name=invitee_name,
+            body_text=resolved_body,
+            links=links,
+            inline_join_links=inline_join_links,
+        )
+        subject = subject_override or LONG_GAP_EMAIL_SUBJECT
+    elif inline_join_links:
         body = f"""
 {greeting_html}
 {note}
 """
+        html_doc = email_shell('Workgroup invitation', body)
+        plain = build_multi_workgroup_invite_plain_body(
+            invitee_name=invitee_name,
+            body_text=body_text,
+            links=links,
+            inline_join_links=inline_join_links,
+        )
+        subject = subject_override or MULTI_WG_INVITE_SUBJECT
     else:
         link_blocks = []
         for item in links or []:
@@ -293,18 +580,19 @@ def send_multi_workgroup_invitation_email(
 <p>{inviter_name} invited you to join workgroup(s) on Desirable Properties:</p>
 {links_html}
 """
-    html_doc = email_shell('Workgroup invitation', body)
-    plain = build_multi_workgroup_invite_plain_body(
-        invitee_name=invitee_name,
-        body_text=body_text,
-        links=links,
-        inline_join_links=inline_join_links,
-    )
+        html_doc = email_shell('Workgroup invitation', body)
+        plain = build_multi_workgroup_invite_plain_body(
+            invitee_name=invitee_name,
+            body_text=body_text,
+            links=links,
+            inline_join_links=inline_join_links,
+        )
+        subject = subject_override or MULTI_WG_INVITE_SUBJECT
     delivery = inviter_delivery_options(inviter, bcc_inviter=bcc_inviter)
 
     return send_resend_email(
         to=[invitee_email.strip()],
-        subject=MULTI_WG_INVITE_SUBJECT,
+        subject=subject,
         html=html_doc,
         text=plain,
         from_display_name=delivery['from_display_name'],

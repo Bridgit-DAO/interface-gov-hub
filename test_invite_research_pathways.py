@@ -106,6 +106,23 @@ def test_build_pathway_context_bundle_includes_zoho_contact_context():
     assert 'communication style' in bundle['previous_interaction'].lower()
 
 
+def test_build_zoho_contact_context_includes_strategy():
+    ctx = build_zoho_contact_context({
+        'email': 'kevin@example.com',
+        'name': 'Kevin',
+        'last_contact': '2023-05-01',
+    })
+    assert ctx['suggested_strategy'] == 'long_gap_reconnect'
+    assert ctx['message_strategy'] == 'long_gap_reconnect'
+
+    recent = build_zoho_contact_context({
+        'email': 'kevin@example.com',
+        'name': 'Kevin',
+        'last_contact': '2025-01-01',
+    })
+    assert recent['suggested_strategy'] == 'recent_follow_up'
+
+
 def test_format_contact_recency_phrases():
     assert 'week' in format_contact_recency('2026-08-10')
     assert 'while' in format_contact_recency('2024-01-01')

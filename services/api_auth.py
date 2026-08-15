@@ -8,6 +8,7 @@ from flask import jsonify, request
 
 from models import User
 from services.identity import get_current_user
+from services.web3auth_verify import normalize_user_email
 
 
 def _user_dict_from_model(user: User) -> Dict[str, Any]:
@@ -29,11 +30,49 @@ def _user_dict_from_model(user: User) -> Dict[str, Any]:
     }
 
 
+def _dp_proxy_admin_user() -> Optional[Dict[str, Any]]:
+    """DP challenge-site server proxy: Hermes secret + X-DP-Admin-Email header."""
+    from config import DP_ADMIN_EMAILS
+    from services.support_auth import hermes_authorized
+
+    if not hermes_authorized():
+        return None
+
+    admin_email = normalize_user_email(request.headers.get('X-DP-Admin-Email'))
+    if not admin_email or admin_email not in DP_ADMIN_EMAILS:
+        return None
+
+    user = User.query.filter_by(email=admin_email).first()
+    if user:
+        return _user_dict_from_model(user)
+
+    local_part = admin_email.split('@', 1)[0]
+    return {
+        'id': f'dp-proxy:{admin_email}',
+        'username': local_part,
+        'name': local_part,
+        'email': admin_email,
+        'role': 'user',
+        'theme': None,
+        'displayName': local_part,
+        'oauthName': None,
+        'profileImage': None,
+        'typeOfLogin': 'dp_proxy',
+        'evmAddress': None,
+        'solanaAddress': None,
+        'bitcoinAddress': None,
+    }
+
+
 def get_api_user() -> Optional[Dict[str, Any]]:
     """Resolve current user from session cookie or Authorization: Bearer idToken."""
     session_user = get_current_user()
     if session_user:
         return session_user
+
+    proxy_user = _dp_proxy_admin_user()
+    if proxy_user:
+        return proxy_user
 
     auth = (request.headers.get('Authorization') or '').strip()
     if not auth.lower().startswith('bearer '):
