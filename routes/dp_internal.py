@@ -5,7 +5,7 @@ import re
 
 from flask import Blueprint, jsonify, request
 
-from models import DpProposal, Submission
+from models import DpProposal, Submission, User
 from extensions import db
 from services.support_auth import require_hermes
 

@@ -10,6 +10,7 @@ import base64
 import hashlib
 import os
 from typing import Optional, Tuple
+from uuid import uuid4
 
 from extensions import db
 
@@ -87,6 +88,14 @@ def provision_custodial_btc_wallet(user, *, commit: bool = True) -> Tuple[bool, 
     """
     from models import User
     from models.custodial_wallet import CustodialWallet
+
+    # Column defaults are INSERT-time only. New User() objects have id=None
+    # until flush; inserting custodial_wallet then fails NOT NULL user_id and
+    # was misreported as "email already linked".
+    if not (getattr(user, 'id', None) or '').strip():
+        user.id = str(uuid4())
+    if not (getattr(user, 'public_id', None) or '').strip():
+        user.public_id = str(uuid4())
 
     existing_addr = (getattr(user, 'bitcoinAddress', None) or '').strip()
     row = CustodialWallet.query.filter_by(user_id=user.id, chain='btc_taproot').first()
