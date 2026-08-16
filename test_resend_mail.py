@@ -7,9 +7,9 @@ class ResendMailTests(unittest.TestCase):
     def test_parse_resend_from_named(self):
         from services.resend_mail import parse_resend_from
 
-        parsed = parse_resend_from('Gov Hub <no-reply@govhub.live>')
+        parsed = parse_resend_from('Gov Hub <no-reply@hub.themetalayer.org>')
         self.assertIsNotNone(parsed)
-        self.assertEqual(parsed['email'], 'no-reply@govhub.live')
+        self.assertEqual(parsed['email'], 'no-reply@hub.themetalayer.org')
         self.assertEqual(parsed['name'], 'Gov Hub')
 
     def test_parse_resend_from_bare_email(self):
@@ -29,8 +29,8 @@ class ResendMailTests(unittest.TestCase):
         from services.resend_mail import format_resend_from
 
         self.assertEqual(
-            format_resend_from(name='Gov Hub', email='no-reply@govhub.live'),
-            'Gov Hub <no-reply@govhub.live>',
+            format_resend_from(name='Gov Hub', email='no-reply@hub.themetalayer.org'),
+            'Gov Hub <no-reply@hub.themetalayer.org>',
         )
 
     def test_get_resend_from_env_overrides(self):

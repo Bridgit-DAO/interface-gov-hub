@@ -33,6 +33,7 @@ from services.invite_long_gap_dispatch import (
     send_long_gap_dispatch_email,
     start_draft_long_gap_dispatch_job,
     start_send_all_long_gap_dispatch_job,
+    start_retry_failed_long_gap_dispatch_job,
 )
 from services.workgroup_invite_ai import (
     draft_admin_invitation_email,
@@ -532,4 +533,17 @@ def admin_dp_invite_dispatch_send_all_status():
     if err_resp:
         return err_resp, err_code
     payload, status = get_send_all_long_gap_dispatch_job_status(current_user)
+    return jsonify(payload), status
+
+
+@bp.route('/api/admin/dp-invite/dispatch/retry-failed/', methods=['POST'])
+@require_api_auth
+def admin_dp_invite_dispatch_retry_failed():
+    current_user, err_resp, err_code = _require_dp_admin()
+    if err_resp:
+        return err_resp, err_code
+    data = request.get_json(silent=True) or {}
+    if bool(data.get('test_mode')):
+        return jsonify({'error': 'Retry failed requires test mode off (production sends only)'}), 400
+    payload, status = start_retry_failed_long_gap_dispatch_job(current_user)
     return jsonify(payload), status

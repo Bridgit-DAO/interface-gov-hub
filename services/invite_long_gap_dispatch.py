@@ -1888,12 +1888,60 @@ def _patch_send_job(owner: str, patch: dict) -> Optional[dict]:
     return job
 
 
-def _send_job_response(owner: str, job: dict) -> dict:
+def _contact_ready_for_long_gap_send(admin: dict, email: str) -> bool:
+    """True when dispatch row is approved, not skipped, and has a draft body."""
+    owner = normalize_admin_email(admin.get('email') or '')
+    source_email = normalize_admin_email(email)
+    if not source_email:
+        return False
+    store = get_long_gap_dispatch_rows(owner)
+    row = (store.get('rows') or {}).get(source_email)
+    if not isinstance(row, dict):
+        return False
+    if not row.get('approved') or row.get('skip'):
+        return False
+    return bool((row.get('draft_body') or '').strip())
+
+
+def _failed_emails_from_send_job(job: Optional[dict]) -> List[str]:
+    """Unique failed emails from the last bulk send job, in stable order."""
+    if not isinstance(job, dict):
+        return []
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for item in job.get('error_details') or []:
+        if not isinstance(item, dict):
+            continue
+        email = normalize_admin_email(item.get('email') or '')
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        ordered.append(email)
+    return ordered
+
+
+def _collect_retry_failed_targets(admin: dict) -> Tuple[List[str], int]:
+    """Return failed contacts from the last bulk job who still need a production send."""
+    owner = normalize_admin_email(admin.get('email') or '')
+    failed_emails = _failed_emails_from_send_job(_get_send_job(owner))
+    to_retry: List[str] = []
+    already_sent = 0
+    for email in failed_emails:
+        if _long_gap_production_already_sent(admin, email):
+            already_sent += 1
+            continue
+        if not _contact_ready_for_long_gap_send(admin, email):
+            continue
+        to_retry.append(email)
+    return to_retry, already_sent
+
+
+def _send_job_response(owner: str, job: dict, *, admin: Optional[dict] = None) -> dict:
     store = get_long_gap_dispatch_rows(owner)
     error_details = job.get('error_details')
     if not isinstance(error_details, list):
         error_details = []
-    return {
+    response = {
         'success': True,
         'job_id': job.get('job_id') or '',
         'status': job.get('status') or 'unknown',
@@ -1909,7 +1957,13 @@ def _send_job_response(owner: str, job: dict) -> dict:
         'started_at': job.get('started_at') or '',
         'finished_at': job.get('finished_at') or '',
         'updated_at': store.get('updated_at') or '',
+        'job_mode': job.get('job_mode') or 'send_all',
     }
+    if admin is not None:
+        retry_targets, retry_already_sent = _collect_retry_failed_targets(admin)
+        response['retry_available'] = len(retry_targets)
+        response['retry_already_sent'] = retry_already_sent
+    return response
 
 
 def _send_job_runner(
@@ -1985,17 +2039,20 @@ def _send_job_runner(
             })
 
 
-def start_send_all_long_gap_dispatch_job(admin: dict) -> Tuple[dict, int]:
-    """Send all approved long-gap drafts in a background job (production only)."""
-    if not is_dp_site_admin(admin):
-        return {'error': 'DP site admin required'}, 403
-
+def _start_long_gap_dispatch_send_job(
+    admin: dict,
+    emails: List[str],
+    *,
+    already_sent: int,
+    job_mode: str,
+    empty_message: str,
+    start_message: str,
+) -> Tuple[dict, int]:
     owner = normalize_admin_email(admin.get('email') or '')
     existing_job = _get_send_job(owner)
     if existing_job and existing_job.get('status') == 'running':
-        return _send_job_response(owner, existing_job), 200
+        return _send_job_response(owner, existing_job, admin=admin), 200
 
-    emails, already_sent = _collect_send_all_targets(admin)
     if not emails:
         _set_send_job(owner, None)
         return {
@@ -2009,17 +2066,17 @@ def start_send_all_long_gap_dispatch_job(admin: dict) -> Tuple[dict, int]:
             'skipped': 0,
             'errors': 0,
             'error_details': [],
-            'message': (
-                f'No pending contacts to send ({already_sent} already sent).'
-                if already_sent
-                else 'No approved contacts with drafts are ready to send.'
-            ),
+            'job_mode': job_mode,
+            'retry_available': 0,
+            'retry_already_sent': already_sent,
+            'message': empty_message,
         }, 200
 
     job_id = uuid.uuid4().hex
     job = {
         'job_id': job_id,
         'status': 'running',
+        'job_mode': job_mode,
         'total': len(emails),
         'already_sent': already_sent,
         'completed': 0,
@@ -2042,9 +2099,49 @@ def start_send_all_long_gap_dispatch_job(admin: dict) -> Tuple[dict, int]:
     )
     thread.start()
 
-    response = _send_job_response(owner, job)
-    response['message'] = f'Sending to {len(emails)} approved contact(s)'
+    response = _send_job_response(owner, job, admin=admin)
+    response['message'] = start_message
     return response, 202
+
+
+def start_send_all_long_gap_dispatch_job(admin: dict) -> Tuple[dict, int]:
+    """Send all approved long-gap drafts in a background job (production only)."""
+    if not is_dp_site_admin(admin):
+        return {'error': 'DP site admin required'}, 403
+
+    emails, already_sent = _collect_send_all_targets(admin)
+    return _start_long_gap_dispatch_send_job(
+        admin,
+        emails,
+        already_sent=already_sent,
+        job_mode='send_all',
+        empty_message=(
+            f'No pending contacts to send ({already_sent} already sent).'
+            if already_sent
+            else 'No approved contacts with drafts are ready to send.'
+        ),
+        start_message=f'Sending to {len(emails)} approved contact(s)',
+    )
+
+
+def start_retry_failed_long_gap_dispatch_job(admin: dict) -> Tuple[dict, int]:
+    """Retry production sends for contacts that failed in the last bulk job."""
+    if not is_dp_site_admin(admin):
+        return {'error': 'DP site admin required'}, 403
+
+    emails, already_sent = _collect_retry_failed_targets(admin)
+    return _start_long_gap_dispatch_send_job(
+        admin,
+        emails,
+        already_sent=already_sent,
+        job_mode='retry_failed',
+        empty_message=(
+            f'No failed contacts left to retry ({already_sent} already sent).'
+            if already_sent
+            else 'No failed contacts from the last bulk send are ready to retry.'
+        ),
+        start_message=f'Retrying {len(emails)} failed contact(s)',
+    )
 
 
 def get_send_all_long_gap_dispatch_job_status(admin: dict) -> Tuple[dict, int]:
@@ -2055,6 +2152,7 @@ def get_send_all_long_gap_dispatch_job_status(admin: dict) -> Tuple[dict, int]:
     job = _get_send_job(owner)
     if not job:
         saved = get_long_gap_dispatch_rows(owner)
+        retry_targets, retry_already_sent = _collect_retry_failed_targets(admin)
         return {
             'success': True,
             'status': 'idle',
@@ -2066,9 +2164,11 @@ def get_send_all_long_gap_dispatch_job_status(admin: dict) -> Tuple[dict, int]:
             'skipped': 0,
             'errors': 0,
             'error_details': [],
+            'retry_available': len(retry_targets),
+            'retry_already_sent': retry_already_sent,
             'updated_at': saved.get('updated_at') or '',
         }, 200
-    return _send_job_response(owner, job), 200
+    return _send_job_response(owner, job, admin=admin), 200
 
 
 def get_long_gap_dispatch_template(admin: dict) -> Tuple[dict, int]:

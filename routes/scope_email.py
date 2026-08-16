@@ -41,7 +41,7 @@ def api_layer_email_recipients(layer_id):
         return jsonify({'error': 'Layer admin required'}), 403
     layer = Layer.query.get_or_404(layer_id)
     from_config = get_resend_from()
-    from_addr = (from_config or {}).get('formatted') or 'Gov Hub <no-reply@govhub.live>'
+    from_addr = (from_config or {}).get('formatted') or 'Gov Hub <no-reply@hub.themetalayer.org>'
     from models import LayerMember
 
     people = []
@@ -84,7 +84,7 @@ def api_guild_email_recipients(guild_id):
         return jsonify({'error': 'Guild admin required'}), 403
     guild = Guild.query.get_or_404(guild_id)
     from_config = get_resend_from()
-    from_addr = (from_config or {}).get('formatted') or 'Gov Hub <no-reply@govhub.live>'
+    from_addr = (from_config or {}).get('formatted') or 'Gov Hub <no-reply@hub.themetalayer.org>'
     people = []
     from models import GuildMembership
 

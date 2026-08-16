@@ -7,7 +7,7 @@ import time
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
 DEFAULT_RESEND_FROM_NAME = 'Gov Hub'
-DEFAULT_RESEND_FROM_EMAIL = 'no-reply@govhub.live'
+DEFAULT_RESEND_FROM_EMAIL = 'no-reply@hub.themetalayer.org'
 EMAIL_ONLY_RE = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
 NAMED_FROM_RE = re.compile(r'^(.+?)\s*<([^>]+)>$')
 QUOTED_DISPLAY_NAME_RE = re.compile(r'^"(.+)"$')
