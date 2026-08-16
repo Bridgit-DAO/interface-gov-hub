@@ -1,6 +1,7 @@
 """Auth routes: login, logout, Web3Auth, api/user/me, api/user/display-name."""
 import re
 from datetime import datetime
+from uuid import uuid4
 
 from flask import Blueprint, jsonify, request, session, flash, redirect, url_for
 
@@ -210,7 +211,16 @@ def web3auth_login():
                 db.session.add(user)
                 db.session.flush()
                 from services.document_follow_notifications import ensure_notification_unsubscribe_token
+                from services.user_wallets import ensure_user_wallet_addresses
 
+                # Wallet rows need user.id; SQLAlchemy Column defaults are not
+                # applied until INSERT. Flush first, then provision.
+                ensure_user_wallet_addresses(
+                    user,
+                    evm_address=evm_address,
+                    solana_address=solana_address,
+                    bitcoin_address=bitcoin_address,
+                )
                 ensure_notification_unsubscribe_token(user)
                 db.session.commit()
 
@@ -260,6 +270,12 @@ def web3auth_login():
 
         db.session.rollback()
         if isinstance(e, IntegrityError):
+            err_text = str(e).lower()
+            if 'custodial_wallet' in err_text:
+                current_app.logger.error('Web3Auth login wallet provision failed: %s', e)
+                return jsonify({
+                    'error': 'Could not finish creating your account. Please try again.',
+                }), 500
             current_app.logger.warning('Web3Auth login email conflict: %s', e)
             return jsonify({
                 'error': (
@@ -328,8 +344,6 @@ def _create_user_from_web3auth(
     solana_address,
     bitcoin_address=None,
 ):
-    from services.user_wallets import ensure_user_wallet_addresses
-
     existing_handles = [row[0] for row in db.session.query(User.username).all()]
     if type_of_login == 'wallet' and evm_address:
         short_address = f"{evm_address[:6]}...{evm_address[-4:]}"
@@ -350,6 +364,8 @@ def _create_user_from_web3auth(
             counter += 1
 
     user = User(
+        id=str(uuid4()),
+        public_id=str(uuid4()),
         web3authVerifierId=verifier_id,
         typeOfLogin=type_of_login,
         displayName=name if name else None,
@@ -362,12 +378,6 @@ def _create_user_from_web3auth(
         role='user',
         theme='dark',
         last_login=datetime.utcnow(),
-    )
-    ensure_user_wallet_addresses(
-        user,
-        evm_address=evm_address,
-        solana_address=solana_address,
-        bitcoin_address=bitcoin_address,
     )
     return user
 
