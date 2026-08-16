@@ -334,6 +334,8 @@ def list_waitlist_entries(waitlist_id):
 _WAITLIST_EMAIL_CORS_ORIGINS = {
     'https://book.desirableproperties.org',
     'https://desirableproperties.org',
+    'https://moltlayer.io',
+    'https://www.moltlayer.io',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
 }
