@@ -704,8 +704,11 @@ def migrate_civic_mason_seed_daveed(app):
         cursor.execute("SELECT id FROM layer LIMIT 1")
         layer_row = cursor.fetchone()
         if not layer_row:
-            cursor.execute("SELECT id FROM project LIMIT 1")
-            layer_row = cursor.fetchone()
+            try:
+                cursor.execute("SELECT id FROM project LIMIT 1")
+                layer_row = cursor.fetchone()
+            except sqlite3.OperationalError:
+                layer_row = None
         if not layer_row:
             conn.close()
             print("⚠️  migrate_civic_mason_seed_daveed: no layer/project found")

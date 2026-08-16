@@ -1183,7 +1183,7 @@ def api_project_email_recipients(layer_id):
     from services.scope_email import layer_recipient_groups
 
     from_config = get_resend_from()
-    from_addr = (from_config or {}).get('formatted') or 'Gov Hub <no-reply@govhub.live>'
+    from_addr = (from_config or {}).get('formatted') or 'Gov Hub <no-reply@hub.themetalayer.org>'
     admin_emails = []
     if project.initiator and project.initiator.email:
         name = project.initiator.displayName or project.initiator.username or 'Initiator'

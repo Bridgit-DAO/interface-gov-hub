@@ -13,6 +13,9 @@ from services.invite_long_gap_dispatch import (
     _HEURISTIC_CLASSIFY_MARKER,
     _classification_error_result,
     _collect_draft_targets,
+    _collect_retry_failed_targets,
+    _contact_ready_for_long_gap_send,
+    _failed_emails_from_send_job,
     _first_name_for_row,
     _heuristic_classify_contact,
     _parse_classify_response,
@@ -599,3 +602,76 @@ def test_send_long_gap_dispatch_email_test_mode_skips_invite_flow(monkeypatch):
     assert record_args['recipient_name'] == 'Agustin Borrazas'
     assert record_args['source'] == 'long_gap_dispatch|test'
     assert record_args['workgroup_ids'] == []
+
+
+def test_failed_emails_from_send_job_dedupes_and_normalizes():
+    job = {
+        'error_details': [
+            {'email': 'Alice@Example.com', 'error': 'quota'},
+            {'email': 'alice@example.com', 'error': 'quota again'},
+            {'email': 'bob@example.com', 'error': 'quota'},
+        ],
+    }
+    assert _failed_emails_from_send_job(job) == ['alice@example.com', 'bob@example.com']
+    assert _failed_emails_from_send_job(None) == []
+
+
+def test_collect_retry_failed_targets_skips_already_sent(monkeypatch):
+    admin = {'email': 'daveed@bridgit.io'}
+    failed = 'alice@example.com'
+    sent = 'bob@example.com'
+
+    monkeypatch.setattr(
+        'services.invite_long_gap_dispatch._get_send_job',
+        lambda _owner: {
+            'error_details': [
+                {'email': failed, 'error': 'quota'},
+                {'email': sent, 'error': 'quota'},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        'services.invite_long_gap_dispatch._long_gap_production_already_sent',
+        lambda _admin, email: email == sent,
+    )
+    monkeypatch.setattr(
+        'services.invite_long_gap_dispatch._contact_ready_for_long_gap_send',
+        lambda _admin, email: email in {failed, sent},
+    )
+
+    targets, already_sent = _collect_retry_failed_targets(admin)
+    assert targets == [failed]
+    assert already_sent == 1
+
+
+def test_contact_ready_for_long_gap_send_requires_approved_draft(monkeypatch):
+    admin = {'email': 'daveed@bridgit.io'}
+    email = 'alice@example.com'
+
+    monkeypatch.setattr(
+        'services.invite_long_gap_dispatch.get_long_gap_dispatch_rows',
+        lambda _owner: {
+            'rows': {
+                email: {
+                    'approved': True,
+                    'skip': False,
+                    'draft_body': 'Hello',
+                },
+            },
+        },
+    )
+    assert _contact_ready_for_long_gap_send(admin, email) is True
+
+    monkeypatch.setattr(
+        'services.invite_long_gap_dispatch.get_long_gap_dispatch_rows',
+        lambda _owner: {
+            'rows': {
+                email: {
+                    'approved': True,
+                    'skip': True,
+                    'draft_body': 'Hello',
+                },
+            },
+        },
+    )
+    assert _contact_ready_for_long_gap_send(admin, email) is False

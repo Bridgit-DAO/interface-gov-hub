@@ -115,6 +115,14 @@ PROPOSALS = {
         'policy',
         ['desirable-property', 'multimodal', 'ar', 'vr', 'xr', 'experience-design', 'accessibility'],
     ),
+    'ML-Draft-032': (
+        'guide',
+        ['meta-layer', 'book', 'acknowledgements', 'contributors'],
+    ),
+    'ML-Draft-033': (
+        'guide',
+        ['meta-layer', 'book', 'cover', 'the-layered-web', 'desirable-properties'],
+    ),
     'ML-Draft-026': (
         'guide',
         ['meta-layer', 'framework', 'overview', 'book-chapter', 'collective-intelligence'],

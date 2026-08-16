@@ -26,7 +26,7 @@ SYNC_WORKFLOW = os.environ.get('DP_RAIL_SYNC_WORKFLOW', 'govhub-rail-sync.yml').
 
 
 def _dp_rail_sync_ml_numbers() -> frozenset[str]:
-    raw = os.environ.get('DP_RAIL_SYNC_ML_NUMBERS', 'ML-Draft-026').strip()
+    raw = os.environ.get('DP_RAIL_SYNC_ML_NUMBERS', 'ML-Draft-026,ML-Draft-033').strip()
     return frozenset(m.strip() for m in raw.split(',') if m.strip())
 
 
