@@ -3,6 +3,7 @@
   "title": "The Teilhard Test",
   "subtitle": "Humanity's Initiation into Technological Adulthood",
   "heroQuestion": "Can humanity grow into the intelligence it has created?",
+  "heroImageUrl": "/static/campaign/teilhard/assets/hero.jpg",
   "layerSlug": "the-overweb",
   "customDomains": [
     "teilhardtest.com",

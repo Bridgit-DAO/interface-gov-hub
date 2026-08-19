@@ -205,6 +205,136 @@
   margin-bottom: 1rem;
 }
 
+.gh-campaign-hero-has-image {
+  position: relative;
+  min-height: min(58vh, 34rem);
+  display: flex;
+  align-items: flex-end;
+  margin: -2rem -1.25rem 0;
+  padding: 3rem 1.25rem 2.5rem;
+  background-image: var(--gh-campaign-hero-image);
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+
+.gh-campaign-hero-has-image::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(5, 11, 26, 0.96) 0%,
+    rgba(5, 11, 26, 0.72) 42%,
+    rgba(5, 11, 26, 0.28) 100%
+  );
+  pointer-events: none;
+}
+
+.gh-campaign-hero-content {
+  position: relative;
+  z-index: 1;
+  max-width: 42rem;
+}
+
+.gh-campaign-embed-wrap {
+  width: 100%;
+  border: 1px solid var(--gh-campaign-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--gh-campaign-surface);
+}
+
+.gh-campaign-reader-frame,
+.gh-campaign-pdf-frame {
+  display: block;
+  width: 100%;
+  min-height: 80vh;
+  border: 0;
+  background: var(--gh-campaign-surface-raised);
+}
+
+@media (max-width: 767px) {
+  .gh-campaign-reader-frame,
+  .gh-campaign-pdf-frame {
+    min-height: 70vh;
+  }
+
+  .gh-campaign-hero-has-image {
+    min-height: 48vh;
+    padding-bottom: 2rem;
+  }
+}
+
+.gh-embed-draft-reader,
+.gh-embed-pdf-reader {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--gh-campaign-bg);
+  color: var(--gh-campaign-text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.gh-embed-reader-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid var(--gh-campaign-border);
+  background: rgba(10, 18, 36, 0.95);
+  backdrop-filter: blur(8px);
+}
+
+.gh-embed-reader-toolbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+}
+
+.gh-embed-reader-title {
+  font-size: 0.875rem;
+  color: var(--gh-campaign-muted-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gh-embed-reader-main {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.gh-embed-reader-main .draft-reader-body {
+  max-width: none;
+}
+
+.gh-embed-pdf-native,
+.gh-embed-pdf-frame {
+  width: 100%;
+  height: 100vh;
+  border: 0;
+  display: block;
+  background: var(--gh-campaign-bg);
+}
+
+.gh-embed-pdf-fallback {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.gh-embed-pdf-fallback-msg {
+  color: var(--gh-campaign-muted);
+  margin: 0;
+}
+
 .gh-campaign-eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.08em;

@@ -15,6 +15,10 @@ class CampaignHostRewriteMiddleware:
         '/login/',
         '/logout/',
         '/_deploy/',
+        '/embed/',
+        '/doc/',
+        '/view/',
+        '/download/',
     )
 
     def __init__(self, wsgi_app: Callable, host_to_slug: Mapping[str, str]):

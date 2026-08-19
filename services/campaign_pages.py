@@ -22,6 +22,7 @@ class CampaignConfig:
     title: str
     subtitle: str
     hero_question: str
+    hero_image_url: str
     layer_slug: str
     custom_domains: List[str]
     dev_host: str
@@ -58,6 +59,16 @@ class CampaignConfig:
         return None
 
 
+def _resolve_hero_image_url(data: Dict[str, Any], presentation: Optional[Dict[str, Any]] = None) -> str:
+    pres = presentation or {}
+    for source in (data, pres):
+        for key in ('heroImageUrl', 'heroImage', 'hero_image_url'):
+            value = (source.get(key) or '').strip()
+            if value:
+                return value
+    return ''
+
+
 def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
     presentation = dict(data.get('presentation') or {})
     structure = dict(data.get('structure') or {})
@@ -70,6 +81,7 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
         title=data.get('title') or slug,
         subtitle=data.get('subtitle') or '',
         hero_question=data.get('heroQuestion') or '',
+        hero_image_url=_resolve_hero_image_url(data, presentation),
         layer_slug=data.get('layerSlug') or '',
         custom_domains=list(data.get('customDomains') or []),
         dev_host=(data.get('devHost') or '').strip(),
@@ -172,6 +184,7 @@ def _parse_monument_campaign(monument) -> CampaignConfig:
         title=presentation.get('title') or getattr(monument, 'title', None) or slug,
         subtitle=presentation.get('subtitle') or '',
         hero_question=presentation.get('heroQuestion') or '',
+        hero_image_url=_resolve_hero_image_url(presentation),
         layer_slug=presentation.get('layerSlug') or '',
         custom_domains=list(domains or []),
         dev_host=presentation.get('devHost') or '',
@@ -407,7 +420,8 @@ def build_monument_structure_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_monument_presentation_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+    hero_image_url = _resolve_hero_image_url(seed)
+    presentation = {
         'campaignSlug': seed.get('slug'),
         'title': seed.get('title'),
         'subtitle': seed.get('subtitle'),
@@ -419,6 +433,9 @@ def build_monument_presentation_from_seed(seed: Dict[str, Any]) -> Dict[str, Any
         'secondaryCtas': list(seed.get('secondaryCtas') or []),
         'homeSections': ['turing_teilhard', 'four_criteria', 'doc_grid'],
     }
+    if hero_image_url:
+        presentation['heroImageUrl'] = hero_image_url
+    return presentation
 
 
 def find_monument_node(cfg: CampaignConfig, node_slug: str) -> Optional[Dict[str, Any]]:

@@ -261,7 +261,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=5" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=6" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">
@@ -284,6 +284,36 @@ def campaign_shell(
   {handoff_script}
 </body>
 </html>'''
+
+
+def campaign_draft_embed_url(draft_ref: str) -> str:
+    """Same-origin embed URL for the Gov Hub draft reader (iframe-safe)."""
+    return f'/embed/draft/{html_mod.escape(draft_ref)}/read/'
+
+
+def campaign_slides_embed_url(slug: str) -> str:
+    """Same-origin embed URL for inline slide-deck PDF viewing."""
+    return f'/embed/campaign/{html_mod.escape(slug)}/slides/'
+
+
+def _campaign_hero_section(cfg: CampaignConfig, *, primary_href: str, primary: Dict[str, Any], secondary_html: str) -> str:
+    hero_url = (cfg.hero_image_url or (cfg.presentation or {}).get('heroImageUrl') or '').strip()
+    hero_class = 'gh-campaign-hero gh-campaign-hero-has-image' if hero_url else 'gh-campaign-hero'
+    hero_attr = ''
+    if hero_url:
+        hero_attr = f' style="--gh-campaign-hero-image: url(\'{_esc(hero_url)}\');"'
+    return f'''
+    <section class="{hero_class}"{hero_attr}>
+      <div class="gh-campaign-hero-content">
+        <p class="gh-campaign-eyebrow">The Overweb</p>
+        <h1>{_esc(cfg.hero_question or cfg.title)}</h1>
+        <p class="lead">{_esc(cfg.subtitle)}</p>
+        <div class="gh-campaign-hero-ctas">
+          <a class="btn btn-primary btn-lg" href="{_esc(primary_href)}">{_esc(primary.get("label") or "Read")}</a>
+          {secondary_html}
+        </div>
+      </div>
+    </section>'''
 
 
 def render_home(cfg: CampaignConfig) -> str:
@@ -323,15 +353,7 @@ def render_home(cfg: CampaignConfig) -> str:
     secondary_html = '\n'.join(secondary_btns)
 
     main = f'''
-    <section class="gh-campaign-hero">
-      <p class="gh-campaign-eyebrow">The Overweb</p>
-      <h1>{_esc(cfg.hero_question or cfg.title)}</h1>
-      <p class="lead">{_esc(cfg.subtitle)}</p>
-      <div class="gh-campaign-hero-ctas">
-        <a class="btn btn-primary btn-lg" href="{_esc(primary_href)}">{_esc(primary.get("label") or "Read")}</a>
-        {secondary_html}
-      </div>
-    </section>
+    {_campaign_hero_section(cfg, primary_href=primary_href, primary=primary, secondary_html=secondary_html)}
     <section class="gh-campaign-hook">
       <h2>From the Turing Test to the Teilhard Test</h2>
       <blockquote class="gh-campaign-quote">
@@ -443,6 +465,7 @@ def render_monument_node(cfg: CampaignConfig, node: Dict[str, Any]) -> str:
 
 
 def render_doc_paper(cfg: CampaignConfig, doc: Dict[str, Any], draft_ref: str) -> str:
+    embed_url = campaign_draft_embed_url(draft_ref)
     read_url = (
         f'/doc/draft/{html_mod.escape(draft_ref)}/read/?return_to='
         f'{url_quote(campaign_href(cfg.slug, "/docs/paper"), safe="")}'
@@ -454,15 +477,22 @@ def render_doc_paper(cfg: CampaignConfig, doc: Dict[str, Any], draft_ref: str) -
     main = f'''
     <section class="gh-campaign-doc-header">
       <h1>{_esc(doc.get("label"))}</h1>
-      <p class="text-muted">Comment and propose patches in the Gov Hub reader. The on-chain inscription is the same work.</p>
+      <p class="text-muted">Read, comment, and propose patches inline below. Open the full reader for invite and moderation tools.</p>
       <div class="d-flex flex-wrap gap-2 mb-3">
-        <a class="btn btn-primary" href="{read_url}" target="_blank" rel="noopener">Open reader (comment &amp; patch)</a>
+        <a class="btn btn-primary" href="{read_url}">Open full reader</a>
         {ordinal_link}
       </div>
     </section>
-    <iframe class="gh-campaign-reader-frame" title="Paper reader" src="{read_url}"></iframe>
+    <div class="gh-campaign-embed-wrap">
+      <iframe class="gh-campaign-reader-frame" title="Paper reader" src="{embed_url}" loading="lazy"></iframe>
+    </div>
     '''
-    return campaign_shell(cfg, page_title=doc.get('label') or 'Paper', main_html=main, doc_slug='paper', extra_head='<style>.gh-campaign-reader-frame{min-height:80vh;width:100%;border:0;border-radius:8px;}</style>')
+    return campaign_shell(
+        cfg,
+        page_title=doc.get('label') or 'Paper',
+        main_html=main,
+        doc_slug='paper',
+    )
 
 
 def render_doc_statement(cfg: CampaignConfig, doc: Dict[str, Any], body_html: str, endorsements_html: str, form_html: str) -> str:
@@ -488,17 +518,134 @@ def render_doc_statement(cfg: CampaignConfig, doc: Dict[str, Any], body_html: st
 
 
 def render_doc_slides(cfg: CampaignConfig, doc: Dict[str, Any], pdf_url: str) -> str:
+    embed_url = campaign_slides_embed_url(cfg.slug)
     main = f'''
     <section class="gh-campaign-doc-header">
       <h1>{_esc(doc.get("label"))}</h1>
-      <p class="text-muted"><a href="{_esc(pdf_url)}" target="_blank" rel="noopener">Open PDF in new tab</a></p>
+      <p class="text-muted">
+        <a href="{_esc(pdf_url)}" target="_blank" rel="noopener">Open PDF in new tab</a>
+        · <a href="{_esc(embed_url)}" target="_blank" rel="noopener">Full-screen viewer</a>
+      </p>
     </section>
-    <iframe class="gh-campaign-pdf-frame" title="Slide deck" src="{_esc(pdf_url)}"></iframe>
+    <div class="gh-campaign-embed-wrap">
+      <iframe class="gh-campaign-pdf-frame" title="Slide deck" src="{_esc(embed_url)}" loading="lazy"></iframe>
+    </div>
     '''
     return campaign_shell(
         cfg,
         page_title=doc.get('label') or 'Slides',
         main_html=main,
         doc_slug='slides',
-        extra_head='<style>.gh-campaign-pdf-frame{min-height:85vh;width:100%;border:0;border-radius:8px;}</style>',
     )
+
+
+def render_embed_draft_reader(draft_ref: str) -> tuple[str, int]:
+    """Minimal draft reader page for campaign iframe embeds."""
+    from config import BUILD_NUMBER
+    from services.draft_reader import build_draft_context, draft_display_id, load_draft_document_body
+    from services.dp_proposal_reader import render_dp_proposal_reader_assets, render_reader_onboarding_assets
+
+    draft, submission = build_draft_context(draft_ref, prefer_latest_revision=True)
+    if not draft:
+        return '<!DOCTYPE html><html><body><p>Document not found</p></body></html>', 404
+
+    body_ref = str(draft.get('name') or draft_ref)
+    document_content, render_html, _pages, _words = load_draft_document_body(
+        draft,
+        submission,
+        body_ref,
+        pdf_iframe_height='calc(100vh - 3rem)',
+    )
+    if render_html:
+        body_block = (
+            f'<div class="draft-reader-body prose" id="dp-reader-selectable-body">'
+            f'{document_content}</div>'
+        )
+    else:
+        body_block = (
+            f'<pre class="draft-reader-body draft-reader-pre" id="dp-reader-selectable-body">'
+            f'{_esc(document_content)}</pre>'
+        )
+
+    dp_assets = render_dp_proposal_reader_assets(
+        submission,
+        draft_ref,
+        render_html=render_html,
+        document_content=document_content if isinstance(document_content, str) else '',
+    )
+    onboarding = ''
+    if submission and (submission.status or '').lower() == 'approved':
+        onboarding = render_reader_onboarding_assets()
+
+    display_id = _esc(draft_display_id(draft))
+    title = _esc(draft.get('title') or '')
+    doc_href = html_mod.escape(str(draft.get('name') or draft_ref), quote=True)
+    read_url = f'/doc/draft/{doc_href}/read/'
+
+    html = f'''<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{display_id} – Reader</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="/static/css/govhub-design.css?v={BUILD_NUMBER}" rel="stylesheet">
+  <link href="/static/css/dp-proposals-reader.css?v={BUILD_NUMBER}" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=6" rel="stylesheet">
+</head>
+<body class="gh-embed-draft-reader">
+  <header class="gh-embed-reader-toolbar">
+    <div class="gh-embed-reader-toolbar-inner">
+      <span class="gh-embed-reader-title"><strong>{display_id}</strong> · {title}</span>
+      <a class="btn btn-sm btn-outline-light" href="{read_url}" target="_top" rel="noopener">Open full reader</a>
+    </div>
+  </header>
+  <main class="gh-embed-reader-main">{body_block}</main>
+  {onboarding}
+  {dp_assets}
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>'''
+    return html, 200
+
+
+def render_embed_slides_pdf(pdf_url: str, *, title: str = 'Slide deck') -> str:
+    """Minimal PDF viewer for campaign iframe embeds (native + PDF.js fallback)."""
+    pdf_esc = _esc(pdf_url)
+    title_esc = _esc(title)
+    return f'''<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title_esc}</title>
+  <link href="/static/css/campaign-pages.css?v=6" rel="stylesheet">
+</head>
+<body class="gh-embed-pdf-reader">
+  <div class="gh-embed-pdf-native">
+    <iframe class="gh-embed-pdf-frame" title="{title_esc}" src="{pdf_esc}#view=FitH&toolbar=1"></iframe>
+  </div>
+  <div class="gh-embed-pdf-fallback" hidden>
+    <p class="gh-embed-pdf-fallback-msg">Your browser cannot display this PDF inline.</p>
+    <a class="btn btn-primary btn-sm" href="{pdf_esc}" target="_blank" rel="noopener">Open PDF</a>
+  </div>
+  <script>
+  (function () {{
+    var frame = document.querySelector('.gh-embed-pdf-frame');
+    if (!frame) return;
+    var isMobile = window.matchMedia('(max-width: 767px)').matches;
+    var ua = navigator.userAgent || '';
+    var ios = /iPad|iPhone|iPod/.test(ua);
+    if (isMobile || ios) {{
+      var fallback = document.querySelector('.gh-embed-pdf-fallback');
+      var nativeWrap = document.querySelector('.gh-embed-pdf-native');
+      if (fallback && nativeWrap) {{
+        nativeWrap.hidden = true;
+        fallback.hidden = false;
+      }}
+    }}
+  }})();
+  </script>
+</body>
+</html>'''

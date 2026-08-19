@@ -28,6 +28,7 @@ python scripts/import_teilhard_monument.py
 |-------|---------|
 | `slug` | URL prefix `/campaign/<slug>/` and host map key |
 | `title`, `subtitle`, `heroQuestion` | Hero and header branding |
+| `heroImageUrl` or `presentation.heroImage` | Optional cinematic home hero background (path under `/static/campaign/<slug>/assets/` or absolute URL) |
 | `layerSlug` | Owning Gov Hub layer (e.g. `the-overweb`) |
 | `customDomains` | Production vanity hosts (nginx → :8001) |
 | `devHost` | Dev vanity host |
@@ -88,6 +89,28 @@ Uploads are cover-cropped to 640×360 (16:9). Success/error uses `GhDialog` on t
 ```
 
 Slides omit `thumbnailUrl` so the PDF auto-extract supplies the card image. Static thumbs in `static/campaign/<slug>/assets/` still override auto-extract when set.
+
+### Inline embeds (paper + slides)
+
+Campaign doc pages embed Gov Hub readers on the same origin (no off-site links for primary content).
+
+| Page | Campaign URL | Iframe embed URL |
+|------|--------------|------------------|
+| Primary paper (`type: paper`, `draftRef`) | `/docs/paper/` | `/embed/draft/<draftRef>/read/` |
+| Slide deck (`deckPath` PDF) | `/docs/slides/` | `/embed/campaign/<slug>/slides/` |
+| PDF file (direct) | `/docs/slides/file/` | served inline (`application/pdf`) |
+
+Vanity hosts (`teilhardtest.com`) pass through `/embed/`, `/doc/`, `/view/`, and `/download/` without campaign path rewrite so iframes load correctly.
+
+**Teilhard (prod):**
+
+```text
+/docs/paper/     → iframe /embed/draft/8a37qe9r/read/
+/docs/slides/    → iframe /embed/campaign/teilhard/slides/
+Home hero        → /static/campaign/teilhard/assets/hero.jpg + heroQuestion headline
+```
+
+Pattern matches the Gov Hub waitlist embed widget (`/embed/waitlist/<id>/`). A future **Docs embed builder** (CLI/API parity) is estate roadmap; see `meta-console/OPEN_ITEMS.md`.
 
 Re-import after seed changes:
 
