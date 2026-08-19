@@ -4158,3 +4158,37 @@ def migrate_dp_proposal_patch_mode_v1(app):
         print('✅ dp_proposal.patch_mode column ready')
     except Exception as e:
         print(f'⚠️  Error in migrate_dp_proposal_patch_mode_v1: {e}')
+
+
+def migrate_monument_campaign_v1(app):
+    """Add campaign page columns to monument (Teilhard / book monuments)."""
+    try:
+        import sqlite3
+
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(monument)')
+        cols = {row[1] for row in cursor.fetchall()}
+        added = []
+        for col, col_type in (
+            ('campaign_slug', 'VARCHAR(80)'),
+            ('custom_domains_json', 'TEXT'),
+            ('presentation_json', 'TEXT'),
+            ('structure_json', 'TEXT'),
+        ):
+            if col not in cols:
+                cursor.execute(f'ALTER TABLE monument ADD COLUMN {col} {col_type}')
+                added.append(col)
+        if 'campaign_slug' in added or 'campaign_slug' in cols:
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_monument_campaign_slug ON monument(campaign_slug)'
+            )
+        conn.commit()
+        conn.close()
+        if added:
+            print(f'✅ monument campaign columns added: {", ".join(added)}')
+        else:
+            print('✅ monument campaign columns ready')
+    except Exception as e:
+        print(f'⚠️  Error in migrate_monument_campaign_v1: {e}')
