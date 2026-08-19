@@ -278,7 +278,7 @@ def campaign_shell(
   </header>
   <main class="gh-campaign-main">{main_html}</main>
   <footer class="gh-campaign-footer">
-    <p class="mb-0 small">Hosted on <a href="https://dev.govhub.live/">Gov Hub</a> · The Overweb</p>
+    <p class="mb-0 small">Hosted on <a href="{"https://dev.govhub.live/" if IS_DEVELOPMENT else "https://hub.themetalayer.org/"}">Gov Hub</a> · The Overweb</p>
   </footer>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   {handoff_script}
