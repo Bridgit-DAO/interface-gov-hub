@@ -31,3 +31,14 @@ def test_dp_illustration_rewrites_to_govhub_static():
     html = markdown_to_safe_preview_html(raw) or ''
     assert '/static/images/dps/full/DP18.webp' in html
     assert 'ordinals.com/content/local' not in html
+
+
+def test_book_cover_rewrites_to_govhub_static():
+    raw = (
+        '# The Layered Web\n\n'
+        '![The Layered Web book cover](/assets/cover.png)\n\n'
+        'Body text.\n'
+    )
+    html = markdown_to_safe_preview_html(raw) or ''
+    assert '/static/images/book/cover.png' in html
+    assert '/assets/cover.png' not in html
