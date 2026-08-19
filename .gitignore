@@ -81,6 +81,7 @@ datatracker.sublime-workspace
 !/static/css/
 /static/css/*
 !/static/css/govhub-design.css
+!/static/css/campaign-pages.css
 !/static/css/dp-challenge.css
 !/static/css/dp-proposals-reader.css
 !/static/css/gh-nav-pills.css
@@ -94,6 +95,8 @@ datatracker.sublime-workspace
 !/static/images/dp/
 !/static/images/dp/dp-patch-dark.png
 !/static/images/dp/dp-patch-light.png
+!/static/campaign/
+!/static/campaign/**
 /tmp-*
 /.testresult
 *.swp

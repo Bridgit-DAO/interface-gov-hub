@@ -1545,6 +1545,10 @@ class Monument(db.Model):
     uri = db.Column(db.String(500), nullable=True)
     provenance = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), default='active', nullable=False, index=True)
+    campaign_slug = db.Column(db.String(80), nullable=True, index=True)
+    custom_domains_json = db.Column(db.Text, nullable=True)
+    presentation_json = db.Column(db.Text, nullable=True)
+    structure_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, nullable=True, onupdate=datetime.utcnow)
 

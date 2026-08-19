@@ -1,0 +1,91 @@
+{
+  "slug": "teilhard",
+  "title": "The Teilhard Test",
+  "subtitle": "Humanity's Initiation into Technological Adulthood",
+  "heroQuestion": "Can humanity grow into the intelligence it has created?",
+  "layerSlug": "the-overweb",
+  "customDomains": [
+    "teilhardtest.com",
+    "www.teilhardtest.com"
+  ],
+  "devHost": "teilhard.dev.govhub.live",
+  "documents": [
+    {
+      "slug": "paper",
+      "label": "Primary Paper",
+      "type": "paper",
+      "stage": "active-review",
+      "draftRef": "8a37qe9r",
+      "isPrimary": true,
+      "isDefault": true,
+      "allowComments": true,
+      "allowSuggestEdits": true,
+      "allowEndorsement": false,
+      "displayOrder": 1,
+      "ordinalInscriptionUrl": "https://ordinals.com/inscription/89bb4ac7717fc06a068452fcd0a1e7abc90f8e92981f9bf757fd71bf3435a91bi0",
+      "thumbnailUrl": "/static/campaign/teilhard/assets/paper-thumb.jpg"
+    },
+    {
+      "slug": "statement",
+      "label": "Statement",
+      "type": "statement",
+      "stage": "statement",
+      "contentPath": "static/campaign/teilhard/statement.md",
+      "allowComments": true,
+      "allowSuggestEdits": false,
+      "allowEndorsement": true,
+      "displayOrder": 2,
+      "icon": "quote"
+    },
+    {
+      "slug": "slides",
+      "label": "Slide Deck",
+      "type": "slide_deck",
+      "stage": "reference",
+      "deckPath": "static/campaign/teilhard/incoming/The_Teilhard_Test_Synthesis.pdf",
+      "allowComments": false,
+      "allowSuggestEdits": false,
+      "allowEndorsement": false,
+      "displayOrder": 3
+    }
+  ],
+  "externalLinks": [
+    {
+      "slug": "substack",
+      "label": "Read on Substack",
+      "url": "https://gometa.substack.com/p/the-teilhard-test",
+      "description": "Essay on inscribing the work and the framework",
+      "displayOrder": 10,
+      "thumbnailUrl": "/static/campaign/teilhard/assets/substack-thumb.jpg"
+    },
+    {
+      "slug": "conference-talk",
+      "label": "Conference Talk",
+      "url": "https://www.youtube.com/watch?v=R4uMinZ7eys",
+      "description": "Noosphere and Humanity Conference \u2013 Is humanity ready for AI?",
+      "displayOrder": 11
+    }
+  ],
+  "primaryCta": {
+    "label": "Read and Comment on the Paper",
+    "href": "/docs/paper"
+  },
+  "secondaryCtas": [
+    {
+      "label": "Read the Statement",
+      "href": "/docs/statement"
+    },
+    {
+      "label": "View the Slide Deck",
+      "href": "/docs/slides"
+    },
+    {
+      "label": "Watch Conference Talk",
+      "href": "https://www.youtube.com/watch?v=R4uMinZ7eys"
+    },
+    {
+      "label": "Read on Substack",
+      "href": "https://gometa.substack.com/p/the-teilhard-test"
+    }
+  ]
+}

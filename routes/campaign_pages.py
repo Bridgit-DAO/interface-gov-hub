@@ -2,19 +2,28 @@
 from __future__ import annotations
 
 import html as html_mod
+import json
 
-from flask import Blueprint, abort, flash, g, redirect, request, send_file
+from flask import Blueprint, abort, flash, g, get_flashed_messages, redirect, request, send_file
 
 from extensions import db
 from models.campaign_endorsement import CampaignEndorsement
 from services.auth_redirect import login_url
+from services.campaign_auth import campaign_login_url
 from services.campaign_pages import (
     campaign_for_host,
     campaign_href,
     find_monument_node,
     get_campaign,
     read_statement_html,
+    reload_campaign_cache,
     resolve_project_path,
+)
+from services.campaign_thumbnails import (
+    persist_document_thumbnail,
+    resolve_campaign_card_thumbnail,
+    save_uploaded_campaign_thumbnail,
+    thumb_public_url,
 )
 from services.campaign_render import (
     render_monument_index,
@@ -28,6 +37,21 @@ from services.csrf import csrf_form_field
 from services.identity import get_current_user, require_auth
 
 bp = Blueprint('campaign_pages', __name__)
+
+
+def _can_manage_campaign_thumbnails(user, cfg) -> bool:
+    if not user:
+        return False
+    if (user.get('role') or 'user') in ('admin', 'editor'):
+        return True
+    layer_slug = (cfg.layer_slug or '').strip()
+    if not layer_slug:
+        return False
+    from models import Layer
+    from services.coordination import is_layer_admin
+
+    layer = Layer.query.filter_by(slug=layer_slug).first()
+    return bool(layer and is_layer_admin(layer, user))
 
 
 def _cfg_or_404(slug: str):
@@ -117,8 +141,12 @@ def _endorsement_form_html(campaign_slug: str, doc: dict) -> str:
         return ''
     user = get_current_user()
     if not user:
+        cfg = get_campaign(campaign_slug)
+        sign_href = campaign_login_url(cfg, '/docs/statement') if cfg else login_url(
+            campaign_href(campaign_slug, '/docs/statement')
+        )
         return (
-            f'<p><a class="btn btn-primary" href="{html_mod.escape(login_url(campaign_href(campaign_slug, "/docs/statement")))}">'
+            f'<p><a class="btn btn-primary" href="{html_mod.escape(sign_href)}">'
             f'Sign in to endorse</a></p>'
         )
     options = [
@@ -164,7 +192,7 @@ def _statement_endorse_post(cfg, doc):
     user = get_current_user()
     if not user:
         flash('Please sign in to endorse.', 'error')
-        return redirect(login_url(campaign_href(cfg.slug, '/docs/statement')))
+        return redirect(campaign_login_url(cfg, '/docs/statement'))
     if request.form.get('action') != 'endorse':
         abort(400)
     etype = (request.form.get('endorsement_type') or '').strip()
@@ -267,3 +295,91 @@ def campaign_endorsement_moderate(slug, endorsement_id):
     db.session.commit()
     flash('Endorsement updated.', 'success')
     return redirect(campaign_href(slug, '/admin/endorsements/'))
+
+
+@bp.route('/campaign/<slug>/admin/thumbnails/', methods=['GET'])
+@require_auth
+def campaign_thumbnails_admin(slug):
+    """Upload custom card thumbnails for campaign documents (site or layer admin)."""
+    user = get_current_user()
+    cfg = _cfg_or_404(slug)
+    if not _can_manage_campaign_thumbnails(user, cfg):
+        abort(403)
+
+    rows = []
+    items = list(cfg.documents or []) + list(cfg.external_links or [])
+    items.sort(key=lambda row: row.get('displayOrder') or 0)
+    for item in items:
+        doc_slug = item.get('slug') or ''
+        if not doc_slug:
+            continue
+        thumb = resolve_campaign_card_thumbnail(cfg, item, external=bool(item.get('url')))
+        thumb_html = (
+            f'<img src="{html_mod.escape(thumb)}" alt="" '
+            f'style="max-width:160px;border-radius:6px;aspect-ratio:16/9;object-fit:cover;">'
+            if thumb
+            else '<span class="text-muted small">Icon fallback</span>'
+        )
+        rows.append(f'''
+        <tr>
+          <td>{html_mod.escape(item.get("label") or doc_slug)}</td>
+          <td><code>{html_mod.escape(doc_slug)}</code></td>
+          <td>{thumb_html}</td>
+          <td>
+            <form method="POST" enctype="multipart/form-data"
+                  action="{html_mod.escape(campaign_href(slug, f"/admin/thumbnails/{doc_slug}/"))}">
+              {csrf_form_field()}
+              <input type="file" name="thumbnail" accept="image/png,image/jpeg,image/webp,image/gif" required>
+              <button type="submit" class="btn btn-sm btn-primary mt-1">Upload</button>
+            </form>
+          </td>
+        </tr>''')
+
+    table = ''.join(rows) or '<tr><td colspan="4" class="text-muted">No documents configured.</td></tr>'
+    flash_script = ''
+    for category, message in get_flashed_messages(with_categories=True):
+        variant = 'success' if category == 'success' else 'danger'
+        flash_script += f'''
+    <script src="/static/js/gh-dialog.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {{
+      if (window.GhDialog) {{
+        GhDialog.alert({{
+          title: {json.dumps("Upload" if variant == "success" else "Upload failed")},
+          message: {json.dumps(message)},
+          variant: {json.dumps(variant)},
+        }});
+      }}
+    }});
+    </script>'''
+
+    html = f'''<!DOCTYPE html><html><head><title>Campaign thumbnails</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head>
+    <body class="p-4">
+    <h1>Card thumbnails – {html_mod.escape(cfg.title)}</h1>
+    <p class="text-muted">Upload replaces the cached JPG under <code>/static/campaign/{html_mod.escape(slug)}/assets/</code>
+    and updates the monument node <code>thumbnailUrl</code>. PDF auto-extract runs when no explicit thumb is set.</p>
+    <table class="table align-middle"><thead><tr><th>Label</th><th>Slug</th><th>Current</th><th>Upload</th></tr></thead>
+    <tbody>{table}</tbody></table>
+    <p><a href="{html_mod.escape(campaign_href(slug, "/"))}">Back to campaign home</a></p>
+    {flash_script}
+    </body></html>'''
+    return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
+@bp.route('/campaign/<slug>/admin/thumbnails/<doc_slug>/', methods=['POST'])
+@require_auth
+def campaign_thumbnail_upload(slug, doc_slug):
+    user = get_current_user()
+    cfg = _cfg_or_404(slug)
+    if not _can_manage_campaign_thumbnails(user, cfg):
+        abort(403)
+    file = request.files.get('thumbnail')
+    public_url, err = save_uploaded_campaign_thumbnail(slug, doc_slug, file)
+    if err:
+        flash(err, 'error')
+        return redirect(campaign_href(slug, '/admin/thumbnails/'))
+    persist_document_thumbnail(cfg, doc_slug, public_url or thumb_public_url(slug, doc_slug))
+    reload_campaign_cache()
+    flash(f'Thumbnail saved for {doc_slug}.', 'success')
+    return redirect(campaign_href(slug, '/admin/thumbnails/'))

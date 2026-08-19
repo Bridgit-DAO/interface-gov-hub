@@ -16,8 +16,10 @@ from models import Layer, Monument, User
 from services.campaign_pages import (
     build_monument_presentation_from_seed,
     build_monument_structure_from_seed,
+    get_campaign,
     reload_campaign_cache,
 )
+from services.campaign_thumbnails import warm_campaign_pdf_thumbnails
 
 
 SEED_PATH = os.path.join(
@@ -79,11 +81,15 @@ def main() -> None:
 
         db.session.commit()
         reload_campaign_cache()
+        cfg = get_campaign(campaign_slug)
+        warmed = warm_campaign_pdf_thumbnails(cfg) if cfg else 0
 
         print(f'Imported monument: {monument.title}')
         print(f'  id: {monument.id}')
         print(f'  campaign_slug: {monument.campaign_slug}')
         print(f'  nodes: {len(structure.get("nodes") or [])}')
+        if warmed:
+            print(f'  pdf thumbnails generated: {warmed}')
 
 
 if __name__ == '__main__':

@@ -1221,9 +1221,22 @@ BASE_TEMPLATE = """
             return web3authInitPromise;
         }}
 
+        const ghCampaignReturnHosts = {campaign_handoff_allowed_hosts};
+
+        function isCampaignReturnUrl(url) {{
+            if (!url || !url.startsWith('https://')) return false;
+            try {{
+                const host = new URL(url).hostname.toLowerCase();
+                return ghCampaignReturnHosts.indexOf(host) >= 0;
+            }} catch (_e) {{
+                return false;
+            }}
+        }}
+
         function isSafeReturnPath(url) {{
             if (!url) return false;
             if (url.startsWith('/') && !url.startsWith('//')) return true;
+            if (isCampaignReturnUrl(url)) return true;
             try {{
                 const u = new URL(url, window.location.origin);
                 return u.origin === window.location.origin;
@@ -1234,6 +1247,7 @@ BASE_TEMPLATE = """
 
         function normalizeReturnPath(url) {{
             if (!url) return '/';
+            if (isCampaignReturnUrl(url)) return url;
             if (url.startsWith(window.location.origin + '/')) {{
                 return url.slice(window.location.origin.length) || '/';
             }}
@@ -1423,6 +1437,25 @@ BASE_TEMPLATE = """
             let dest = consumePostLoginReturnPath();
             if (window.GhInvite && window.GhInvite.finishLoginWithInviteAccept) {{
                 dest = await window.GhInvite.finishLoginWithInviteAccept(dest);
+            }}
+            if (dest && dest.startsWith('https://') && isCampaignReturnUrl(dest)) {{
+                try {{
+                    const handoffResp = await fetch('/api/auth/campaign-handoff', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        credentials: 'include',
+                        body: JSON.stringify({{ next: dest }}),
+                    }});
+                    if (handoffResp.ok) {{
+                        const handoffData = await handoffResp.json();
+                        if (handoffData.url) {{
+                            window.location.replace(handoffData.url);
+                            return true;
+                        }}
+                    }}
+                }} catch (_handoffErr) {{
+                    console.error('Campaign session handoff failed', _handoffErr);
+                }}
             }}
             window.location.replace(dest);
             return true;

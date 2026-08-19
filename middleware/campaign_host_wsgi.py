@@ -7,7 +7,15 @@ from typing import Callable, Dict, Mapping
 class CampaignHostRewriteMiddleware:
     """Map teilhardtest.com/ → /campaign/teilhard/ at the WSGI layer."""
 
-    _SKIP_PREFIXES = ('/static/', '/api/', '/auth/', '/login/', '/_deploy/')
+    _SKIP_PREFIXES = (
+        '/static/',
+        '/uploads/',
+        '/api/',
+        '/auth/',
+        '/login/',
+        '/logout/',
+        '/_deploy/',
+    )
 
     def __init__(self, wsgi_app: Callable, host_to_slug: Mapping[str, str]):
         self.wsgi_app = wsgi_app

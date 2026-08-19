@@ -78,6 +78,7 @@ def get_avatar_url(user, size: int = 200, default: Optional[str] = None) -> str:
 
     if isinstance(user, dict):
         user_id = user.get('id')
+        profile_from_dict = user.get('profileImage')
         if user_id:
             try:
                 from models import User
@@ -87,9 +88,13 @@ def get_avatar_url(user, size: int = 200, default: Optional[str] = None) -> str:
                     user = row
             except Exception:
                 pass
+        elif profile_from_dict:
+            return avatar_url(profile_from_dict, size) or default
 
     # 1. Web3Auth / uploaded profile image
     profile_image = getattr(user, 'profileImage', None)
+    if not profile_image and isinstance(user, dict):
+        profile_image = user.get('profileImage')
     if profile_image:
         return avatar_url(profile_image, size) or default
 

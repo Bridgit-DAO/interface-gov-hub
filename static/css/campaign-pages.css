@@ -1,0 +1,385 @@
+/* Gov Hub public campaign pages – dark theme (aligned with govhub-design tokens) */
+:root {
+  --gh-campaign-bg: #050b1a;
+  --gh-campaign-surface: #0a1224;
+  --gh-campaign-surface-raised: #101a30;
+  --gh-campaign-text: #eef2ff;
+  --gh-campaign-muted: #94a3c4;
+  --gh-campaign-muted-strong: #b8c4dc;
+  --gh-campaign-accent: #4d9fff;
+  --gh-campaign-accent-hover: #6eb3ff;
+  --gh-campaign-border: rgba(77, 159, 255, 0.14);
+  --gh-campaign-selection-bg: rgba(77, 159, 255, 0.38);
+  --gh-campaign-selection-color: #ffffff;
+}
+
+.gh-campaign-body {
+  background: var(--gh-campaign-bg);
+  color: var(--gh-campaign-text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  /* Bootstrap 5.3 defaults assume a light page; override for dark campaign shell */
+  --bs-body-bg: var(--gh-campaign-bg);
+  --bs-body-color: var(--gh-campaign-text);
+  --bs-secondary-color: var(--gh-campaign-muted);
+  --bs-tertiary-color: var(--gh-campaign-muted-strong);
+  --bs-link-color: var(--gh-campaign-accent);
+  --bs-link-hover-color: var(--gh-campaign-accent-hover);
+}
+
+.gh-campaign-body .text-muted {
+  color: var(--gh-campaign-muted) !important;
+}
+
+.gh-campaign-body .lead {
+  color: var(--gh-campaign-muted-strong);
+}
+
+.gh-campaign-body ::selection {
+  background: var(--gh-campaign-selection-bg);
+  color: var(--gh-campaign-selection-color);
+}
+
+.gh-campaign-body ::-moz-selection {
+  background: var(--gh-campaign-selection-bg);
+  color: var(--gh-campaign-selection-color);
+}
+
+.gh-campaign-header {
+  border-bottom: 1px solid var(--gh-campaign-border);
+  background: var(--gh-campaign-surface);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.gh-campaign-header-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.gh-campaign-brand {
+  text-decoration: none;
+  color: inherit;
+  flex: 1 1 200px;
+}
+
+.gh-campaign-brand-title {
+  display: block;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.gh-campaign-brand-sub {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--gh-campaign-muted);
+}
+
+.gh-campaign-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.gh-campaign-nav-link {
+  color: var(--gh-campaign-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.gh-campaign-nav-link:hover,
+.gh-campaign-nav-link.active {
+  color: var(--gh-campaign-accent);
+}
+
+.gh-campaign-user-menu {
+  margin-left: auto;
+}
+
+.gh-campaign-user-toggle {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  line-height: 1;
+}
+
+.gh-campaign-user-toggle::after {
+  display: none;
+}
+
+.gh-campaign-user-toggle:hover,
+.gh-campaign-user-toggle:focus,
+.gh-campaign-user-toggle.show {
+  background: transparent;
+  box-shadow: none;
+}
+
+.gh-campaign-user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--gh-campaign-border);
+  display: block;
+}
+
+.gh-campaign-user-dropdown {
+  background: var(--gh-campaign-surface-raised);
+  border: 1px solid var(--gh-campaign-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  min-width: 11rem;
+  padding: 0.35rem 0;
+}
+
+.gh-campaign-user-dropdown .dropdown-item {
+  color: var(--gh-campaign-text);
+  font-size: 0.875rem;
+  padding: 0.45rem 0.85rem;
+}
+
+.gh-campaign-user-dropdown .dropdown-item:hover,
+.gh-campaign-user-dropdown .dropdown-item:focus {
+  background: rgba(77, 159, 255, 0.12);
+  color: var(--gh-campaign-accent);
+}
+
+.gh-campaign-user-dropdown .dropdown-divider {
+  border-color: var(--gh-campaign-border);
+  margin: 0.25rem 0;
+}
+
+.gh-campaign-dev-banner {
+  background: rgba(77, 159, 255, 0.12);
+  border-bottom: 1px solid var(--gh-campaign-border);
+  color: var(--gh-campaign-muted-strong);
+  font-size: 0.8rem;
+  padding: 0.45rem 1.25rem;
+  text-align: center;
+}
+
+.gh-campaign-dev-banner a {
+  color: var(--gh-campaign-accent);
+}
+
+.gh-campaign-main {
+  flex: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+  width: 100%;
+}
+
+.gh-campaign-footer {
+  border-top: 1px solid var(--gh-campaign-border);
+  padding: 1rem 1.25rem;
+  text-align: center;
+  background: var(--gh-campaign-surface);
+  color: var(--gh-campaign-muted);
+}
+
+.gh-campaign-footer a {
+  color: var(--gh-campaign-muted-strong);
+  text-decoration: none;
+}
+
+.gh-campaign-footer a:hover {
+  color: var(--gh-campaign-accent);
+  text-decoration: underline;
+}
+
+.gh-campaign-hero h1 {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 500;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+
+.gh-campaign-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  color: var(--gh-campaign-accent);
+}
+
+.gh-campaign-hero-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.gh-campaign-hook,
+.gh-campaign-criteria,
+.gh-campaign-docs {
+  margin-top: 3rem;
+}
+
+.gh-campaign-monument-preview {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--gh-campaign-border);
+}
+
+.gh-campaign-quote {
+  border-left: 3px solid var(--gh-campaign-accent);
+  padding-left: 1.25rem;
+  margin: 1.5rem 0;
+  font-style: italic;
+}
+
+.gh-criterion {
+  background: var(--gh-campaign-surface);
+  border: 1px solid var(--gh-campaign-border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  height: 100%;
+}
+
+.gh-criterion h3 {
+  font-size: 1rem;
+  color: var(--gh-campaign-accent);
+}
+
+.gh-campaign-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.gh-campaign-card {
+  display: block;
+  background: var(--gh-campaign-surface);
+  border: 1px solid var(--gh-campaign-border);
+  border-radius: 8px;
+  padding: 1rem;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s;
+  overflow: hidden;
+}
+
+.gh-campaign-card:hover {
+  border-color: var(--gh-campaign-accent);
+  color: inherit;
+}
+
+.gh-campaign-card-label {
+  font-weight: 600;
+}
+
+.gh-campaign-card-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+}
+
+.gh-campaign-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gh-campaign-surface-raised);
+  border: 1px solid var(--gh-campaign-border);
+  object-fit: unset;
+}
+
+.gh-campaign-card-icon svg {
+  width: 2.75rem;
+  height: 2.75rem;
+  color: var(--gh-campaign-accent);
+  opacity: 0.9;
+}
+
+.gh-campaign-prose {
+  line-height: 1.65;
+  max-width: 42rem;
+}
+
+.gh-campaign-prose h2 {
+  margin-top: 2rem;
+  font-size: 1.35rem;
+}
+
+.gh-campaign-prose ul {
+  padding-left: 1.25rem;
+}
+
+.gh-monument-tree {
+  list-style: none;
+  padding-left: 0;
+  margin: 1rem 0 0;
+}
+
+.gh-monument-tree .gh-monument-tree {
+  padding-left: 1.25rem;
+  margin-top: 0.5rem;
+}
+
+.gh-monument-tree li {
+  margin: 0.4rem 0;
+  padding: 0.35rem 0;
+}
+
+.gh-monument-tree a {
+  color: var(--gh-campaign-text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.gh-monument-tree a:hover {
+  color: var(--gh-campaign-accent);
+}
+
+.gh-monument-tree .text-muted.small {
+  color: var(--gh-campaign-muted) !important;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.gh-monument-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid var(--gh-campaign-border);
+  color: var(--gh-campaign-muted-strong);
+  background: var(--gh-campaign-surface-raised);
+}
+
+.gh-monument-status-active {
+  border-color: rgba(77, 159, 255, 0.55);
+  color: #cfe6ff;
+  background: rgba(77, 159, 255, 0.12);
+}
+
+.gh-monument-status-stub {
+  border-color: rgba(148, 163, 196, 0.45);
+  color: var(--gh-campaign-muted-strong);
+  background: rgba(148, 163, 196, 0.1);
+}
+
+.gh-endorse-form {
+  background: var(--gh-campaign-surface);
+  border-color: var(--gh-campaign-border) !important;
+  max-width: 32rem;
+}
+
+.gh-campaign-doc-header {
+  margin-bottom: 1.5rem;
+}

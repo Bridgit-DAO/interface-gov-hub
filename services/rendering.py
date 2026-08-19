@@ -451,6 +451,8 @@ def _format_base_template(**kwargs):
     kwargs.setdefault('web3auth_client_id', web3auth['client_id'])
     kwargs.setdefault('web3auth_network', web3auth['network'])
     kwargs.setdefault('web3auth_google_verifier', web3auth['google_verifier'])
+    from services.campaign_auth import campaign_handoff_allowed_hosts_json
+    kwargs.setdefault('campaign_handoff_allowed_hosts', campaign_handoff_allowed_hosts_json())
     try:
         from config import CANOPI_API_URL
         kwargs.setdefault('canopi_api_url', CANOPI_API_URL)
@@ -526,6 +528,7 @@ def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_i
         csrf_token = ''
     from services.web3auth_config import get_web3auth_settings
     web3auth = get_web3auth_settings()
+    from services.campaign_auth import campaign_handoff_allowed_hosts_json
     try:
         from config import CANOPI_API_URL
         canopi_api_url = CANOPI_API_URL
@@ -570,6 +573,7 @@ def render_layer_standalone_page(title, content, layer_name, layer_slug, layer_i
         web3auth_client_id=web3auth['client_id'],
         web3auth_network=web3auth['network'],
         web3auth_google_verifier=web3auth['google_verifier'],
+        campaign_handoff_allowed_hosts=campaign_handoff_allowed_hosts_json(),
     )
 
 
