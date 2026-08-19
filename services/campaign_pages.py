@@ -59,6 +59,12 @@ class CampaignConfig:
 
 
 def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
+    presentation = dict(data.get('presentation') or {})
+    structure = dict(data.get('structure') or {})
+    if not structure.get('nodes'):
+        structure = build_monument_structure_from_seed(data)
+    if not presentation:
+        presentation = build_monument_presentation_from_seed(data)
     return CampaignConfig(
         slug=slug,
         title=data.get('title') or slug,
@@ -72,8 +78,8 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
         primary_cta=dict(data.get('primaryCta') or {}),
         secondary_ctas=list(data.get('secondaryCtas') or []),
         raw=data,
-        presentation=dict(data.get('presentation') or {}),
-        structure=dict(data.get('structure') or {}),
+        presentation=presentation,
+        structure=structure,
     )
 
 

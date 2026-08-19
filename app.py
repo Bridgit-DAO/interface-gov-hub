@@ -63,6 +63,9 @@ def create_app(database_uri=None, *, testing=False):
     except ImportError:
         pass
 
+    from middleware.campaign_host_wsgi import wrap_campaign_host_rewrite
+    app.wsgi_app = wrap_campaign_host_rewrite(app.wsgi_app, app)
+
     # Database
     app.config['SQLALCHEMY_DATABASE_URI'] = database_uri or f'sqlite:///{DB_PATH}'
     app.config['TESTING'] = bool(testing)
@@ -222,6 +225,7 @@ def create_app(database_uri=None, *, testing=False):
     from routes.layer_connections_pages import bp as layer_connections_pages_bp
     from routes.support_api import bp as support_api_bp
     from routes.support_pages import bp as support_pages_bp
+    from routes.campaign_pages import bp as campaign_pages_bp
     from routes.referral_links import bp as referral_links_bp
     from routes.layer_programs import bp as layer_programs_bp
     try:
@@ -302,6 +306,7 @@ def create_app(database_uri=None, *, testing=False):
     app.register_blueprint(layer_connections_pages_bp)
     app.register_blueprint(support_api_bp)
     app.register_blueprint(support_pages_bp)
+    app.register_blueprint(campaign_pages_bp)
 
     # CLI
     from cli import register_cli
