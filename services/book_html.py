@@ -3,25 +3,16 @@ from __future__ import annotations
 
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 
-_OVERRIDES_REL = 'images/book/inscription-overrides.json'
-_CONTENT_INSCRIPTION_RE = re.compile(
-    r'''(src|href)=(["'])(/content/([a-f0-9]{64}i\d+))\2''',
-    re.IGNORECASE,
-)
+_OVERRIDES_REL = Path('static') / 'images' / 'book' / 'inscription-overrides.json'
 
 
-def looks_like_html_document(text: str) -> bool:
-    """True when file body is a full HTML document (Metaweb book chapters)."""
-    s = (text or '').lstrip()[:16000].lower()
-    return s.startswith('<!doctype html') or s.startswith('<html')
-
-
-def _load_inscription_overrides(static_folder: Path | None) -> dict[str, str]:
-    if not static_folder:
-        return {}
-    path = static_folder / _OVERRIDES_REL
+@lru_cache(maxsize=1)
+def _load_inscription_overrides() -> dict[str, str]:
+    """Map inscription id -> Gov Hub static URL for local-ahead table/figure assets."""
+    path = Path(__file__).resolve().parents[1] / _OVERRIDES_REL
     if not path.is_file():
         return {}
     try:
@@ -33,30 +24,36 @@ def _load_inscription_overrides(static_folder: Path | None) -> dict[str, str]:
     return {str(k).lower(): str(v) for k, v in data.items()}
 
 
-def _static_folder() -> Path | None:
-    try:
-        from flask import current_app
-
-        folder = current_app.static_folder
-        return Path(folder) if folder else None
-    except RuntimeError:
-        return None
+def looks_like_html_document(text: str) -> bool:
+    """True when file body is a full HTML document (Metaweb book chapters)."""
+    s = (text or '').lstrip()[:16000].lower()
+    return s.startswith('<!doctype html') or s.startswith('<html')
 
 
-def rewrite_ordinals_content_urls(html: str, overrides: dict[str, str] | None = None) -> str:
-    """Resolve /content/<inscription> for Gov Hub (Hub static overrides, else ordinals.com)."""
-    overrides = overrides or _load_inscription_overrides(_static_folder())
+def rewrite_ordinals_content_urls(
+    html: str,
+    *,
+    overrides: dict[str, str] | None = None,
+) -> str:
+    """Resolve /content/<inscription> paths for Gov Hub draft reader."""
+
+    override_index = overrides if overrides is not None else _load_inscription_overrides()
 
     def repl(match: re.Match[str]) -> str:
         attr = match.group(1)
         quote = match.group(2)
         path = match.group(3)
-        iid = (match.group(4) or '').lower()
-        if iid and iid in overrides:
-            return f'{attr}={quote}{overrides[iid]}{quote}'
+        iid = path.rsplit('/', 1)[-1].lower()
+        hub_url = override_index.get(iid)
+        if hub_url:
+            return f'{attr}={quote}{hub_url}{quote}'
         return f'{attr}={quote}https://ordinals.com{path}{quote}'
 
-    return _CONTENT_INSCRIPTION_RE.sub(repl, html)
+    pattern = re.compile(
+        r'''(src|href)=(["'])(/content/[a-f0-9]{64}i\d+)\2''',
+        re.IGNORECASE,
+    )
+    return pattern.sub(repl, html)
 
 
 def _scope_book_css(css: str) -> str:
