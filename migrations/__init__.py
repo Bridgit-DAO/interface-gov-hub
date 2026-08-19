@@ -757,10 +757,11 @@ def migrate_civic_mason_seed_daveed(app):
             print("✅ daveed@bridgit.io already has Civic Mason badge")
         else:
             badge_id = str(uuid4())
+            badge_public_id = str(uuid4())
             cursor.execute(f"""
-                INSERT INTO badge (id, {badge_layer_col}, claim_id, role_id, claimant_id, requested_by_id, status, approved_by_id, approved_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'issued', ?, ?)
-            """, (badge_id, layer_id, claim_id, role_id, user_id, user_id, user_id, datetime.utcnow().isoformat()))
+                INSERT INTO badge (id, public_id, {badge_layer_col}, claim_id, role_id, claimant_id, requested_by_id, status, approved_by_id, approved_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?)
+            """, (badge_id, badge_public_id, layer_id, claim_id, role_id, user_id, user_id, user_id, datetime.utcnow().isoformat()))
             conn.commit()
             print("✅ Issued Civic Mason badge to daveed@bridgit.io")
 
