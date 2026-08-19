@@ -336,6 +336,8 @@ _WAITLIST_EMAIL_CORS_ORIGINS = {
     'https://desirableproperties.org',
     'https://moltlayer.io',
     'https://www.moltlayer.io',
+    'https://webfour.foundation',
+    'https://www.webfour.foundation',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
 }
