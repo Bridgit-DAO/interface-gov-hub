@@ -81,6 +81,7 @@ datatracker.sublime-workspace
 !/static/css/
 /static/css/*
 !/static/css/govhub-design.css
+!/static/css/campaign-pages.css
 !/static/css/dp-challenge.css
 !/static/css/dp-proposals-reader.css
 !/static/css/gh-nav-pills.css

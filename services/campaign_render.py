@@ -48,7 +48,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=1" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=2" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">
@@ -64,7 +64,7 @@ def campaign_shell(
   </header>
   <main class="gh-campaign-main">{main_html}</main>
   <footer class="gh-campaign-footer">
-    <p class="mb-0 small text-muted">Hosted on <a href="https://dev.govhub.live/" class="text-muted">Gov Hub</a> · The Overweb</p>
+    <p class="mb-0 small">Hosted on <a href="https://dev.govhub.live/">Gov Hub</a> · The Overweb</p>
   </footer>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
