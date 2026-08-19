@@ -190,10 +190,11 @@
   background: var(--gh-campaign-surface);
   border: 1px solid var(--gh-campaign-border);
   border-radius: 8px;
-  padding: 1.25rem;
+  padding: 1rem;
   text-decoration: none;
   color: inherit;
   transition: border-color 0.15s;
+  overflow: hidden;
 }
 
 .gh-campaign-card:hover {
@@ -203,6 +204,31 @@
 
 .gh-campaign-card-label {
   font-weight: 600;
+}
+
+.gh-campaign-card-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+}
+
+.gh-campaign-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gh-campaign-surface-raised);
+  border: 1px solid var(--gh-campaign-border);
+  object-fit: unset;
+}
+
+.gh-campaign-card-icon svg {
+  width: 2.75rem;
+  height: 2.75rem;
+  color: var(--gh-campaign-accent);
+  opacity: 0.9;
 }
 
 .gh-campaign-prose {

@@ -32,8 +32,36 @@ python scripts/import_teilhard_monument.py
 | `customDomains` | Production vanity hosts (nginx → :8001) |
 | `devHost` | Dev vanity host |
 | `documents[]` | Paper (draft ref), statement (markdown path), slides (PDF path) |
-| `externalLinks[]` | Outbound cards (Substack, etc.) |
+| `externalLinks[]` | Outbound cards (Substack, YouTube, etc.) |
 | `primaryCta`, `secondaryCtas` | Home page buttons |
+
+Each item in `documents[]` and `externalLinks[]` may include optional card visuals for the **Read, watch, discuss** grid:
+
+| Field | Purpose |
+|-------|---------|
+| `thumbnailUrl` | Image URL for the card (16:9). Path under `/static/campaign/<slug>/assets/` or absolute URL. |
+| `thumbnail` | Alias for `thumbnailUrl` (either field works). |
+| `icon` | Fallback when no thumbnail: `document`, `quote`, `slides`, or `link`. If omitted, inferred from `type`. |
+
+**Resolution order:** `thumbnailUrl` / `thumbnail` first; for external links with a YouTube URL, auto-fetches `img.youtube.com` poster; otherwise the type-based icon renders in the same 16:9 frame.
+
+**Teilhard examples** (in seed):
+
+```json
+{ "slug": "paper", "type": "paper", "thumbnailUrl": "/static/campaign/teilhard/assets/paper-thumb.jpg" }
+{ "slug": "statement", "type": "statement", "icon": "quote" }
+{ "slug": "slides", "type": "slide_deck", "thumbnailUrl": "/static/campaign/teilhard/assets/slides-thumb.jpg" }
+{ "slug": "substack", "url": "https://...", "thumbnailUrl": "/static/campaign/teilhard/assets/substack-thumb.jpg" }
+```
+
+Static thumbnails live in `static/campaign/<slug>/assets/`. Re-import after seed changes:
+
+```bash
+python scripts/import_teilhard_monument.py
+systemctl --user restart datatracker-dev
+```
+
+**Deferred (future builder UI):** PDF first-page auto-extract, draft hero passthrough, artifact upload picker for thumbnails.
 
 Content changes: edit the seed (or Monument `presentation_json` / `structure_json` in admin) and restart or call `reload_campaign_cache()`.
 
@@ -49,7 +77,7 @@ Campaign pages use a **shared dark theme** in `static/css/campaign-pages.css`, a
 
 3. **Home sections** – `presentation_json.homeSections` (from seed import) selects which blocks appear on the home page: `turing_teilhard`, `four_criteria`, `doc_grid`.
 
-4. **Assets** – hero images and PDFs under `static/campaign/<slug>/` (see `static/campaign/teilhard/incoming/README.md`).
+4. **Assets** – hero images, PDFs, and card thumbnails under `static/campaign/<slug>/` (see `static/campaign/teilhard/incoming/README.md` and `assets/` for grid thumbs).
 
 ### Planned / manual extensions
 

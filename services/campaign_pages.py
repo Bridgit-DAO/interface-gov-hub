@@ -122,6 +122,9 @@ def _node_binding_to_doc(node: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         doc['isDefault'] = True
     if node.get('ordinalInscriptionUrl'):
         doc['ordinalInscriptionUrl'] = node.get('ordinalInscriptionUrl')
+    for key in ('thumbnailUrl', 'thumbnail', 'icon'):
+        if node.get(key):
+            doc[key] = node[key]
     return doc
 
 
@@ -137,6 +140,12 @@ def _external_links_from_nodes(nodes: List[Dict[str, Any]]) -> List[Dict[str, An
             'url': binding.get('url'),
             'description': node.get('description') or '',
             'displayOrder': node.get('displayOrder') or node.get('order') or 0,
+            'type': node.get('type') or 'external',
+            **{
+                key: node[key]
+                for key in ('thumbnailUrl', 'thumbnail', 'icon')
+                if node.get(key)
+            },
         })
     return links
 
@@ -290,6 +299,7 @@ def build_monument_structure_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
     statement = documents.get('statement') or {}
     slides = documents.get('slides') or {}
     substack = external.get('substack') or {}
+    conference_talk = external.get('conference-talk') or {}
 
     nodes = [
         node('front-matter', 'Front Matter', kind='chapter', status='stub', order=0),
@@ -315,6 +325,8 @@ def build_monument_structure_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
             isPrimary=paper.get('isPrimary'),
             isDefault=paper.get('isDefault'),
             ordinalInscriptionUrl=paper.get('ordinalInscriptionUrl'),
+            thumbnailUrl=paper.get('thumbnailUrl'),
+            icon=paper.get('icon'),
         ),
         node(
             'statement',
@@ -331,6 +343,8 @@ def build_monument_structure_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
             },
             type=statement.get('type') or 'statement',
             stage=statement.get('stage'),
+            thumbnailUrl=statement.get('thumbnailUrl'),
+            icon=statement.get('icon'),
         ),
         node(
             'slides',
@@ -347,6 +361,8 @@ def build_monument_structure_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
             },
             type=slides.get('type') or 'slide_deck',
             stage=slides.get('stage'),
+            thumbnailUrl=slides.get('thumbnailUrl'),
+            icon=slides.get('icon'),
         ),
         node(
             'substack',
@@ -357,6 +373,20 @@ def build_monument_structure_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
             binding={'type': 'external', 'url': substack.get('url')},
             description=substack.get('description'),
             type='external',
+            thumbnailUrl=substack.get('thumbnailUrl'),
+            icon=substack.get('icon'),
+        ),
+        node(
+            'conference-talk',
+            conference_talk.get('label') or 'Conference Talk',
+            parent_id='chapter-1-teilhard-test',
+            status='active',
+            order=15,
+            binding={'type': 'external', 'url': conference_talk.get('url')},
+            description=conference_talk.get('description'),
+            type='external',
+            thumbnailUrl=conference_talk.get('thumbnailUrl'),
+            icon=conference_talk.get('icon'),
         ),
         node('chapter-2-core-concepts', 'Chapter 2: Core Concepts', kind='chapter', status='stub', order=20),
         node('chapter-3-perspectives', 'Chapter 3: Perspectives', kind='chapter', status='stub', order=30),

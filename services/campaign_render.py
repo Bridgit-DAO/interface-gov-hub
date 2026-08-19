@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import html as html_mod
+import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote as url_quote
+from urllib.parse import parse_qs, quote as url_quote, urlparse
 
 from flask import g
 
@@ -12,6 +13,104 @@ from services.campaign_pages import CampaignConfig, campaign_href
 
 def _esc(value: Any) -> str:
     return html_mod.escape(str(value or ''))
+
+
+_YOUTUBE_ID_RE = re.compile(
+    r'(?:youtube\.com/(?:watch\?v=|embed/|v/)|youtu\.be/)([A-Za-z0-9_-]{11})'
+)
+
+
+def _youtube_video_id(url: str) -> Optional[str]:
+    if not url:
+        return None
+    match = _YOUTUBE_ID_RE.search(url)
+    if match:
+        return match.group(1)
+    parsed = urlparse(url)
+    if 'youtube.com' in parsed.netloc and parsed.path == '/watch':
+        vid = (parse_qs(parsed.query).get('v') or [None])[0]
+        if vid and len(vid) == 11:
+            return vid
+    return None
+
+
+_DOC_TYPE_ICONS = {
+    'paper': 'document',
+    'statement': 'quote',
+    'slide_deck': 'slides',
+    'slides': 'slides',
+}
+
+_ICON_SVGS = {
+    'document': (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
+        '<polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>'
+        '<line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>'
+    ),
+    'quote': (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M3 21c3 0 7-1 7-8V5H3v8c0 3-1 5-3 5z"/>'
+        '<path d="M14 21c3 0 7-1 7-8V5h-7v8c0 3-1 5-3 5z"/></svg>'
+    ),
+    'slides': (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>'
+        '<line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>'
+    ),
+    'link': (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>'
+        '<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
+    ),
+}
+
+
+def _resolve_card_thumbnail(item: Dict[str, Any]) -> Optional[str]:
+    explicit = (item.get('thumbnailUrl') or item.get('thumbnail') or '').strip()
+    if explicit:
+        return explicit
+    url = (item.get('url') or '').strip()
+    vid = _youtube_video_id(url)
+    if vid:
+        return f'https://img.youtube.com/vi/{vid}/hqdefault.jpg'
+    return None
+
+
+def _resolve_card_icon(item: Dict[str, Any], *, external: bool = False) -> str:
+    icon = (item.get('icon') or '').strip().lower()
+    if icon and icon in _ICON_SVGS:
+        return icon
+    doc_type = (item.get('type') or '').strip().lower()
+    if doc_type in _DOC_TYPE_ICONS:
+        return _DOC_TYPE_ICONS[doc_type]
+    return 'link' if external else 'document'
+
+
+def _campaign_card_thumb(thumbnail_url: Optional[str]) -> str:
+    if not thumbnail_url:
+        return ''
+    return (
+        f'<img class="gh-campaign-card-thumb" src="{_esc(thumbnail_url)}" alt="" loading="lazy">'
+    )
+
+
+def _campaign_card_icon(icon_key: str) -> str:
+    svg = _ICON_SVGS.get(icon_key) or _ICON_SVGS['document']
+    return (
+        f'<div class="gh-campaign-card-thumb gh-campaign-card-icon" aria-hidden="true">{svg}</div>'
+    )
+
+
+def _campaign_card_visual(item: Dict[str, Any], *, external: bool = False) -> str:
+    thumb = _resolve_card_thumbnail(item)
+    if thumb:
+        return _campaign_card_thumb(thumb)
+    return _campaign_card_icon(_resolve_card_icon(item, external=external))
 
 
 def _nav_link(cfg: CampaignConfig, label: str, path: str, active: bool = False) -> str:
@@ -48,7 +147,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=2" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=3" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">
@@ -76,14 +175,18 @@ def render_home(cfg: CampaignConfig) -> str:
     for doc in sorted(cfg.documents, key=lambda d: d.get('displayOrder', 0)):
         slug = doc.get('slug') or ''
         href = campaign_href(cfg.slug, f'/docs/{slug}')
+        visual_html = _campaign_card_visual(doc)
         doc_cards.append(f'''
         <a class="gh-campaign-card" href="{_esc(href)}">
+          {visual_html}
           <div class="gh-campaign-card-label">{_esc(doc.get("label"))}</div>
           <div class="gh-campaign-card-type text-muted small">{_esc(doc.get("type"))}</div>
         </a>''')
     for link in sorted(cfg.external_links, key=lambda x: x.get('displayOrder', 0)):
+        visual_html = _campaign_card_visual(link, external=True)
         doc_cards.append(f'''
         <a class="gh-campaign-card gh-campaign-card-external" href="{_esc(link.get("url"))}" target="_blank" rel="noopener">
+          {visual_html}
           <div class="gh-campaign-card-label">{_esc(link.get("label"))}</div>
           <div class="gh-campaign-card-type text-muted small">External</div>
         </a>''')
