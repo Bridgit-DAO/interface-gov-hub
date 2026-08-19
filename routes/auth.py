@@ -69,16 +69,27 @@ def login():
     from services.rendering import _format_base_template, generate_user_menu
     from services.identity import get_current_user
     from services.auth_redirect import safe_return_path
+    from services.campaign_auth import (
+        build_campaign_handoff_redirect,
+        redirect_vanity_login_to_hub,
+        safe_campaign_return_url,
+    )
     from config import BUILD_NUMBER
 
-    return_to = safe_return_path(
-        request.args.get('next') or request.args.get('redirect')
-    )
-    if get_current_user():
+    return_to_raw = request.args.get('next') or request.args.get('redirect')
+    hub_redirect = redirect_vanity_login_to_hub(return_to_raw)
+    if hub_redirect is not None:
+        return hub_redirect
+
+    return_to = safe_campaign_return_url(return_to_raw) or safe_return_path(return_to_raw)
+    current = get_current_user()
+    if current:
+        if return_to and return_to.startswith('https://'):
+            return redirect(build_campaign_handoff_redirect(return_to, current['username']))
         return redirect(return_to or url_for('pages.home'))
 
     user_menu = generate_user_menu()
-    current_theme = session.get('theme', get_current_user().get('theme', 'dark') if get_current_user() else 'dark')
+    current_theme = session.get('theme', current.get('theme', 'dark') if current else 'dark')
     return _format_base_template(
         title="Sign In - GovHub",
         theme=current_theme,
@@ -443,6 +454,54 @@ def update_display_name():
         'displayName': user.displayName,
         'displayNameSetAt': user.displayNameSetAt.isoformat()
     }})
+
+
+@bp.route('/auth/campaign-handoff/', methods=['GET'])
+def campaign_handoff_complete():
+    """Establish a session on a campaign vanity host after hub Web3Auth login."""
+    from services.campaign_auth import (
+        campaign_for_vanity_host,
+        hub_login_url,
+        verify_campaign_handoff_token,
+        vanity_absolute_url,
+    )
+    from services.auth_redirect import safe_return_path
+
+    token = (request.args.get('token') or '').strip()
+    next_path = safe_return_path(request.args.get('next')) or '/'
+    username = verify_campaign_handoff_token(token)
+    if not username:
+        flash('Sign-in link expired. Please sign in again.', 'error')
+        cfg = campaign_for_vanity_host()
+        if cfg:
+            return redirect(hub_login_url(vanity_absolute_url(cfg, next_path)))
+        return redirect(login_url(next_path))
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        flash('Account not found.', 'error')
+        return redirect(login_url(next_path))
+    session['user'] = user.username
+    return redirect(next_path)
+
+
+@bp.route('/api/auth/campaign-handoff', methods=['POST'])
+def campaign_handoff_init():
+    """Return a one-time vanity-host URL to copy the hub session after Web3Auth."""
+    from services.campaign_auth import build_campaign_handoff_redirect, safe_campaign_return_url
+    from services.identity import get_current_user
+
+    current = get_current_user()
+    if not current:
+        return jsonify({'error': 'Not authenticated'}), 401
+    data = request.get_json(silent=True) or {}
+    next_url = safe_campaign_return_url(data.get('next'))
+    if not next_url:
+        return jsonify({'error': 'Invalid return URL'}), 400
+    try:
+        url = build_campaign_handoff_redirect(next_url, current['username'])
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return jsonify({'url': url})
 
 
 @bp.route('/api/auth/logout', methods=['POST'])

@@ -139,6 +139,35 @@ Bootstrap’s default `text-muted` is gray for **light** pages and is illegible 
 
 After CSS or Python changes: `systemctl --user restart datatracker-dev`.
 
+## Sign-in on custom domains (Web3Auth)
+
+Web3Auth whitelists fixed origins in the [dashboard](https://dashboard.web3auth.io/) only. There is **no API** to add vanity campaign domains dynamically, and wildcards are not supported.
+
+Campaign vanity hosts (e.g. `teilhardtest.com`) therefore **never run Web3Auth locally**. Sign-in links redirect to the canonical Gov Hub origin:
+
+| Environment | Hub login origin |
+|-------------|------------------|
+| Production | `https://hub.themetalayer.org/login/` |
+| Development | `https://dev.hub.themetalayer.org/login/` |
+
+**Pattern for builders:**
+
+```text
+https://hub.themetalayer.org/login/?next=https://<vanity-domain><path>
+```
+
+Example (Teilhard statement on production vanity):
+
+```text
+https://hub.themetalayer.org/login/?next=https://teilhardtest.com/docs/statement/
+```
+
+After Web3Auth on the hub, Gov Hub hands the session back to the vanity host via `/auth/campaign-handoff/` (one-time token, ~2 minutes).
+
+Implementation: `services/campaign_auth.py`, `campaign_render.py` (`Sign in` button), `routes/auth.py`. Thumbnail admin (`/campaign/<slug>/admin/thumbnails/`) uses the same redirect when accessed from a vanity host.
+
+Do **not** ask operators to whitelist every campaign domain in Web3Auth. Add new vanity hosts in `customDomains` / nginx only.
+
 ## Checklist for new campaigns
 
 1. Create `static/campaign/<slug>/campaign-seed.json` and assets.

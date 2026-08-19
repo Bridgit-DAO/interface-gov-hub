@@ -34,6 +34,7 @@ CSRF_EXEMPT_PREFIXES = ('/_deploy/', '/auth/', '/static/')
 # Exact paths and suffixes exempt from CSRF (webhooks, public sign-in, embed waitlist join).
 CSRF_EXEMPT_EXACT = frozenset({
     '/api/auth/web3auth',
+    '/api/auth/campaign-handoff',
     '/api/inscribe/stripe-webhook',
 })
 CSRF_EXEMPT_SUFFIXES = ('/join-email', '/join-email/')

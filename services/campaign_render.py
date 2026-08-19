@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, quote as url_quote, urlparse
 
 from flask import g
 
+from services.campaign_auth import campaign_login_url
 from services.campaign_pages import CampaignConfig, campaign_href
 from services.campaign_thumbnails import resolve_campaign_card_thumbnail
 
@@ -132,7 +133,10 @@ def campaign_shell(
             _nav_link(cfg, doc.get('label') or slug, f'/docs/{slug}', active=doc_slug == slug)
         )
     nav_html = '\n'.join(nav_parts)
-    sign_in = '/login/?next=' + html_mod.escape(campaign_href(cfg.slug, '/docs/statement'), quote=True)
+    sign_in = html_mod.escape(
+        campaign_login_url(cfg, '/docs/statement'),
+        quote=True,
+    )
 
     return f'''<!DOCTYPE html>
 <html lang="en" data-theme="dark">

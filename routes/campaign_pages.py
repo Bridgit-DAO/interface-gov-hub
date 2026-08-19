@@ -9,6 +9,7 @@ from flask import Blueprint, abort, flash, g, get_flashed_messages, redirect, re
 from extensions import db
 from models.campaign_endorsement import CampaignEndorsement
 from services.auth_redirect import login_url
+from services.campaign_auth import campaign_login_url
 from services.campaign_pages import (
     campaign_for_host,
     campaign_href,
@@ -140,8 +141,12 @@ def _endorsement_form_html(campaign_slug: str, doc: dict) -> str:
         return ''
     user = get_current_user()
     if not user:
+        cfg = get_campaign(campaign_slug)
+        sign_href = campaign_login_url(cfg, '/docs/statement') if cfg else login_url(
+            campaign_href(campaign_slug, '/docs/statement')
+        )
         return (
-            f'<p><a class="btn btn-primary" href="{html_mod.escape(login_url(campaign_href(campaign_slug, "/docs/statement")))}">'
+            f'<p><a class="btn btn-primary" href="{html_mod.escape(sign_href)}">'
             f'Sign in to endorse</a></p>'
         )
     options = [
@@ -187,7 +192,7 @@ def _statement_endorse_post(cfg, doc):
     user = get_current_user()
     if not user:
         flash('Please sign in to endorse.', 'error')
-        return redirect(login_url(campaign_href(cfg.slug, '/docs/statement')))
+        return redirect(campaign_login_url(cfg, '/docs/statement'))
     if request.form.get('action') != 'endorse':
         abort(400)
     etype = (request.form.get('endorsement_type') or '').strip()
