@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, quote as url_quote, urlparse
 from flask import g
 
 from services.campaign_pages import CampaignConfig, campaign_href
+from services.campaign_thumbnails import resolve_campaign_card_thumbnail
 
 
 def _esc(value: Any) -> str:
@@ -70,17 +71,6 @@ _ICON_SVGS = {
 }
 
 
-def _resolve_card_thumbnail(item: Dict[str, Any]) -> Optional[str]:
-    explicit = (item.get('thumbnailUrl') or item.get('thumbnail') or '').strip()
-    if explicit:
-        return explicit
-    url = (item.get('url') or '').strip()
-    vid = _youtube_video_id(url)
-    if vid:
-        return f'https://img.youtube.com/vi/{vid}/hqdefault.jpg'
-    return None
-
-
 def _resolve_card_icon(item: Dict[str, Any], *, external: bool = False) -> str:
     icon = (item.get('icon') or '').strip().lower()
     if icon and icon in _ICON_SVGS:
@@ -106,8 +96,13 @@ def _campaign_card_icon(icon_key: str) -> str:
     )
 
 
-def _campaign_card_visual(item: Dict[str, Any], *, external: bool = False) -> str:
-    thumb = _resolve_card_thumbnail(item)
+def _campaign_card_visual(
+    item: Dict[str, Any],
+    *,
+    external: bool = False,
+    cfg: Optional[CampaignConfig] = None,
+) -> str:
+    thumb = resolve_campaign_card_thumbnail(cfg, item, external=external)
     if thumb:
         return _campaign_card_thumb(thumb)
     return _campaign_card_icon(_resolve_card_icon(item, external=external))
@@ -175,7 +170,7 @@ def render_home(cfg: CampaignConfig) -> str:
     for doc in sorted(cfg.documents, key=lambda d: d.get('displayOrder', 0)):
         slug = doc.get('slug') or ''
         href = campaign_href(cfg.slug, f'/docs/{slug}')
-        visual_html = _campaign_card_visual(doc)
+        visual_html = _campaign_card_visual(doc, cfg=cfg)
         doc_cards.append(f'''
         <a class="gh-campaign-card" href="{_esc(href)}">
           {visual_html}
@@ -183,7 +178,7 @@ def render_home(cfg: CampaignConfig) -> str:
           <div class="gh-campaign-card-type text-muted small">{_esc(doc.get("type"))}</div>
         </a>''')
     for link in sorted(cfg.external_links, key=lambda x: x.get('displayOrder', 0)):
-        visual_html = _campaign_card_visual(link, external=True)
+        visual_html = _campaign_card_visual(link, external=True, cfg=cfg)
         doc_cards.append(f'''
         <a class="gh-campaign-card gh-campaign-card-external" href="{_esc(link.get("url"))}" target="_blank" rel="noopener">
           {visual_html}

@@ -46,8 +46,7 @@
       "allowComments": false,
       "allowSuggestEdits": false,
       "allowEndorsement": false,
-      "displayOrder": 3,
-      "thumbnailUrl": "/static/campaign/teilhard/assets/slides-thumb.jpg"
+      "displayOrder": 3
     }
   ],
   "externalLinks": [

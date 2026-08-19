@@ -43,25 +43,58 @@ Each item in `documents[]` and `externalLinks[]` may include optional card visua
 | `thumbnail` | Alias for `thumbnailUrl` (either field works). |
 | `icon` | Fallback when no thumbnail: `document`, `quote`, `slides`, or `link`. If omitted, inferred from `type`. |
 
-**Resolution order:** `thumbnailUrl` / `thumbnail` first; for external links with a YouTube URL, auto-fetches `img.youtube.com` poster; otherwise the type-based icon renders in the same 16:9 frame.
+**Resolution order:** `thumbnailUrl` / `thumbnail` first; for paper/draft with `draftRef`, draft hero/cover (`Artifact.knowledge_scaffold.heroImageUrl` or `coverImageUrl`, or book `/assets/cover.png` in body); for `slide_deck` / paper PDFs, lazy first-page extract to `static/campaign/<slug>/assets/<doc-slug>-thumb.jpg`; for external links with a YouTube URL, auto-fetches `img.youtube.com` poster; otherwise the type-based icon renders in the same 16:9 frame.
+
+### PDF auto-extract
+
+When no explicit `thumbnailUrl` is set and the document binds a PDF (`deckPath` or draft file), Gov Hub renders page 1 with PyMuPDF and caches a 16:9 JPEG:
+
+```text
+static/campaign/<slug>/assets/<doc-slug>-thumb.jpg
+```
+
+Extract runs on first card render (lazy) or during `python scripts/import_teilhard_monument.py` (`warm_campaign_pdf_thumbnails`). Existing files are reused (idempotent). Requires `pymupdf` in requirements.
+
+### Draft hero passthrough
+
+For `type: paper` (or `draft`) with `draftRef`, before PDF extract:
+
+| Source | Field / pattern |
+|--------|-----------------|
+| Artifact scaffold | `heroImageUrl`, `coverImageUrl` (snake_case aliases OK) on linked `Artifact.knowledge_scaffold` |
+| Book HTML/markdown body | `![alt](/assets/cover.png)` → `/static/images/book/cover.png` |
+| Ordinal inscription | First `<img>` or `og:image` when content is HTML/text |
+
+Draft `8a37qe9r` (Teilhard paper) is ordinal text today with **no hero yet** – set `coverImageUrl` on the linked artifact scaffold when cover art ships.
+
+### Builder upload UI
+
+Site admins/editors and **layer admins** for the campaign's `layerSlug` can upload custom card thumbs:
+
+| URL | Purpose |
+|-----|---------|
+| `/campaign/<slug>/admin/thumbnails/` | List documents + upload form |
+| POST `/campaign/<slug>/admin/thumbnails/<doc-slug>/` | Save JPG under assets + update seed / Monument `thumbnailUrl` |
+
+Uploads are cover-cropped to 640×360 (16:9). Success/error uses `GhDialog` on the admin page.
 
 **Teilhard examples** (in seed):
 
 ```json
 { "slug": "paper", "type": "paper", "thumbnailUrl": "/static/campaign/teilhard/assets/paper-thumb.jpg" }
 { "slug": "statement", "type": "statement", "icon": "quote" }
-{ "slug": "slides", "type": "slide_deck", "thumbnailUrl": "/static/campaign/teilhard/assets/slides-thumb.jpg" }
+{ "slug": "slides", "type": "slide_deck", "deckPath": "static/campaign/teilhard/incoming/The_Teilhard_Test_Synthesis.pdf" }
 { "slug": "substack", "url": "https://...", "thumbnailUrl": "/static/campaign/teilhard/assets/substack-thumb.jpg" }
 ```
 
-Static thumbnails live in `static/campaign/<slug>/assets/`. Re-import after seed changes:
+Slides omit `thumbnailUrl` so the PDF auto-extract supplies the card image. Static thumbs in `static/campaign/<slug>/assets/` still override auto-extract when set.
+
+Re-import after seed changes:
 
 ```bash
 python scripts/import_teilhard_monument.py
 systemctl --user restart datatracker-dev
 ```
-
-**Deferred (future builder UI):** PDF first-page auto-extract, draft hero passthrough, artifact upload picker for thumbnails.
 
 Content changes: edit the seed (or Monument `presentation_json` / `structure_json` in admin) and restart or call `reload_campaign_cache()`.
 
