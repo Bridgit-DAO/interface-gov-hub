@@ -189,7 +189,7 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
         g.campaign_slug = cfg.slug
         g.campaign_config = cfg
         path = request.path or '/'
-        if path.startswith(('/static/', '/api/', '/auth/', '/login/', '/_deploy/')):
+        if path.startswith(('/static/', '/api/', '/auth/', '/login/', '/logout/', '/_deploy/')):
             return
 
     @app.before_request

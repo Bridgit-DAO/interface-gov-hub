@@ -102,8 +102,15 @@ def login():
 @bp.route('/logout/')
 def logout():
     """User logout"""
+    from services.auth_redirect import safe_return_path
+    from services.campaign_auth import safe_campaign_return_url
+
+    return_to_raw = request.args.get('next') or request.args.get('redirect')
+    return_to = safe_campaign_return_url(return_to_raw) or safe_return_path(return_to_raw)
     session.pop('user', None)
     flash('You have been logged out.', 'info')
+    if return_to:
+        return redirect(return_to)
     return redirect(url_for('pages.home'))
 
 

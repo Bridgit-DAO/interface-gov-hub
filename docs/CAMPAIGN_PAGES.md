@@ -164,6 +164,10 @@ https://hub.themetalayer.org/login/?next=https://teilhardtest.com/docs/statement
 
 After Web3Auth on the hub, Gov Hub hands the session back to the vanity host via `/auth/campaign-handoff/` (one-time token, ~2 minutes).
 
+**Dev vs production hub:** `teilhardtest.com` runs on **gov-hub-dev** (:8001). Sign-in links use `dev.hub.themetalayer.org`. A session on production `hub.themetalayer.org` is a **different origin** and does **not** carry over. Sign in once on dev hub (or use the statement page auto-handoff, which redirects to dev hub login and returns immediately if you already have a dev-hub session).
+
+The campaign header shows your profile name when a vanity-host session exists (after handoff). Endorsement forms also require that session.
+
 Implementation: `services/campaign_auth.py`, `campaign_render.py` (`Sign in` button), `routes/auth.py`. Thumbnail admin (`/campaign/<slug>/admin/thumbnails/`) uses the same redirect when accessed from a vanity host.
 
 Do **not** ask operators to whitelist every campaign domain in Web3Auth. Add new vanity hosts in `customDomains` / nginx only.

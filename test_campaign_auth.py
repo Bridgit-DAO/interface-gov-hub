@@ -100,3 +100,42 @@ def test_hub_login_sso_redirects_when_already_authenticated():
         assert r.status_code == 302
         loc = r.headers.get('Location', '')
         assert loc.startswith('https://teilhardtest.com/auth/campaign-handoff/?token=')
+
+
+def test_campaign_shell_shows_user_when_session_on_vanity():
+    """Vanity campaign header should reflect an established session after handoff."""
+    from app import app
+    from services.campaign_auth import make_campaign_handoff_token
+
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        token = make_campaign_handoff_token('admin')
+        client.get(
+            f'/auth/campaign-handoff/?token={token}&next=/docs/statement/',
+            base_url='https://teilhardtest.com',
+            follow_redirects=True,
+        )
+        r = client.get('/docs/statement/', base_url='https://teilhardtest.com')
+        assert r.status_code == 200
+        body = r.get_data(as_text=True)
+        assert 'gh-campaign-user' in body
+        assert 'Sign out' in body
+        assert 'data-gh-authed="1"' in body
+        assert 'gh-campaign-dev-banner' in body
+        assert 'gh-endorse-form' in body
+
+
+def test_campaign_shell_sign_in_when_anonymous_on_vanity():
+    from app import app
+
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        r = client.get(
+            '/docs/statement/',
+            base_url='https://teilhardtest.com',
+        )
+        body = r.get_data(as_text=True)
+        assert 'btn-outline-light' in body
+        assert 'Sign in</a>' in body
+        assert 'data-gh-authed="0"' in body
+        assert 'ghCampaignHubHandoff' in body

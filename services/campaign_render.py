@@ -2,13 +2,21 @@
 from __future__ import annotations
 
 import html as html_mod
+import json
 import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, quote as url_quote, urlparse
 
-from flask import g
+from flask import g, has_request_context, request
 
-from services.campaign_auth import campaign_login_url
+from config import IS_DEVELOPMENT
+from services.campaign_auth import (
+    campaign_for_vanity_host,
+    campaign_login_url,
+    gov_hub_public_url,
+    hub_login_url,
+    vanity_absolute_url,
+)
 from services.campaign_pages import CampaignConfig, campaign_href
 from services.campaign_thumbnails import resolve_campaign_card_thumbnail
 
@@ -114,6 +122,76 @@ def _nav_link(cfg: CampaignConfig, label: str, path: str, active: bool = False) 
     return f'<a class="{cls}" href="{_esc(campaign_href(cfg.slug, path))}">{_esc(label)}</a>'
 
 
+def _campaign_auth_header_html(cfg: CampaignConfig, sign_in_url: str) -> tuple[str, bool]:
+    """Return (header auth HTML, is_authenticated)."""
+    from services.identity import get_current_user
+
+    user = get_current_user()
+    if user:
+        from services.avatar import get_avatar_url
+
+        display_name = (
+            user.get('displayName')
+            or user.get('oauthName')
+            or user.get('name')
+            or user['username']
+        )
+        avatar = get_avatar_url(user, 32)
+        profile_href = f'/profile/{html_mod.escape(user.get("username") or "")}/'
+        return_path = '/'
+        if has_request_context():
+            return_path = (request.path or '/').rstrip('/') or '/'
+        logout_next = url_quote(
+            vanity_absolute_url(cfg, return_path) if campaign_for_vanity_host() else return_path,
+            safe='',
+        )
+        return (
+            f'''<div class="gh-campaign-user">
+      <a class="gh-campaign-user-link" href="{_esc(profile_href)}" title="{_esc(display_name)}">
+        <img src="{_esc(avatar)}" alt="" class="gh-campaign-user-avatar" width="32" height="32">
+        <span class="gh-campaign-user-name">{_esc(display_name)}</span>
+      </a>
+      <a class="btn btn-sm btn-outline-secondary" href="/logout/?next={logout_next}">Sign out</a>
+    </div>''',
+            True,
+        )
+    return (
+        f'<a class="btn btn-sm btn-outline-light" href="{_esc(sign_in_url)}">Sign in</a>',
+        False,
+    )
+
+
+def _campaign_dev_hub_banner_html() -> str:
+    if not IS_DEVELOPMENT or not campaign_for_vanity_host():
+        return ''
+    hub = gov_hub_public_url()
+    return (
+        f'<div class="gh-campaign-dev-banner" role="status">'
+        f'Sign-in uses <a href="{_esc(hub)}/login/">dev.hub.themetalayer.org</a>. '
+        f'A session on <strong>hub.themetalayer.org</strong> (production) does not carry over here.'
+        f'</div>'
+    )
+
+
+def _campaign_hub_handoff_script(cfg: CampaignConfig, *, is_authenticated: bool, enabled: bool) -> str:
+    """One-shot redirect to hub login so an existing dev-hub session can hand off silently."""
+    if not enabled or is_authenticated or not campaign_for_vanity_host():
+        return ''
+    if has_request_context() and request.args.get('gh_handoff') == '0':
+        return ''
+    return_path = vanity_absolute_url(cfg, (request.path if has_request_context() else '/') or '/')
+    hub_login = hub_login_url(return_path)
+    return f'''<script>
+(function () {{
+  try {{
+    if (sessionStorage.getItem('ghCampaignHubHandoff')) return;
+    sessionStorage.setItem('ghCampaignHubHandoff', String(Date.now()));
+  }} catch (_e) {{ return; }}
+  window.location.replace({json.dumps(hub_login)});
+}})();
+</script>'''
+
+
 def campaign_shell(
     cfg: CampaignConfig,
     *,
@@ -121,6 +199,7 @@ def campaign_shell(
     main_html: str,
     doc_slug: Optional[str] = None,
     extra_head: str = '',
+    attempt_hub_handoff: bool = False,
 ) -> str:
     nav_parts = [_nav_link(cfg, 'Home', '/', active=not doc_slug)]
     if (cfg.structure or {}).get('nodes'):
@@ -133,23 +212,29 @@ def campaign_shell(
             _nav_link(cfg, doc.get('label') or slug, f'/docs/{slug}', active=doc_slug == slug)
         )
     nav_html = '\n'.join(nav_parts)
-    sign_in = html_mod.escape(
-        campaign_login_url(cfg, '/docs/statement'),
-        quote=True,
+    sign_in = campaign_login_url(cfg, '/docs/statement')
+    auth_html, is_authenticated = _campaign_auth_header_html(cfg, sign_in)
+    dev_banner = _campaign_dev_hub_banner_html()
+    handoff_script = _campaign_hub_handoff_script(
+        cfg,
+        is_authenticated=is_authenticated,
+        enabled=attempt_hub_handoff,
     )
+    authed_attr = '1' if is_authenticated else '0'
 
     return f'''<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-gh-authed="{authed_attr}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=3" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=4" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">
+  {dev_banner}
   <header class="gh-campaign-header">
     <div class="gh-campaign-header-inner">
       <a class="gh-campaign-brand" href="{_esc(campaign_href(cfg.slug, '/'))}">
@@ -157,7 +242,7 @@ def campaign_shell(
         <span class="gh-campaign-brand-sub">{_esc(cfg.subtitle)}</span>
       </a>
       <nav class="gh-campaign-nav">{nav_html}</nav>
-      <a class="btn btn-sm btn-outline-light" href="{sign_in}">Sign in</a>
+      {auth_html}
     </div>
   </header>
   <main class="gh-campaign-main">{main_html}</main>
@@ -165,6 +250,7 @@ def campaign_shell(
     <p class="mb-0 small">Hosted on <a href="https://dev.govhub.live/">Gov Hub</a> · The Overweb</p>
   </footer>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  {handoff_script}
 </body>
 </html>'''
 
@@ -361,7 +447,13 @@ def render_doc_statement(cfg: CampaignConfig, doc: Dict[str, Any], body_html: st
       <div class="mt-4">{endorsements_html}</div>
     </section>
     '''
-    return campaign_shell(cfg, page_title='Statement', main_html=main, doc_slug='statement')
+    return campaign_shell(
+        cfg,
+        page_title='Statement',
+        main_html=main,
+        doc_slug='statement',
+        attempt_hub_handoff=True,
+    )
 
 
 def render_doc_slides(cfg: CampaignConfig, doc: Dict[str, Any], pdf_url: str) -> str:
