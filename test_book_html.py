@@ -33,3 +33,14 @@ def test_rewrite_ordinals_content_urls():
         '<!DOCTYPE html><html><head></head><body>' + html + '</body></html>'
     )
     assert f'https://ordinals.com/content/{iid}' in out
+
+
+def test_rewrite_ordinals_content_urls_with_override():
+    from services.book_html import rewrite_ordinals_content_urls
+
+    iid = 'b' * 64 + 'i0'
+    override_url = '/static/images/book/tables/table-11.1.webp'
+    html = f'<img src="/content/{iid}">'
+    out = rewrite_ordinals_content_urls(html, overrides={iid: override_url})
+    assert override_url in out
+    assert 'ordinals.com' not in out
