@@ -20,6 +20,29 @@ _DP_ILLUSTRATION_SRC_RE = re.compile(
     r'src="(?:https://ordinals\.com)?/content/local/assets/dp/(DP\d+)\.webp"',
     re.IGNORECASE,
 )
+_BOOK_COVER_MD_RE = re.compile(
+    r'!\[([^\]]*)\]\(/assets/cover\.png\)',
+    re.IGNORECASE,
+)
+_BOOK_COVER_SRC_RE = re.compile(
+    r'src="/assets/cover\.png"',
+    re.IGNORECASE,
+)
+_BOOK_COVER_STATIC = '/static/images/book/cover.png'
+
+
+def rewrite_book_cover_markdown(text: str) -> str:
+    """Map book-site cover path to Gov Hub static artwork."""
+
+    def repl(match: re.Match[str]) -> str:
+        alt = match.group(1)
+        return f'![{alt}]({_BOOK_COVER_STATIC})'
+
+    return _BOOK_COVER_MD_RE.sub(repl, text)
+
+
+def rewrite_book_cover_img_src(html: str) -> str:
+    return _BOOK_COVER_SRC_RE.sub(f'src="{_BOOK_COVER_STATIC}"', html)
 
 
 def rewrite_dp_illustration_markdown(text: str) -> str:
@@ -116,6 +139,7 @@ def markdown_to_safe_preview_html(markdown_text: str) -> Optional[str]:
         return None
     text = normalize_backslash_escaped_markdown(text)
     text = strip_hr_adjacent_to_headings(text)
+    text = rewrite_book_cover_markdown(text)
     text = rewrite_dp_illustration_markdown(text)
 
     html_raw: Optional[str] = None
@@ -148,6 +172,7 @@ def markdown_to_safe_preview_html(markdown_text: str) -> Optional[str]:
             attributes=_ALLOWED_ATTRS,
             strip=True,
         )
+        cleaned = rewrite_book_cover_img_src(cleaned)
         cleaned = rewrite_dp_illustration_img_src(cleaned)
         return re.sub(
             r'src="(/content/(?!local/assets/dp/)[^"]+)"',
