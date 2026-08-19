@@ -83,3 +83,20 @@ def test_build_campaign_handoff_redirect():
     )
     assert url.startswith('https://teilhardtest.com/auth/campaign-handoff/?token=')
     assert 'next=' in url
+
+
+def test_hub_login_sso_redirects_when_already_authenticated():
+    """Hub /login/ with hub session + campaign next= should hand off without Web3Auth."""
+    from app import app
+
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user'] = 'admin'
+        r = client.get(
+            '/login/?next=https://teilhardtest.com/docs/statement/',
+            follow_redirects=False,
+        )
+        assert r.status_code == 302
+        loc = r.headers.get('Location', '')
+        assert loc.startswith('https://teilhardtest.com/auth/campaign-handoff/?token=')

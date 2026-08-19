@@ -465,7 +465,7 @@ def campaign_handoff_complete():
         verify_campaign_handoff_token,
         vanity_absolute_url,
     )
-    from services.auth_redirect import safe_return_path
+    from services.auth_redirect import login_url, safe_return_path
 
     token = (request.args.get('token') or '').strip()
     next_path = safe_return_path(request.args.get('next')) or '/'
@@ -481,6 +481,8 @@ def campaign_handoff_complete():
         flash('Account not found.', 'error')
         return redirect(login_url(next_path))
     session['user'] = user.username
+    session['theme'] = user.theme
+    session.permanent = True
     return redirect(next_path)
 
 
