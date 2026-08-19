@@ -100,37 +100,63 @@
   color: var(--gh-campaign-accent);
 }
 
-.gh-campaign-user {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.gh-campaign-user-menu {
   margin-left: auto;
 }
 
-.gh-campaign-user-link {
+.gh-campaign-user-toggle {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  color: var(--gh-campaign-text);
-  text-decoration: none;
-  font-size: 0.875rem;
-  max-width: 180px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  line-height: 1;
 }
 
-.gh-campaign-user-link:hover {
-  color: var(--gh-campaign-accent);
+.gh-campaign-user-toggle::after {
+  display: none;
+}
+
+.gh-campaign-user-toggle:hover,
+.gh-campaign-user-toggle:focus,
+.gh-campaign-user-toggle.show {
+  background: transparent;
+  box-shadow: none;
 }
 
 .gh-campaign-user-avatar {
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
+  border: 1px solid var(--gh-campaign-border);
+  display: block;
 }
 
-.gh-campaign-user-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.gh-campaign-user-dropdown {
+  background: var(--gh-campaign-surface-raised);
+  border: 1px solid var(--gh-campaign-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  min-width: 11rem;
+  padding: 0.35rem 0;
+}
+
+.gh-campaign-user-dropdown .dropdown-item {
+  color: var(--gh-campaign-text);
+  font-size: 0.875rem;
+  padding: 0.45rem 0.85rem;
+}
+
+.gh-campaign-user-dropdown .dropdown-item:hover,
+.gh-campaign-user-dropdown .dropdown-item:focus {
+  background: rgba(77, 159, 255, 0.12);
+  color: var(--gh-campaign-accent);
+}
+
+.gh-campaign-user-dropdown .dropdown-divider {
+  border-color: var(--gh-campaign-border);
+  margin: 0.25rem 0;
 }
 
 .gh-campaign-dev-banner {

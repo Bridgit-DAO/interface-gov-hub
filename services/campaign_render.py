@@ -122,6 +122,24 @@ def _nav_link(cfg: CampaignConfig, label: str, path: str, active: bool = False) 
     return f'<a class="{cls}" href="{_esc(campaign_href(cfg.slug, path))}">{_esc(label)}</a>'
 
 
+def _campaign_absolute_asset_url(path: str) -> str:
+    """Absolute URL for same-origin assets on campaign vanity hosts (uploads, static)."""
+    if not path:
+        return path
+    if path.startswith('http://') or path.startswith('https://'):
+        return path
+    if has_request_context():
+        host = (
+            request.headers.get('X-Forwarded-Host')
+            or request.host
+            or ''
+        ).split(',')[0].strip().split(':')[0].lower()
+        if campaign_for_vanity_host(host):
+            rel = path if path.startswith('/') else f'/{path}'
+            return f'https://{host}{rel}'
+    return path
+
+
 def _campaign_auth_header_html(cfg: CampaignConfig, sign_in_url: str) -> tuple[str, bool]:
     """Return (header auth HTML, is_authenticated)."""
     from services.identity import get_current_user
@@ -136,22 +154,35 @@ def _campaign_auth_header_html(cfg: CampaignConfig, sign_in_url: str) -> tuple[s
             or user.get('name')
             or user['username']
         )
-        avatar = get_avatar_url(user, 32)
-        profile_href = f'/profile/{html_mod.escape(user.get("username") or "")}/'
+        avatar = _campaign_absolute_asset_url(get_avatar_url(user, 32))
+        username = user.get('username') or ''
+        on_vanity = campaign_for_vanity_host()
+        hub_base = gov_hub_public_url().rstrip('/')
+        profile_href = (
+            f'{hub_base}/profile/{html_mod.escape(username)}/'
+            if on_vanity
+            else f'/profile/{html_mod.escape(username)}/'
+        )
         return_path = '/'
         if has_request_context():
             return_path = (request.path or '/').rstrip('/') or '/'
         logout_next = url_quote(
-            vanity_absolute_url(cfg, return_path) if campaign_for_vanity_host() else return_path,
+            vanity_absolute_url(cfg, return_path) if on_vanity else return_path,
             safe='',
         )
         return (
-            f'''<div class="gh-campaign-user">
-      <a class="gh-campaign-user-link" href="{_esc(profile_href)}" title="{_esc(display_name)}">
-        <img src="{_esc(avatar)}" alt="" class="gh-campaign-user-avatar" width="32" height="32">
-        <span class="gh-campaign-user-name">{_esc(display_name)}</span>
-      </a>
-      <a class="btn btn-sm btn-outline-secondary" href="/logout/?next={logout_next}">Sign out</a>
+            f'''<div class="dropdown gh-campaign-user-menu">
+      <button class="btn gh-campaign-user-toggle dropdown-toggle" type="button"
+        data-bs-toggle="dropdown" aria-expanded="false"
+        title="{_esc(display_name)}" aria-label="{_esc(display_name)}">
+        <img src="{_esc(avatar)}" alt="" class="gh-campaign-user-avatar" width="32" height="32"
+          onerror="this.onerror=null;this.src='{_esc(_campaign_absolute_asset_url('/static/images/default-avatar.png'))}'">
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end gh-campaign-user-dropdown">
+        <li><a class="dropdown-item" href="{_esc(profile_href)}">Profile on Gov Hub</a></li>
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item" href="/logout/?next={logout_next}">Sign out</a></li>
+      </ul>
     </div>''',
             True,
         )
@@ -230,7 +261,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=4" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=5" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">

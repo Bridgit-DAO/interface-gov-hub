@@ -118,8 +118,10 @@ def test_campaign_shell_shows_user_when_session_on_vanity():
         r = client.get('/docs/statement/', base_url='https://teilhardtest.com')
         assert r.status_code == 200
         body = r.get_data(as_text=True)
-        assert 'gh-campaign-user' in body
+        assert 'gh-campaign-user-menu' in body
         assert 'Sign out' in body
+        assert 'dropdown-menu' in body
+        assert 'gh-campaign-user-name' not in body
         assert 'data-gh-authed="1"' in body
         assert 'gh-campaign-dev-banner' in body
         assert 'gh-endorse-form' in body
