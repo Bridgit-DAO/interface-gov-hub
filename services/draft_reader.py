@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from services.documents import DRAFTS, submission_file_pages_words
 from services.submissions import get_readable_submission_by_ref, get_submission_by_ref
+from services.book_html import load_book_html_for_reader, looks_like_html_document
 from services.submission_preview_md import markdown_to_safe_preview_html, text_looks_like_markdown
 from services.ordinals import (
     process_ordinal_markdown,
@@ -219,12 +220,15 @@ def load_draft_document_body(
     if submission and submission.file_path and os.path.exists(submission.file_path):
         _, ext = os.path.splitext((submission.filename or '').lower())
         try:
-            if ext in ['.txt', '.xml', '.md', '.markdown']:
+            if ext in ['.txt', '.xml', '.md', '.markdown', '.htm', '.html']:
                 with open(submission.file_path, 'r', encoding='utf-8', errors='replace') as f:
                     raw_text = f.read()
                 calculated_words = len(raw_text.split())
                 calculated_pages = max(1, (calculated_words + 499) // 500)
-                if ext in ('.md', '.markdown'):
+                if ext in ('.htm', '.html') or looks_like_html_document(raw_text):
+                    document_content = load_book_html_for_reader(raw_text)
+                    render_document_as_html = True
+                elif ext in ('.md', '.markdown'):
                     md_html = markdown_to_safe_preview_html(raw_text)
                     if md_html:
                         document_content = md_html
