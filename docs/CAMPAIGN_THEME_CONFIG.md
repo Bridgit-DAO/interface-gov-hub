@@ -11,8 +11,10 @@ Schema reference for builders and import scripts.
 | Dev seed | `static/campaign/<slug>/campaign-seed.json` |
 | Production Monument | `presentation_json.theme` (imported from seed) |
 | Parser | `services/campaign_pages.py` → `normalize_theme_config()` |
-| Renderer | `services/campaign_render.py` → `_campaign_theme_style()` |
+| Renderer | `services/campaign_render.py` → `_campaign_theme_style()` (public shell) and `campaign_admin_shell()` (admin pages) |
 | Styles | `static/css/campaign-pages.css` (defaults; overridden per campaign) |
+
+The `theme` block applies **site-wide** on a campaign vanity host: home, docs, monument pages, and admin routes (`/admin/thumbnails/`, `/admin/endorsements/`). Admin pages use a compact shell with the same CSS custom properties; they do not render the scroll gradient wrapper.
 
 Re-import after seed changes:
 
@@ -92,7 +94,8 @@ From `static/campaign/teilhard/campaign-seed.json`:
 ```bash
 cd gov-hub-prod
 pytest test_campaign_embeds.py -q
-curl -sS https://teilhardtest.com/ | grep -E 'gh-campaign-footer-bg|--gh-campaign-footer-bg|campaign-pages.css?v=17'
+curl -sS https://teilhardtest.com/ | grep -E 'gh-campaign-footer-bg|--gh-campaign-footer-bg|campaign-pages.css?v=18'
+curl -sS https://teilhardtest.com/admin/thumbnails/ | grep -E 'gh-campaign-body|gh-campaign-admin|--gh-campaign-footer-bg|campaign-pages.css?v=18'
 ```
 
 Home HTML should include an inline `<style>` block setting `--gh-campaign-footer-bg: #0a1224` and `background-color: #0a1224` on `.gh-campaign-body-gradient`. The footer should not sit on `#020408` black below the gradient cutoff.

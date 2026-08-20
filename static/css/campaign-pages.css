@@ -807,3 +807,89 @@
 .gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .btn-close {
   filter: invert(1) grayscale(100%) brightness(200%);
 }
+
+/* Campaign admin pages (thumbnails, endorsements) – same theme vars as public shell */
+.gh-campaign-admin {
+  min-height: 100vh;
+}
+
+.gh-campaign-admin-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+  width: 100%;
+}
+
+.gh-campaign-admin h1 {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.gh-campaign-admin a {
+  color: var(--gh-campaign-accent);
+  text-decoration: none;
+}
+
+.gh-campaign-admin a:hover {
+  color: var(--gh-campaign-accent-hover);
+  text-decoration: underline;
+}
+
+.gh-campaign-admin code {
+  color: var(--gh-campaign-muted-strong);
+  background: var(--gh-campaign-surface-raised);
+  border: 1px solid var(--gh-campaign-border);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+}
+
+.gh-campaign-admin .table {
+  --bs-table-bg: var(--gh-campaign-surface);
+  --bs-table-striped-bg: var(--gh-campaign-surface-raised);
+  --bs-table-color: var(--gh-campaign-text);
+  --bs-table-border-color: var(--gh-campaign-border);
+  --bs-table-hover-bg: rgba(77, 159, 255, 0.08);
+  border: 1px solid var(--gh-campaign-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.gh-campaign-admin .table thead th {
+  background: var(--gh-campaign-surface-raised);
+  color: var(--gh-campaign-muted-strong);
+  border-bottom-color: var(--gh-campaign-border);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gh-campaign-admin .form-control,
+.gh-campaign-admin .form-select {
+  background: var(--gh-campaign-surface-raised);
+  border-color: var(--gh-campaign-border);
+  color: var(--gh-campaign-text);
+}
+
+.gh-campaign-admin .form-control:focus,
+.gh-campaign-admin .form-select:focus {
+  background: var(--gh-campaign-surface-raised);
+  border-color: var(--gh-campaign-accent);
+  color: var(--gh-campaign-text);
+  box-shadow: 0 0 0 0.2rem rgba(77, 159, 255, 0.15);
+}
+
+.gh-campaign-admin .btn-outline-danger {
+  --bs-btn-color: #f87171;
+  --bs-btn-border-color: rgba(248, 113, 113, 0.55);
+  --bs-btn-hover-bg: rgba(248, 113, 113, 0.12);
+  --bs-btn-hover-border-color: #f87171;
+  --bs-btn-hover-color: #fca5a5;
+}
+
+.gh-campaign-admin .btn-success {
+  --bs-btn-bg: #059669;
+  --bs-btn-border-color: #059669;
+  --bs-btn-hover-bg: #047857;
+  --bs-btn-hover-border-color: #047857;
+}

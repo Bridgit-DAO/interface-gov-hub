@@ -26,6 +26,7 @@ from services.campaign_thumbnails import (
     thumb_public_url,
 )
 from services.campaign_render import (
+    campaign_admin_shell,
     campaign_slides_pdf_url,
     render_embed_draft_reader,
     render_embed_slides_pdf,
@@ -320,11 +321,14 @@ def campaign_endorsements_admin(slug):
           </td>
         </tr>''')
     table = ''.join(rows) or '<tr><td colspan="4" class="text-muted">No pending endorsements.</td></tr>'
-    html = f'''<!DOCTYPE html><html><head><title>Moderate endorsements</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head>
-    <body class="p-4"><h1>Endorsements – {html_mod.escape(cfg.title)}</h1>
-    <table class="table"><thead><tr><th>Name</th><th>Type</th><th>Comment</th><th></th></tr></thead><tbody>{table}</tbody></table>
-    <p><a href="{html_mod.escape(campaign_href(slug, "/docs/statement"))}">Back to statement</a></p></body></html>'''
+    main = f'''
+    <h1>Endorsements – {html_mod.escape(cfg.title)}</h1>
+    <table class="table table-dark table-striped align-middle">
+      <thead><tr><th>Name</th><th>Type</th><th>Comment</th><th></th></tr></thead>
+      <tbody>{table}</tbody>
+    </table>
+    <p><a href="{html_mod.escape(campaign_href(slug, "/docs/statement"))}">Back to statement</a></p>'''
+    html = campaign_admin_shell(cfg, page_title='Moderate endorsements', main_html=main)
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
 
@@ -408,23 +412,26 @@ def campaign_thumbnails_admin(slug):
     }});
     </script>'''
 
-    html = f'''<!DOCTYPE html><html><head><title>Campaign thumbnails</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    </head>
-    <body class="p-4">
+    main = f'''
     <h1>Card thumbnails – {html_mod.escape(cfg.title)}</h1>
     <p class="text-muted">Choose an image to crop in a 16:9 frame, then upload. Files are stored as optimized WebP under
     <code>/static/campaign/{html_mod.escape(slug)}/assets/</code>.
     PDF auto-extract runs when no explicit thumb is set.</p>
-    <table class="table align-middle"><thead><tr><th>Label</th><th>Slug</th><th>Current</th><th>Upload</th></tr></thead>
-    <tbody>{table}</tbody></table>
-    <p><a href="{html_mod.escape(campaign_href(slug, "/"))}">Back to campaign home</a></p>
-    {flash_script}
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <table class="table table-dark table-striped align-middle">
+      <thead><tr><th>Label</th><th>Slug</th><th>Current</th><th>Upload</th></tr></thead>
+      <tbody>{table}</tbody>
+    </table>
+    <p><a href="{html_mod.escape(campaign_href(slug, "/"))}">Back to campaign home</a></p>'''
+    extra_scripts = f'''{flash_script}
     <script src="/static/js/gh-dialog.js"></script>
     <script src="/static/js/gh-image-crop.js?v=20260820e"></script>
-    <script src="/static/js/gh-image-upload.js?v=20260820e"></script>
-    </body></html>'''
+    <script src="/static/js/gh-image-upload.js?v=20260820e"></script>'''
+    html = campaign_admin_shell(
+        cfg,
+        page_title='Campaign thumbnails',
+        main_html=main,
+        extra_scripts=extra_scripts,
+    )
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
 

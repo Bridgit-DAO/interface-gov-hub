@@ -20,6 +20,8 @@ from services.campaign_auth import (
 from services.campaign_pages import CampaignConfig, campaign_href, normalize_hero_config, normalize_theme_config, resolve_document_embed
 from services.campaign_thumbnails import resolve_campaign_card_thumbnail
 
+CAMPAIGN_PAGES_CSS_VERSION = '18'
+
 
 def _esc(value: Any) -> str:
     return html_mod.escape(str(value or ''))
@@ -262,7 +264,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=17" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v={CAMPAIGN_PAGES_CSS_VERSION}" rel="stylesheet">
   {theme_style}
   {extra_head}
 </head>
@@ -287,6 +289,35 @@ def campaign_shell(
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/static/js/campaign-nav.js?v=1"></script>
   {handoff_script}
+</body>
+</html>'''
+
+
+def campaign_admin_shell(
+    cfg: CampaignConfig,
+    *,
+    page_title: str,
+    main_html: str,
+    extra_head: str = '',
+    extra_scripts: str = '',
+) -> str:
+    """Minimal dark-themed shell for campaign admin pages (thumbnails, endorsements)."""
+    theme_style = _campaign_theme_style(cfg)
+    return f'''<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v={CAMPAIGN_PAGES_CSS_VERSION}" rel="stylesheet">
+  {theme_style}
+  {extra_head}
+</head>
+<body class="gh-campaign-body gh-campaign-admin">
+  <main class="gh-campaign-admin-main">{main_html}</main>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  {extra_scripts}
 </body>
 </html>'''
 
@@ -770,7 +801,7 @@ def render_embed_draft_reader(draft_ref: str, *, modal_theme: str = 'dark') -> t
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link href="/static/css/govhub-design.css?v={BUILD_NUMBER}" rel="stylesheet">
   <link href="/static/css/dp-proposals-reader.css?v={BUILD_NUMBER}" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=17" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v={CAMPAIGN_PAGES_CSS_VERSION}" rel="stylesheet">
 </head>
 <body class="gh-embed-draft-reader {theme_class}">
   <header class="gh-embed-reader-toolbar">
@@ -798,7 +829,7 @@ def render_embed_slides_pdf(pdf_url: str, *, title: str = 'Slide deck') -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title_esc}</title>
-  <link href="/static/css/campaign-pages.css?v=17" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v={CAMPAIGN_PAGES_CSS_VERSION}" rel="stylesheet">
 </head>
 <body class="gh-embed-pdf-reader">
   <div class="gh-embed-pdf-native">

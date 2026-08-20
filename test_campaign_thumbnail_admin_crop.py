@@ -34,6 +34,10 @@ def test_thumbnail_admin_page_includes_crop_scripts_and_attributes():
         assert 'gh-image-upload-form' in html
         assert 'name="csrf_token"' in html
         assert 'type="submit"' in html and 'disabled' in html
+        assert 'gh-campaign-body' in html
+        assert 'gh-campaign-admin' in html
+        assert 'campaign-pages.css?v=18' in html
+        assert '--gh-campaign-footer-bg' in html
 
 
 def test_gh_image_crop_sizes_viewport_before_init():

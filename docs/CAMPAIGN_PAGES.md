@@ -125,7 +125,7 @@ Content changes: edit the seed (or Monument `presentation_json` / `structure_jso
 
 ## Configuring styling
 
-Campaign pages use a **shared dark theme** in `static/css/campaign-pages.css`, aligned with Gov Hub design tokens (`--text-primary`, `--text-secondary`, accent blue).
+Campaign pages use a **shared dark theme** in `static/css/campaign-pages.css`, aligned with Gov Hub design tokens (`--text-primary`, `--text-secondary`, accent blue). Per-campaign colors come from the `theme` block in seed / Monument config (see [CAMPAIGN_THEME_CONFIG.md](CAMPAIGN_THEME_CONFIG.md)); this includes admin routes under `/campaign/<slug>/admin/`.
 
 ### What builders can do today
 
