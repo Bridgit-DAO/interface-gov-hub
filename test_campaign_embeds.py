@@ -15,14 +15,11 @@ def test_campaign_seed_has_hero_image():
     assert cfg is not None
     assert cfg.hero_image_url == '/static/campaign/teilhard/assets/hero.png'
     assert cfg.hero.get('fit') == 'contain'
-    assert cfg.hero.get('overlay', {}).get('scrim') == 'panel-left'
-    assert cfg.hero_question == 'Can humanity grow into the intelligence it has created?'
-    assert cfg.hero.get('quote') == (
-        'No distinct center of superhuman consciousness has yet appeared on earth.'
-    )
-    assert cfg.hero.get('overlay', {}).get('primaryCta', {}).get('label') == (
-        'Read and Comment on the Paper'
-    )
+    assert cfg.hero.get('overlay', {}).get('mode') == 'nav-only'
+    assert cfg.hero.get('overlay', {}).get('scrim') == 'none'
+    assert cfg.hero_question == ''
+    assert cfg.hero.get('quote') == ''
+    assert cfg.hero.get('overlay', {}).get('primaryCta', {}) == {}
 
 
 def test_campaign_embeds_auto_derived():
@@ -125,16 +122,14 @@ def test_home_renders_hero_image():
     assert 'gh-campaign-hero-has-image' in html
     assert 'gh-campaign-hero-full-bleed' in html
     assert 'gh-campaign-hero-fit-contain' in html
-    assert 'gh-campaign-hero-scrim-panel' in html
+    assert 'gh-campaign-hero-nav-only' in html
     assert 'gh-campaign-hero-image' in html
     assert '/static/campaign/teilhard/assets/hero.png' in html
-    assert 'Can humanity grow into the intelligence it has created?' in html
-    assert 'No distinct center of superhuman consciousness has yet appeared on earth.' in html
-    assert 'Teilhard de Chardin' in html
+    assert 'gh-campaign-hero-content' not in html
+    assert 'gh-campaign-hero-quote' not in html
+    assert 'gh-campaign-hero-ctas' not in html
+    assert 'gh-campaign-hero-scrim' not in html
+    assert 'Can humanity grow into the intelligence it has created?' not in html
     assert '--gh-campaign-hero-position' not in html
     assert 'heroImagePosition' not in html
-    hero_html = html.split('gh-campaign-hero-content')[1].split('</section>')[0]
-    assert 'The Teilhard Test' in hero_html
-    assert 'The Overweb' not in hero_html
-    assert 'gh-campaign-hero-quote' in hero_html
-    assert 'btn-outline-light' not in hero_html
+    assert 'gh-campaign-nav-link' in html

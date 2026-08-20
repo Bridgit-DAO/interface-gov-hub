@@ -218,6 +218,32 @@
   min-height: min(85vh, 56rem);
 }
 
+.gh-campaign-hero-nav-only.gh-campaign-hero-has-image {
+  min-height: 0;
+  display: block;
+}
+
+.gh-campaign-hero-nav-only.gh-campaign-hero-full-bleed {
+  margin: -2rem calc(50% - 50vw) 0;
+  padding: 0;
+}
+
+.gh-campaign-hero-nav-only .gh-campaign-hero-media {
+  position: relative;
+  inset: auto;
+  height: auto;
+}
+
+.gh-campaign-hero-nav-only .gh-campaign-hero-image {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.gh-campaign-body:has(.gh-campaign-hero-nav-only) .gh-campaign-main {
+  padding-top: 0;
+}
+
 .gh-campaign-hero-full-bleed {
   margin: -2rem calc(50% - 50vw) 0;
   width: 100vw;

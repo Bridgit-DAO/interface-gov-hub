@@ -12,27 +12,9 @@
     "imageUrl": "/static/campaign/teilhard/assets/hero.png",
     "fullBleed": true,
     "fit": "contain",
-    "kicker": "The Teilhard Test",
-    "headline": "Can humanity grow into the intelligence it has created?",
-    "quote": "No distinct center of superhuman consciousness has yet appeared on earth.",
-    "quoteAttribution": "Teilhard de Chardin, The Formation of the No\u00f6sphere",
     "overlay": {
-      "scrim": "panel-left",
-      "textAlign": "left",
-      "primaryCta": {
-        "label": "Read and Comment on the Paper",
-        "href": "/docs/paper"
-      },
-      "ghostLinks": [
-        {
-          "label": "Read the Statement",
-          "href": "/docs/statement"
-        },
-        {
-          "label": "View the Slide Deck",
-          "href": "/docs/slides"
-        }
-      ]
+      "mode": "nav-only",
+      "scrim": "none"
     }
   },
   "documents": [

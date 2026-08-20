@@ -60,7 +60,8 @@ systemctl --user restart datatracker.service   # production
 | `headline` | string | campaign `title` | `<h1>` text |
 | `quote` | string | (none) | Optional blockquote under headline |
 | `quoteAttribution` | string | (none) | `<cite>` under quote |
-| `overlay.scrim` | string | `gradient-left` | Legibility overlay: `gradient-left`, `gradient-bottom`, `gradient-full`, `panel-left` |
+| `overlay.mode` | string | `full` | `full` renders copy and CTAs; `nav-only` shows only the hero image (site nav remains in the header) |
+| `overlay.scrim` | string | `gradient-left` | Legibility overlay: `gradient-left`, `gradient-bottom`, `gradient-full`, `panel-left`, `none` |
 | `overlay.textAlign` | string | `left` | `left`, `center`, or `right` |
 | `overlay.primaryCta` | object | `primaryCta` at root | Primary button `{ label, href }` |
 | `overlay.ghostLinks` | array | `secondaryCtas` | Text links under primary CTA (max 2 rendered) |
@@ -69,6 +70,7 @@ systemctl --user restart datatracker.service   # production
 
 - **No `object-position` hacks.** The hero uses a real `<img>` with `object-fit: cover` and `object-position: center center` so the image is not artificially shifted to hide on-image text.
 - **`fit: contain`** shows the full image inside the hero frame (letterboxed on dark background). Use when the artwork must remain fully visible.
+- **`overlay.mode: nav-only`** shows only the hero image with no HTML headline, quote, scrim panel, or hero CTAs. Use when artwork includes baked-in text. Site navigation links remain in the header.
 - **`overlay.scrim: panel-left`** puts copy on a semi-transparent left panel instead of a full-image gradient.
 - **`fullBleed: true`** spans viewport width; pair with `contain` + `panel-left` to preserve artwork.
 
@@ -97,26 +99,14 @@ From `static/campaign/teilhard/campaign-seed.json`:
   "imageUrl": "/static/campaign/teilhard/assets/hero.png",
   "fullBleed": true,
   "fit": "contain",
-  "kicker": "The Teilhard Test",
-  "headline": "Can humanity grow into the intelligence it has created?",
-  "quote": "No distinct center of superhuman consciousness has yet appeared on earth.",
-  "quoteAttribution": "Teilhard de Chardin, The Formation of the Noösphere",
   "overlay": {
-    "scrim": "panel-left",
-    "textAlign": "left",
-    "primaryCta": {
-      "label": "Read and Comment on the Paper",
-      "href": "/docs/paper"
-    },
-    "ghostLinks": [
-      { "label": "Read the Statement", "href": "/docs/statement" },
-      { "label": "View the Slide Deck", "href": "/docs/slides" }
-    ]
+    "mode": "nav-only",
+    "scrim": "none"
   }
 }
 ```
 
-Hero asset: agent drop UUID `ad24f3c4-ecce-4a0a-a313-cbff81c2789a` → `static/campaign/teilhard/assets/hero.png`.
+Hero asset: agent drop UUID `ff933924-f935-4787-93fa-d32cd7b31d48` → `static/campaign/teilhard/assets/hero.png`.
 
 Document embeds: see [CAMPAIGN_ARTIFACTS_CONFIG.md](CAMPAIGN_ARTIFACTS_CONFIG.md).
 

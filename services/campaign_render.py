@@ -261,7 +261,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=9" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=10" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">
@@ -375,13 +375,20 @@ def _campaign_hero_ghost_links_html(cfg: CampaignConfig, *, max_links: int = 2) 
     return f'<div class="gh-campaign-hero-ghosts">{"".join(ghost_links)}</div>'
 
 
+def _campaign_hero_nav_only(hero: Dict[str, Any]) -> bool:
+    overlay = hero.get('overlay') or {}
+    mode = str(overlay.get('mode') or 'full').strip().lower().replace('_', '-')
+    return mode in {'nav-only', 'none', 'nav'}
+
+
 def _campaign_hero_section(cfg: CampaignConfig, *, primary_href: str, primary: Dict[str, Any]) -> str:
     hero = _campaign_hero_settings(cfg)
     hero_url = (hero.get('imageUrl') or cfg.hero_image_url or '').strip()
     full_bleed = bool(hero.get('fullBleed', True))
     fit = (hero.get('fit') or 'cover').strip().lower()
     overlay = hero.get('overlay') or {}
-    scrim = (overlay.get('scrim') or 'gradient-left').strip()
+    nav_only = _campaign_hero_nav_only(hero)
+    scrim = (overlay.get('scrim') or ('none' if nav_only else 'gradient-left')).strip()
     text_align = (overlay.get('textAlign') or 'left').strip().lower()
 
     hero_classes = ['gh-campaign-hero']
@@ -391,22 +398,30 @@ def _campaign_hero_section(cfg: CampaignConfig, *, primary_href: str, primary: D
         hero_classes.append('gh-campaign-hero-full-bleed')
     if fit == 'contain':
         hero_classes.append('gh-campaign-hero-fit-contain')
-    if scrim == 'panel-left':
+    if nav_only:
+        hero_classes.append('gh-campaign-hero-nav-only')
+    elif scrim == 'panel-left':
         hero_classes.append('gh-campaign-hero-scrim-panel')
+
+    media_html = ''
+    if hero_url:
+        scrim_html = ''
+        if scrim and scrim != 'none':
+            scrim_class = f'gh-campaign-hero-scrim gh-campaign-hero-scrim-{scrim.replace("_", "-")}'
+            scrim_html = f'\n      <div class="{_esc(scrim_class)}"></div>'
+        media_html = f'''
+      <div class="gh-campaign-hero-media" aria-hidden="true">
+        <img class="gh-campaign-hero-image" src="{_esc(hero_url)}" alt="">
+      </div>{scrim_html}'''
+
+    if nav_only:
+        return f'''
+    <section class="{" ".join(hero_classes)}">{media_html}
+    </section>'''
 
     content_classes = ['gh-campaign-hero-content']
     if text_align in {'left', 'center', 'right'}:
         content_classes.append(f'gh-campaign-hero-align-{text_align}')
-
-    scrim_class = f'gh-campaign-hero-scrim gh-campaign-hero-scrim-{scrim.replace("_", "-")}'
-
-    media_html = ''
-    if hero_url:
-        media_html = f'''
-      <div class="gh-campaign-hero-media" aria-hidden="true">
-        <img class="gh-campaign-hero-image" src="{_esc(hero_url)}" alt="">
-      </div>
-      <div class="{_esc(scrim_class)}"></div>'''
 
     quote_html = _campaign_hero_quote_html(cfg)
     ghost_links_html = _campaign_hero_ghost_links_html(cfg)
@@ -694,7 +709,7 @@ def render_embed_draft_reader(draft_ref: str, *, modal_theme: str = 'dark') -> t
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link href="/static/css/govhub-design.css?v={BUILD_NUMBER}" rel="stylesheet">
   <link href="/static/css/dp-proposals-reader.css?v={BUILD_NUMBER}" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=9" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=10" rel="stylesheet">
 </head>
 <body class="gh-embed-draft-reader {theme_class}">
   <header class="gh-embed-reader-toolbar">
@@ -722,7 +737,7 @@ def render_embed_slides_pdf(pdf_url: str, *, title: str = 'Slide deck') -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title_esc}</title>
-  <link href="/static/css/campaign-pages.css?v=9" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=10" rel="stylesheet">
 </head>
 <body class="gh-embed-pdf-reader">
   <div class="gh-embed-pdf-native">

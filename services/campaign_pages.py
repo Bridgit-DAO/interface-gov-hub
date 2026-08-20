@@ -119,7 +119,20 @@ def normalize_hero_config(
     if fit not in {'cover', 'contain'}:
         fit = 'cover'
 
-    scrim = (overlay.get('scrim') or 'gradient-left').strip()
+    mode_raw = (
+        overlay.get('mode')
+        or hero.get('overlayMode')
+        or hero.get('overlay_mode')
+        or 'full'
+    )
+    mode = str(mode_raw).strip().lower().replace('_', '-')
+    if mode in {'nav-only', 'none', 'nav'}:
+        mode = 'nav-only'
+
+    nav_only = mode == 'nav-only'
+    scrim = (overlay.get('scrim') or ('none' if nav_only else 'gradient-left')).strip()
+    if nav_only:
+        scrim = 'none'
     text_align = (overlay.get('textAlign') or overlay.get('text_align') or 'left').strip()
 
     primary_cta = dict(
@@ -140,16 +153,17 @@ def normalize_hero_config(
     return {
         'imageUrl': image_url,
         'fullBleed': bool(full_bleed),
-        'kicker': str(kicker or '').strip(),
-        'headline': str(headline or '').strip(),
-        'quote': str(quote or '').strip(),
-        'quoteAttribution': str(quote_attribution or '').strip(),
+        'kicker': '' if nav_only else str(kicker or '').strip(),
+        'headline': '' if nav_only else str(headline or '').strip(),
+        'quote': '' if nav_only else str(quote or '').strip(),
+        'quoteAttribution': '' if nav_only else str(quote_attribution or '').strip(),
         'fit': fit,
         'overlay': {
+            'mode': mode,
             'scrim': scrim,
             'textAlign': text_align,
-            'primaryCta': primary_cta,
-            'ghostLinks': ghost_links,
+            'primaryCta': primary_cta if not nav_only else {},
+            'ghostLinks': ghost_links if not nav_only else [],
         },
     }
 
