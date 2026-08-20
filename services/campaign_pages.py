@@ -16,6 +16,23 @@ from config import PROJECT_ROOT
 CAMPAIGN_ROOT = os.path.join(PROJECT_ROOT, 'static', 'campaign')
 
 
+DEFAULT_CAMPAIGN_THEME: Dict[str, Any] = {
+    'pageBackground': '#020408',
+    'footerBackground': '#0a1224',
+    'gradient': {
+        'enabled': True,
+        'heightVh': 300,
+        'stops': [
+            {'at': 0, 'color': '#020408'},
+            {'at': 25, 'color': '#030610'},
+            {'at': 55, 'color': '#050b1a'},
+            {'at': 85, 'color': '#0a1224'},
+            {'at': 100, 'color': '#0a1224'},
+        ],
+    },
+}
+
+
 @dataclass
 class CampaignConfig:
     slug: str
@@ -24,6 +41,7 @@ class CampaignConfig:
     hero_question: str
     hero_image_url: str
     hero: Dict[str, Any]
+    theme: Dict[str, Any]
     layer_slug: str
     custom_domains: List[str]
     dev_host: str
@@ -168,6 +186,64 @@ def normalize_hero_config(
     }
 
 
+def _normalize_hex_color(value: Any, fallback: str) -> str:
+    raw = str(value or '').strip()
+    if not raw:
+        return fallback
+    if raw.startswith('#') and len(raw) in {4, 7}:
+        return raw.lower()
+    return fallback
+
+
+def normalize_theme_config(
+    data: Dict[str, Any],
+    presentation: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Merge nested ``theme`` block with defaults for page background and gradient."""
+    pres = presentation or {}
+    theme = dict(DEFAULT_CAMPAIGN_THEME)
+    incoming = dict(data.get('theme') or pres.get('theme') or {})
+
+    page_bg = incoming.get('pageBackground') or incoming.get('page_background')
+    footer_bg = incoming.get('footerBackground') or incoming.get('footer_background')
+    if page_bg:
+        theme['pageBackground'] = _normalize_hex_color(page_bg, theme['pageBackground'])
+    if footer_bg:
+        theme['footerBackground'] = _normalize_hex_color(footer_bg, theme['footerBackground'])
+
+    gradient = dict(theme.get('gradient') or {})
+    incoming_gradient = dict(incoming.get('gradient') or {})
+    if 'enabled' in incoming_gradient:
+        gradient['enabled'] = bool(incoming_gradient['enabled'])
+    height_vh = incoming_gradient.get('heightVh') or incoming_gradient.get('height_vh')
+    if height_vh is not None:
+        try:
+            gradient['heightVh'] = max(100, min(int(height_vh), 800))
+        except (TypeError, ValueError):
+            pass
+
+    incoming_stops = incoming_gradient.get('stops')
+    if isinstance(incoming_stops, list) and incoming_stops:
+        stops: List[Dict[str, Any]] = []
+        for stop in incoming_stops:
+            if not isinstance(stop, dict):
+                continue
+            try:
+                at = int(stop.get('at'))
+            except (TypeError, ValueError):
+                continue
+            color = _normalize_hex_color(stop.get('color'), '')
+            if not color:
+                continue
+            stops.append({'at': max(0, min(at, 100)), 'color': color})
+        if stops:
+            stops.sort(key=lambda item: item['at'])
+            gradient['stops'] = stops
+
+    theme['gradient'] = gradient
+    return theme
+
+
 def _embed_template_value(value: str, *, slug: str, doc: Dict[str, Any]) -> str:
     if not value:
         return value
@@ -236,6 +312,7 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
     if not presentation:
         presentation = build_monument_presentation_from_seed(data)
     hero = normalize_hero_config(data, presentation)
+    theme = normalize_theme_config(data, presentation)
     embeds = build_embeds_from_seed(data)
     return CampaignConfig(
         slug=slug,
@@ -244,6 +321,7 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
         hero_question=hero.get('headline') or data.get('heroQuestion') or '',
         hero_image_url=hero.get('imageUrl') or '',
         hero=hero,
+        theme=theme,
         layer_slug=data.get('layerSlug') or '',
         custom_domains=list(data.get('customDomains') or []),
         dev_host=(data.get('devHost') or '').strip(),
@@ -343,6 +421,7 @@ def _parse_monument_campaign(monument) -> CampaignConfig:
     external_links.extend(_external_links_from_nodes(nodes))
     external_links.sort(key=lambda item: item.get('displayOrder') or 0)
     hero = normalize_hero_config(presentation)
+    theme = normalize_theme_config(presentation)
     seed_like = {
         'slug': slug,
         'documents': documents,
@@ -356,6 +435,7 @@ def _parse_monument_campaign(monument) -> CampaignConfig:
         hero_question=hero.get('headline') or presentation.get('heroQuestion') or '',
         hero_image_url=hero.get('imageUrl') or '',
         hero=hero,
+        theme=theme,
         layer_slug=presentation.get('layerSlug') or '',
         custom_domains=list(domains or []),
         dev_host=presentation.get('devHost') or '',
@@ -625,6 +705,9 @@ def build_monument_presentation_from_seed(seed: Dict[str, Any]) -> Dict[str, Any
     embeds = build_embeds_from_seed(seed)
     if embeds:
         presentation['embeds'] = embeds
+    theme = normalize_theme_config(seed)
+    if theme:
+        presentation['theme'] = theme
     return presentation
 
 

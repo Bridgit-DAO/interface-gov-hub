@@ -108,6 +108,10 @@ From `static/campaign/teilhard/campaign-seed.json`:
 
 Hero asset: agent drop UUID `755a4341-720a-4462-ad12-0daf5f6f8955` → `static/campaign/teilhard/assets/hero.png`.
 
+Hero configuration: see [CAMPAIGN_HERO_CONFIG.md](CAMPAIGN_HERO_CONFIG.md).
+
+Page theme (background gradient, footer colors): see [CAMPAIGN_THEME_CONFIG.md](CAMPAIGN_THEME_CONFIG.md).
+
 Document embeds: see [CAMPAIGN_ARTIFACTS_CONFIG.md](CAMPAIGN_ARTIFACTS_CONFIG.md).
 
 ## Verify

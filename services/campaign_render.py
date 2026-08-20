@@ -17,7 +17,7 @@ from services.campaign_auth import (
     hub_login_url,
     vanity_absolute_url,
 )
-from services.campaign_pages import CampaignConfig, campaign_href, normalize_hero_config, resolve_document_embed
+from services.campaign_pages import CampaignConfig, campaign_href, normalize_hero_config, normalize_theme_config, resolve_document_embed
 from services.campaign_thumbnails import resolve_campaign_card_thumbnail
 
 
@@ -252,6 +252,7 @@ def campaign_shell(
         enabled=attempt_hub_handoff,
     )
     authed_attr = '1' if is_authenticated else '0'
+    theme_style = _campaign_theme_style(cfg)
 
     return f'''<!DOCTYPE html>
 <html lang="en" data-theme="dark" data-gh-authed="{authed_attr}">
@@ -261,7 +262,8 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=16" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=17" rel="stylesheet">
+  {theme_style}
   {extra_head}
 </head>
 <body class="gh-campaign-body">
@@ -308,6 +310,62 @@ def campaign_slides_pdf_url(cfg: CampaignConfig, doc: Dict[str, Any]) -> str:
         embed.get('pdfSrc')
         or f'/embed/campaign/{html_mod.escape(cfg.slug)}/slides/file/'
     )
+
+
+def _campaign_theme_settings(cfg: CampaignConfig) -> Dict[str, Any]:
+    theme = dict(cfg.theme or {})
+    if not theme.get('footerBackground'):
+        theme = normalize_theme_config(cfg.raw or {}, cfg.presentation or {})
+    return theme
+
+
+def _campaign_theme_style(cfg: CampaignConfig) -> str:
+    """Inline CSS custom properties and gradient overrides from campaign theme config."""
+    theme = _campaign_theme_settings(cfg)
+    page_bg = theme.get('pageBackground') or '#020408'
+    footer_bg = theme.get('footerBackground') or '#0a1224'
+    gradient = theme.get('gradient') or {}
+    stops = list(gradient.get('stops') or [])
+    height_vh = gradient.get('heightVh') or 300
+
+    css_vars = [
+        f'--gh-campaign-page-bg: {page_bg};',
+        f'--gh-campaign-footer-bg: {footer_bg};',
+        f'--gh-campaign-surface: {footer_bg};',
+        f'--gh-campaign-gradient-top: {page_bg};',
+    ]
+    if stops:
+        if len(stops) >= 1:
+            css_vars.append(f'--gh-campaign-gradient-top: {stops[0]["color"]};')
+        if len(stops) >= 2:
+            css_vars.append(f'--gh-campaign-gradient-early: {stops[1]["color"]};')
+        if len(stops) >= 3:
+            css_vars.append(f'--gh-campaign-gradient-mid: {stops[2]["color"]};')
+        if len(stops) >= 4:
+            css_vars.append(f'--gh-campaign-gradient-bottom: {stops[-2]["color"]};')
+        css_vars.append(f'--gh-campaign-gradient-end: {stops[-1]["color"]};')
+
+    gradient_rule = ''
+    if gradient.get('enabled', True) and stops:
+        stop_parts = [
+            f'{stop["color"]} {stop["at"]}%'
+            for stop in sorted(stops, key=lambda item: item['at'])
+        ]
+        gradient_css = ', '.join(stop_parts)
+        gradient_rule = f'''
+.gh-campaign-body-gradient {{
+  background-color: {footer_bg};
+  background-image: linear-gradient(180deg, {gradient_css});
+  background-size: 100% {height_vh}vh;
+  background-repeat: no-repeat;
+}}'''
+
+    return f'''<style>
+.gh-campaign-body {{
+  {''.join(css_vars)}
+}}
+{gradient_rule}
+</style>'''
 
 
 def _campaign_presentation_value(cfg: CampaignConfig, key: str, default: str = '') -> str:
@@ -712,7 +770,7 @@ def render_embed_draft_reader(draft_ref: str, *, modal_theme: str = 'dark') -> t
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link href="/static/css/govhub-design.css?v={BUILD_NUMBER}" rel="stylesheet">
   <link href="/static/css/dp-proposals-reader.css?v={BUILD_NUMBER}" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=16" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=17" rel="stylesheet">
 </head>
 <body class="gh-embed-draft-reader {theme_class}">
   <header class="gh-embed-reader-toolbar">
@@ -740,7 +798,7 @@ def render_embed_slides_pdf(pdf_url: str, *, title: str = 'Slide deck') -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title_esc}</title>
-  <link href="/static/css/campaign-pages.css?v=16" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=17" rel="stylesheet">
 </head>
 <body class="gh-embed-pdf-reader">
   <div class="gh-embed-pdf-native">

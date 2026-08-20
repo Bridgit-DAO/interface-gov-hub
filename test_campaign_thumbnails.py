@@ -39,6 +39,9 @@ def test_explicit_thumbnail_wins_over_pdf_extract():
         title='Test',
         subtitle='',
         hero_question='',
+        hero_image_url='',
+        hero={},
+        theme={},
         layer_slug='the-overweb',
         custom_domains=[],
         dev_host='',
@@ -46,6 +49,7 @@ def test_explicit_thumbnail_wins_over_pdf_extract():
         external_links=[],
         primary_cta={},
         secondary_ctas=[],
+        embeds={},
         raw={},
     )
     item = {

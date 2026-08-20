@@ -22,6 +22,20 @@ def test_campaign_seed_has_hero_image():
     assert cfg.hero.get('overlay', {}).get('primaryCta', {}) == {}
 
 
+def test_campaign_seed_has_theme_config():
+    from services.campaign_pages import get_campaign, reload_campaign_cache
+
+    reload_campaign_cache()
+    cfg = get_campaign('teilhard')
+    theme = cfg.theme
+    assert theme['pageBackground'] == '#020408'
+    assert theme['footerBackground'] == '#0a1224'
+    stops = theme['gradient']['stops']
+    assert stops[0]['color'] == '#020408'
+    assert stops[-1]['color'] == '#0a1224'
+    assert theme['gradient']['heightVh'] == 300
+
+
 def test_campaign_embeds_auto_derived():
     from services.campaign_pages import get_campaign, reload_campaign_cache, resolve_document_embed
 
@@ -134,5 +148,7 @@ def test_home_renders_hero_image():
     assert 'heroImagePosition' not in html
     assert 'gh-campaign-nav-link' in html
     assert 'campaign-nav.js' in html
-    assert 'campaign-pages.css?v=16' in html
+    assert 'campaign-pages.css?v=17' in html
+    assert '--gh-campaign-footer-bg: #0a1224' in html
+    assert 'background-color: #0a1224' in html
     assert 'gh-campaign-nav-scrolled' not in html

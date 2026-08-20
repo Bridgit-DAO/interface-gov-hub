@@ -1,11 +1,13 @@
 /* Gov Hub public campaign pages – dark theme (aligned with govhub-design tokens) */
 :root {
+  --gh-campaign-page-bg: #020408;
+  --gh-campaign-footer-bg: #0a1224;
   --gh-campaign-bg: #050b1a;
   --gh-campaign-gradient-top: #020408;
   --gh-campaign-gradient-early: #030610;
   --gh-campaign-gradient-mid: #050b1a;
   --gh-campaign-gradient-bottom: #0a1224;
-  --gh-campaign-gradient-end: #0d1830;
+  --gh-campaign-gradient-end: #0a1224;
   --gh-campaign-surface: #0a1224;
   --gh-campaign-surface-raised: #101a30;
   --gh-campaign-text: #eef2ff;
@@ -19,7 +21,7 @@
 }
 
 .gh-campaign-body {
-  background: var(--gh-campaign-gradient-top);
+  background: var(--gh-campaign-footer-bg, var(--gh-campaign-surface));
   color: var(--gh-campaign-text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
@@ -224,7 +226,8 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: linear-gradient(
+  background-color: var(--gh-campaign-footer-bg, var(--gh-campaign-surface));
+  background-image: linear-gradient(
     180deg,
     var(--gh-campaign-gradient-top) 0%,
     var(--gh-campaign-gradient-early) 25%,
@@ -249,7 +252,7 @@
   border-top: 1px solid var(--gh-campaign-border);
   padding: 1rem 1.25rem;
   text-align: center;
-  background: transparent;
+  background: var(--gh-campaign-footer-bg, var(--gh-campaign-surface));
   color: var(--gh-campaign-muted);
 }
 
