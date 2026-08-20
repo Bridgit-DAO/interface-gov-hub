@@ -4,6 +4,20 @@
   "subtitle": "Humanity's Initiation into Technological Adulthood",
   "heroQuestion": "Can humanity grow into the intelligence it has created?",
   "heroImageUrl": "/static/campaign/teilhard/assets/hero.jpg",
+  "heroKicker": "The Teilhard Test",
+  "heroImagePosition": "center 32%",
+  "heroQuote": "There is no distinct center of superhuman consciousness. The noosphere is a function of the socialized Earth.",
+  "heroQuoteAttribution": "Pierre Teilhard de Chardin",
+  "heroGhostLinks": [
+    {
+      "label": "Read the Statement",
+      "href": "/docs/statement"
+    },
+    {
+      "label": "View the Slide Deck",
+      "href": "/docs/slides"
+    }
+  ],
   "layerSlug": "the-overweb",
   "customDomains": [
     "teilhardtest.com",
@@ -71,22 +85,5 @@
     "label": "Read and Comment on the Paper",
     "href": "/docs/paper"
   },
-  "secondaryCtas": [
-    {
-      "label": "Read the Statement",
-      "href": "/docs/statement"
-    },
-    {
-      "label": "View the Slide Deck",
-      "href": "/docs/slides"
-    },
-    {
-      "label": "Watch Conference Talk",
-      "href": "https://www.youtube.com/watch?v=R4uMinZ7eys"
-    },
-    {
-      "label": "Read on Substack",
-      "href": "https://gometa.substack.com/p/the-teilhard-test"
-    }
-  ]
+  "secondaryCtas": []
 }

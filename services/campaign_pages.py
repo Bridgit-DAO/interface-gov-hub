@@ -435,6 +435,16 @@ def build_monument_presentation_from_seed(seed: Dict[str, Any]) -> Dict[str, Any
     }
     if hero_image_url:
         presentation['heroImageUrl'] = hero_image_url
+    for key in (
+        'heroKicker',
+        'heroQuote',
+        'heroQuoteAttribution',
+        'heroImagePosition',
+        'heroGhostLinks',
+    ):
+        value = seed.get(key)
+        if value:
+            presentation[key] = value
     return presentation
 
 

@@ -82,3 +82,8 @@ def test_home_renders_hero_image():
     assert 'gh-campaign-hero-has-image' in html
     assert '/static/campaign/teilhard/assets/hero.jpg' in html
     assert 'Can humanity grow into the intelligence it has created?' in html
+    hero_html = html.split('gh-campaign-hero-content')[1].split('</section>')[0]
+    assert 'The Teilhard Test' in hero_html
+    assert 'The Overweb' not in hero_html
+    assert 'gh-campaign-hero-quote' in hero_html
+    assert 'btn-outline-light' not in hero_html
