@@ -2,7 +2,7 @@
 # Wildcard TLS for Interface Hub (interfacehub.net) via DNS-01.
 #
 # Covers:
-#   interfacehub.net + www.interfacehub.net + *.interfacehub.net
+#   interfacehub.net + *.interfacehub.net  (www is included by the wildcard; LE rejects both)
 #   dev.interfacehub.net + *.dev.interfacehub.net
 #
 # DNS for this zone is Cloudflare. dns-multi.ini on this VPS is for other
@@ -60,14 +60,14 @@ if [ -n "${DRY_RUN:-}" ]; then
     DRY_FLAG=(--dry-run)
 fi
 
-echo "Issuing prod cert (apex + www + *)..."
+echo "Issuing prod cert (apex + *)..."
 certbot certonly -a dns-multi \
   --dns-multi-credentials="$CRED_FILE" \
   --cert-name interfacehub.net \
   --non-interactive --agree-tos \
   --email "$EMAIL" \
   "${DRY_FLAG[@]}" \
-  -d interfacehub.net -d www.interfacehub.net -d "*.interfacehub.net"
+  -d interfacehub.net -d "*.interfacehub.net"
 
 echo "Issuing dev cert (dev + *.dev)..."
 certbot certonly -a dns-multi \
