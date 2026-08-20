@@ -153,9 +153,12 @@ def upload_image(file_storage, upload_folder, url_prefix, filename_prefix='img',
             img = _cover_crop_square(img)
             img = img.resize((side, side), Image.LANCZOS)
 
-        safe_name = f"{filename_prefix}_{os.urandom(8).hex()}.{ext}"
+        from services.image_optimize import encode_webp
+        os.makedirs(upload_folder, exist_ok=True)
+        safe_name = f"{filename_prefix}_{os.urandom(8).hex()}.webp"
         file_path = os.path.join(upload_folder, safe_name)
-        _save_with_format(img, ext, file_path)
+        with open(file_path, 'wb') as fh:
+            fh.write(encode_webp(img))
     except Exception as e:
         return None, f'Invalid image or unsupported format: {e}'
 

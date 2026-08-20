@@ -200,6 +200,7 @@ def create_app(database_uri=None, *, testing=False):
     from routes.product_rollout_admin import bp as product_rollout_admin_bp
     from routes.pages import bp as pages_bp
     from routes.users import bp as users_bp
+    from routes.images_api import bp as images_api_bp
     from routes.profile_pages import bp as profile_pages_bp
     from routes.security_pages import bp as security_pages_bp
     from routes.mfa import bp as mfa_bp
@@ -279,6 +280,7 @@ def create_app(database_uri=None, *, testing=False):
     app.register_blueprint(product_rollout_admin_bp)
     app.register_blueprint(pages_bp)
     app.register_blueprint(users_bp)
+    app.register_blueprint(images_api_bp)
     app.register_blueprint(profile_pages_bp)
     app.register_blueprint(security_pages_bp)
     app.register_blueprint(mfa_bp)

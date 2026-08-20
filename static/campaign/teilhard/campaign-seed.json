@@ -24,11 +24,26 @@
       "enabled": true,
       "heightVh": 300,
       "stops": [
-        {"at": 0, "color": "#020408"},
-        {"at": 25, "color": "#030610"},
-        {"at": 55, "color": "#050b1a"},
-        {"at": 85, "color": "#0a1224"},
-        {"at": 100, "color": "#0a1224"}
+        {
+          "at": 0,
+          "color": "#020408"
+        },
+        {
+          "at": 25,
+          "color": "#030610"
+        },
+        {
+          "at": 55,
+          "color": "#050b1a"
+        },
+        {
+          "at": 85,
+          "color": "#0a1224"
+        },
+        {
+          "at": 100,
+          "color": "#0a1224"
+        }
       ]
     }
   },
@@ -58,7 +73,8 @@
       "allowSuggestEdits": false,
       "allowEndorsement": true,
       "displayOrder": 2,
-      "icon": "quote"
+      "icon": "quote",
+      "thumbnailUrl": "/static/campaign/teilhard/assets/statement-thumb.webp"
     },
     {
       "slug": "slides",

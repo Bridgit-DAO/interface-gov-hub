@@ -49,17 +49,28 @@ def campaign_assets_dir(campaign_slug: str) -> str:
     return os.path.join(CAMPAIGN_ROOT, campaign_slug, 'assets')
 
 
-def thumb_filename(doc_slug: str) -> str:
+def thumb_filename(doc_slug: str, ext: str = 'webp') -> str:
     safe = re.sub(r'[^a-zA-Z0-9_-]+', '-', (doc_slug or 'doc').strip()).strip('-') or 'doc'
-    return f'{safe}-thumb.jpg'
+    ext = (ext or 'webp').lstrip('.').lower()
+    if ext not in ('webp', 'jpg', 'jpeg', 'png'):
+        ext = 'webp'
+    return f'{safe}-thumb.{ext}'
 
 
-def thumb_abs_path(campaign_slug: str, doc_slug: str) -> str:
-    return os.path.join(campaign_assets_dir(campaign_slug), thumb_filename(doc_slug))
+def thumb_abs_path(campaign_slug: str, doc_slug: str, ext: str = 'webp') -> str:
+    return os.path.join(campaign_assets_dir(campaign_slug), thumb_filename(doc_slug, ext))
 
 
-def thumb_public_url(campaign_slug: str, doc_slug: str) -> str:
-    return f'/static/campaign/{campaign_slug}/assets/{thumb_filename(doc_slug)}'
+def thumb_public_url(campaign_slug: str, doc_slug: str, ext: str = 'webp') -> str:
+    return f'/static/campaign/{campaign_slug}/assets/{thumb_filename(doc_slug, ext)}'
+
+
+def existing_thumb_url(campaign_slug: str, doc_slug: str) -> Optional[str]:
+    for ext in ('webp', 'jpg', 'jpeg', 'png'):
+        path = thumb_abs_path(campaign_slug, doc_slug, ext)
+        if os.path.isfile(path):
+            return thumb_public_url(campaign_slug, doc_slug, ext)
+    return None
 
 
 def _youtube_video_id(url: str) -> Optional[str]:
@@ -80,7 +91,7 @@ def extract_pdf_first_page_thumbnail(
     width: int = THUMB_WIDTH,
     height: int = THUMB_HEIGHT,
 ) -> bool:
-    """Render PDF page 1 to a cached 16:9 JPEG. Idempotent when out_path exists."""
+    """Render PDF page 1 to a cached 16:9 WebP. Idempotent when out_path exists."""
     import fitz
     from PIL import Image
 
@@ -99,7 +110,7 @@ def extract_pdf_first_page_thumbnail(
         cropped = _cover_crop_to_bounds(img, width, height)
         cropped = cropped.resize((width, height), Image.Resampling.LANCZOS)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        cropped.save(out_path, 'JPEG', quality=85, optimize=True)
+        cropped.save(out_path, 'WEBP', quality=82, method=6)
         return True
     finally:
         doc.close()
@@ -112,10 +123,11 @@ def ensure_pdf_thumbnail(
     *,
     force: bool = False,
 ) -> Optional[str]:
-    """Create ``<doc-slug>-thumb.jpg`` when missing. Returns public URL or None."""
+    """Create ``<doc-slug>-thumb.webp`` when missing. Returns public URL or None."""
+    existing = existing_thumb_url(campaign_slug, doc_slug)
+    if existing and not force:
+        return existing
     out_path = thumb_abs_path(campaign_slug, doc_slug)
-    if os.path.isfile(out_path) and not force:
-        return thumb_public_url(campaign_slug, doc_slug)
     pdf_path = resolve_project_path(pdf_rel_path)
     try:
         if extract_pdf_first_page_thumbnail(pdf_path, out_path):
@@ -350,10 +362,11 @@ def save_uploaded_campaign_thumbnail(
     file_storage,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
-    Validate upload, save as ``<doc-slug>-thumb.jpg`` under campaign assets.
+    Validate upload, save as ``<doc-slug>-thumb.webp`` under campaign assets.
     Returns ``(public_url, error_message)``.
     """
     from services.utils import allowed_image_file
+    from services.image_optimize import encode_webp, optimize_image_bytes
     from services.images import _cover_crop_to_bounds
     from PIL import Image
 
@@ -368,15 +381,10 @@ def save_uploaded_campaign_thumbnail(
         file_storage.stream.seek(0)
         img = Image.open(file_storage.stream)
         img.load()
-        if img.mode not in ('RGB', 'RGBA'):
-            img = img.convert('RGB')
-        elif img.mode == 'RGBA':
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            background.paste(img, mask=img.split()[3])
-            img = background
         cropped = _cover_crop_to_bounds(img, THUMB_WIDTH, THUMB_HEIGHT)
         cropped = cropped.resize((THUMB_WIDTH, THUMB_HEIGHT), Image.Resampling.LANCZOS)
-        cropped.save(out_path, 'JPEG', quality=88, optimize=True)
+        with open(out_path, 'wb') as fh:
+            fh.write(encode_webp(cropped, quality=82))
     except Exception as exc:
         return None, f'Could not process image: {exc}'
 
@@ -397,7 +405,7 @@ def warm_campaign_pdf_thumbnails(cfg: CampaignConfig) -> int:
         if not pdf_rel:
             continue
         out_path = thumb_abs_path(cfg.slug, slug)
-        if os.path.isfile(out_path):
+        if existing_thumb_url(cfg.slug, slug):
             continue
         if ensure_pdf_thumbnail(cfg.slug, slug, pdf_rel):
             created += 1
