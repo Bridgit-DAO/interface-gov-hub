@@ -211,41 +211,97 @@
   min-height: min(72vh, 40rem);
   display: flex;
   align-items: center;
-  margin: -2rem calc(50% - 50vw) 0;
-  padding: 4rem max(1.25rem, calc((100vw - 1100px) / 2 + 1.25rem));
-  background-image: var(--gh-campaign-hero-image);
-  background-size: cover;
-  background-position: var(--gh-campaign-hero-position, center 32%);
   overflow: hidden;
 }
 
-.gh-campaign-hero-has-image::before {
-  content: '';
+.gh-campaign-hero-full-bleed {
+  margin: -2rem calc(50% - 50vw) 0;
+  width: 100vw;
+  max-width: 100vw;
+  padding: 4rem max(1.25rem, calc((100vw - 1100px) / 2 + 1.25rem));
+}
+
+.gh-campaign-hero-media {
   position: absolute;
   inset: 0;
+  z-index: 0;
+}
+
+.gh-campaign-hero-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+}
+
+.gh-campaign-hero-fit-contain .gh-campaign-hero-image {
+  object-fit: contain;
+  background: var(--gh-campaign-bg);
+}
+
+.gh-campaign-hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.gh-campaign-hero-scrim-gradient-left {
   background:
     linear-gradient(
       to right,
-      rgba(5, 11, 26, 0.94) 0%,
-      rgba(5, 11, 26, 0.82) 34%,
-      rgba(5, 11, 26, 0.42) 58%,
-      rgba(5, 11, 26, 0.08) 100%
+      rgba(5, 11, 26, 0.96) 0%,
+      rgba(5, 11, 26, 0.88) 38%,
+      rgba(5, 11, 26, 0.52) 62%,
+      rgba(5, 11, 26, 0.12) 100%
     ),
     linear-gradient(
       to top,
       rgba(5, 11, 26, 0.98) 0%,
-      rgba(5, 11, 26, 0.72) 24%,
-      rgba(5, 11, 26, 0.18) 52%,
+      rgba(5, 11, 26, 0.78) 28%,
+      rgba(5, 11, 26, 0.22) 56%,
       transparent 100%
     );
-  pointer-events: none;
+}
+
+.gh-campaign-hero-scrim-gradient-bottom {
+  background: linear-gradient(
+    to top,
+    rgba(5, 11, 26, 0.98) 0%,
+    rgba(5, 11, 26, 0.72) 34%,
+    rgba(5, 11, 26, 0.18) 68%,
+    transparent 100%
+  );
+}
+
+.gh-campaign-hero-scrim-gradient-full {
+  background: rgba(5, 11, 26, 0.62);
 }
 
 .gh-campaign-hero-content {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   max-width: 36rem;
   width: 100%;
+}
+
+.gh-campaign-hero-align-center {
+  margin-inline: auto;
+  text-align: center;
+}
+
+.gh-campaign-hero-align-center .gh-campaign-hero-ctas {
+  align-items: center;
+}
+
+.gh-campaign-hero-align-right {
+  margin-left: auto;
+  text-align: right;
+}
+
+.gh-campaign-hero-align-right .gh-campaign-hero-ctas {
+  align-items: flex-end;
 }
 
 .gh-campaign-hero-quote {
@@ -295,7 +351,7 @@
     min-height: 70vh;
   }
 
-  .gh-campaign-hero-has-image {
+  .gh-campaign-hero-full-bleed {
     min-height: 58vh;
     padding-top: 3rem;
     padding-bottom: 2.5rem;

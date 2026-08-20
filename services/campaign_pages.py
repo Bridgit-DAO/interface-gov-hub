@@ -23,6 +23,7 @@ class CampaignConfig:
     subtitle: str
     hero_question: str
     hero_image_url: str
+    hero: Dict[str, Any]
     layer_slug: str
     custom_domains: List[str]
     dev_host: str
@@ -62,11 +63,94 @@ class CampaignConfig:
 def _resolve_hero_image_url(data: Dict[str, Any], presentation: Optional[Dict[str, Any]] = None) -> str:
     pres = presentation or {}
     for source in (data, pres):
+        hero_block = source.get('hero') or {}
+        for key in ('imageUrl', 'image_url'):
+            value = (hero_block.get(key) or '').strip()
+            if value:
+                return value
         for key in ('heroImageUrl', 'heroImage', 'hero_image_url'):
             value = (source.get(key) or '').strip()
             if value:
                 return value
     return ''
+
+
+def normalize_hero_config(
+    data: Dict[str, Any],
+    presentation: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Merge nested ``hero`` block with legacy flat presentation keys."""
+    pres = presentation or {}
+    hero = dict(data.get('hero') or pres.get('hero') or {})
+    overlay = dict(hero.get('overlay') or {})
+
+    image_url = (
+        (hero.get('imageUrl') or hero.get('image_url') or '').strip()
+        or _resolve_hero_image_url(data, pres)
+    )
+    kicker = (
+        hero.get('kicker')
+        or data.get('heroKicker')
+        or pres.get('heroKicker')
+        or ''
+    )
+    headline = (
+        hero.get('headline')
+        or data.get('heroQuestion')
+        or pres.get('heroQuestion')
+        or ''
+    )
+    quote = (
+        hero.get('quote')
+        or data.get('heroQuote')
+        or pres.get('heroQuote')
+        or ''
+    )
+    quote_attribution = (
+        hero.get('quoteAttribution')
+        or hero.get('quote_attribution')
+        or data.get('heroQuoteAttribution')
+        or pres.get('heroQuoteAttribution')
+        or ''
+    )
+    full_bleed = hero.get('fullBleed', hero.get('full_bleed', True))
+    fit = (hero.get('fit') or 'cover').strip().lower()
+    if fit not in {'cover', 'contain'}:
+        fit = 'cover'
+
+    scrim = (overlay.get('scrim') or 'gradient-left').strip()
+    text_align = (overlay.get('textAlign') or overlay.get('text_align') or 'left').strip()
+
+    primary_cta = dict(
+        overlay.get('primaryCta')
+        or overlay.get('primary_cta')
+        or data.get('primaryCta')
+        or pres.get('primaryCta')
+        or {}
+    )
+    ghost_links = list(
+        overlay.get('ghostLinks')
+        or overlay.get('ghost_links')
+        or data.get('heroGhostLinks')
+        or pres.get('heroGhostLinks')
+        or []
+    )
+
+    return {
+        'imageUrl': image_url,
+        'fullBleed': bool(full_bleed),
+        'kicker': str(kicker or '').strip(),
+        'headline': str(headline or '').strip(),
+        'quote': str(quote or '').strip(),
+        'quoteAttribution': str(quote_attribution or '').strip(),
+        'fit': fit,
+        'overlay': {
+            'scrim': scrim,
+            'textAlign': text_align,
+            'primaryCta': primary_cta,
+            'ghostLinks': ghost_links,
+        },
+    }
 
 
 def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
@@ -76,12 +160,14 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
         structure = build_monument_structure_from_seed(data)
     if not presentation:
         presentation = build_monument_presentation_from_seed(data)
+    hero = normalize_hero_config(data, presentation)
     return CampaignConfig(
         slug=slug,
         title=data.get('title') or slug,
         subtitle=data.get('subtitle') or '',
-        hero_question=data.get('heroQuestion') or '',
-        hero_image_url=_resolve_hero_image_url(data, presentation),
+        hero_question=hero.get('headline') or data.get('heroQuestion') or '',
+        hero_image_url=hero.get('imageUrl') or '',
+        hero=hero,
         layer_slug=data.get('layerSlug') or '',
         custom_domains=list(data.get('customDomains') or []),
         dev_host=(data.get('devHost') or '').strip(),
@@ -179,12 +265,14 @@ def _parse_monument_campaign(monument) -> CampaignConfig:
     external_links = list(presentation.get('externalLinks') or [])
     external_links.extend(_external_links_from_nodes(nodes))
     external_links.sort(key=lambda item: item.get('displayOrder') or 0)
+    hero = normalize_hero_config(presentation)
     return CampaignConfig(
         slug=slug,
         title=presentation.get('title') or getattr(monument, 'title', None) or slug,
         subtitle=presentation.get('subtitle') or '',
-        hero_question=presentation.get('heroQuestion') or '',
-        hero_image_url=_resolve_hero_image_url(presentation),
+        hero_question=hero.get('headline') or presentation.get('heroQuestion') or '',
+        hero_image_url=hero.get('imageUrl') or '',
+        hero=hero,
         layer_slug=presentation.get('layerSlug') or '',
         custom_domains=list(domains or []),
         dev_host=presentation.get('devHost') or '',
@@ -420,31 +508,35 @@ def build_monument_structure_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_monument_presentation_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
-    hero_image_url = _resolve_hero_image_url(seed)
+    hero = normalize_hero_config(seed)
     presentation = {
         'campaignSlug': seed.get('slug'),
         'title': seed.get('title'),
         'subtitle': seed.get('subtitle'),
-        'heroQuestion': seed.get('heroQuestion'),
+        'heroQuestion': hero.get('headline') or seed.get('heroQuestion'),
         'layerSlug': seed.get('layerSlug'),
         'customDomains': list(seed.get('customDomains') or []),
         'devHost': seed.get('devHost'),
-        'primaryCta': dict(seed.get('primaryCta') or {}),
+        'primaryCta': dict(
+            hero.get('overlay', {}).get('primaryCta')
+            or seed.get('primaryCta')
+            or {}
+        ),
         'secondaryCtas': list(seed.get('secondaryCtas') or []),
         'homeSections': ['turing_teilhard', 'four_criteria', 'doc_grid'],
+        'hero': hero,
     }
-    if hero_image_url:
-        presentation['heroImageUrl'] = hero_image_url
-    for key in (
-        'heroKicker',
-        'heroQuote',
-        'heroQuoteAttribution',
-        'heroImagePosition',
-        'heroGhostLinks',
-    ):
-        value = seed.get(key)
-        if value:
-            presentation[key] = value
+    if hero.get('imageUrl'):
+        presentation['heroImageUrl'] = hero['imageUrl']
+    if hero.get('kicker'):
+        presentation['heroKicker'] = hero['kicker']
+    if hero.get('quote'):
+        presentation['heroQuote'] = hero['quote']
+    if hero.get('quoteAttribution'):
+        presentation['heroQuoteAttribution'] = hero['quoteAttribution']
+    ghost_links = hero.get('overlay', {}).get('ghostLinks') or []
+    if ghost_links:
+        presentation['heroGhostLinks'] = ghost_links
     return presentation
 
 

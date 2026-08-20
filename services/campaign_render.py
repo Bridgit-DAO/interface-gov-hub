@@ -17,7 +17,7 @@ from services.campaign_auth import (
     hub_login_url,
     vanity_absolute_url,
 )
-from services.campaign_pages import CampaignConfig, campaign_href
+from services.campaign_pages import CampaignConfig, campaign_href, normalize_hero_config
 from services.campaign_thumbnails import resolve_campaign_card_thumbnail
 
 
@@ -261,7 +261,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=7" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=8" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">
@@ -306,15 +306,29 @@ def _campaign_presentation_value(cfg: CampaignConfig, key: str, default: str = '
     return default
 
 
+def _campaign_hero_settings(cfg: CampaignConfig) -> Dict[str, Any]:
+    hero = dict(cfg.hero or {})
+    if not hero.get('imageUrl') and not hero.get('headline'):
+        hero = normalize_hero_config(cfg.raw or {}, cfg.presentation or {})
+    return hero
+
+
 def _campaign_hero_kicker(cfg: CampaignConfig) -> str:
-    return _campaign_presentation_value(cfg, 'heroKicker', cfg.title or 'The Overweb')
+    hero = _campaign_hero_settings(cfg)
+    return hero.get('kicker') or cfg.title or 'The Overweb'
+
+
+def _campaign_hero_headline(cfg: CampaignConfig) -> str:
+    hero = _campaign_hero_settings(cfg)
+    return hero.get('headline') or cfg.hero_question or cfg.title
 
 
 def _campaign_hero_quote_html(cfg: CampaignConfig) -> str:
-    quote = _campaign_presentation_value(cfg, 'heroQuote')
+    hero = _campaign_hero_settings(cfg)
+    quote = hero.get('quote') or _campaign_presentation_value(cfg, 'heroQuote')
     if not quote:
         return ''
-    attribution = _campaign_presentation_value(cfg, 'heroQuoteAttribution')
+    attribution = hero.get('quoteAttribution') or _campaign_presentation_value(cfg, 'heroQuoteAttribution')
     cite_html = f'\n        <cite>{_esc(attribution)}</cite>' if attribution else ''
     return f'''
         <blockquote class="gh-campaign-hero-quote">
@@ -323,9 +337,13 @@ def _campaign_hero_quote_html(cfg: CampaignConfig) -> str:
 
 
 def _campaign_hero_ghost_links_html(cfg: CampaignConfig, *, max_links: int = 2) -> str:
-    pres = cfg.presentation or {}
-    raw = cfg.raw or {}
-    links = pres.get('heroGhostLinks') or raw.get('heroGhostLinks') or []
+    hero = _campaign_hero_settings(cfg)
+    overlay = hero.get('overlay') or {}
+    links = list(overlay.get('ghostLinks') or [])
+    if not links:
+        pres = cfg.presentation or {}
+        raw = cfg.raw or {}
+        links = pres.get('heroGhostLinks') or raw.get('heroGhostLinks') or []
     if not links:
         links = [
             {'label': cta.get('label'), 'href': cta.get('href')}
@@ -347,22 +365,43 @@ def _campaign_hero_ghost_links_html(cfg: CampaignConfig, *, max_links: int = 2) 
 
 
 def _campaign_hero_section(cfg: CampaignConfig, *, primary_href: str, primary: Dict[str, Any]) -> str:
-    hero_url = (cfg.hero_image_url or (cfg.presentation or {}).get('heroImageUrl') or '').strip()
-    hero_class = 'gh-campaign-hero gh-campaign-hero-has-image' if hero_url else 'gh-campaign-hero'
-    hero_style_parts = []
+    hero = _campaign_hero_settings(cfg)
+    hero_url = (hero.get('imageUrl') or cfg.hero_image_url or '').strip()
+    full_bleed = bool(hero.get('fullBleed', True))
+    fit = (hero.get('fit') or 'cover').strip().lower()
+    overlay = hero.get('overlay') or {}
+    scrim = (overlay.get('scrim') or 'gradient-left').strip()
+    text_align = (overlay.get('textAlign') or 'left').strip().lower()
+
+    hero_classes = ['gh-campaign-hero']
     if hero_url:
-        hero_style_parts.append(f"--gh-campaign-hero-image: url('{_esc(hero_url)}')")
-    image_position = _campaign_presentation_value(cfg, 'heroImagePosition', 'center 32%')
-    if image_position:
-        hero_style_parts.append(f'--gh-campaign-hero-position: {_esc(image_position)}')
-    hero_attr = f' style="{"; ".join(hero_style_parts)};"' if hero_style_parts else ''
+        hero_classes.append('gh-campaign-hero-has-image')
+    if full_bleed and hero_url:
+        hero_classes.append('gh-campaign-hero-full-bleed')
+    if fit == 'contain':
+        hero_classes.append('gh-campaign-hero-fit-contain')
+
+    content_classes = ['gh-campaign-hero-content']
+    if text_align in {'left', 'center', 'right'}:
+        content_classes.append(f'gh-campaign-hero-align-{text_align}')
+
+    scrim_class = f'gh-campaign-hero-scrim gh-campaign-hero-scrim-{scrim.replace("_", "-")}'
+
+    media_html = ''
+    if hero_url:
+        media_html = f'''
+      <div class="gh-campaign-hero-media" aria-hidden="true">
+        <img class="gh-campaign-hero-image" src="{_esc(hero_url)}" alt="">
+      </div>
+      <div class="{_esc(scrim_class)}"></div>'''
+
     quote_html = _campaign_hero_quote_html(cfg)
     ghost_links_html = _campaign_hero_ghost_links_html(cfg)
     return f'''
-    <section class="{hero_class}"{hero_attr}>
-      <div class="gh-campaign-hero-content">
+    <section class="{" ".join(hero_classes)}">{media_html}
+      <div class="{" ".join(content_classes)}">
         <p class="gh-campaign-eyebrow">{_esc(_campaign_hero_kicker(cfg))}</p>
-        <h1>{_esc(cfg.hero_question or cfg.title)}</h1>{quote_html}
+        <h1>{_esc(_campaign_hero_headline(cfg))}</h1>{quote_html}
         <div class="gh-campaign-hero-ctas">
           <a class="btn btn-primary btn-lg" href="{_esc(primary_href)}">{_esc(primary.get("label") or "Read")}</a>
           {ghost_links_html}
@@ -394,6 +433,9 @@ def render_home(cfg: CampaignConfig) -> str:
     cards_html = '\n'.join(doc_cards)
     monument_preview = _monument_tree_html(cfg, compact=True)
     primary = cfg.primary_cta or {}
+    hero = _campaign_hero_settings(cfg)
+    overlay = hero.get('overlay') or {}
+    primary = dict(overlay.get('primaryCta') or primary or {})
     primary_href = primary.get('href') or campaign_href(cfg.slug, '/docs/paper')
     if primary_href.startswith('/'):
         primary_href = campaign_href(cfg.slug, primary_href)
@@ -637,7 +679,7 @@ def render_embed_draft_reader(draft_ref: str) -> tuple[str, int]:
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link href="/static/css/govhub-design.css?v={BUILD_NUMBER}" rel="stylesheet">
   <link href="/static/css/dp-proposals-reader.css?v={BUILD_NUMBER}" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=7" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=8" rel="stylesheet">
 </head>
 <body class="gh-embed-draft-reader">
   <header class="gh-embed-reader-toolbar">
@@ -665,7 +707,7 @@ def render_embed_slides_pdf(pdf_url: str, *, title: str = 'Slide deck') -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title_esc}</title>
-  <link href="/static/css/campaign-pages.css?v=7" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=8" rel="stylesheet">
 </head>
 <body class="gh-embed-pdf-reader">
   <div class="gh-embed-pdf-native">
