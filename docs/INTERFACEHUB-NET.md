@@ -22,9 +22,11 @@ Legacy (keep working, then 301):
 
 ## Activate (ops)
 
-1. **Cloudflare zone** `interfacehub.net` must be **Active** (NS already `everton` / `paige`). Grey-cloud (DNS-only) A records to `216.238.91.120`:
+1. **Cloudflare zone** `interfacehub.net` must be **Active** (NS already `everton` / `paige`). **Proxied (orange cloud)** A records to `216.238.91.120`:
    - `@`, `www`, `*`, `dev`, `*.dev`, `staging`
    - Helper: `CLOUDFLARE_API_TOKEN=... python3 scripts/ensure-interfacehub-cloudflare-dns.py`
+   - Grey cloud only if debugging origin directly: `INTERFACEHUB_DNS_PROXIED=0 ... python3 scripts/ensure-interfacehub-cloudflare-dns.py`
+   - Cloudflare SSL/TLS mode: **Full (strict)** (origin already has Let's Encrypt wildcard on nginx)
 2. **TLS** (needs sudo + Cloudflare token with Zone:DNS:Edit). Do not list `www` on the cert request; `*.interfacehub.net` already covers it:
    - `sudo CLOUDFLARE_API_TOKEN=... bash setup-wildcard-cert-interfacehub-net.sh`
 3. **nginx**:

@@ -895,7 +895,7 @@ BASE_TEMPLATE = """
     </script>
     <nav class="navbar navbar-expand-lg">
         <div class="container">
-            <a class="navbar-brand" href="/">
+            <a class="navbar-brand" href="/" data-estate-brand>
                 <img class="navbar-brand-logo-invert" src="/static/images/overweb_logo.png" alt="Overweb" />
                 <span class="gh-brand-word"><span class="gh-brand-gov">Gov</span> <span class="gh-brand-hub">Hub</span></span>
             </a>
@@ -974,6 +974,14 @@ BASE_TEMPLATE = """
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/gh-return-nav.js"></script>
     <script src="/static/js/gh-dialog.js"></script>
+    <script
+      id="estate-chrome"
+      src="/static/js/estate-chrome.js?v=20260820"
+      data-site-name="Gov Hub"
+      data-support-url="https://metawebbook.com/activity/?tab=contact"
+      data-contact-email="info@bridgit.io"
+      data-cookies-url="/static/cookies.html"
+    ></script>
     <script src="/static/js/gh-image-crop.js?v=20260820c"></script>
     <script src="/static/js/gh-image-upload.js?v=20260820c"></script>
     <script src="/static/js/gh-invite.js?v=18"></script>
@@ -1741,7 +1749,7 @@ BASE_TEMPLATE = """
 LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
     '''    <nav class="navbar navbar-expand-lg">
         <div class="container">
-            <a class="navbar-brand" href="/">
+            <a class="navbar-brand" href="/" data-estate-brand>
                 <img class="navbar-brand-logo-invert" src="/static/images/overweb_logo.png" alt="Overweb" />
                 <span class="gh-brand-word"><span class="gh-brand-gov">Gov</span> <span class="gh-brand-hub">Hub</span></span>
             </a>
@@ -1779,7 +1787,7 @@ LAYER_STANDALONE_BASE_TEMPLATE = BASE_TEMPLATE.replace(
     </nav>''',
     '''    <nav class="navbar navbar-expand-lg">
         <div class="container">
-            <a class="navbar-brand" href="/layer/{layer_slug}/">
+            <a class="navbar-brand" href="/layer/{layer_slug}/" data-estate-brand>
                 {layer_image_html}
                 {layer_name}
             </a>
