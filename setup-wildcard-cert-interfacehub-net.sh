@@ -24,16 +24,25 @@ set -euo pipefail
 EMAIL="${CERTBOT_EMAIL:-admin@interfacehub.net}"
 CRED_FILE="${DNS_MULTI_CREDENTIALS:-/etc/letsencrypt/dns-multi-interfacehub.ini}"
 DEFAULT_CRED="/etc/letsencrypt/dns-multi.ini"
+TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 
-if [ ! -f "$CRED_FILE" ] && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+if [ -n "$TOKEN" ]; then
+    if [ "$TOKEN" = "..." ] || [ "${#TOKEN}" -lt 20 ]; then
+        echo "CLOUDFLARE_API_TOKEN looks like a placeholder (or is too short)."
+        echo "Use the real token from Cloudflare → My Profile → API Tokens"
+        echo "(Zone:DNS:Edit on interfacehub.net). Do not paste the three dots."
+        echo "If a bad file was already written, remove it first:"
+        echo "  sudo rm -f /etc/letsencrypt/dns-multi-interfacehub.ini"
+        exit 1
+    fi
     CRED_FILE="/etc/letsencrypt/dns-multi-interfacehub.ini"
     umask 077
     cat > "$CRED_FILE" << EOF
 dns_multi_provider = cloudflare
-CLOUDFLARE_DNS_API_TOKEN = ${CLOUDFLARE_API_TOKEN}
+CLOUDFLARE_DNS_API_TOKEN = ${TOKEN}
 EOF
     chmod 600 "$CRED_FILE"
-    echo "Wrote $CRED_FILE from CLOUDFLARE_API_TOKEN"
+    echo "Wrote $CRED_FILE from CLOUDFLARE_API_TOKEN (${#TOKEN} chars)"
 fi
 
 if [ ! -f "$CRED_FILE" ] && [ -f "$DEFAULT_CRED" ]; then
