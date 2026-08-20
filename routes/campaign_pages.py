@@ -382,7 +382,9 @@ def campaign_thumbnails_admin(slug):
             <form method="POST" enctype="multipart/form-data"
                   action="{html_mod.escape(campaign_href(slug, f"/admin/thumbnails/{doc_slug}/"))}">
               {csrf_form_field()}
-              <input type="file" name="thumbnail" accept="image/png,image/jpeg,image/webp,image/gif" required>
+              <input type="file" name="thumbnail" accept="image/png,image/jpeg,image/webp,image/gif"
+                     data-gh-aspect="16/9" data-gh-output-width="640" data-gh-output-height="360"
+                     data-gh-title="Crop thumbnail" required>
               <button type="submit" class="btn btn-sm btn-primary mt-1">Upload</button>
             </form>
           </td>
@@ -407,11 +409,15 @@ def campaign_thumbnails_admin(slug):
     </script>'''
 
     html = f'''<!DOCTYPE html><html><head><title>Campaign thumbnails</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="/static/js/gh-image-crop.js?v=20260820c"></script>
+    <script src="/static/js/gh-image-upload.js?v=20260820c"></script>
+    </head>
     <body class="p-4">
     <h1>Card thumbnails – {html_mod.escape(cfg.title)}</h1>
-    <p class="text-muted">Upload replaces the cached JPG under <code>/static/campaign/{html_mod.escape(slug)}/assets/</code>
-    and updates the monument node <code>thumbnailUrl</code>. PDF auto-extract runs when no explicit thumb is set.</p>
+    <p class="text-muted">Crop/zoom then upload. Files are stored as optimized WebP under
+    <code>/static/campaign/{html_mod.escape(slug)}/assets/</code>.
+    PDF auto-extract runs when no explicit thumb is set.</p>
     <table class="table align-middle"><thead><tr><th>Label</th><th>Slug</th><th>Current</th><th>Upload</th></tr></thead>
     <tbody>{table}</tbody></table>
     <p><a href="{html_mod.escape(campaign_href(slug, "/"))}">Back to campaign home</a></p>

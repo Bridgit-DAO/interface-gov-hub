@@ -184,7 +184,13 @@ def _save_attachments(data_dir: str, ticket_id: str, screenshots: List[Dict[str,
             continue
         if not buf or len(buf) > 1_500_000:
             continue
-        ext = 'jpg' if 'jpeg' in mime or 'jpg' in mime else 'webp' if 'webp' in mime else 'gif' if 'gif' in mime else 'png'
+        try:
+            from services.image_optimize import optimize_image_bytes
+            buf, meta = optimize_image_bytes(buf, max_width=1600, quality=80)
+            mime = meta['mime']
+            ext = 'webp'
+        except Exception:
+            ext = 'jpg' if 'jpeg' in mime or 'jpg' in mime else 'webp' if 'webp' in mime else 'gif' if 'gif' in mime else 'png'
         att_id = f'{i + 1}-{uuid.uuid4().hex[:8]}'
         filename = re.sub(r'[^a-zA-Z0-9._-]', '_', _norm(item.get('filename') or f'screenshot-{att_id}.{ext}', 120))
         rel = os.path.join('attachments', ticket_id, filename)

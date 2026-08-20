@@ -444,6 +444,7 @@ def role_images_directory():
         window.GhImageCrop.open(file, {{
             outputSize: 600,
             aspectRatio: 1,
+            mime: 'image/webp',
             title: 'Crop Role Image',
             onConfirm: function(blob) {{
                 const mime = blob.type || 'image/jpeg';

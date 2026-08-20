@@ -4350,6 +4350,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         }}
         statusEl.innerHTML = '';
         GhImageCrop.open(file, {{
+            mime: 'image/webp',
             onConfirm: function(blob) {{ uploadCroppedProjectImage(blob); }},
             onCancel: function() {{ fileInput.value = ''; }}
         }});
@@ -4362,7 +4363,7 @@ def _render_project_detail(project_slug, waitlist_id=None, standalone=False):
         const previewImg = document.getElementById('edit-project-image-preview');
 
         const formData = new FormData();
-        formData.append('file', new File([blob], 'layer-image.jpg', {{ type: 'image/jpeg' }}));
+        formData.append('file', new File([blob], 'layer-image.webp', {{ type: blob.type || 'image/webp' }}));
         formData.append('entity_type', 'project');
 
         statusEl.innerHTML = '<small class="text-info"><i class="fas fa-spinner fa-spin"></i> Uploading...</small>';

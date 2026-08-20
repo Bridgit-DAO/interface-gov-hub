@@ -873,6 +873,7 @@ def profile_edit():
         window.GhImageCrop.open(file, {{
             outputSize: 600,
             aspectRatio: 1,
+            mime: 'image/webp',
             title: 'Crop Profile Picture',
             onConfirm: function(blob) {{ uploadProfileImage(blob, input); }},
             onCancel:  function() {{ input.value = ''; }},
@@ -890,6 +891,7 @@ def profile_edit():
         window.GhImageCrop.open(file, {{
             outputSize: 600,
             aspectRatio: 16 / 5,
+            mime: 'image/webp',
             title: 'Crop Banner',
             onConfirm: function(blob) {{ uploadBannerImage(blob, input); }},
             onCancel:  function() {{ input.value = ''; }},

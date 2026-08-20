@@ -20,11 +20,11 @@ def teilhard_pdf_path():
     return path
 
 
-def test_extract_pdf_first_page_thumbnail_creates_jpg(teilhard_pdf_path):
+def test_extract_pdf_first_page_thumbnail_creates_webp(teilhard_pdf_path):
     from services.campaign_thumbnails import extract_pdf_first_page_thumbnail
 
     with tempfile.TemporaryDirectory() as tmp:
-        out = os.path.join(tmp, 'slides-thumb.jpg')
+        out = os.path.join(tmp, 'slides-thumb.webp')
         assert extract_pdf_first_page_thumbnail(teilhard_pdf_path, out) is True
         assert os.path.isfile(out)
         assert os.path.getsize(out) > 1000
