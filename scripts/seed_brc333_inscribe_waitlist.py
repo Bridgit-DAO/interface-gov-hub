@@ -7,7 +7,7 @@ Usage (from gov-hub-prod, with prod .env loaded as usual via app):
 Creates:
   - Waitlist "BRC333 Studio inscribe access" on layer slug `the-overweb`
   - Authenticated join via POST /api/waitlists/<id>/join/
-  - Public page: https://hub.themetalayer.org/waitlists/<id>/
+  - Public page: https://interfacehub.net/waitlists/<id>/
 """
 from __future__ import annotations
 

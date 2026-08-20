@@ -10,7 +10,7 @@ Creates:
     POST /api/waitlists/<id>/join-email/
 
 Vanity hosts (wildcard nginx already covers these once slug exists):
-  https://moltlayer.hub.themetalayer.org/ → /layers/moltlayer/
+  https://moltlayer.interfacehub.net/ → /layers/moltlayer/
   https://moltlayer.themetalayer.org/
 """
 from __future__ import annotations

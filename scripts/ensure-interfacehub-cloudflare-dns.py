@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Upsert Cloudflare A records for interfacehub.net (DNS-only / grey cloud).
+"""Upsert Cloudflare A records for interfacehub.net.
 
 Requires CLOUDFLARE_API_TOKEN with Zone:DNS:Edit on interfacehub.net.
 Does not print the token.
 
-Records:
-  @, www, *, dev, *.dev, staging  →  216.238.91.120
+Records (@, www, *, dev, *.dev, staging) → 216.238.91.120
+
+Proxied (orange cloud) is the default so traffic gets Cloudflare CDN/WAF/DDoS.
+Set INTERFACEHUB_DNS_PROXIED=0 for DNS-only (grey cloud) during origin debugging.
 """
 from __future__ import annotations
 
@@ -18,6 +20,13 @@ import urllib.request
 
 ZONE_NAME = "interfacehub.net"
 VPS_IPV4 = os.environ.get("INTERFACEHUB_IPV4", "216.238.91.120")
+PROXIED = os.environ.get("INTERFACEHUB_DNS_PROXIED", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "grey",
+    "dns-only",
+)
 API = "https://api.cloudflare.com/client/v4"
 
 RECORDS = (
@@ -53,7 +62,8 @@ def main() -> int:
     token = (os.environ.get("CLOUDFLARE_API_TOKEN") or "").strip()
     if not token:
         print("CLOUDFLARE_API_TOKEN is not set; skip DNS upsert.", file=sys.stderr)
-        print("Create these A records (grey cloud) to 216.238.91.120:", file=sys.stderr)
+        mode = "proxied (orange cloud)" if PROXIED else "DNS-only (grey cloud)"
+        print(f"Create these A records ({mode}) to {VPS_IPV4}:", file=sys.stderr)
         for _label, name in RECORDS:
             print(f"  A  {name}  {VPS_IPV4}", file=sys.stderr)
         return 2
@@ -66,7 +76,7 @@ def main() -> int:
         return 1
     zone = zones[0]
     zone_id = zone["id"]
-    print(f"Zone {ZONE_NAME} status={zone.get('status')} paused={zone.get('paused')}")
+    print(f"Zone {ZONE_NAME} status={zone.get('status')} paused={zone.get('paused')} proxied={PROXIED}")
 
     existing = _request(
         token,
@@ -93,18 +103,23 @@ def main() -> int:
             "name": dns_name,
             "content": VPS_IPV4,
             "ttl": 1,
-            "proxied": False,
+            "proxied": PROXIED,
         }
+        mode = "proxied" if PROXIED else "DNS-only"
         current = by_name.get(fqdn)
-        if current and current.get("content") == VPS_IPV4 and current.get("proxied") is False:
-            print(f"ok  A {dns_name} already {VPS_IPV4} (DNS-only)")
+        if (
+            current
+            and current.get("content") == VPS_IPV4
+            and current.get("proxied") is PROXIED
+        ):
+            print(f"ok  A {dns_name} already {VPS_IPV4} ({mode})")
             continue
         if current:
             _request(token, "PUT", f"/zones/{zone_id}/dns_records/{current['id']}", payload)
-            print(f"upd A {dns_name} → {VPS_IPV4} (DNS-only)")
+            print(f"upd A {dns_name} → {VPS_IPV4} ({mode})")
         else:
             _request(token, "POST", f"/zones/{zone_id}/dns_records", payload)
-            print(f"add A {dns_name} → {VPS_IPV4} (DNS-only)")
+            print(f"add A {dns_name} → {VPS_IPV4} ({mode})")
     return 0
 
 
