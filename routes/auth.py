@@ -24,17 +24,13 @@ LOGIN_TEMPLATE = """
             <div class="living-module mb-0">
                 <div class="living-module-body text-center py-2">
                     <div id="flash-messages"></div>
-                    <p class="text-muted mb-3" id="web3auth-login-hint">Sign in with Google or email</p>
-                    <div id="web3auth-social-login" class="d-grid gap-2">
-                        <button type="button" class="btn btn-primary btn-lg" id="web3auth-google-btn" disabled aria-busy="true" onclick="loginWithWeb3AuthGoogle()">
-                            <i class="fab fa-google me-2" aria-hidden="true"></i>
-                            Continue with Google
-                        </button>
-                        <button type="button" class="btn btn-outline-primary btn-lg" id="web3auth-email-btn" disabled aria-busy="true" onclick="loginWithWeb3AuthEmail()">
-                            <i class="fas fa-envelope me-2" aria-hidden="true"></i>
-                            Continue with email
-                        </button>
-                    </div>
+                    <p class="text-muted mb-3" id="web3auth-login-hint">Web3Auth: Google, email, or wallet</p>
+                    <button type="button" class="btn btn-primary btn-lg" id="web3auth-signin-btn" disabled aria-busy="true" onclick="loginWithWeb3Auth()">
+                        <svg width="20" height="20" class="me-2" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;" aria-hidden="true">
+                            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
+                        </svg>
+                        Sign In with Web3Auth
+                    </button>
                 </div>
             </div>
         </div>
