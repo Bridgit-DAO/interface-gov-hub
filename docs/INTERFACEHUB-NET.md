@@ -43,7 +43,8 @@ Legacy (keep working, then 301):
    - Canopi: `GOV_HUB_PUBLIC_URL=https://interfacehub.net` (prod) / `https://dev.interfacehub.net` (dev)
 7. Restart: `systemctl --user restart datatracker.service datatracker-dev.service`
 8. **Mail**: leave Resend `RESEND_FROM` on the verified `hub.themetalayer.org` sender until SPF/DKIM/DMARC exist for `interfacehub.net`. Then switch to `no-reply@interfacehub.net`.
-9. **Legacy redirect** (after 5–7 work): install `docs/nginx-hub-themetalayer-org-redirect-to-interfacehub.conf`.
+9. **Legacy redirect** (Web3Auth on interfacehub.net is done):
+   `sudo bash docs/install-hub-themetalayer-org-redirect.sh`
 
 ## Flask
 
