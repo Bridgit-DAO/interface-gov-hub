@@ -2,6 +2,7 @@
 :root {
   --gh-campaign-bg: #050b1a;
   --gh-campaign-gradient-top: #020408;
+  --gh-campaign-gradient-early: #030610;
   --gh-campaign-gradient-mid: #050b1a;
   --gh-campaign-gradient-bottom: #0a1224;
   --gh-campaign-gradient-end: #0d1830;
@@ -18,14 +19,7 @@
 }
 
 .gh-campaign-body {
-  background: linear-gradient(
-    180deg,
-    var(--gh-campaign-gradient-top) 0%,
-    var(--gh-campaign-gradient-mid) 15%,
-    var(--gh-campaign-gradient-bottom) 60%,
-    var(--gh-campaign-gradient-end) 100%
-  );
-  background-attachment: fixed;
+  background: var(--gh-campaign-gradient-top);
   color: var(--gh-campaign-text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
@@ -229,7 +223,17 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: transparent;
+  min-height: 100vh;
+  background: linear-gradient(
+    180deg,
+    var(--gh-campaign-gradient-top) 0%,
+    var(--gh-campaign-gradient-early) 40%,
+    var(--gh-campaign-gradient-mid) 70%,
+    var(--gh-campaign-gradient-bottom) 92%,
+    var(--gh-campaign-gradient-end) 100%
+  );
+  background-size: 100% 1000vh;
+  background-repeat: no-repeat;
 }
 
 .gh-campaign-main {
