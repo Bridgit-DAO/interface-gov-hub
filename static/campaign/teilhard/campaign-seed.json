@@ -2,13 +2,21 @@
   "slug": "teilhard",
   "title": "The Teilhard Test",
   "subtitle": "Humanity's Initiation into Technological Adulthood",
-  "heroQuestion": "Can humanity grow into the intelligence it has created?",
   "layerSlug": "the-overweb",
   "customDomains": [
     "teilhardtest.com",
     "www.teilhardtest.com"
   ],
   "devHost": "teilhard.dev.govhub.live",
+  "hero": {
+    "imageUrl": "/static/campaign/teilhard/assets/hero.png",
+    "fullBleed": true,
+    "fit": "contain",
+    "overlay": {
+      "mode": "nav-only",
+      "scrim": "none"
+    }
+  },
   "documents": [
     {
       "slug": "paper",
@@ -70,22 +78,17 @@
     "label": "Read and Comment on the Paper",
     "href": "/docs/paper"
   },
-  "secondaryCtas": [
-    {
-      "label": "Read the Statement",
-      "href": "/docs/statement"
+  "secondaryCtas": [],
+  "embeds": {
+    "paper": {
+      "mode": "iframe",
+      "src": "/embed/draft/{draftRef}/read/",
+      "modalTheme": "dark"
     },
-    {
-      "label": "View the Slide Deck",
-      "href": "/docs/slides"
-    },
-    {
-      "label": "Watch Conference Talk",
-      "href": "https://www.youtube.com/watch?v=R4uMinZ7eys"
-    },
-    {
-      "label": "Read on Substack",
-      "href": "https://gometa.substack.com/p/the-teilhard-test"
+    "slides": {
+      "mode": "pdf",
+      "src": "/embed/campaign/{slug}/slides/",
+      "pdfSrc": "/embed/campaign/{slug}/slides/file/"
     }
-  ]
+  }
 }

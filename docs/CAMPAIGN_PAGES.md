@@ -27,7 +27,10 @@ python scripts/import_teilhard_monument.py
 | Field | Purpose |
 |-------|---------|
 | `slug` | URL prefix `/campaign/<slug>/` and host map key |
-| `title`, `subtitle`, `heroQuestion` | Hero and header branding |
+| `title`, `subtitle` | Header branding |
+| `hero` | Full-bleed home hero (image, copy, CTAs). See [CAMPAIGN_HERO_CONFIG.md](CAMPAIGN_HERO_CONFIG.md) |
+| `heroQuestion` | Legacy headline field (prefer `hero.headline`) |
+| `heroImageUrl` | Legacy image path (prefer `hero.imageUrl`) |
 | `layerSlug` | Owning Gov Hub layer (e.g. `the-overweb`) |
 | `customDomains` | Production vanity hosts (nginx → :8001) |
 | `devHost` | Dev vanity host |
@@ -89,11 +92,33 @@ Uploads are cover-cropped to 640×360 (16:9). Success/error uses `GhDialog` on t
 
 Slides omit `thumbnailUrl` so the PDF auto-extract supplies the card image. Static thumbs in `static/campaign/<slug>/assets/` still override auto-extract when set.
 
+### Inline embeds (paper + slides)
+
+Campaign doc pages embed Gov Hub readers on the same origin (no off-site links for primary content).
+
+| Page | Campaign URL | Iframe embed URL |
+|------|--------------|------------------|
+| Primary paper (`type: paper`, `draftRef`) | `/docs/paper/` | `/embed/draft/<draftRef>/read/` |
+| Slide deck (`deckPath` PDF) | `/docs/slides/` | `/embed/campaign/<slug>/slides/` |
+| PDF file (direct) | `/docs/slides/file/` | served inline (`application/pdf`) |
+
+Vanity hosts (`teilhardtest.com`) pass through `/embed/`, `/doc/`, `/view/`, and `/download/` without campaign path rewrite so iframes load correctly.
+
+**Teilhard (prod):**
+
+```text
+/docs/paper/     → iframe /embed/draft/8a37qe9r/read/
+/docs/slides/    → iframe /embed/campaign/teilhard/slides/
+Home hero        → `hero` block in seed (see CAMPAIGN_HERO_CONFIG.md) → /static/campaign/teilhard/assets/hero.jpg
+```
+
+Pattern matches the Gov Hub waitlist embed widget (`/embed/waitlist/<id>/`). A future **Docs embed builder** (CLI/API parity) is estate roadmap; see `meta-console/OPEN_ITEMS.md`.
+
 Re-import after seed changes:
 
 ```bash
 python scripts/import_teilhard_monument.py
-systemctl --user restart datatracker-dev
+systemctl --user restart datatracker.service
 ```
 
 Content changes: edit the seed (or Monument `presentation_json` / `structure_json` in admin) and restart or call `reload_campaign_cache()`.
@@ -137,7 +162,7 @@ Bootstrap’s default `text-muted` is gray for **light** pages and is illegible 
 | Monument tree | `/campaign/teilhard/monument/` |
 | Custom domain | `https://teilhardtest.com/` (nginx → datatracker-dev :8001) |
 
-After CSS or Python changes: `systemctl --user restart datatracker-dev`.
+After CSS or Python changes: `systemctl --user restart datatracker.service`.
 
 ## Sign-in on custom domains (Web3Auth)
 

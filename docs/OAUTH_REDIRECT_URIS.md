@@ -23,7 +23,18 @@ After DNS and nginx are live for **Gov Hub**, register the same paths on **`http
 
 **Google – Authorized JavaScript origins:** `https://govhub.live` and `https://dev.govhub.live`
 
-## Redirect URIs (hub.themetalayer.org)
+## Redirect URIs (interfacehub.net)
+
+| Provider | Where to Add | Redirect URI (dev) | Redirect URI (prod) |
+|----------|--------------|--------------------|---------------------|
+| **Google** | [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → Your OAuth 2.0 Client → Authorized redirect URIs | `https://dev.interfacehub.net/auth/google/authorized` | `https://interfacehub.net/auth/google/authorized` |
+| **GitHub** | [GitHub Developer Settings](https://github.com/settings/developers) → OAuth Apps → Your App → Authorization callback URL | `https://dev.interfacehub.net/auth/github/authorized` | `https://interfacehub.net/auth/github/authorized` |
+| **Discord** | [Discord Developer Portal](https://discord.com/developers/applications) → Your App → OAuth2 → Redirects | `https://dev.interfacehub.net/auth/discord/authorized` | `https://interfacehub.net/auth/discord/authorized` |
+| **Twitter/X** | [X Developer Portal](https://developer.x.com/) → Your App → User authentication settings → Callback URI | `https://dev.interfacehub.net/auth/twitter/authorized` | `https://interfacehub.net/auth/twitter/authorized` |
+
+Keep the `hub.themetalayer.org` URIs below until that host 301s to Interface Hub.
+
+## Redirect URIs (hub.themetalayer.org, legacy)
 
 | Provider | Where to Add | Redirect URI (dev) | Redirect URI (prod) |
 |----------|--------------|--------------------|---------------------|
@@ -36,7 +47,7 @@ After DNS and nginx are live for **Gov Hub**, register the same paths on **`http
 
 Some providers require the origin (without path):
 
-- **Google:** Add `https://dev.hub.themetalayer.org` and `https://hub.themetalayer.org` to **Authorized JavaScript origins**
+- **Google:** Add `https://dev.interfacehub.net`, `https://interfacehub.net`, and the legacy hub hosts until cutover, to **Authorized JavaScript origins**
 - **Discord:** Usually only needs the redirect URI above
 
 ---

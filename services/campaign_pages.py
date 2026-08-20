@@ -22,6 +22,8 @@ class CampaignConfig:
     title: str
     subtitle: str
     hero_question: str
+    hero_image_url: str
+    hero: Dict[str, Any]
     layer_slug: str
     custom_domains: List[str]
     dev_host: str
@@ -29,6 +31,7 @@ class CampaignConfig:
     external_links: List[Dict[str, Any]]
     primary_cta: Dict[str, str]
     secondary_ctas: List[Dict[str, str]]
+    embeds: Dict[str, Dict[str, Any]]
     raw: Dict[str, Any]
     monument_id: Optional[str] = None
     presentation: Dict[str, Any] = None
@@ -58,6 +61,173 @@ class CampaignConfig:
         return None
 
 
+def _resolve_hero_image_url(data: Dict[str, Any], presentation: Optional[Dict[str, Any]] = None) -> str:
+    pres = presentation or {}
+    for source in (data, pres):
+        hero_block = source.get('hero') or {}
+        for key in ('imageUrl', 'image_url'):
+            value = (hero_block.get(key) or '').strip()
+            if value:
+                return value
+        for key in ('heroImageUrl', 'heroImage', 'hero_image_url'):
+            value = (source.get(key) or '').strip()
+            if value:
+                return value
+    return ''
+
+
+def normalize_hero_config(
+    data: Dict[str, Any],
+    presentation: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Merge nested ``hero`` block with legacy flat presentation keys."""
+    pres = presentation or {}
+    hero = dict(data.get('hero') or pres.get('hero') or {})
+    overlay = dict(hero.get('overlay') or {})
+
+    image_url = (
+        (hero.get('imageUrl') or hero.get('image_url') or '').strip()
+        or _resolve_hero_image_url(data, pres)
+    )
+    kicker = (
+        hero.get('kicker')
+        or data.get('heroKicker')
+        or pres.get('heroKicker')
+        or ''
+    )
+    headline = (
+        hero.get('headline')
+        or data.get('heroQuestion')
+        or pres.get('heroQuestion')
+        or ''
+    )
+    quote = (
+        hero.get('quote')
+        or data.get('heroQuote')
+        or pres.get('heroQuote')
+        or ''
+    )
+    quote_attribution = (
+        hero.get('quoteAttribution')
+        or hero.get('quote_attribution')
+        or data.get('heroQuoteAttribution')
+        or pres.get('heroQuoteAttribution')
+        or ''
+    )
+    full_bleed = hero.get('fullBleed', hero.get('full_bleed', True))
+    fit = (hero.get('fit') or 'cover').strip().lower()
+    if fit not in {'cover', 'contain'}:
+        fit = 'cover'
+
+    mode_raw = (
+        overlay.get('mode')
+        or hero.get('overlayMode')
+        or hero.get('overlay_mode')
+        or 'full'
+    )
+    mode = str(mode_raw).strip().lower().replace('_', '-')
+    if mode in {'nav-only', 'none', 'nav'}:
+        mode = 'nav-only'
+
+    nav_only = mode == 'nav-only'
+    scrim = (overlay.get('scrim') or ('none' if nav_only else 'gradient-left')).strip()
+    if nav_only:
+        scrim = 'none'
+    text_align = (overlay.get('textAlign') or overlay.get('text_align') or 'left').strip()
+
+    primary_cta = dict(
+        overlay.get('primaryCta')
+        or overlay.get('primary_cta')
+        or data.get('primaryCta')
+        or pres.get('primaryCta')
+        or {}
+    )
+    ghost_links = list(
+        overlay.get('ghostLinks')
+        or overlay.get('ghost_links')
+        or data.get('heroGhostLinks')
+        or pres.get('heroGhostLinks')
+        or []
+    )
+
+    return {
+        'imageUrl': image_url,
+        'fullBleed': bool(full_bleed),
+        'kicker': '' if nav_only else str(kicker or '').strip(),
+        'headline': '' if nav_only else str(headline or '').strip(),
+        'quote': '' if nav_only else str(quote or '').strip(),
+        'quoteAttribution': '' if nav_only else str(quote_attribution or '').strip(),
+        'fit': fit,
+        'overlay': {
+            'mode': mode,
+            'scrim': scrim,
+            'textAlign': text_align,
+            'primaryCta': primary_cta if not nav_only else {},
+            'ghostLinks': ghost_links if not nav_only else [],
+        },
+    }
+
+
+def _embed_template_value(value: str, *, slug: str, doc: Dict[str, Any]) -> str:
+    if not value:
+        return value
+    return (
+        value.replace('{slug}', slug)
+        .replace('{draftRef}', str(doc.get('draftRef') or ''))
+        .replace('{deckPath}', str(doc.get('deckPath') or ''))
+    )
+
+
+def build_embeds_from_seed(seed: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Auto-derive embed bindings from documents when ``embeds`` is absent or partial."""
+    slug = (seed.get('slug') or '').strip()
+    explicit = dict(seed.get('embeds') or {})
+    embeds: Dict[str, Dict[str, Any]] = {}
+    for doc in seed.get('documents') or []:
+        doc_slug = (doc.get('slug') or '').strip()
+        if not doc_slug:
+            continue
+        doc_type = (doc.get('type') or '').strip().lower()
+        binding = dict(explicit.get(doc_slug) or {})
+        if not binding:
+            if doc_type == 'paper' and doc.get('draftRef'):
+                binding = {
+                    'mode': 'iframe',
+                    'src': '/embed/draft/{draftRef}/read/',
+                    'modalTheme': 'dark',
+                }
+            elif doc_type in {'slide_deck', 'slides'} and doc.get('deckPath'):
+                binding = {
+                    'mode': 'pdf',
+                    'src': '/embed/campaign/{slug}/slides/',
+                    'pdfSrc': '/embed/campaign/{slug}/slides/file/',
+                }
+        resolved = {
+            key: _embed_template_value(str(val), slug=slug, doc=doc) if isinstance(val, str) else val
+            for key, val in binding.items()
+        }
+        if resolved:
+            embeds[doc_slug] = resolved
+    return embeds
+
+
+def resolve_document_embed(cfg: 'CampaignConfig', doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve iframe/PDF embed settings for a campaign document."""
+    doc_slug = (doc.get('slug') or '').strip()
+    pres = cfg.presentation or {}
+    raw = cfg.raw or {}
+    embeds = cfg.embeds or raw.get('embeds') or pres.get('embeds') or {}
+    binding = dict(embeds.get(doc_slug) or {})
+    if not binding:
+        seed_like = {'slug': cfg.slug, 'documents': [doc], 'embeds': {}}
+        binding = build_embeds_from_seed(seed_like).get(doc_slug) or {}
+    resolved = {
+        key: _embed_template_value(str(val), slug=cfg.slug, doc=doc) if isinstance(val, str) else val
+        for key, val in binding.items()
+    }
+    return resolved
+
+
 def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
     presentation = dict(data.get('presentation') or {})
     structure = dict(data.get('structure') or {})
@@ -65,11 +235,15 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
         structure = build_monument_structure_from_seed(data)
     if not presentation:
         presentation = build_monument_presentation_from_seed(data)
+    hero = normalize_hero_config(data, presentation)
+    embeds = build_embeds_from_seed(data)
     return CampaignConfig(
         slug=slug,
         title=data.get('title') or slug,
         subtitle=data.get('subtitle') or '',
-        hero_question=data.get('heroQuestion') or '',
+        hero_question=hero.get('headline') or data.get('heroQuestion') or '',
+        hero_image_url=hero.get('imageUrl') or '',
+        hero=hero,
         layer_slug=data.get('layerSlug') or '',
         custom_domains=list(data.get('customDomains') or []),
         dev_host=(data.get('devHost') or '').strip(),
@@ -77,6 +251,7 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
         external_links=list(data.get('externalLinks') or []),
         primary_cta=dict(data.get('primaryCta') or {}),
         secondary_ctas=list(data.get('secondaryCtas') or []),
+        embeds=embeds,
         raw=data,
         presentation=presentation,
         structure=structure,
@@ -167,11 +342,20 @@ def _parse_monument_campaign(monument) -> CampaignConfig:
     external_links = list(presentation.get('externalLinks') or [])
     external_links.extend(_external_links_from_nodes(nodes))
     external_links.sort(key=lambda item: item.get('displayOrder') or 0)
+    hero = normalize_hero_config(presentation)
+    seed_like = {
+        'slug': slug,
+        'documents': documents,
+        'embeds': presentation.get('embeds') or {},
+    }
+    embeds = build_embeds_from_seed(seed_like)
     return CampaignConfig(
         slug=slug,
         title=presentation.get('title') or getattr(monument, 'title', None) or slug,
         subtitle=presentation.get('subtitle') or '',
-        hero_question=presentation.get('heroQuestion') or '',
+        hero_question=hero.get('headline') or presentation.get('heroQuestion') or '',
+        hero_image_url=hero.get('imageUrl') or '',
+        hero=hero,
         layer_slug=presentation.get('layerSlug') or '',
         custom_domains=list(domains or []),
         dev_host=presentation.get('devHost') or '',
@@ -179,10 +363,12 @@ def _parse_monument_campaign(monument) -> CampaignConfig:
         external_links=external_links,
         primary_cta=dict(presentation.get('primaryCta') or {}),
         secondary_ctas=list(presentation.get('secondaryCtas') or []),
+        embeds=embeds,
         raw={
             'presentation': presentation,
             'structure': structure,
             'monument_id': getattr(monument, 'id', None),
+            'embeds': embeds,
         },
         monument_id=getattr(monument, 'id', None),
         presentation=presentation,
@@ -407,18 +593,39 @@ def build_monument_structure_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_monument_presentation_from_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+    hero = normalize_hero_config(seed)
+    presentation = {
         'campaignSlug': seed.get('slug'),
         'title': seed.get('title'),
         'subtitle': seed.get('subtitle'),
-        'heroQuestion': seed.get('heroQuestion'),
+        'heroQuestion': hero.get('headline') or seed.get('heroQuestion'),
         'layerSlug': seed.get('layerSlug'),
         'customDomains': list(seed.get('customDomains') or []),
         'devHost': seed.get('devHost'),
-        'primaryCta': dict(seed.get('primaryCta') or {}),
+        'primaryCta': dict(
+            hero.get('overlay', {}).get('primaryCta')
+            or seed.get('primaryCta')
+            or {}
+        ),
         'secondaryCtas': list(seed.get('secondaryCtas') or []),
         'homeSections': ['turing_teilhard', 'four_criteria', 'doc_grid'],
+        'hero': hero,
     }
+    if hero.get('imageUrl'):
+        presentation['heroImageUrl'] = hero['imageUrl']
+    if hero.get('kicker'):
+        presentation['heroKicker'] = hero['kicker']
+    if hero.get('quote'):
+        presentation['heroQuote'] = hero['quote']
+    if hero.get('quoteAttribution'):
+        presentation['heroQuoteAttribution'] = hero['quoteAttribution']
+    ghost_links = hero.get('overlay', {}).get('ghostLinks') or []
+    if ghost_links:
+        presentation['heroGhostLinks'] = ghost_links
+    embeds = build_embeds_from_seed(seed)
+    if embeds:
+        presentation['embeds'] = embeds
+    return presentation
 
 
 def find_monument_node(cfg: CampaignConfig, node_slug: str) -> Optional[Dict[str, Any]]:

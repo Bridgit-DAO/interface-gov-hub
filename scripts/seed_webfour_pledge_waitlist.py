@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Idempotent seed: BRC333 Studio inscribe access waitlist on The Overweb layer.
+"""Idempotent seed: Web4 Foundation pledge waitlist on The Overweb layer.
 
 Usage (from gov-hub-prod, with prod .env loaded as usual via app):
-  PYTHONPATH=/home/ubuntu/gov-hub-prod python3 scripts/seed_brc333_inscribe_waitlist.py
+  PYTHONPATH=/home/ubuntu/gov-hub-prod python3 scripts/seed_webfour_pledge_waitlist.py
 
 Creates:
-  - Waitlist "BRC333 Studio inscribe access" on layer slug `the-overweb`
-  - Authenticated join via POST /api/waitlists/<id>/join/
-  - Public page: https://hub.themetalayer.org/waitlists/<id>/
+  - Waitlist "Web4 Foundation pledge" on layer slug `the-overweb`
+  - Email join via POST /api/waitlists/<id>/join-email/
 """
 from __future__ import annotations
 
@@ -18,7 +17,7 @@ from extensions import db
 from models import Layer, Waitlist
 
 LAYER_SLUG = "the-overweb"
-WAITLIST_NAME = "BRC333 Studio inscribe access"
+WAITLIST_NAME = "Web4 Foundation pledge"
 
 
 def main() -> None:
@@ -36,9 +35,8 @@ def main() -> None:
                 layer_id=layer.id,
                 name=WAITLIST_NAME,
                 description=(
-                    "Early access to inscribe forever badges, blogs, books, and "
-                    "InfoMonuments with BRC333 Studio on Bitcoin. Join the waitlist "
-                    "and we will notify you when general inscribing opens."
+                    "Pledge interest for Web4 Foundation funding: Gov Hub, Canopi, "
+                    "Hermes, Overweb Studio, and estate operations."
                 ),
                 public=True,
                 referrals=False,
@@ -61,10 +59,13 @@ def main() -> None:
         print(
             {
                 "created_waitlist": created,
-                "layer_slug": LAYER_SLUG,
+                "layer_id": layer.id,
+                "layer_slug": layer.slug,
                 "waitlist_id": waitlist.id,
-                "waitlist_url": f"https://interfacehub.net/waitlists/{waitlist.id}/",
-                "join_api": f"https://interfacehub.net/api/waitlists/{waitlist.id}/join/",
+                "join_email": (
+                    "https://interfacehub.net/api/waitlists/"
+                    f"{waitlist.id}/join-email/"
+                ),
             }
         )
 

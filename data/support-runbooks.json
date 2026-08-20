@@ -8,7 +8,7 @@
       "category": "technical_support",
       "symptoms": ["sign in", "web3auth", "login", "session", "mfa", "popup"],
       "steps": [
-        "Confirm user is on https://hub.themetalayer.org (or their layer subdomain).",
+        "Confirm user is on https://interfacehub.net (or their layer subdomain).",
         "Ask for browser and whether popups or third-party cookies are blocked.",
         "If MFA is enabled, confirm TOTP device time is correct.",
         "Escalate if sign-in works on Canopi but not Gov Hub."
@@ -49,7 +49,7 @@
     }
   ],
   "faq": {
-    "where_submit": "https://hub.themetalayer.org/support",
+    "where_submit": "https://interfacehub.net/support",
     "canopi": "https://app.canopi.live/",
     "dp_challenge": "https://desirableproperties.org/support"
   },
