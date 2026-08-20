@@ -48,6 +48,7 @@ datatracker.sublime-workspace
 !/static/js/dp-challenge.js
 !/static/js/dp-challenge-notify.js
 !/static/js/gh-return-nav.js
+!/static/js/campaign-nav.js
 !/static/js/gh-invite.js
 !/static/js/gh-nav-user-name.js
 !/static/js/gh-nav-pills.js

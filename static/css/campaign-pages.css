@@ -48,11 +48,53 @@
 }
 
 .gh-campaign-header {
-  border-bottom: 1px solid var(--gh-campaign-border);
-  background: var(--gh-campaign-surface);
   position: sticky;
   top: 0;
   z-index: 100;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.gh-campaign-header.gh-campaign-nav-scrolled {
+  background: var(--gh-campaign-surface);
+  border-bottom-color: var(--gh-campaign-border);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.28);
+}
+
+.gh-campaign-header:not(.gh-campaign-nav-scrolled) .gh-campaign-brand-title,
+.gh-campaign-header:not(.gh-campaign-nav-scrolled) .gh-campaign-brand-sub,
+.gh-campaign-header:not(.gh-campaign-nav-scrolled) .gh-campaign-nav-link {
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.65),
+    0 0 12px rgba(0, 0, 0, 0.35);
+}
+
+.gh-campaign-header:not(.gh-campaign-nav-scrolled) .gh-campaign-brand-sub {
+  color: rgba(238, 242, 255, 0.82);
+}
+
+.gh-campaign-header:not(.gh-campaign-nav-scrolled) .gh-campaign-nav-link {
+  color: rgba(238, 242, 255, 0.9);
+}
+
+.gh-campaign-header:not(.gh-campaign-nav-scrolled) .gh-campaign-nav-link:hover,
+.gh-campaign-header:not(.gh-campaign-nav-scrolled) .gh-campaign-nav-link.active {
+  color: var(--gh-campaign-accent-hover);
+}
+
+.gh-campaign-header:not(.gh-campaign-nav-scrolled) .gh-campaign-user-avatar {
+  border-color: rgba(238, 242, 255, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gh-campaign-header {
+    transition: none;
+  }
 }
 
 .gh-campaign-header-inner {
@@ -242,6 +284,7 @@
 
 .gh-campaign-body:has(.gh-campaign-hero-nav-only) .gh-campaign-main {
   padding-top: 0;
+  margin-top: calc(-1 * var(--gh-campaign-header-offset, 3.5rem));
 }
 
 .gh-campaign-hero-full-bleed {

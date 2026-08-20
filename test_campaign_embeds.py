@@ -133,3 +133,5 @@ def test_home_renders_hero_image():
     assert '--gh-campaign-hero-position' not in html
     assert 'heroImagePosition' not in html
     assert 'gh-campaign-nav-link' in html
+    assert 'campaign-nav.js' in html
+    assert 'gh-campaign-nav-scrolled' not in html
