@@ -44,6 +44,8 @@ ARTIFACT_TYPE_DEFAULT_FORM: Dict[str, str] = {
     'insight': 'model',
     'reflection': 'claim',
     'implementation': 'decision',
+    'requirement': 'principle',
+    'adr': 'decision',
 }
 
 # Allowed values per artifact_type (includes default). `document` / `submission` = full catalog.
@@ -101,6 +103,14 @@ ARTIFACT_TYPE_ALLOWED_FORMS: Dict[str, frozenset] = {
     'implementation': frozenset({
         'decision', 'principle', 'model', 'scenario', 'skill', 'case', 'pattern',
         'boundary', 'research',
+    }),
+    'requirement': frozenset({
+        'principle', 'decision', 'boundary', 'model', 'scenario', 'pattern', 'case',
+        'domain', 'research',
+    }),
+    'adr': frozenset({
+        'decision', 'model', 'principle', 'pattern', 'case', 'boundary', 'reference',
+        'research',
     }),
 }
 

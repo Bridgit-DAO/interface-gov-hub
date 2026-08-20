@@ -14,6 +14,7 @@ from extensions import db
 from models import Submission, Layer
 from services.identity import get_current_user, require_auth, require_role
 from services.submissions import get_submission_by_ref, add_to_document_history, get_next_ml_number, can_edit_submission_metadata
+from services.ml_document_types import normalize_ml_doc_type
 from services.documents import load_draft_data, revision_notes_to_safe_html
 from services.directory_ui import gh_page_header, gh_breadcrumb, gh_living_module
 from services.ordinals import (
@@ -1161,10 +1162,7 @@ def submit_draft():
             current_app.logger.info(f"   current_user_info: {current_user_info}")
             current_app.logger.info(f"   submitted_by will be: {current_user_info['name']}")
 
-            # Get doc_type from form (default to 'draft')
-            doc_type = request.form.get('doc_type', 'draft').strip() or 'draft'
-            if doc_type not in ['draft', 'rfc']:
-                doc_type = 'draft'
+            doc_type = normalize_ml_doc_type(request.form.get('doc_type'))
 
             submission = Submission(
                 draft_name=submission_id,
@@ -1221,6 +1219,8 @@ def submit_draft():
                 return _format_base_template(title="Submit a Meta-Layer Draft - GovHub", theme=current_theme, user_menu=user_menu, content=submit_template, build_number=BUILD_NUMBER)
 
             # Create submission record with file data
+            doc_type = normalize_ml_doc_type(request.form.get('doc_type'))
+
             submission = Submission(
                 draft_name=submission_id,
                 title=title,
@@ -1233,6 +1233,7 @@ def submit_draft():
                 submitted_by=get_current_user()['name'],
                 submitter_user_id=_submitter_user_id_from_session(),
                 sourceType='file',
+                doc_type=doc_type,
                 pages=pages,
                 words=words,
                 content_hash=content_hash,

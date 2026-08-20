@@ -16,6 +16,8 @@ def test_knowledge_schema_endpoint():
         assert 'feature_flags' in d
         assert 'artifact_types' in d
         assert 'proposal' in d['artifact_types']
+        assert 'requirement' in d['artifact_types']
+        assert 'adr' in d['artifact_types']
         assert d['artifact_types']['proposal']['default'] == 'decision'
         assert 'pattern' in d['knowledge_forms']
         assert 'opus' in d['knowledge_forms']

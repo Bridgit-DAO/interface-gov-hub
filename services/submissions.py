@@ -236,7 +236,7 @@ def add_to_document_history(draft_name, action, user, details=""):
 
 
 def get_next_ml_number(doc_type='draft', layer_prefix='ML'):
-    """Get the next ML number (ML-Draft-001, ML-RFC-001, or CL-Draft-001 if a layer prefix is supplied)."""
+    """Get the next ML number (ML-Draft-001, ML-RFC-001, ML-REQ-001, ML-ADR-001, or CL-Draft-001 if a layer prefix is supplied)."""
     # Fall back to the legacy 'ML' prefix when no per-layer prefix is provided
     # or when the supplied value is empty/None. The 2-letter prefix token
     # replaces the literal 'ML' in the generated identifier.

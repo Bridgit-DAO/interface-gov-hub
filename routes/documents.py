@@ -66,6 +66,7 @@ from services.layer_prefixes import (
 )
 from services.directory_ui import gh_page_header, gh_living_module, gh_breadcrumb, gh_filter_row, gh_directory_toolbar
 from services.workgroup_links import build_document_workgroup_index, resolve_document_workgroup_meta
+from services.ml_document_types import CORE_ARTIFACT_TYPES
 
 bp = Blueprint('documents', __name__, url_prefix='')
 
@@ -1448,7 +1449,7 @@ Meta-Layer Initiative
             return ''
         has_artifact = bool(aid)
         sub_id = getattr(sub, 'id', None) if sub else None
-        artifact_types = ['proposal', 'evidence', 'insight', 'reflection', 'translation', 'implementation', 'decision', 'monument', 'bridge', 'submission']
+        artifact_types = list(CORE_ARTIFACT_TYPES)
         aid_js = f"'{aid}'" if aid else 'null'
         sub_id_js = f"'{sub_id}'" if sub_id else 'null'
         return f'''
