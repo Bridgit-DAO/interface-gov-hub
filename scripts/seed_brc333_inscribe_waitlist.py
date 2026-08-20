@@ -63,8 +63,8 @@ def main() -> None:
                 "created_waitlist": created,
                 "layer_slug": LAYER_SLUG,
                 "waitlist_id": waitlist.id,
-                "waitlist_url": f"https://hub.themetalayer.org/waitlists/{waitlist.id}/",
-                "join_api": f"https://hub.themetalayer.org/api/waitlists/{waitlist.id}/join/",
+                "waitlist_url": f"https://interfacehub.net/waitlists/{waitlist.id}/",
+                "join_api": f"https://interfacehub.net/api/waitlists/{waitlist.id}/join/",
             }
         )
 

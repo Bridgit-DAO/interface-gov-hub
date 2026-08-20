@@ -62,6 +62,14 @@ def test_layer_resolution():
             resolve_layer_from_host()
             assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.dev.govhub.live"
         print(f"   ✅ Host {slug}.dev.govhub.live resolves layer")
+        with app.test_request_context('/', headers={'Host': f'{slug}.interfacehub.net'}):
+            resolve_layer_from_host()
+            assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.interfacehub.net"
+        print(f"   ✅ Host {slug}.interfacehub.net resolves layer")
+        with app.test_request_context('/', headers={'Host': f'{slug}.dev.interfacehub.net'}):
+            resolve_layer_from_host()
+            assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.dev.interfacehub.net"
+        print(f"   ✅ Host {slug}.dev.interfacehub.net resolves layer")
         with app.test_request_context('/', headers={'Host': f'{slug}.hub.themetalayer.org'}):
             resolve_layer_from_host()
             assert g.layer is not None and g.layer.slug == slug, f"g.layer for {slug}.hub.themetalayer.org"
@@ -74,6 +82,14 @@ def test_layer_resolution():
             resolve_layer_from_host()
             assert getattr(g, 'layer', None) is None, "dev.govhub.live must not map to a layer slug"
         print("   ✅ dev.govhub.live has no layer from host (reserved apex)")
+        with app.test_request_context('/', headers={'Host': 'interfacehub.net'}):
+            resolve_layer_from_host()
+            assert getattr(g, 'layer', None) is None, "interfacehub.net must not map to a layer slug"
+        print("   ✅ interfacehub.net has no layer from host (reserved apex)")
+        with app.test_request_context('/', headers={'Host': 'dev.interfacehub.net'}):
+            resolve_layer_from_host()
+            assert getattr(g, 'layer', None) is None, "dev.interfacehub.net must not map to a layer slug"
+        print("   ✅ dev.interfacehub.net has no layer from host (reserved apex)")
         with app.test_request_context('/', headers={'Host': 'hub.themetalayer.org'}):
             resolve_layer_from_host()
             assert getattr(g, 'layer', None) is None, "hub.themetalayer.org must not map to a layer slug"

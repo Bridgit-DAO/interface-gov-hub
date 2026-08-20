@@ -123,10 +123,10 @@ def main() -> None:
                 "layer_id": layer.id,
                 "layer_slug": layer.slug,
                 "waitlist_id": waitlist.id,
-                "layer_url": f"https://hub.themetalayer.org/layers/{layer.slug}/",
-                "vanity_hub": f"https://{layer.slug}.hub.themetalayer.org/",
+                "layer_url": f"https://interfacehub.net/layers/{layer.slug}/",
+                "vanity_hub": f"https://{layer.slug}.interfacehub.net/",
                 "join_email": (
-                    "https://hub.themetalayer.org/api/waitlists/"
+                    "https://interfacehub.net/api/waitlists/"
                     f"{waitlist.id}/join-email/"
                 ),
             }

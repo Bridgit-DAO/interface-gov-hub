@@ -27,7 +27,7 @@ def _alert_email_for_ticket(ticket: Dict[str, Any]) -> str:
 
 def _public_base() -> str:
     from flask import current_app
-    return str(current_app.config.get('PUBLIC_BASE_URL') or 'https://hub.themetalayer.org').rstrip('/')
+    return str(current_app.config.get('PUBLIC_BASE_URL') or 'https://interfacehub.net').rstrip('/')
 
 
 def _category_label(category: str) -> str:

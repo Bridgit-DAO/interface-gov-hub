@@ -23,15 +23,16 @@ def test_safe_campaign_return_url_rejects_unknown_host():
 def test_campaign_login_url_on_vanity_uses_hub():
     from flask import Flask
 
-    from services.campaign_auth import campaign_login_url
+    from services.campaign_auth import campaign_login_url, gov_hub_public_url
     from services.campaign_pages import get_campaign
 
     app = Flask(__name__)
     cfg = get_campaign('teilhard')
     assert cfg is not None
+    hub = gov_hub_public_url()
     with app.test_request_context('/', base_url='https://teilhardtest.com/'):
         href = campaign_login_url(cfg, '/docs/statement/')
-        assert href.startswith('https://dev.hub.themetalayer.org/login/?next=')
+        assert href.startswith(hub + '/login/?next=')
         assert 'teilhardtest.com' in href
         assert 'docs%2Fstatement' in href or 'docs/statement' in href
 
@@ -39,13 +40,14 @@ def test_campaign_login_url_on_vanity_uses_hub():
 def test_campaign_login_url_on_hub_stays_relative():
     from flask import Flask
 
-    from services.campaign_auth import campaign_login_url
+    from services.campaign_auth import campaign_login_url, gov_hub_public_url
     from services.campaign_pages import get_campaign
 
     app = Flask(__name__)
     cfg = get_campaign('teilhard')
     assert cfg is not None
-    with app.test_request_context('/', base_url='https://dev.hub.themetalayer.org/'):
+    hub = gov_hub_public_url()
+    with app.test_request_context('/', base_url=hub + '/'):
         href = campaign_login_url(cfg, '/docs/statement/')
         assert href.startswith('/login/?next=')
         assert 'teilhard' in href
@@ -63,7 +65,8 @@ def test_vanity_login_redirects_to_hub():
     )
     assert r.status_code == 302
     loc = r.headers.get('Location', '')
-    assert 'dev.hub.themetalayer.org/login/' in loc
+    from services.campaign_auth import gov_hub_public_url
+    assert gov_hub_public_url().split('://', 1)[1] + '/login/' in loc
     assert 'teilhardtest.com' in loc
 
 

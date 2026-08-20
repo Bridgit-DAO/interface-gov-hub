@@ -172,24 +172,24 @@ Campaign vanity hosts (e.g. `teilhardtest.com`) therefore **never run Web3Auth l
 
 | Environment | Hub login origin |
 |-------------|------------------|
-| Production | `https://hub.themetalayer.org/login/` |
-| Development | `https://dev.hub.themetalayer.org/login/` |
+| Production | `https://interfacehub.net/login/` |
+| Development | `https://dev.interfacehub.net/login/` |
 
 **Pattern for builders:**
 
 ```text
-https://hub.themetalayer.org/login/?next=https://<vanity-domain><path>
+https://interfacehub.net/login/?next=https://<vanity-domain><path>
 ```
 
 Example (Teilhard statement on production vanity):
 
 ```text
-https://hub.themetalayer.org/login/?next=https://teilhardtest.com/docs/statement/
+https://interfacehub.net/login/?next=https://teilhardtest.com/docs/statement/
 ```
 
 After Web3Auth on the hub, Gov Hub hands the session back to the vanity host via `/auth/campaign-handoff/` (one-time token, ~2 minutes).
 
-**Dev vs production hub:** `teilhardtest.com` runs on **gov-hub-dev** (:8001). Sign-in links use `dev.hub.themetalayer.org`. A session on production `hub.themetalayer.org` is a **different origin** and does **not** carry over. Sign in once on dev hub (or use the statement page auto-handoff, which redirects to dev hub login and returns immediately if you already have a dev-hub session).
+**Dev vs production hub:** `teilhardtest.com` runs on **gov-hub-dev** (:8001). Sign-in links use `dev.interfacehub.net`. A session on production `interfacehub.net` is a **different origin** and does **not** carry over. Sign in once on dev hub (or use the statement page auto-handoff, which redirects to dev hub login and returns immediately if you already have a dev-hub session).
 
 The campaign header shows your profile name when a vanity-host session exists (after handoff). Endorsement forms also require that session.
 

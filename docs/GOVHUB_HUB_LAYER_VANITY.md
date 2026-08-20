@@ -1,21 +1,20 @@
-# Gov Hub layer vanity on hub.themetalayer.org
+# Gov Hub layer vanity (Interface Hub)
 
-Production and development layer sites use the same Flask layer-resolution middleware as `*.govhub.live`, on preferred hostnames that avoid ISP blocks on the word “gov”.
+Production and development layer sites use Flask layer-resolution middleware. Canonical hosts are on **interfacehub.net**. Legacy `*.hub.themetalayer.org` and `*.govhub.live` continue until nginx redirects.
 
 ## Hostnames
 
 | Environment | Apex (no layer) | Layer vanity |
 |-------------|-----------------|--------------|
-| **Production** | `https://hub.themetalayer.org` | `https://[layer-slug].hub.themetalayer.org` |
-| **Development** | `https://dev.hub.themetalayer.org` | `https://[layer-slug].dev.hub.themetalayer.org` |
+| **Production** | `https://interfacehub.net` | `https://[layer-slug].interfacehub.net` |
+| **Development** | `https://dev.interfacehub.net` | `https://[layer-slug].dev.interfacehub.net` |
+| Legacy | `https://hub.themetalayer.org` | `https://[layer-slug].hub.themetalayer.org` |
 
-Examples: `https://the-metaweb.hub.themetalayer.org`, `https://canopi.dev.hub.themetalayer.org`.
-
-Legacy `*.govhub.live` and `*.dev.govhub.live` continue to work.
+Examples: `https://the-metaweb.interfacehub.net`, `https://canopi.dev.interfacehub.net`.
 
 ## Flask
 
-`BASE_DOMAINS` in `config.py` includes `hub.themetalayer.org` and `dev.hub.themetalayer.org` (longest suffix wins). Middleware: `middleware/__init__.py` → `_do_resolve_layer_from_host()`.
+`BASE_DOMAINS` in `config.py` includes `interfacehub.net` and `dev.interfacehub.net` (longest suffix wins). Middleware: `middleware/__init__.py` → `_do_resolve_layer_from_host()`.
 
 Run tests:
 
@@ -23,44 +22,32 @@ Run tests:
 python3 test_layer_resolution.py
 ```
 
-## DNS (themetalayer.org)
+## DNS (interfacehub.net, Cloudflare)
 
-| Type | Host | Value |
-|------|------|-------|
-| A | `hub` | VPS IPv4 |
-| A | `*.hub` | VPS IPv4 |
-| A | `dev.hub` | VPS IPv4 |
-| A | `*.dev.hub` | VPS IPv4 |
-
-Or use existing wildcard `*` → VPS if your registrar supports nested wildcards.
+See `docs/INTERFACEHUB-NET.md`. Grey-cloud A records to the VPS for `@`, `www`, `*`, `dev`, `*.dev`.
 
 ## TLS
-
-`*.themetalayer.org` covers only **one** label (e.g. `foo.themetalayer.org`), **not** `canopi.hub.themetalayer.org`.
 
 Issue two DNS-01 wildcard certs:
 
 ```bash
-sudo bash setup-wildcard-cert-hub-themetalayer-org.sh
+sudo CLOUDFLARE_API_TOKEN='...' bash setup-wildcard-cert-interfacehub-net.sh
 ```
 
 Certs:
 
-- `/etc/letsencrypt/live/hub.themetalayer.org/` — `hub.themetalayer.org` + `*.hub.themetalayer.org`
-- `/etc/letsencrypt/live/dev.hub.themetalayer.org/` — `dev.hub.themetalayer.org` + `*.dev.hub.themetalayer.org`
+- `/etc/letsencrypt/live/interfacehub.net/` — apex + `www` + `*.interfacehub.net`
+- `/etc/letsencrypt/live/dev.interfacehub.net/` — `dev.interfacehub.net` + `*.dev.interfacehub.net`
 
 ## Nginx
 
 ```bash
-sudo bash docs/install-hub-themetalayer-org.sh
+sudo bash docs/install-interfacehub-net.sh
 ```
 
-Configs:
+Config: `docs/nginx-interfacehub-net.conf`. Passes browser `Host` through (required for layer slug resolution).
 
-- `docs/nginx-hub-themetalayer-org.conf` — prod apex → `:8000`
-- `docs/nginx-dev-hub-themetalayer-org.conf` — dev apex + layer vanity → `:8001`
-
-Both pass browser `Host` through (required for layer slug resolution).
+After the new origin is verified, install `docs/nginx-hub-themetalayer-org-redirect-to-interfacehub.conf`.
 
 ## OAuth
 
@@ -70,7 +57,7 @@ Register redirect URIs on apex hosts — see `docs/OAUTH_REDIRECT_URIS.md`.
 
 Set per environment:
 
-- Prod: `GOV_HUB_PUBLIC_URL=https://hub.themetalayer.org`
-- Dev/staging: `GOV_HUB_PUBLIC_URL=https://dev.hub.themetalayer.org`
+- Prod: `GOV_HUB_PUBLIC_URL=https://interfacehub.net`
+- Dev/staging: `GOV_HUB_PUBLIC_URL=https://dev.interfacehub.net`
 
-Logo URL rewrites map legacy `*.govhub.live` → `*.hub.themetalayer.org` in `canopi/server/lib/govHubAssetUrl.js`.
+Logo URL rewrites map legacy `*.govhub.live` and `hub.themetalayer.org` → the current public origin in `canopi/server/lib/govHubAssetUrl.js`.

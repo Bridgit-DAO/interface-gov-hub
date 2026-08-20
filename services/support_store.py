@@ -122,7 +122,7 @@ def public_ticket_summary(ticket: Dict[str, Any]) -> Dict[str, Any]:
 
 def public_base() -> str:
     from flask import current_app
-    return str(current_app.config.get('PUBLIC_BASE_URL') or 'https://hub.themetalayer.org').rstrip('/')
+    return str(current_app.config.get('PUBLIC_BASE_URL') or 'https://interfacehub.net').rstrip('/')
 
 
 def attachment_urls(ticket: Dict[str, Any]) -> List[Dict[str, Any]]:

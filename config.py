@@ -54,11 +54,13 @@ RESERVED_SUBDOMAINS = {
 }
 BASE_DOMAIN = "themetalayer.org"
 # Multiple base domains for layer subdomain resolution (longest suffix wins in middleware).
+# - interfacehub.net / dev.interfacehub.net: canonical Interface Hub (2026-08)
+# - hub.themetalayer.org / dev.hub.themetalayer.org: legacy aliases (redirect after cutover)
 # - rfc.* / themetalayer.org: production RFC / Meta-Layer hosts
-# - dev.hub.*: [layer].dev.hub.themetalayer.org → same layer as /layer/[layer]/ on dev
 # - govhub.live / dev.govhub.live: legacy Gov Hub + layer vanity hosts
-# - hub.themetalayer.org / dev.hub.themetalayer.org: preferred Gov Hub aliases (avoids "gov" blocks)
 BASE_DOMAINS = [
+    "dev.interfacehub.net",
+    "interfacehub.net",
     "dev.hub.themetalayer.org",
     "hub.themetalayer.org",
     "rfc.themetalayer.org",
@@ -73,7 +75,7 @@ DEPLOYMENT_MODE = os.path.exists(deployment_flag_file)
 
 # Absolute site URL for email links (notifications, unsubscribe). No trailing slash.
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', 'https://rfc.themetalayer.org').rstrip('/')
-PRODUCTION_PUBLIC_BASE_URL = 'https://hub.themetalayer.org'
+PRODUCTION_PUBLIC_BASE_URL = 'https://interfacehub.net'
 
 # Ordinal-gated Metaweb Pioneers layer (Gov Hub slug + book purchase link for join modal).
 METAWEB_PIONEERS_LAYER_SLUG = os.environ.get('METAWEB_PIONEERS_LAYER_SLUG', 'metaweb-pioneers').strip()
@@ -87,9 +89,13 @@ def resolved_public_base_url(config_value=None) -> str:
     base = (config_value or PUBLIC_BASE_URL).rstrip('/')
     if IS_PRODUCTION:
         lower = base.lower()
-        if 'dev.govhub.live' in lower or 'dev.hub.themetalayer.org' in lower:
+        if (
+            'dev.govhub.live' in lower
+            or 'dev.hub.themetalayer.org' in lower
+            or 'dev.interfacehub.net' in lower
+        ):
             return PRODUCTION_PUBLIC_BASE_URL
-        if 'govhub.live' in lower:
+        if 'govhub.live' in lower or 'hub.themetalayer.org' in lower:
             return PRODUCTION_PUBLIC_BASE_URL
     return base
 

@@ -63,7 +63,7 @@ def main() -> None:
                 "layer_slug": layer.slug,
                 "waitlist_id": waitlist.id,
                 "join_email": (
-                    "https://hub.themetalayer.org/api/waitlists/"
+                    "https://interfacehub.net/api/waitlists/"
                     f"{waitlist.id}/join-email/"
                 ),
             }
