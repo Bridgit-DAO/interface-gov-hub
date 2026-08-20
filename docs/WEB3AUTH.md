@@ -10,9 +10,9 @@ Each **origin** that runs Web3Auth must be registered manually in the [Web3Auth 
 
 | Environment | Origins / redirect URIs |
 |-------------|-------------------------|
-| Production | `https://hub.themetalayer.org` |
-| Development | `https://dev.hub.themetalayer.org`, `https://dev.govhub.live` |
-| Legacy | `https://govhub.live`, `https://rfc.themetalayer.org` (if still served) |
+| Production | `https://interfacehub.net` |
+| Development | `https://dev.interfacehub.net` |
+| Legacy | `https://hub.themetalayer.org`, `https://dev.hub.themetalayer.org`, `https://govhub.live`, `https://rfc.themetalayer.org` (until redirects) |
 
 Optional local dev: `http://127.0.0.1:8001` (sapphire_devnet test client only).
 

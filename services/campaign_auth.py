@@ -15,8 +15,13 @@ from services.campaign_pages import CampaignConfig, campaign_for_host, campaign_
 _HUB_HOSTS = frozenset(
     h.lower()
     for h in (
+        'interfacehub.net',
+        'www.interfacehub.net',
+        'dev.interfacehub.net',
+        'staging.interfacehub.net',
         'hub.themetalayer.org',
         'dev.hub.themetalayer.org',
+        'staging.hub.themetalayer.org',
         'dev.govhub.live',
         'govhub.live',
         'rfc.themetalayer.org',
@@ -32,8 +37,8 @@ def gov_hub_public_url() -> str:
     if override:
         return override
     if IS_DEVELOPMENT:
-        return 'https://dev.hub.themetalayer.org'
-    return 'https://hub.themetalayer.org'
+        return 'https://dev.interfacehub.net'
+    return 'https://interfacehub.net'
 
 
 def _request_host() -> str:
@@ -49,9 +54,11 @@ def is_hub_host(host: str) -> bool:
     host_l = (host or '').lower().split(':')[0]
     if host_l in _HUB_HOSTS:
         return True
+    if host_l.endswith('.interfacehub.net'):
+        return True
     if host_l.endswith('.hub.themetalayer.org'):
         return True
-    if host_l.endswith('.dev.hub.themetalayer.org'):
+    if host_l.endswith('.govhub.live'):
         return True
     return False
 

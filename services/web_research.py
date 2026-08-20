@@ -12,7 +12,7 @@ import requests
 _FETCH_TIMEOUT = 12
 _MAX_FETCH_CHARS = 12000
 _MAX_SNIPPET = 600
-_USER_AGENT = 'GovHubWorkgroupInvite/1.0 (+https://hub.themetalayer.org)'
+_USER_AGENT = 'GovHubWorkgroupInvite/1.0 (+https://interfacehub.net)'
 
 
 def _strip_html(html: str) -> str:

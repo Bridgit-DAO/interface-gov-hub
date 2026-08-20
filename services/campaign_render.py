@@ -198,8 +198,8 @@ def _campaign_dev_hub_banner_html() -> str:
     hub = gov_hub_public_url()
     return (
         f'<div class="gh-campaign-dev-banner" role="status">'
-        f'Sign-in uses <a href="{_esc(hub)}/login/">dev.hub.themetalayer.org</a>. '
-        f'A session on <strong>hub.themetalayer.org</strong> (production) does not carry over here.'
+        f'Sign-in uses <a href="{_esc(hub)}/login/">{_esc(hub.replace("https://", ""))}</a>. '
+        f'A session on <strong>interfacehub.net</strong> (production) does not carry over here.'
         f'</div>'
     )
 
@@ -278,7 +278,7 @@ def campaign_shell(
   </header>
   <main class="gh-campaign-main">{main_html}</main>
   <footer class="gh-campaign-footer">
-    <p class="mb-0 small">Hosted on <a href="https://dev.govhub.live/">Gov Hub</a> · The Overweb</p>
+    <p class="mb-0 small">Hosted on <a href="{gov_hub_public_url() + "/"}">Gov Hub</a> · The Overweb</p>
   </footer>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   {handoff_script}
