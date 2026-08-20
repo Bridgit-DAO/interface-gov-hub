@@ -227,12 +227,12 @@
   background: linear-gradient(
     180deg,
     var(--gh-campaign-gradient-top) 0%,
-    var(--gh-campaign-gradient-early) 40%,
-    var(--gh-campaign-gradient-mid) 70%,
-    var(--gh-campaign-gradient-bottom) 92%,
+    var(--gh-campaign-gradient-early) 25%,
+    var(--gh-campaign-gradient-mid) 55%,
+    var(--gh-campaign-gradient-bottom) 85%,
     var(--gh-campaign-gradient-end) 100%
   );
-  background-size: 100% 1000vh;
+  background-size: 100% 300vh;
   background-repeat: no-repeat;
 }
 
