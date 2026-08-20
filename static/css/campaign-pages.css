@@ -1,6 +1,8 @@
 /* Gov Hub public campaign pages – dark theme (aligned with govhub-design tokens) */
 :root {
   --gh-campaign-bg: #050b1a;
+  --gh-campaign-gradient-top: #050b1a;
+  --gh-campaign-gradient-bottom: #0a1224;
   --gh-campaign-surface: #0a1224;
   --gh-campaign-surface-raised: #101a30;
   --gh-campaign-text: #eef2ff;
@@ -14,7 +16,7 @@
 }
 
 .gh-campaign-body {
-  background: var(--gh-campaign-bg);
+  background: var(--gh-campaign-gradient-top);
   color: var(--gh-campaign-text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
@@ -214,19 +216,31 @@
   color: var(--gh-campaign-accent);
 }
 
+.gh-campaign-body-gradient {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(
+    180deg,
+    var(--gh-campaign-gradient-top) 0%,
+    var(--gh-campaign-gradient-bottom) 100%
+  );
+}
+
 .gh-campaign-main {
   flex: 1;
   max-width: 1100px;
   margin: 0 auto;
   padding: 2rem 1.25rem 3rem;
   width: 100%;
+  background: transparent;
 }
 
 .gh-campaign-footer {
   border-top: 1px solid var(--gh-campaign-border);
   padding: 1rem 1.25rem;
   text-align: center;
-  background: var(--gh-campaign-surface);
+  background: transparent;
   color: var(--gh-campaign-muted);
 }
 

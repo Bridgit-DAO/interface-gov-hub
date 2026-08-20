@@ -261,7 +261,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=11" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=12" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">
@@ -276,10 +276,12 @@ def campaign_shell(
       {auth_html}
     </div>
   </header>
-  <main class="gh-campaign-main">{main_html}</main>
-  <footer class="gh-campaign-footer">
-    <p class="mb-0 small">Hosted on <a href="{"https://dev.govhub.live/" if IS_DEVELOPMENT else "https://hub.themetalayer.org/"}">Gov Hub</a> · The Overweb</p>
-  </footer>
+  <div class="gh-campaign-body-gradient">
+    <main class="gh-campaign-main">{main_html}</main>
+    <footer class="gh-campaign-footer">
+      <p class="mb-0 small">Hosted on <a href="{"https://dev.govhub.live/" if IS_DEVELOPMENT else "https://hub.themetalayer.org/"}">Gov Hub</a> · The Overweb</p>
+    </footer>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/static/js/campaign-nav.js?v=1"></script>
   {handoff_script}
@@ -710,7 +712,7 @@ def render_embed_draft_reader(draft_ref: str, *, modal_theme: str = 'dark') -> t
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link href="/static/css/govhub-design.css?v={BUILD_NUMBER}" rel="stylesheet">
   <link href="/static/css/dp-proposals-reader.css?v={BUILD_NUMBER}" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=10" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=12" rel="stylesheet">
 </head>
 <body class="gh-embed-draft-reader {theme_class}">
   <header class="gh-embed-reader-toolbar">
@@ -738,7 +740,7 @@ def render_embed_slides_pdf(pdf_url: str, *, title: str = 'Slide deck') -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title_esc}</title>
-  <link href="/static/css/campaign-pages.css?v=10" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=12" rel="stylesheet">
 </head>
 <body class="gh-embed-pdf-reader">
   <div class="gh-embed-pdf-native">
