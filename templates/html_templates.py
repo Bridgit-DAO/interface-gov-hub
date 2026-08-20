@@ -1311,8 +1311,7 @@ BASE_TEMPLATE = """
         function ghShouldUseSocialLoginOnly() {{
             if (ghAuthContextHasInvite()) return true;
             if (ghIsWalletInAppBrowser()) return true;
-            const path = window.location.pathname || '';
-            return path === '/login/' || path === '/login';
+            return false;
         }}
 
         function ghWeb3AuthLoginMethodsOrder() {{
@@ -1666,13 +1665,17 @@ BASE_TEMPLATE = """
         }}
 
         async function loginWithWeb3Auth() {{
-            if (ghShouldUseSocialLoginOnly()) {{
-                return loginWithWeb3AuthGoogle();
+            if (ghAuthContextHasInvite()) {{
+                return loginWithWeb3AuthEmail();
+            }}
+            const path = window.location.pathname || '';
+            if (path === '/login/' || path === '/login') {{
+                return performWeb3AuthLogin(null, null);
             }}
             const here = window.location.pathname + window.location.search + window.location.hash;
             storePostLoginReturnPath(here);
             const next = encodeURIComponent(normalizeReturnPath(here));
-            window.location.href = '/login/?next=' + next;
+            window.location.href = '/login/?next=' + next + '&show_login=1';
         }}
 
         async function loginWithWeb3AuthGoogle() {{
@@ -1712,8 +1715,8 @@ BASE_TEMPLATE = """
                         window.history.replaceState({{}}, '', window.location.pathname + window.location.search);
                         if (ghAuthContextHasInvite()) {{
                             await loginWithWeb3AuthEmail();
-                        }} else if (!ghShouldUseSocialLoginOnly()) {{
-                            await loginWithWeb3Auth();
+                        }} else {{
+                            await performWeb3AuthLogin(null, null);
                         }}
                     }}
                 }})
