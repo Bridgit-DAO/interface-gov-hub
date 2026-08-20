@@ -379,11 +379,13 @@ def campaign_thumbnails_admin(slug):
           <td><code>{html_mod.escape(doc_slug)}</code></td>
           <td>{thumb_html}</td>
           <td>
-            <form method="POST" enctype="multipart/form-data"
+            <form method="POST" enctype="multipart/form-data" class="gh-image-upload-form"
                   action="{html_mod.escape(campaign_href(slug, f"/admin/thumbnails/{doc_slug}/"))}">
               {csrf_form_field()}
-              <input type="file" name="thumbnail" accept="image/png,image/jpeg,image/webp,image/gif" required>
-              <button type="submit" class="btn btn-sm btn-primary mt-1">Upload</button>
+              <input type="file" name="thumbnail" accept="image/png,image/jpeg,image/webp,image/gif"
+                     data-gh-aspect="16/9" data-gh-output-width="640" data-gh-output-height="360"
+                     data-gh-title="Crop thumbnail" required>
+              <button type="submit" class="btn btn-sm btn-primary mt-1" disabled>Upload</button>
             </form>
           </td>
         </tr>''')
@@ -407,15 +409,21 @@ def campaign_thumbnails_admin(slug):
     </script>'''
 
     html = f'''<!DOCTYPE html><html><head><title>Campaign thumbnails</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
     <body class="p-4">
     <h1>Card thumbnails – {html_mod.escape(cfg.title)}</h1>
-    <p class="text-muted">Upload replaces the cached JPG under <code>/static/campaign/{html_mod.escape(slug)}/assets/</code>
-    and updates the monument node <code>thumbnailUrl</code>. PDF auto-extract runs when no explicit thumb is set.</p>
+    <p class="text-muted">Choose an image to crop in a 16:9 frame, then upload. Files are stored as optimized WebP under
+    <code>/static/campaign/{html_mod.escape(slug)}/assets/</code>.
+    PDF auto-extract runs when no explicit thumb is set.</p>
     <table class="table align-middle"><thead><tr><th>Label</th><th>Slug</th><th>Current</th><th>Upload</th></tr></thead>
     <tbody>{table}</tbody></table>
     <p><a href="{html_mod.escape(campaign_href(slug, "/"))}">Back to campaign home</a></p>
     {flash_script}
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/gh-dialog.js"></script>
+    <script src="/static/js/gh-image-crop.js?v=20260820d"></script>
+    <script src="/static/js/gh-image-upload.js?v=20260820d"></script>
     </body></html>'''
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
