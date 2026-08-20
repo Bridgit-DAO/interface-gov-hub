@@ -9,15 +9,15 @@
 # zones (Namecheap/Vultr) and will not issue these names unless the provider
 # is Cloudflare with Zone:DNS:Edit on interfacehub.net.
 #
-# Usage:
-#   sudo CLOUDFLARE_API_TOKEN='...' bash setup-wildcard-cert-interfacehub-net.sh
+# Usage (do not put the token in chat or in a copied command from docs):
+#   read -s CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
+#   sudo -E bash setup-wildcard-cert-interfacehub-net.sh
 #
-# Or write /etc/letsencrypt/dns-multi-interfacehub.ini:
+# Or write /etc/letsencrypt/dns-multi-interfacehub.ini (mode 600):
 #   dns_multi_provider = cloudflare
-#   CLOUDFLARE_DNS_API_TOKEN = ...
+#   CLOUDFLARE_DNS_API_TOKEN = <token from Cloudflare API Tokens>
 # then:
-#   sudo DNS_MULTI_CREDENTIALS=/etc/letsencrypt/dns-multi-interfacehub.ini \
-#     bash setup-wildcard-cert-interfacehub-net.sh
+#   sudo bash setup-wildcard-cert-interfacehub-net.sh
 
 set -euo pipefail
 
@@ -27,12 +27,18 @@ DEFAULT_CRED="/etc/letsencrypt/dns-multi.ini"
 TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 
 if [ -n "$TOKEN" ]; then
-    if [ "$TOKEN" = "..." ] || [ "${#TOKEN}" -lt 20 ]; then
-        echo "CLOUDFLARE_API_TOKEN looks like a placeholder (or is too short)."
-        echo "Use the real token from Cloudflare → My Profile → API Tokens"
-        echo "(Zone:DNS:Edit on interfacehub.net). Do not paste the three dots."
-        echo "If a bad file was already written, remove it first:"
-        echo "  sudo rm -f /etc/letsencrypt/dns-multi-interfacehub.ini"
+    case "$TOKEN" in
+      '...'|'paste-real-token-here'|'YOUR_TOKEN'|'your-token'|*' '* )
+        echo "CLOUDFLARE_API_TOKEN is a placeholder or contains spaces."
+        echo "Create a token: Cloudflare dashboard → profile → API Tokens → Create Token."
+        echo "Use the Edit zone DNS template, zone interfacehub.net only."
+        echo "Then: read -s CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN && sudo -E bash $0"
+        exit 1
+        ;;
+    esac
+    if [ "${#TOKEN}" -lt 32 ]; then
+        echo "CLOUDFLARE_API_TOKEN is too short (${#TOKEN} chars). Real tokens are ~40+."
+        echo "Do not use Global API Key. Use API Tokens."
         exit 1
     fi
     CRED_FILE="/etc/letsencrypt/dns-multi-interfacehub.ini"
@@ -43,6 +49,18 @@ CLOUDFLARE_DNS_API_TOKEN = ${TOKEN}
 EOF
     chmod 600 "$CRED_FILE"
     echo "Wrote $CRED_FILE from CLOUDFLARE_API_TOKEN (${#TOKEN} chars)"
+    code=$(curl -sS -o /tmp/cf-zone-check.json -w '%{http_code}' \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      "https://api.cloudflare.com/client/v4/zones?name=interfacehub.net&per_page=1")
+    ok=$(python3 -c "import json; d=json.load(open('/tmp/cf-zone-check.json')); print('yes' if d.get('success') and d.get('result') else 'no')" 2>/dev/null || echo no)
+    rm -f /tmp/cf-zone-check.json
+    if [ "$code" != "200" ] || [ "$ok" != "yes" ]; then
+        echo "Cloudflare token cannot read zone interfacehub.net (HTTP ${code})."
+        echo "Need API Token with Zone.Zone Read + Zone.DNS Edit on that zone, not Global API Key."
+        exit 1
+    fi
+    echo "Cloudflare zone interfacehub.net is reachable with this token."
 fi
 
 if [ ! -f "$CRED_FILE" ] && [ -f "$DEFAULT_CRED" ]; then
