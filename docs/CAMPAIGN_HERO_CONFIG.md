@@ -106,7 +106,7 @@ From `static/campaign/teilhard/campaign-seed.json`:
 }
 ```
 
-Hero asset: agent drop UUID `9bf03896-b655-402b-97c9-311ebb8b02d3` → `static/campaign/teilhard/assets/hero.png`.
+Hero asset: agent drop UUID `755a4341-720a-4462-ad12-0daf5f6f8955` → `static/campaign/teilhard/assets/hero.png`.
 
 Document embeds: see [CAMPAIGN_ARTIFACTS_CONFIG.md](CAMPAIGN_ARTIFACTS_CONFIG.md).
 
