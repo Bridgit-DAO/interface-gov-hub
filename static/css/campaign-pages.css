@@ -283,6 +283,7 @@
   min-height: 0;
   display: block;
   position: relative;
+  overflow: visible;
 }
 
 .gh-campaign-hero-nav-only.gh-campaign-hero-has-image::after {
@@ -303,7 +304,8 @@
 }
 
 .gh-campaign-hero-nav-only.gh-campaign-hero-full-bleed {
-  margin: -2rem calc(50% - 50vw) 0;
+  /* Main padding-top is 0 in nav-only mode; do not pull hero up further (clips artwork top). */
+  margin: 0 calc(50% - 50vw) 0;
   padding: 0;
 }
 
@@ -316,7 +318,9 @@
 .gh-campaign-hero-nav-only .gh-campaign-hero-image {
   width: 100%;
   height: auto;
+  max-height: none;
   object-fit: contain;
+  object-position: top center;
 }
 
 .gh-campaign-body:has(.gh-campaign-hero-nav-only) .gh-campaign-main {
