@@ -422,8 +422,8 @@ def campaign_thumbnails_admin(slug):
     {flash_script}
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/gh-dialog.js"></script>
-    <script src="/static/js/gh-image-crop.js?v=20260820d"></script>
-    <script src="/static/js/gh-image-upload.js?v=20260820d"></script>
+    <script src="/static/js/gh-image-crop.js?v=20260820e"></script>
+    <script src="/static/js/gh-image-upload.js?v=20260820e"></script>
     </body></html>'''
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
 

@@ -28,12 +28,26 @@ def test_thumbnail_admin_page_includes_crop_scripts_and_attributes():
         assert 'data-gh-output-width="640"' in html
         assert 'data-gh-output-height="360"' in html
         assert 'data-gh-title="Crop thumbnail"' in html
-        assert 'gh-image-crop.js?v=20260820d' in html
-        assert 'gh-image-upload.js?v=20260820d' in html
+        assert 'gh-image-crop.js?v=20260820e' in html
+        assert 'gh-image-upload.js?v=20260820e' in html
         assert 'bootstrap.bundle.min.js' in html
         assert 'gh-image-upload-form' in html
         assert 'name="csrf_token"' in html
         assert 'type="submit"' in html and 'disabled' in html
+
+
+def test_gh_image_crop_sizes_viewport_before_init():
+    from config import PROJECT_ROOT
+    import os
+
+    path = os.path.join(PROJECT_ROOT, 'static/js/gh-image-crop.js')
+    with open(path, encoding='utf-8') as fh:
+        src = fh.read()
+
+    assert 'layoutViewport' in src
+    assert 'shown.bs.modal' in src
+    assert 'minContainerWidth' in src
+    assert 'max-width: none !important' in src or 'max-width:none!important' in src.replace(' ', '')
 
 
 def test_gh_image_upload_js_blocks_submit_until_crop_ready():

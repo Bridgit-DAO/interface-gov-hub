@@ -58,20 +58,86 @@
     });
   }
 
+  const VIEWPORT_MIN_WIDTH = 560;
+  const VIEWPORT_MAX_VH = 0.52;
+
+  function cropAspectRatio(opts) {
+    const aspectRatio = opts && opts.aspectRatio;
+    if (typeof aspectRatio === 'number' && !isNaN(aspectRatio) && aspectRatio > 0) return aspectRatio;
+    return DEFAULT_ASPECT;
+  }
+
+  function modalDialogMaxWidth(aspectRatio) {
+    return aspectRatio >= 1.4 ? 720 : 640;
+  }
+
+  function layoutViewport(viewportEl, opts) {
+    if (!viewportEl) return { width: VIEWPORT_MIN_WIDTH, height: VIEWPORT_MIN_WIDTH };
+
+    const aspectRatio = cropAspectRatio(opts);
+    const modalEl = viewportEl.closest('.modal');
+    const dialogEl = viewportEl.closest('.modal-dialog');
+    const bodyEl = viewportEl.parentElement;
+    const dialogMax = modalDialogMaxWidth(aspectRatio);
+
+    if (dialogEl) dialogEl.style.maxWidth = dialogMax + 'px';
+
+    const bodyWidth = (bodyEl && bodyEl.clientWidth) || 0;
+    const targetWidth = Math.max(
+      VIEWPORT_MIN_WIDTH,
+      Math.min(
+        dialogMax,
+        bodyWidth || Math.min(dialogMax, Math.floor(window.innerWidth * 0.9))
+      )
+    );
+    const maxHeight = Math.min(window.innerHeight * VIEWPORT_MAX_VH, Math.round(targetWidth / aspectRatio));
+    const height = Math.max(1, Math.round(Math.min(targetWidth / aspectRatio, maxHeight)));
+    const width = Math.max(VIEWPORT_MIN_WIDTH, Math.round(height * aspectRatio));
+
+    viewportEl.style.width = width + 'px';
+    viewportEl.style.height = height + 'px';
+    viewportEl.style.maxWidth = '100%';
+    viewportEl.style.margin = '0 auto';
+    viewportEl.dataset.ghCropAspect = String(aspectRatio);
+
+    if (modalEl) modalEl.dataset.ghCropWide = aspectRatio >= 1.4 ? '1' : '';
+
+    return { width: width, height: height };
+  }
+
+  function primeCropImage(img, viewportSize) {
+    if (!img) return;
+    img.style.display = 'block';
+    img.style.width = viewportSize.width + 'px';
+    img.style.height = 'auto';
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+  }
+
+  function syncCropperContainer(viewportEl) {
+    if (!viewportEl) return;
+    const container = viewportEl.querySelector('.cropper-container');
+    if (!container) return;
+    container.style.width = '100%';
+    container.style.height = '100%';
+  }
+
   function ensureFallbackCss() {
     if (document.getElementById('ghCropFallbackCss')) return;
     const style = document.createElement('style');
     style.id = 'ghCropFallbackCss';
     style.textContent = [
-      '.gh-crop-viewport{height:min(52vh,420px);background:#111;overflow:hidden;}',
-      '.gh-crop-viewport img{max-width:100%;display:block;}',
+      '.gh-crop-viewport{width:100%;min-width:0;max-width:100%;margin:0 auto;',
+      'background:#111;overflow:hidden;position:relative;}',
+      '.gh-crop-viewport>img{display:block;width:100%;height:auto;max-width:none!important;max-height:none!important;}',
+      '.gh-crop-viewport>.cropper-container{width:100%!important;height:100%!important;}',
       '.gh-crop-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;}',
       '.gh-crop-toolbar-group{display:flex;gap:.35rem;}',
       '.gh-crop-toolbar-spacer{flex:1;}',
       '#ghImageCropModal.gh-crop-no-bs{position:fixed;inset:0;z-index:1080;display:none;',
       'align-items:center;justify-content:center;background:rgba(0,0,0,.65);padding:1rem;}',
       '#ghImageCropModal.gh-crop-no-bs.gh-crop-open{display:flex;}',
-      '#ghImageCropModal.gh-crop-no-bs .modal-dialog{width:min(640px,100%);margin:0;}',
+      '#ghImageCropModal.gh-crop-no-bs .modal-dialog{width:min(720px,100%);margin:0;}',
       '#ghImageCropModal.gh-crop-no-bs .modal-content{background:#1a1f2b;color:#e8eef8;',
       'border:1px solid #3a4254;border-radius:10px;overflow:hidden;}',
       '#ghImageCropModal.gh-crop-no-bs .modal-header,#ghImageCropModal.gh-crop-no-bs .modal-footer{',
@@ -191,7 +257,7 @@
 
     const html = `
       <div class="modal fade" id="${MODAL_ID}" tabindex="-1" aria-labelledby="${MODAL_ID}Label" aria-hidden="true" data-bs-backdrop="static">
-        <div class="modal-dialog modal-dialog-centered" style="max-width: 640px;">
+        <div class="modal-dialog modal-dialog-centered gh-crop-dialog">
           <div class="modal-content bg-dark text-light border-secondary">
             <div class="modal-header border-secondary">
               <h5 class="modal-title" id="${MODAL_ID}Label">
@@ -253,6 +319,58 @@
     });
   }
 
+  function configureZoomSlider() {
+    const zoomSlider = document.getElementById('ghCropZoom');
+    if (!zoomSlider || !_cropper) return;
+    const imageData = _cropper.getImageData();
+    const containerData = _cropper.getContainerData();
+    const naturalRatio = Math.min(
+      containerData.width / imageData.naturalWidth,
+      containerData.height / imageData.naturalHeight
+    );
+    const currentRatio = imageData.width / imageData.naturalWidth;
+    zoomSlider.value = currentRatio;
+    zoomSlider.min = String(naturalRatio * 0.5);
+    zoomSlider.max = String(Math.max(currentRatio * 4, naturalRatio * 6));
+    zoomSlider.step = '0.001';
+  }
+
+  function startCropper(img, modalEl) {
+    const viewportEl = modalEl.querySelector('.gh-crop-viewport');
+    const viewportSize = layoutViewport(viewportEl, _opts);
+    primeCropImage(img, viewportSize);
+
+    const aspectRatio = _opts.aspectRatio;
+    const isFreeForm = (typeof aspectRatio !== 'number') || isNaN(aspectRatio);
+
+    _cropper = new Cropper(img, {
+      aspectRatio: isFreeForm ? NaN : aspectRatio,
+      viewMode: 1,
+      dragMode: 'move',
+      autoCropArea: 1,
+      cropBoxResizable: isFreeForm,
+      cropBoxMovable: isFreeForm,
+      toggleDragModeOnDblclick: false,
+      guides: false,
+      center: true,
+      background: false,
+      modal: true,
+      responsive: true,
+      minContainerWidth: viewportSize.width,
+      minContainerHeight: viewportSize.height,
+      minCanvasWidth: 0,
+      minCanvasHeight: 0,
+      ready: function () {
+        layoutViewport(viewportEl, _opts);
+        syncCropperContainer(viewportEl);
+        if (_cropper) {
+          _cropper.reset();
+          configureZoomSlider();
+        }
+      },
+    });
+  }
+
   function destroyCropper() {
     if (_cropper) {
       try { _cropper.destroy(); } catch (e) { /* ignore */ }
@@ -262,7 +380,23 @@
     if (img) {
       img.removeAttribute('src');
       img.onload = null;
+      img.style.width = '';
+      img.style.height = '';
+      img.style.maxWidth = '';
+      img.style.maxHeight = '';
     }
+    const viewportEl = document.querySelector('#' + MODAL_ID + ' .gh-crop-viewport');
+    if (viewportEl) {
+      viewportEl.style.width = '';
+      viewportEl.style.height = '';
+      viewportEl.style.maxWidth = '';
+      viewportEl.style.margin = '';
+      delete viewportEl.dataset.ghCropAspect;
+    }
+    const modalEl = document.getElementById(MODAL_ID);
+    if (modalEl) delete modalEl.dataset.ghCropWide;
+    const dialogEl = document.querySelector('#' + MODAL_ID + ' .modal-dialog');
+    if (dialogEl) dialogEl.style.maxWidth = '';
     if (_objectUrl) {
       try { URL.revokeObjectURL(_objectUrl); } catch (e) { /* ignore */ }
       _objectUrl = null;
@@ -371,40 +505,23 @@
     img.src = _objectUrl;
 
     img.onload = function () {
-      const aspectRatio = _opts.aspectRatio;
-      const isFreeForm = (typeof aspectRatio !== 'number') || isNaN(aspectRatio);
+      const viewportEl = modalEl.querySelector('.gh-crop-viewport');
+      layoutViewport(viewportEl, _opts);
 
-      _cropper = new Cropper(img, {
-        aspectRatio: isFreeForm ? NaN : aspectRatio,
-        viewMode: 1,
-        dragMode: 'move',
-        autoCropArea: 1,
-        cropBoxResizable: isFreeForm,
-        cropBoxMovable: isFreeForm,
-        toggleDragModeOnDblclick: false,
-        guides: false,
-        center: true,
-        background: false,
-        modal: true,
-        responsive: true,
-        ready: function () {
-          const zoomSlider = document.getElementById('ghCropZoom');
-          if (!zoomSlider || !_cropper) return;
-          const imageData = _cropper.getImageData();
-          const containerData = _cropper.getContainerData();
-          const naturalRatio = Math.min(
-            containerData.width / imageData.naturalWidth,
-            containerData.height / imageData.naturalHeight
-          );
-          const currentRatio = imageData.width / imageData.naturalWidth;
-          zoomSlider.value = currentRatio;
-          zoomSlider.min = String(naturalRatio * 0.5);
-          zoomSlider.max = String(Math.max(currentRatio * 4, naturalRatio * 6));
-          zoomSlider.step = '0.001';
-        },
-      });
+      const beginCrop = function () {
+        startCropper(img, modalEl);
+      };
+
+      if (_useBootstrap) {
+        modalEl.addEventListener('shown.bs.modal', beginCrop, { once: true });
+        showModal(modalEl);
+        return;
+      }
 
       showModal(modalEl);
+      requestAnimationFrame(function () {
+        requestAnimationFrame(beginCrop);
+      });
     };
 
     img.onerror = function () {
