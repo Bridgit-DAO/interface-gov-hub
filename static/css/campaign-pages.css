@@ -208,10 +208,14 @@
 
 .gh-campaign-hero-has-image {
   position: relative;
-  min-height: min(72vh, 40rem);
+  min-height: min(80vh, 52rem);
   display: flex;
   align-items: center;
   overflow: hidden;
+}
+
+.gh-campaign-hero-fit-contain.gh-campaign-hero-has-image {
+  min-height: min(85vh, 56rem);
 }
 
 .gh-campaign-hero-full-bleed {
@@ -277,6 +281,21 @@
 
 .gh-campaign-hero-scrim-gradient-full {
   background: rgba(5, 11, 26, 0.62);
+}
+
+.gh-campaign-hero-scrim-panel-left {
+  background: none;
+}
+
+.gh-campaign-hero-scrim-panel .gh-campaign-hero-content {
+  background: rgba(5, 11, 26, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(77, 159, 255, 0.18);
+  border-radius: 10px;
+  padding: 2rem 2.25rem;
+  max-width: 30rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
 
 .gh-campaign-hero-content {
@@ -624,4 +643,50 @@
 
 .gh-campaign-doc-header {
   margin-bottom: 1.5rem;
+}
+
+/* Campaign embed draft reader: dark onboarding modal inside iframe */
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .modal-content {
+  background: var(--gh-campaign-surface-raised);
+  color: var(--gh-campaign-text);
+  border: 1px solid var(--gh-campaign-border);
+}
+
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .modal-header,
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .modal-body,
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .modal-footer {
+  background: transparent;
+  color: var(--gh-campaign-text);
+  border-color: var(--gh-campaign-border);
+}
+
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .modal-title,
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .form-check-label,
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .gh-guide-steps,
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .gh-guide-steps li {
+  color: var(--gh-campaign-text);
+}
+
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .nav-tabs {
+  border-color: var(--gh-campaign-border);
+}
+
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .nav-tabs .nav-link {
+  color: var(--gh-campaign-muted);
+  border-color: transparent;
+}
+
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .nav-tabs .nav-link:hover {
+  color: var(--gh-campaign-text);
+  border-color: var(--gh-campaign-border);
+}
+
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .nav-tabs .nav-link.active {
+  color: var(--gh-campaign-accent);
+  background: rgba(77, 159, 255, 0.1);
+  border-color: var(--gh-campaign-border) var(--gh-campaign-border) transparent;
+}
+
+.gh-embed-draft-reader.gh-embed-modal-dark #ghReaderGuideModal .btn-close {
+  filter: invert(1) grayscale(100%) brightness(200%);
 }

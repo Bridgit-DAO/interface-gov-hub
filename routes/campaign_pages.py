@@ -26,6 +26,7 @@ from services.campaign_thumbnails import (
     thumb_public_url,
 )
 from services.campaign_render import (
+    campaign_slides_pdf_url,
     render_embed_draft_reader,
     render_embed_slides_pdf,
     render_monument_index,
@@ -35,6 +36,7 @@ from services.campaign_render import (
     render_doc_statement,
     render_home,
 )
+from services.campaign_pages import resolve_document_embed
 from services.csrf import csrf_form_field
 from services.identity import get_current_user, require_auth
 
@@ -94,7 +96,7 @@ def campaign_doc(slug, doc_slug):
         path = resolve_project_path(rel)
         if not __import__('os').path.isfile(path):
             abort(404)
-        pdf_url = campaign_href(slug, f'/docs/slides/file/')
+        pdf_url = campaign_slides_pdf_url(cfg, doc)
         return render_doc_slides(cfg, doc, pdf_url), 200, {'Content-Type': 'text/html; charset=utf-8'}
 
     abort(404)
@@ -132,7 +134,20 @@ def campaign_slides_file(slug):
 @bp.route('/embed/draft/<draft_ref>/read/')
 def embed_draft_reader(draft_ref):
     """Iframe-safe draft reader for campaign paper embeds."""
-    html, status = render_embed_draft_reader(draft_ref)
+    from services.campaign_pages import _load_all_campaigns
+
+    modal_theme = 'dark'
+    for cfg in _load_all_campaigns().values():
+        for doc in cfg.documents or []:
+            if str(doc.get('draftRef') or '') != draft_ref:
+                continue
+            embed = resolve_document_embed(cfg, doc)
+            modal_theme = embed.get('modalTheme') or modal_theme
+            break
+        else:
+            continue
+        break
+    html, status = render_embed_draft_reader(draft_ref, modal_theme=modal_theme)
     return html, status, {'Content-Type': 'text/html; charset=utf-8'}
 
 
@@ -147,9 +162,22 @@ def embed_campaign_slides(slug):
     path = resolve_project_path(rel)
     if not __import__('os').path.isfile(path):
         abort(404)
-    pdf_url = campaign_href(slug, '/docs/slides/file/')
+    pdf_url = campaign_slides_pdf_url(cfg, doc)
     html = render_embed_slides_pdf(pdf_url, title=doc.get('label') or 'Slide deck')
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
+@bp.route('/embed/campaign/<slug>/slides/file/')
+def embed_campaign_slides_file(slug):
+    """Iframe-safe PDF bytes for campaign slide decks (SAMEORIGIN under /embed/)."""
+    cfg = _cfg_or_404(slug)
+    doc = cfg.doc_by_slug('slides')
+    if not doc:
+        abort(404)
+    path = resolve_project_path(doc.get('deckPath') or '')
+    if not __import__('os').path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype='application/pdf', conditional=True, as_attachment=False)
 
 
 def _statement_page(cfg, doc):

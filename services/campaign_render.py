@@ -17,7 +17,7 @@ from services.campaign_auth import (
     hub_login_url,
     vanity_absolute_url,
 )
-from services.campaign_pages import CampaignConfig, campaign_href, normalize_hero_config
+from services.campaign_pages import CampaignConfig, campaign_href, normalize_hero_config, resolve_document_embed
 from services.campaign_thumbnails import resolve_campaign_card_thumbnail
 
 
@@ -261,7 +261,7 @@ def campaign_shell(
   <title>{_esc(page_title)} – {_esc(cfg.title)}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=8" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=9" rel="stylesheet">
   {extra_head}
 </head>
 <body class="gh-campaign-body">
@@ -286,14 +286,25 @@ def campaign_shell(
 </html>'''
 
 
-def campaign_draft_embed_url(draft_ref: str) -> str:
+def campaign_draft_embed_url(cfg: CampaignConfig, doc: Dict[str, Any]) -> str:
     """Same-origin embed URL for the Gov Hub draft reader (iframe-safe)."""
-    return f'/embed/draft/{html_mod.escape(draft_ref)}/read/'
+    embed = resolve_document_embed(cfg, doc)
+    return embed.get('src') or f'/embed/draft/{html_mod.escape(doc.get("draftRef") or "")}/read/'
 
 
-def campaign_slides_embed_url(slug: str) -> str:
+def campaign_slides_embed_url(cfg: CampaignConfig, doc: Dict[str, Any]) -> str:
     """Same-origin embed URL for inline slide-deck PDF viewing."""
-    return f'/embed/campaign/{html_mod.escape(slug)}/slides/'
+    embed = resolve_document_embed(cfg, doc)
+    return embed.get('src') or f'/embed/campaign/{html_mod.escape(cfg.slug)}/slides/'
+
+
+def campaign_slides_pdf_url(cfg: CampaignConfig, doc: Dict[str, Any]) -> str:
+    """Iframe-safe PDF file URL (under /embed/ for SAMEORIGIN framing)."""
+    embed = resolve_document_embed(cfg, doc)
+    return (
+        embed.get('pdfSrc')
+        or f'/embed/campaign/{html_mod.escape(cfg.slug)}/slides/file/'
+    )
 
 
 def _campaign_presentation_value(cfg: CampaignConfig, key: str, default: str = '') -> str:
@@ -380,6 +391,8 @@ def _campaign_hero_section(cfg: CampaignConfig, *, primary_href: str, primary: D
         hero_classes.append('gh-campaign-hero-full-bleed')
     if fit == 'contain':
         hero_classes.append('gh-campaign-hero-fit-contain')
+    if scrim == 'panel-left':
+        hero_classes.append('gh-campaign-hero-scrim-panel')
 
     content_classes = ['gh-campaign-hero-content']
     if text_align in {'left', 'center', 'right'}:
@@ -552,7 +565,7 @@ def render_monument_node(cfg: CampaignConfig, node: Dict[str, Any]) -> str:
 
 
 def render_doc_paper(cfg: CampaignConfig, doc: Dict[str, Any], draft_ref: str) -> str:
-    embed_url = campaign_draft_embed_url(draft_ref)
+    embed_url = campaign_draft_embed_url(cfg, doc)
     read_url = (
         f'/doc/draft/{html_mod.escape(draft_ref)}/read/?return_to='
         f'{url_quote(campaign_href(cfg.slug, "/docs/paper"), safe="")}'
@@ -605,7 +618,7 @@ def render_doc_statement(cfg: CampaignConfig, doc: Dict[str, Any], body_html: st
 
 
 def render_doc_slides(cfg: CampaignConfig, doc: Dict[str, Any], pdf_url: str) -> str:
-    embed_url = campaign_slides_embed_url(cfg.slug)
+    embed_url = campaign_slides_embed_url(cfg, doc)
     main = f'''
     <section class="gh-campaign-doc-header">
       <h1>{_esc(doc.get("label"))}</h1>
@@ -626,7 +639,7 @@ def render_doc_slides(cfg: CampaignConfig, doc: Dict[str, Any], pdf_url: str) ->
     )
 
 
-def render_embed_draft_reader(draft_ref: str) -> tuple[str, int]:
+def render_embed_draft_reader(draft_ref: str, *, modal_theme: str = 'dark') -> tuple[str, int]:
     """Minimal draft reader page for campaign iframe embeds."""
     from config import BUILD_NUMBER
     from services.draft_reader import build_draft_context, draft_display_id, load_draft_document_body
@@ -669,6 +682,8 @@ def render_embed_draft_reader(draft_ref: str) -> tuple[str, int]:
     doc_href = html_mod.escape(str(draft.get('name') or draft_ref), quote=True)
     read_url = f'/doc/draft/{doc_href}/read/'
 
+    theme_class = 'gh-embed-modal-dark' if (modal_theme or 'dark').lower() == 'dark' else ''
+
     html = f'''<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -679,9 +694,9 @@ def render_embed_draft_reader(draft_ref: str) -> tuple[str, int]:
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link href="/static/css/govhub-design.css?v={BUILD_NUMBER}" rel="stylesheet">
   <link href="/static/css/dp-proposals-reader.css?v={BUILD_NUMBER}" rel="stylesheet">
-  <link href="/static/css/campaign-pages.css?v=8" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=9" rel="stylesheet">
 </head>
-<body class="gh-embed-draft-reader">
+<body class="gh-embed-draft-reader {theme_class}">
   <header class="gh-embed-reader-toolbar">
     <div class="gh-embed-reader-toolbar-inner">
       <span class="gh-embed-reader-title"><strong>{display_id}</strong> · {title}</span>
@@ -707,7 +722,7 @@ def render_embed_slides_pdf(pdf_url: str, *, title: str = 'Slide deck') -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title_esc}</title>
-  <link href="/static/css/campaign-pages.css?v=8" rel="stylesheet">
+  <link href="/static/css/campaign-pages.css?v=9" rel="stylesheet">
 </head>
 <body class="gh-embed-pdf-reader">
   <div class="gh-embed-pdf-native">

@@ -31,6 +31,7 @@ class CampaignConfig:
     external_links: List[Dict[str, Any]]
     primary_cta: Dict[str, str]
     secondary_ctas: List[Dict[str, str]]
+    embeds: Dict[str, Dict[str, Any]]
     raw: Dict[str, Any]
     monument_id: Optional[str] = None
     presentation: Dict[str, Any] = None
@@ -153,6 +154,66 @@ def normalize_hero_config(
     }
 
 
+def _embed_template_value(value: str, *, slug: str, doc: Dict[str, Any]) -> str:
+    if not value:
+        return value
+    return (
+        value.replace('{slug}', slug)
+        .replace('{draftRef}', str(doc.get('draftRef') or ''))
+        .replace('{deckPath}', str(doc.get('deckPath') or ''))
+    )
+
+
+def build_embeds_from_seed(seed: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Auto-derive embed bindings from documents when ``embeds`` is absent or partial."""
+    slug = (seed.get('slug') or '').strip()
+    explicit = dict(seed.get('embeds') or {})
+    embeds: Dict[str, Dict[str, Any]] = {}
+    for doc in seed.get('documents') or []:
+        doc_slug = (doc.get('slug') or '').strip()
+        if not doc_slug:
+            continue
+        doc_type = (doc.get('type') or '').strip().lower()
+        binding = dict(explicit.get(doc_slug) or {})
+        if not binding:
+            if doc_type == 'paper' and doc.get('draftRef'):
+                binding = {
+                    'mode': 'iframe',
+                    'src': '/embed/draft/{draftRef}/read/',
+                    'modalTheme': 'dark',
+                }
+            elif doc_type in {'slide_deck', 'slides'} and doc.get('deckPath'):
+                binding = {
+                    'mode': 'pdf',
+                    'src': '/embed/campaign/{slug}/slides/',
+                    'pdfSrc': '/embed/campaign/{slug}/slides/file/',
+                }
+        resolved = {
+            key: _embed_template_value(str(val), slug=slug, doc=doc) if isinstance(val, str) else val
+            for key, val in binding.items()
+        }
+        if resolved:
+            embeds[doc_slug] = resolved
+    return embeds
+
+
+def resolve_document_embed(cfg: 'CampaignConfig', doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve iframe/PDF embed settings for a campaign document."""
+    doc_slug = (doc.get('slug') or '').strip()
+    pres = cfg.presentation or {}
+    raw = cfg.raw or {}
+    embeds = cfg.embeds or raw.get('embeds') or pres.get('embeds') or {}
+    binding = dict(embeds.get(doc_slug) or {})
+    if not binding:
+        seed_like = {'slug': cfg.slug, 'documents': [doc], 'embeds': {}}
+        binding = build_embeds_from_seed(seed_like).get(doc_slug) or {}
+    resolved = {
+        key: _embed_template_value(str(val), slug=cfg.slug, doc=doc) if isinstance(val, str) else val
+        for key, val in binding.items()
+    }
+    return resolved
+
+
 def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
     presentation = dict(data.get('presentation') or {})
     structure = dict(data.get('structure') or {})
@@ -161,6 +222,7 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
     if not presentation:
         presentation = build_monument_presentation_from_seed(data)
     hero = normalize_hero_config(data, presentation)
+    embeds = build_embeds_from_seed(data)
     return CampaignConfig(
         slug=slug,
         title=data.get('title') or slug,
@@ -175,6 +237,7 @@ def _parse_campaign(data: Dict[str, Any], slug: str) -> CampaignConfig:
         external_links=list(data.get('externalLinks') or []),
         primary_cta=dict(data.get('primaryCta') or {}),
         secondary_ctas=list(data.get('secondaryCtas') or []),
+        embeds=embeds,
         raw=data,
         presentation=presentation,
         structure=structure,
@@ -266,6 +329,12 @@ def _parse_monument_campaign(monument) -> CampaignConfig:
     external_links.extend(_external_links_from_nodes(nodes))
     external_links.sort(key=lambda item: item.get('displayOrder') or 0)
     hero = normalize_hero_config(presentation)
+    seed_like = {
+        'slug': slug,
+        'documents': documents,
+        'embeds': presentation.get('embeds') or {},
+    }
+    embeds = build_embeds_from_seed(seed_like)
     return CampaignConfig(
         slug=slug,
         title=presentation.get('title') or getattr(monument, 'title', None) or slug,
@@ -280,10 +349,12 @@ def _parse_monument_campaign(monument) -> CampaignConfig:
         external_links=external_links,
         primary_cta=dict(presentation.get('primaryCta') or {}),
         secondary_ctas=list(presentation.get('secondaryCtas') or []),
+        embeds=embeds,
         raw={
             'presentation': presentation,
             'structure': structure,
             'monument_id': getattr(monument, 'id', None),
+            'embeds': embeds,
         },
         monument_id=getattr(monument, 'id', None),
         presentation=presentation,
@@ -537,6 +608,9 @@ def build_monument_presentation_from_seed(seed: Dict[str, Any]) -> Dict[str, Any
     ghost_links = hero.get('overlay', {}).get('ghostLinks') or []
     if ghost_links:
         presentation['heroGhostLinks'] = ghost_links
+    embeds = build_embeds_from_seed(seed)
+    if embeds:
+        presentation['embeds'] = embeds
     return presentation
 
 

@@ -60,7 +60,7 @@ systemctl --user restart datatracker.service   # production
 | `headline` | string | campaign `title` | `<h1>` text |
 | `quote` | string | (none) | Optional blockquote under headline |
 | `quoteAttribution` | string | (none) | `<cite>` under quote |
-| `overlay.scrim` | string | `gradient-left` | Legibility overlay: `gradient-left`, `gradient-bottom`, `gradient-full` |
+| `overlay.scrim` | string | `gradient-left` | Legibility overlay: `gradient-left`, `gradient-bottom`, `gradient-full`, `panel-left` |
 | `overlay.textAlign` | string | `left` | `left`, `center`, or `right` |
 | `overlay.primaryCta` | object | `primaryCta` at root | Primary button `{ label, href }` |
 | `overlay.ghostLinks` | array | `secondaryCtas` | Text links under primary CTA (max 2 rendered) |
@@ -69,7 +69,8 @@ systemctl --user restart datatracker.service   # production
 
 - **No `object-position` hacks.** The hero uses a real `<img>` with `object-fit: cover` and `object-position: center center` so the image is not artificially shifted to hide on-image text.
 - **`fit: contain`** shows the full image inside the hero frame (letterboxed on dark background). Use when the artwork must remain fully visible.
-- **`fullBleed: true`** spans viewport width with a strong gradient scrim for overlay copy.
+- **`overlay.scrim: panel-left`** puts copy on a semi-transparent left panel instead of a full-image gradient.
+- **`fullBleed: true`** spans viewport width; pair with `contain` + `panel-left` to preserve artwork.
 
 ### Legacy flat keys (still supported)
 
@@ -93,15 +94,15 @@ From `static/campaign/teilhard/campaign-seed.json`:
 
 ```json
 "hero": {
-  "imageUrl": "/static/campaign/teilhard/assets/hero.jpg",
+  "imageUrl": "/static/campaign/teilhard/assets/hero.png",
   "fullBleed": true,
-  "fit": "cover",
+  "fit": "contain",
   "kicker": "The Teilhard Test",
   "headline": "Can humanity grow into the intelligence it has created?",
   "quote": "No distinct center of superhuman consciousness has yet appeared on earth.",
   "quoteAttribution": "Teilhard de Chardin, The Formation of the Noösphere",
   "overlay": {
-    "scrim": "gradient-left",
+    "scrim": "panel-left",
     "textAlign": "left",
     "primaryCta": {
       "label": "Read and Comment on the Paper",
@@ -115,7 +116,9 @@ From `static/campaign/teilhard/campaign-seed.json`:
 }
 ```
 
-Hero asset: agent drop UUID `ad24f3c4-ecce-4a0a-a313-cbff81c2789a` → `static/campaign/teilhard/assets/hero.jpg`.
+Hero asset: agent drop UUID `ad24f3c4-ecce-4a0a-a313-cbff81c2789a` → `static/campaign/teilhard/assets/hero.png`.
+
+Document embeds: see [CAMPAIGN_ARTIFACTS_CONFIG.md](CAMPAIGN_ARTIFACTS_CONFIG.md).
 
 ## Verify
 
