@@ -596,6 +596,11 @@ def dp_proposals_dashboard():
     content = f'''
     <div class="gh-page container mt-4 gh-admin-page">
         {header}
+        <div class="mb-3">
+            <a href="/admin/cfi-patches/" class="btn btn-outline-primary btn-sm">
+                <i class="fas fa-envelope-open-text me-1"></i>CFI proposed patches (Neo4j)
+            </a>
+        </div>
         {gh_living_module('By DP', table_html, 'fa-list', extra_class='mb-0')}
     </div>
     '''
@@ -605,3 +610,158 @@ def dp_proposals_dashboard():
         theme=current_theme,
         user_menu=user_menu,
     )
+
+
+@admin_bp.route('/admin/cfi-patches/')
+@admin_bp.route('/admin/cfi-patches')
+@require_role('admin')
+def cfi_patches_dashboard():
+    """Phase 3: CFI proposed patches grouped by submission (Neo4j graph)."""
+    from services.cfi_proposed_patches import fetch_cfi_patch_export
+    from services.cfi_patches_page import render_cfi_patches_page_html
+
+    focus = (request.args.get('submission') or '').strip() or None
+    export = fetch_cfi_patch_export(submission_id=focus)
+    user_menu = generate_user_menu()
+    current_theme = session.get('theme', 'dark')
+
+    body_html = render_cfi_patches_page_html(export, focus_submission_id=focus)
+    header = gh_page_header(
+        'CFI proposed patches',
+        'Phase 2 Hermes proposals grouped by source submission',
+        'fa-envelope-open-text',
+        breadcrumb_html=gh_breadcrumb([
+            ('Admin Dashboard', '/admin/'),
+            ('Patches', '/admin/dp-proposals/'),
+            ('CFI proposed', None),
+        ]),
+        actions_html=(
+            '<a href="/admin/dp-proposals/" class="btn btn-outline-secondary btn-sm">'
+            '<i class="fas fa-highlighter me-1"></i>Gov Hub patches</a>'
+        ),
+    )
+
+    content = f'''
+    <div class="gh-page container mt-4 gh-admin-page gh-cfi-patches-page">
+        {header}
+        {gh_living_module('Grouped by submission', body_html, 'fa-layer-group', extra_class='mb-0')}
+    </div>
+    <script src="/static/js/cfi-patches-admin.js"></script>
+    '''
+    return render_page(
+        'CFI proposed patches – Admin',
+        content,
+        theme=current_theme,
+        user_menu=user_menu,
+    )
+
+
+@admin_bp.route('/api/admin/cfi-patches/')
+@require_role('admin')
+def cfi_patches_api():
+    """JSON export for CFI patch groups (same data as admin page)."""
+    from services.cfi_proposed_patches import fetch_cfi_patch_export
+
+    focus = (request.args.get('submission') or '').strip() or None
+    export = fetch_cfi_patch_export(submission_id=focus)
+    status = 200 if export.get('ok') else 503
+    return jsonify(export), status
+
+
+@admin_bp.route('/api/admin/cfi-patches/promote', methods=['POST'])
+@require_role('admin')
+def cfi_promote_patch_to_canopi():
+    """Promote one CFI patch to Canopi Discuss."""
+    from services.cfi_canopi_promote import (
+        mark_cfi_patch_promoted_in_graph,
+        promote_cfi_patch_to_canopi,
+    )
+    from services.cfi_proposed_patches import fetch_cfi_patch_export
+
+    body = request.get_json(silent=True) or {}
+    patch_id = (body.get('patch_id') or body.get('patchId') or '').strip()
+    submission_id = (body.get('submission_id') or body.get('submissionId') or '').strip() or None
+    if not patch_id:
+        return jsonify({'ok': False, 'error': 'patch_id required'}), 400
+
+    export = fetch_cfi_patch_export(submission_id=submission_id)
+    if not export.get('ok'):
+        return jsonify({'ok': False, 'error': export.get('error') or 'export failed'}), 503
+
+    patch = None
+    submission = None
+    for group in export.get('groups') or []:
+        if submission_id and group.get('submission_id') != submission_id:
+            continue
+        for row in group.get('patches') or []:
+            if row.get('id') == patch_id:
+                patch = row
+                submission = group
+                break
+        if patch:
+            break
+
+    if not patch:
+        return jsonify({'ok': False, 'error': 'patch not found'}), 404
+
+    result, status = promote_cfi_patch_to_canopi(patch, submission=submission)
+    if not result.get('ok') and status >= 400:
+        return jsonify(result), status
+
+    message_id = result.get('messageId') or result.get('message_id')
+    discuss_href = result.get('discussHref') or result.get('discuss_href')
+    if message_id and not result.get('idempotent'):
+        mark = mark_cfi_patch_promoted_in_graph(
+            patch_id,
+            canopi_message_id=str(message_id),
+            canopi_discuss_href=discuss_href,
+        )
+        result['graph'] = mark
+
+    return jsonify(result), status
+
+
+@admin_bp.route('/api/admin/cfi-patches/promote-submission', methods=['POST'])
+@require_role('admin')
+def cfi_promote_submission_to_canopi():
+    """Promote all patches in a CFI submission group to Canopi Discuss."""
+    from services.cfi_canopi_promote import (
+        mark_cfi_patch_promoted_in_graph,
+        promote_cfi_submission_to_canopi,
+    )
+    from services.cfi_proposed_patches import fetch_cfi_patch_export
+
+    body = request.get_json(silent=True) or {}
+    submission_id = (body.get('submission_id') or body.get('submissionId') or '').strip()
+    if not submission_id:
+        return jsonify({'ok': False, 'error': 'submission_id required'}), 400
+
+    export = fetch_cfi_patch_export(submission_id=submission_id)
+    if not export.get('ok'):
+        return jsonify({'ok': False, 'error': export.get('error') or 'export failed'}), 503
+
+    group = next(
+        (g for g in (export.get('groups') or []) if g.get('submission_id') == submission_id),
+        None,
+    )
+    if not group:
+        return jsonify({'ok': False, 'error': 'submission not found'}), 404
+
+    result, status = promote_cfi_submission_to_canopi(group)
+    if status >= 400 and not result.get('ok'):
+        return jsonify(result), status
+
+    for row in result.get('results') or []:
+        if not row.get('ok'):
+            continue
+        pid = row.get('patchId')
+        mid = row.get('messageId')
+        href = row.get('discussHref')
+        if pid and mid and not row.get('idempotent'):
+            row['graph'] = mark_cfi_patch_promoted_in_graph(
+                pid,
+                canopi_message_id=str(mid),
+                canopi_discuss_href=href,
+            )
+
+    return jsonify(result), status

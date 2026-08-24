@@ -60,6 +60,7 @@ datatracker.sublime-workspace
 !/static/js/gh-image-crop.js
 !/static/js/gh-image-upload.js
 !/static/js/brc333-badges-admin.js
+!/static/js/cfi-patches-admin.js
 !/static/js/dp-proposals/
 !/static/js/dp-proposals/**
 !/static/vendor/
