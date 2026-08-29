@@ -101,6 +101,41 @@ def patch_diff_route(patch_id):
     })
 
 
+@bp.route('/<path:draft_ref>/passage-synthesis/<proposal_id>/', methods=['GET'])
+@require_auth
+def passage_synthesis_export_route(draft_ref, proposal_id):
+    """Workgroup synthesis export for one passage (Canopi workgroup-export proxy)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    submission, err = resolve_submission_for_proposals(draft_ref)
+    if err:
+        return jsonify({'error': err}), 404 if err == 'Document not found' else 400
+    guard = _submission_feature_guard(submission)
+    if guard:
+        return guard
+
+    wg = workgroup_for_submission(submission)
+    if not can_manage_amendments(current_user, wg):
+        return jsonify({'error': 'You do not have permission to view synthesis for this workgroup'}), 403
+
+    proposal = DpProposal.query.filter_by(id=proposal_id, submission_id=submission.id).first()
+    if not proposal:
+        return jsonify({'error': 'Patch not found'}), 404
+
+    from services.canopi_synthesis import passage_synthesis_export_for_proposal
+
+    try:
+        export = passage_synthesis_export_for_proposal(proposal, submission)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({'error': str(exc)}), 502
+
+    return jsonify({'export': export})
+
+
 def _serialize_proposal(row) -> dict:
     """Patch JSON plus how it relates to the revision body being served."""
     applicability = getattr(row, 'applicability', 'applies')

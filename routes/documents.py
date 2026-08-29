@@ -2567,6 +2567,7 @@ def draft_patches(draft_name):
     window.GH_PATCHES_PAGE = {{ draftRef: {json.dumps(draft_name)} }};
     </script>
     <script src="/static/js/document-patches.js?v=1" defer></script>
+    <script src="/static/js/gh-synthesis-revision-picker.js?v=1" defer></script>
     """
 
     return _format_base_template(

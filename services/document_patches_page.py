@@ -14,6 +14,7 @@ from services.dp_proposals import (
     applicability_counts,
     can_accept_amendments,
     can_manage_amendments,
+    is_dp_submission,
     list_proposals_for_submission,
     resolve_submission_for_proposals,
     workgroup_for_submission,
@@ -294,6 +295,7 @@ def render_passage_group(
     return_to: str,
     can_merge: bool,
     can_decline: bool,
+    can_synthesis: bool,
     labels: Dict[str, str],
 ) -> str:
     passage = html_mod.escape(_truncate(group.get('passage') or '', 220))
@@ -315,10 +317,19 @@ def render_passage_group(
 
     first_patch = (group.get('patches') or [None])[0]
     passage_link = ''
+    synthesis_btn = ''
     group_applicability = ''
     if first_patch:
         href = html_mod.escape(_patch_reader_href(draft_ref, first_patch.id, return_to=return_to))
         passage_link = f'<a href="{href}" class="btn btn-sm btn-link px-0">Open passage in reader</a>'
+        if can_synthesis:
+            synthesis_btn = (
+                f'<button type="button" class="btn btn-sm btn-outline-primary gh-passage-synthesis-btn" '
+                f'data-proposal-id="{html_mod.escape(first_patch.id)}" '
+                f'aria-haspopup="dialog">'
+                '<i class="fas fa-layer-group me-1" aria-hidden="true"></i>Synthesis judgments'
+                '</button>'
+            )
         # Patches on one passage share an anchor, but a closed patch on a passage a
         # later revision edited is obsolete while an open one still needs
         # re-anchoring, so a group can carry more than one state.
@@ -337,6 +348,7 @@ def render_passage_group(
           <span class="badge bg-light text-dark border">{html_mod.escape(count_label)}</span>
           {group_applicability}
           {passage_link}
+          {synthesis_btn}
         </div>
       </div>
       {cards}
@@ -362,6 +374,7 @@ def render_patches_list_html(
     wg = workgroup_for_submission(submission)
     can_merge = bool(current_user and can_accept_amendments(current_user, wg))
     can_decline = bool(current_user and can_manage_amendments(current_user, wg))
+    can_synthesis = bool(can_merge and is_dp_submission(submission))
     return_to = f'/doc/draft/{quote(draft_ref, safe="")}/patches/'
     groups = _group_patches_by_passage(rows)
     summary = render_applicability_summary(rows, served_revision_label(submission))
@@ -372,6 +385,7 @@ def render_patches_list_html(
             return_to=return_to,
             can_merge=can_merge,
             can_decline=can_decline,
+            can_synthesis=can_synthesis,
             labels=labels,
         )
         for g in groups
