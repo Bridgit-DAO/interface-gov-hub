@@ -38,6 +38,8 @@ def test_strategy_prompt_block_long_gap_content():
     assert 'meta-layer initiative' in block.lower()
     assert 'vint cerf' in block.lower()
     assert 'september 16, 2026' in block.lower()
+    assert 'november 13, 2026' in block.lower()
+    assert 'community review draft' in block.lower()
 
 
 def test_strategy_prompt_block_recent_follow_up_content():

@@ -420,8 +420,9 @@ def test_render_long_gap_template_without_dp():
     assert body.startswith('Hi Alex,')
     assert "It's been a long time" in body
     assert 'Metaweb book was published in late 2023' in body
-    assert 'solid version' in body
-    assert '0.77' not in body
+    assert 'solid 0.77 version' in body
+    assert 'Community Review Draft' in body
+    assert 'Nov 13, 2026' in body
     assert 'community AI assistant' in body
     assert (
         'As someone with an early view into the meta-layer conversation, we would love your input.'

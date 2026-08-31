@@ -83,8 +83,8 @@ _LONG_GAP_TEMPLATE_OPENING = (
     "After the Metaweb book was published in late 2023, we started the Meta-Layer Initiative. "
     "In the kickoff, a father of the Internet Vint Cerf challenged us to come up with the "
     "Desirable Properties of a layered web. We have done two calls for input and now have a "
-    "solid version with plans to digitally launch the 1.0 version on Sept 16, 2026 the "
-    "two year anniversary of the kickoff event."
+    "solid 0.77 version with plans to share the Community Review Draft on Sept 16, 2026, "
+    "the two year anniversary of the kickoff event, and release Version 1.0 on Nov 13, 2026."
 )
 
 _LONG_GAP_TEMPLATE_MIDDLE = (
@@ -958,10 +958,11 @@ _LONG_GAP_GENERIC_GUIDANCE = (
     'Open naturally: it has been a long time, hope they are well, and since you last spoke a lot has been cooking.\n'
     'Brief Meta-Layer arc in prose: Metaweb book (late 2023), Meta-Layer Initiative kickoff (September 2024), '
     'Vint Cerf on Desirable Properties of a layered web, community input rounds, 0.77 draft, '
-    'digital 1.0 launch September 16, 2026.\n'
+    'Community Review Draft milestone September 16, 2026, and Version 1.0 release '
+    'November 13, 2026.\n'
     'Weave in this contact\'s Zoho subjects and snippet details (e.g. GFC intro, Bridgit advisor calls, catch-ups).\n'
-    'Do NOT name a specific workgroup or charter. Invite them to explore workgroups, use the community AI assistant '
-    '(Hermes), or have a short conversation with Daveed.\n'
+    'Do NOT name a specific workgroup or charter. Invite them to explore workgroups, use Deepi '
+    '(the community AI assistant on Desirable Properties), or have a short conversation with Daveed.\n'
     'Mirror their communication style from snippets. Verbose contacts should get a longer, warmer draft.\n'
     'Sign off as Daveed or Daveed Benjamin with a complete closing sentence.'
 )
@@ -1076,7 +1077,7 @@ def _draft_generic_long_gap_reconnect(
         '"Let me check", "Let me finalize", or "Let me reconsider". '
         'Do NOT invite the recipient to a specific workgroup by name or charter. '
         'Mention Desirable Properties and the Meta-Layer arc naturally in prose. '
-        'Invite them to explore workgroups, use the community AI assistant (Hermes), '
+        'Invite them to explore workgroups, use Deepi (the community AI assistant on Desirable Properties), '
         'or have a short conversation with Daveed. '
         f'The FIRST line MUST be a greeting using the invitee\'s first name, e.g. "Hi {greet_name},". '
         f'{_NO_EM_DASH_RULE}'
