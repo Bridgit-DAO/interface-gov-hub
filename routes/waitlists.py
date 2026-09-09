@@ -338,6 +338,8 @@ _WAITLIST_EMAIL_CORS_ORIGINS = {
     'https://www.moltlayer.io',
     'https://webfour.foundation',
     'https://www.webfour.foundation',
+    'https://bridgit.io',
+    'https://www.bridgit.io',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
 }
