@@ -26,6 +26,18 @@ from services.referral_attribution import (
 
 bp = Blueprint('waitlists', __name__, url_prefix='')
 
+WEBFOUR_FOUNDATION_WAITLIST_ID = '70865c06-9c8b-42ed-8991-f90b551c9027'
+
+
+def _is_interest_expression_waitlist(waitlist, source=None):
+    """Web4 Foundation pledge form uses interest wording, not waitlist place."""
+    if str(waitlist.id) == WEBFOUR_FOUNDATION_WAITLIST_ID:
+        return True
+    if source and 'webfour.foundation' in str(source):
+        return True
+    return 'web4 foundation' in (waitlist.name or '').lower()
+
+
 # Embed widget JS - email-first, no auth. Uses join-email API.
 EMBED_WIDGET_JS = r"""(function(){
 var c=window.__WL_CFG;if(!c)return;
@@ -119,19 +131,34 @@ def _embed_widget_params():
     }
 
 
-def _send_waitlist_verification_email(signup, waitlist, confirm_url):
+def _send_waitlist_verification_email(signup, waitlist, confirm_url, *, interest_copy=False):
     """Send verification email via Resend. Returns True on success."""
     from services.resend_mail import send_resend_email
 
-    html_body = f"""<p>You requested to join the waitlist for <strong>{html_mod.escape(waitlist.name)}</strong>.</p>
-<p>Please click the link below to confirm your place on the list:</p>
-<p><a href="{html_mod.escape(confirm_url, quote=True)}" style="background:#1d9bf0;color:#fff;padding:8px 16px;text-decoration:none;border-radius:6px;display:inline-block;">Confirm my place</a></p>
+    waitlist_name = html_mod.escape(waitlist.name)
+    if interest_copy:
+        intro = (
+            f'<p>You registered your interest in <strong>{waitlist_name}</strong>.</p>'
+            '<p>Please click the link below to confirm your interest:</p>'
+        )
+        button = 'Confirm my interest'
+        subject = f'Confirm your interest in {waitlist.name}'
+    else:
+        intro = (
+            f'<p>You requested to join the waitlist for <strong>{waitlist_name}</strong>.</p>'
+            '<p>Please click the link below to confirm your place on the list:</p>'
+        )
+        button = 'Confirm my place'
+        subject = f'Confirm your place on {waitlist.name}'
+
+    html_body = f"""{intro}
+<p><a href="{html_mod.escape(confirm_url, quote=True)}" style="background:#1d9bf0;color:#fff;padding:8px 16px;text-decoration:none;border-radius:6px;display:inline-block;">{button}</a></p>
 <p>Or copy this link: {html_mod.escape(confirm_url)}</p>
 <p>If you didn't request this, you can ignore this email.</p>
 <p>– Gov Hub</p>"""
     return send_resend_email(
         to=[signup.email],
-        subject=f'Confirm your place on {waitlist.name}',
+        subject=subject,
         html=html_body,
         tags=[{'name': 'category', 'value': 'waitlist_verify'}],
     )
@@ -340,6 +367,8 @@ _WAITLIST_EMAIL_CORS_ORIGINS = {
     'https://www.webfour.foundation',
     'https://bridgit.io',
     'https://www.bridgit.io',
+    'https://pachaspajamas.com',
+    'https://www.pachaspajamas.com',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
 }
@@ -433,7 +462,10 @@ def join_waitlist_email(waitlist_id):
         db.session.add(signup)
         db.session.commit()
 
-    email_sent = _send_waitlist_verification_email(signup, waitlist, confirm_url)
+    interest_copy = _is_interest_expression_waitlist(waitlist, source)
+    email_sent = _send_waitlist_verification_email(
+        signup, waitlist, confirm_url, interest_copy=interest_copy
+    )
     if not email_sent:
         is_dev = current_app.config.get('IS_DEVELOPMENT', False)
         if is_dev and not os.environ.get('RESEND_API_KEY', '').strip():
@@ -449,9 +481,14 @@ def join_waitlist_email(waitlist_id):
             }), 201
         return jsonify({'error': 'Failed to send verification email. Please try again.'}), 500
 
+    info = (
+        'We have sent an email to confirm your interest. Please check your inbox and click the link to confirm.'
+        if interest_copy
+        else 'We have sent an email to confirm your place. Please check your inbox and click the link to confirm.'
+    )
     return jsonify({
         'message': 'verification_sent',
-        'info': 'We have sent an email to confirm your place. Please check your inbox and click the link to confirm.',
+        'info': info,
     }), 201
 
 
@@ -475,11 +512,21 @@ def waitlist_confirm(token):
                payload={'waitlist_name': waitlist.name, 'position': signup.position})
     db.session.commit()
 
+    interest_copy = _is_interest_expression_waitlist(waitlist)
+    if interest_copy:
+        confirmed_line = f'Your interest in <strong>{html_mod.escape(waitlist.name)}</strong> has been confirmed.'
+        title = 'Interest confirmed'
+        heading = 'Interest confirmed'
+    else:
+        confirmed_line = f'Your place on <strong>{html_mod.escape(waitlist.name)}</strong> has been confirmed.'
+        title = "You're on the list!"
+        heading = "You're on the list!"
+
     return f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>You're on the list!</title></head>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:500px;margin:40px auto;padding:24px;background:#f7f9fa;">
-<h1 style="color:#00ba7c;">You're on the list!</h1>
-<p>Your place on <strong>{waitlist.name}</strong> has been confirmed.</p>
+<h1 style="color:#00ba7c;">{heading}</h1>
+<p>{confirmed_line}</p>
 <p>We'll be in touch. In the meantime, you can <a href="/layers/{project.slug}/">visit the project</a>.</p>
 <p><a href="/" style="color:#1d9bf0;">Return to GovHub</a></p>
 </body></html>""", 200
