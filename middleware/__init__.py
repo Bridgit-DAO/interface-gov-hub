@@ -84,6 +84,11 @@ def _inject_csrf_inputs(response):
     return response
 
 
+def _is_embed_response_path(path):
+    p = path or ''
+    return p.startswith('/embed/') or (p.startswith('/doc/draft/') and p.endswith('/embed/'))
+
+
 def register_request_handlers(app, deployment_mode=False, base_domain='themetalayer.org', reserved_subdomains=None, base_domains=None):
     """Register before_request and after_request handlers with the Flask app."""
     if reserved_subdomains is None:
@@ -157,8 +162,9 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
     @app.after_request
     def add_security_headers(response):
         """Add security headers including CSP for inline scripts"""
-        if request.path.startswith('/embed/'):
-            response.headers['Content-Security-Policy'] = EMBED_CSP
+        is_embed_path = _is_embed_response_path(request.path)
+        if is_embed_path:
+            response.headers.setdefault('Content-Security-Policy', EMBED_CSP)
         else:
             response.headers['Content-Security-Policy'] = DEFAULT_CSP
         if request.is_secure:
@@ -174,7 +180,7 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
         )
         if request.path.startswith('/embed/'):
             response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
-        else:
+        elif not is_embed_path:
             response.headers.setdefault('X-Frame-Options', 'DENY')
         return _inject_csrf_inputs(response)
 
