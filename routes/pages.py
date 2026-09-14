@@ -110,6 +110,9 @@ def home():
                     <p class="mb-0 text-muted small"><strong>Updated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
                 </div>
             </div>
+        <div class="alert alert-secondary mt-4" role="note">
+            <strong>About this hub:</strong> Interface Governance Hub is open civic infrastructure for the Meta-Layer Initiative and related communities. It is a Bridgit DAO-initiated project intended to support transparent governance across initiatives and workgroups. Desirable Properties and Metaweb Academy are programs of the Meta-Layer Initiative; Canopi, BRC333, The Overweb, and the planned Web4 Foundation remain distinct projects with defined points of connection.
+        </div>
         </div>
     </div>
     """,

@@ -182,6 +182,59 @@ def test_read_route_shows_which_revision_is_served():
         ).get_data(as_text=True)
 
 
+def test_public_draft_content_api_serves_latest_revision_body():
+    with isolated_app() as ctx:
+        with ctx.app.app_context():
+            _parent, revision = _seed_family(ctx)
+            revision_hash = revision.content_hash
+
+        response = ctx.client().get(
+            f'/api/doc/draft/{ML_NUMBER}/content/?format=html',
+            headers={'Origin': 'https://theoverweb.org'},
+        )
+        payload = response.get_json()
+
+        assert response.status_code == 200
+        assert response.headers.get('Access-Control-Allow-Origin') == 'https://theoverweb.org'
+        assert response.headers.get('ETag') == f'"{revision_hash}"'
+        assert payload['display_id'] == ML_NUMBER
+        assert payload['revision_label'] == 'Revision 01'
+        assert payload['content_hash'] == revision_hash
+        assert payload['reader_url'].endswith('/doc/draft/iso-rev-01/read/')
+        assert 'Revision one adds a paragraph about governance.' in payload['body_html']
+        assert 'This sentence only exists in the original draft.' not in payload['body_html']
+
+
+def test_public_draft_content_api_supports_conditional_get():
+    with isolated_app() as ctx:
+        with ctx.app.app_context():
+            _parent, revision = _seed_family(ctx)
+
+        response = ctx.client().get(
+            f'/api/doc/draft/{ML_NUMBER}/content/',
+            headers={'If-None-Match': f'"{revision.content_hash}"'},
+        )
+
+        assert response.status_code == 304
+        assert response.headers.get('ETag') == f'"{revision.content_hash}"'
+
+
+def test_draft_embed_route_can_be_framed_by_the_overweb():
+    with isolated_app() as ctx:
+        with ctx.app.app_context():
+            _seed_family(ctx)
+
+        response = ctx.client().get(f'/doc/draft/{ML_NUMBER}/embed/')
+        html = response.get_data(as_text=True)
+
+        assert response.status_code == 200
+        assert 'https://theoverweb.org' in response.headers.get('Content-Security-Policy', '')
+        assert 'frame-ancestors' in response.headers.get('Content-Security-Policy', '')
+        assert response.headers.get('X-Frame-Options') is None
+        assert 'Revision one adds a paragraph about governance.' in html
+        assert 'This sentence only exists in the original draft.' not in html
+
+
 def test_patch_applicability_reflects_served_revision():
     from services.dp_proposals import list_proposals_for_submission
 

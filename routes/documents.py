@@ -25,6 +25,7 @@ from services.submissions import (
     add_to_document_history,
     can_edit_submission_metadata,
     count_family_revision_entries,
+    revision_display_label,
     rev_number_for_display,
 )
 from services.ordinals import (
@@ -69,6 +70,65 @@ from services.workgroup_links import build_document_workgroup_index, resolve_doc
 from services.ml_document_types import CORE_ARTIFACT_TYPES
 
 bp = Blueprint('documents', __name__, url_prefix='')
+
+_DRAFT_CONTENT_CORS_ORIGINS = {
+    'https://theoverweb.org',
+    'https://www.theoverweb.org',
+    'http://localhost:3000',
+    'http://localhost:5173',
+}
+
+
+def _draft_body_html(document_content: str, render_html: bool) -> str:
+    if render_html:
+        return document_content
+    return (
+        '<pre class="draft-reader-body draft-reader-pre">'
+        f'{html_mod.escape(document_content)}'
+        '</pre>'
+    )
+
+
+def _add_draft_content_cors(response):
+    origin = (request.headers.get('Origin') or '').strip()
+    if origin in _DRAFT_CONTENT_CORS_ORIGINS:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Vary'] = 'Origin'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, If-None-Match'
+    return response
+
+
+def _draft_content_payload(draft_name):
+    draft, submission = build_draft_context(draft_name, prefer_latest_revision=True)
+    if not draft or not submission:
+        return None, None, None, None, None
+
+    body_ref = str(draft.get('name') or draft_name)
+    document_content, render_html, pages, words = load_draft_document_body(
+        draft,
+        submission,
+        body_ref,
+        pdf_iframe_height='800px',
+    )
+    return draft, submission, document_content, render_html, {
+        'title': draft.get('title') or '',
+        'draft_ref': draft_name,
+        'document_ref': body_ref,
+        'display_id': draft_display_id(draft),
+        'revision_label': revision_display_label(submission),
+        'content_hash': getattr(submission, 'content_hash', None),
+        'format': 'html' if render_html else 'text',
+        'body_html': _draft_body_html(document_content, render_html),
+        'word_count': int(words or 0),
+        'page_count': int(pages or 0),
+        'reader_url': url_for('documents.draft_reader', draft_name=body_ref, _external=True),
+        'updated_at': (
+            (getattr(submission, 'approved_at', None) or getattr(submission, 'submitted_at', None)).isoformat()
+            if (getattr(submission, 'approved_at', None) or getattr(submission, 'submitted_at', None))
+            else None
+        ),
+    }
 
 
 def _get_drafts():
@@ -1124,6 +1184,146 @@ def draft_reader(draft_name):
         content=content,
         build_number=BUILD_NUMBER,
     )
+
+
+@bp.route('/api/doc/draft/<path:draft_name>/content/', methods=['GET', 'OPTIONS'])
+def draft_content_api(draft_name):
+    """Public document body API for trusted read-only embeds."""
+    if request.method == 'OPTIONS':
+        return _add_draft_content_cors(jsonify({}))
+
+    _draft, _submission, _document_content, _render_html, payload = _draft_content_payload(draft_name)
+    if not payload:
+        return _add_draft_content_cors(jsonify({'error': 'Document not found'})), 404
+
+    etag = (payload.get('content_hash') or '').strip()
+    if etag and request.if_none_match.contains(etag):
+        response = Response(status=304)
+    else:
+        response = jsonify(payload)
+    if etag:
+        response.set_etag(etag)
+    response.headers['Cache-Control'] = 'public, max-age=60'
+    return _add_draft_content_cors(response)
+
+
+@bp.route('/doc/draft/<path:draft_name>/embed/')
+def draft_embed(draft_name):
+    """Iframe-safe, read-only draft body for partner sites."""
+    draft, submission, document_content, render_html, payload = _draft_content_payload(draft_name)
+    if not payload:
+        return 'Document not found', 404
+
+    title = html_mod.escape(str(payload.get('title') or ''))
+    display_id = html_mod.escape(str(payload.get('display_id') or ''))
+    revision_label = html_mod.escape(str(payload.get('revision_label') or ''))
+    body_html = _draft_body_html(document_content, render_html)
+    reader_href = html_mod.escape(
+        url_for('documents.draft_reader', draft_name=str(draft.get('name') or draft_name)),
+        quote=True,
+    )
+    pages = int(payload.get('page_count') or 0)
+    words = int(payload.get('word_count') or 0)
+    stats = html_mod.escape(f'{pages} pg · {words:,} words')
+
+    response = Response(f'''<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{display_id} – {title}</title>
+  <link rel="stylesheet" href="/static/css/dp-proposals-reader.css">
+  <style>
+    :root {{
+      color-scheme: light;
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8fafc;
+      --bg-tertiary: #eef2f7;
+      --text-primary: #172033;
+      --text-secondary: #516071;
+      --text-muted: #697789;
+      --border-color: #d8e0ea;
+      --accent-color: #2563eb;
+      --reader-content-max: 52rem;
+    }}
+    body {{
+      margin: 0;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }}
+    .draft-embed-shell {{
+      max-width: var(--reader-content-max);
+      margin: 0 auto;
+      padding: 1.25rem;
+    }}
+    .draft-embed-header {{
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 1.25rem;
+      padding-bottom: 1rem;
+    }}
+    .draft-embed-kicker {{
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      margin-bottom: 0.35rem;
+    }}
+    .draft-embed-title {{
+      font-size: clamp(1.75rem, 4vw, 2.75rem);
+      line-height: 1.1;
+      margin: 0 0 0.6rem;
+    }}
+    .draft-embed-meta {{
+      color: var(--text-secondary);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      font-size: 0.95rem;
+    }}
+    .draft-embed-source {{
+      color: var(--accent-color);
+      text-decoration: none;
+    }}
+    .draft-embed-source:hover,
+    .draft-embed-source:focus {{
+      text-decoration: underline;
+    }}
+    .draft-reader-body {{
+      max-width: 100%;
+      margin: 0;
+    }}
+    .draft-reader-pre {{
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }}
+  </style>
+</head>
+<body>
+  <main class="draft-embed-shell">
+    <header class="draft-embed-header">
+      <div class="draft-embed-kicker">{display_id}</div>
+      <h1 class="draft-embed-title">{title}</h1>
+      <div class="draft-embed-meta">
+        <span>{revision_label}</span>
+        <span>{stats}</span>
+        <a class="draft-embed-source" href="{reader_href}" target="_blank" rel="noopener">Open in Gov Hub</a>
+      </div>
+    </header>
+    <article class="draft-reader-body prose" id="dp-reader-selectable-body">
+      {body_html}
+    </article>
+  </main>
+</body>
+</html>''', mimetype='text/html; charset=utf-8')
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self' 'unsafe-inline' data: https:; "
+        "style-src 'self' 'unsafe-inline' https:; "
+        "img-src 'self' data: https:; "
+        "frame-src 'self' https:; "
+        "frame-ancestors 'self' https://theoverweb.org https://www.theoverweb.org;"
+    )
+    response.headers['Cache-Control'] = 'public, max-age=60'
+    return response
 
 
 @bp.route('/doc/draft/<path:draft_name>/')
@@ -3108,5 +3308,3 @@ def draft_page(filename=None):
     if not path or not os.path.isfile(path):
         return jsonify({'error': 'Draft page not found'}), 404
     return send_file(path, mimetype='text/html; charset=utf-8')
-
-
