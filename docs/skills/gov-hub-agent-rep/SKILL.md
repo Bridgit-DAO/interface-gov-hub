@@ -121,6 +121,8 @@ Homes (do not bury work in a landing-page repo):
 | Canopi | `canopi/intent/` | Brownfield. Compose is Gov Hub. Canopi judges. See `canopi/docs/REGRESSION-ISSUES-STILL-PENDING.md`. |
 | Overweb | `/home/ubuntu/overweb/intent/` | Greenfield. DPs → REQ candidates → ADR candidates → later build. Intent-only tree. Public catalog: theoverweb.org `/reqs/` and `/adrs/`. |
 
+Public SDLC board (both projects): [https://theoverweb.org/dash/](https://theoverweb.org/dash/). Open that for orientation, then edit the intent home files.
+
 ### Loop
 
 1. Learning lookup (recall + redlines catalog). Then read `intent.md`. If the human has not accepted the intent, discuss. Do not skip ahead.

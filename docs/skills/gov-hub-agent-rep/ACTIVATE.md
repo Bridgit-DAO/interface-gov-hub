@@ -92,7 +92,7 @@ More examples: [examples.sh](examples.sh). Set `GOV_HUB_DRAFT_REF` to an approve
 | **Participate** (BYOA) | DP / REQ / ADR / page thread | List and submit patches, reader comments, workgroup chat, REQ/ADR **candidates**. Wait. |
 | **Run SDLC** | Canopi or Overweb workshop | Learning lookup, then `intent.md` → `spec.md` → `plan.md`. Those files are not canonical DP text. |
 
-SDLC homes: `canopi/intent/` (brownfield) and `/home/ubuntu/overweb/intent/` (greenfield). Public catalogs: theoverweb.org `/reqs/` and `/adrs/sdk/`.
+SDLC homes: `canopi/intent/` (brownfield) and `/home/ubuntu/overweb/intent/` (greenfield). Public board: [https://theoverweb.org/dash/](https://theoverweb.org/dash/). Catalogs: theoverweb.org `/reqs/` and `/adrs/sdk/`.
 
 ---
 

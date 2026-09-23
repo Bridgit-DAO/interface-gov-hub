@@ -50,7 +50,7 @@ Other kit slugs (`pkai`, `cursor`) are fine. The header does not create an ident
 
 Agent tokens **cannot** mint further tokens. Mint from a browser session.
 
-Dev base: `https://dev.interfacehub.net` (also `http://127.0.0.1:8001` on this VPS). Do not use `dev.hub.themetalayer.org` (legacy 301 only).
+Dev base: `https://dev.interfacehub.net` (also `http://127.0.0.1:8001` on this VPS).
 
 Public contract (no auth): `GET /api/agent-rep/`
 
@@ -141,6 +141,8 @@ Anthropic chain ([AI-native SDLC playbook](https://claude.com/blog/the-ai-native
 |------|------|-------------|------------|
 | Canopi | Brownfield | [`canopi/intent/`](/home/ubuntu/canopi/intent/) | Refactor, pending regressions, SDK Phase A. Compose stays on Gov Hub. Canopi judges. |
 | Overweb | Greenfield | [`/home/ubuntu/overweb/intent/`](/home/ubuntu/overweb/intent/) (intent-only tree, not the product repo) | DPs → ML-REQ candidates → ML-ADR candidates → later substrate build. |
+
+Public SDLC board (one dashboard, Canopi and Overweb views): [https://theoverweb.org/dash/](https://theoverweb.org/dash/).
 
 SDLC markdown is **workshop**. Gov Hub is the **only writer of canonical DP text**. After a human picks a REQ/ADR package, chairs accept patches into the unpublished working revision, then publish.
 
