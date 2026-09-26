@@ -131,6 +131,9 @@ def register_request_handlers(app, deployment_mode=False, base_domain='themetala
         if _csrf_exempt_path(request.path):
             return None
 
+        if request.blueprint == 'community_intelligence' and request.headers.get('Authorization'):
+            return None  # CI boundary authenticates bearer credentials; no session fallback.
+
         expected = session.get('_csrf_token') or get_or_create_csrf_token()
 
         if _request_looks_like_browser_form():

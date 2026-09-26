@@ -1,5 +1,8 @@
 """Feature-gated community intelligence endpoints using Gov Hub session identity."""
 import io
+from datetime import datetime
+from werkzeug.exceptions import HTTPException
+from services import community_api
 from flask import Blueprint, abort, g, jsonify, render_template, request, send_file
 from sqlalchemy.exc import IntegrityError
 from extensions import db
@@ -17,12 +20,18 @@ API = '/api/layers/<layer_id>/community'
 @bp.before_request
 def boundary():
     request.max_content_length = MAX_BYTES + 64 * 1024
-    g.ci_user = get_current_user()
+    if request.method == 'OPTIONS' and request.headers.get('Origin'):
+        return community_api.preflight()
+    if request.headers.get('Origin') and request.headers['Origin'] != request.host_url.rstrip('/'):
+        if not community_api.allowed_origin() or not request.headers.get('Authorization'):
+            abort(403, description='Cross-origin calls require an allowed origin and bearer authentication.')
+    g.ci_user = (community_api.authenticate(request.view_args['layer_id'])
+                 if request.headers.get('Authorization') else get_current_user())
     g.ci_layer = ci.require_layer(request.view_args['layer_id'], g.ci_user)
     g.ci_memberships = {(m.organization_id, m.role) for m in
                         CIMembership.query.filter_by(user_id=g.ci_user['id']).all()}
     # Defense in depth: the shared middleware skips CSRF during tests.
-    if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
+    if request.method not in {'GET', 'HEAD', 'OPTIONS'} and not getattr(g, 'ci_token_id', None):
         if not csrf_token_valid(request.headers.get('X-CSRFToken')):
             abort(403, description='Invalid CSRF token.')
 
@@ -31,7 +40,7 @@ def boundary():
 def no_cache(response):
     # Discard a prepared read if its evidence or audience changed during work.
     # Responses are not streamed or persisted; all evidence is checked at delivery.
-    if response.status_code < 400 and (request.method == 'GET' or request.endpoint == 'community_intelligence.answer' or getattr(g, 'ci_read_rooms', None) or getattr(g, 'ci_read_opportunities', None)):
+    if response.status_code < 400 and getattr(g, 'ci_user', None) and (getattr(g, 'ci_token_id', None) or request.method == 'GET' or request.endpoint == 'community_intelligence.answer' or getattr(g, 'ci_read_rooms', None) or getattr(g, 'ci_read_opportunities', None)):
         uid = g.ci_user['id']
         layer_id = request.view_args['layer_id']
         dependencies = getattr(g, 'ci_dependencies', {})
@@ -57,15 +66,19 @@ def no_cache(response):
             item = db.session.get(CIOpportunity, item_id)
             if not item or item.user_id != uid or rooms.evidence_for(item, uid) is None:
                 valid = False
+        if getattr(g, 'ci_token_id', None):
+            from models.community_intelligence import CIAccessToken
+            token = db.session.get(CIAccessToken, g.ci_token_id)
+            valid = valid and community_api.token_valid(token) and tuple(token.scopes) == g.ci_token_scopes
         if not valid:
             response.close()
             response = jsonify(error='Knowledge or access changed during this request. Refresh and try again.')
             response.status_code = 409
     response.headers['Cache-Control'] = 'no-store, private'
-    response.headers['Vary'] = 'Cookie'
+    response.vary.update(['Cookie', 'Authorization'])
     if response.status_code >= 400:
         db.session.rollback()
-    return response
+    return community_api.cors(response)
 
 
 @bp.errorhandler(IntegrityError)
@@ -378,3 +391,42 @@ def update_opportunity(layer_id, opportunity_id):
     result = opportunities.describe(item, g.ci_user['id'])
     db.session.commit()
     return jsonify(result)
+
+
+@bp.errorhandler(HTTPException)
+def api_error(error):
+    return jsonify(error=error.description, code=error.name.lower().replace(' ', '_')), error.code
+
+
+@bp.route(API + '/tokens/', methods=['GET', 'POST'])
+def access_tokens(layer_id):
+    # Bearer access is denied by the explicit endpoint allowlist.
+    from models.community_intelligence import CIAccessToken
+    uid = g.ci_user['id']
+    if request.method == 'GET':
+        tokens = CIAccessToken.query.filter_by(layer_id=layer_id, user_id=uid).order_by(
+            CIAccessToken.created_at.desc()).limit(100).all()
+        return jsonify(tokens=[community_api.describe(t) for t in tokens])
+    token, secret = community_api.issue(layer_id, uid, body())
+    result = community_api.describe(token)
+    db.session.commit()
+    return jsonify(**result, token=secret), 201
+
+
+@bp.delete(API + '/tokens/<token_id>/')
+def revoke_access_token(layer_id, token_id):
+    from models.community_intelligence import CIAccessToken
+    token = CIAccessToken.query.filter_by(id=token_id, layer_id=layer_id,
+                                          user_id=g.ci_user['id']).first_or_404()
+    token.revoked_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+@bp.get(API + '/openapi.json')
+def openapi(layer_id):
+    import json
+    from pathlib import Path
+    schema = json.loads((Path(__file__).resolve().parents[1] / 'docs/community-intelligence/openapi.json').read_text())
+    schema['servers'] = [{'url': request.script_root + '/api/layers/' + layer_id + '/community'}]
+    return jsonify(schema)

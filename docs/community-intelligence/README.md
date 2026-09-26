@@ -1,5 +1,7 @@
 # Community Intelligence: foundation increment
 
+**External integrations:** [API v1 guide](API.md) documents scoped bearer credentials, browser-origin configuration, agent examples, and the [OpenAPI contract](openapi.json).
+
 **Stage 3:** [Personal opportunity tracking](STAGE-3.md) adds private saved/exploring/dismissed states with exact evidence revisions, restore controls and access revalidation. This supersedes earlier deferral of personal opportunity status tracking.
 
 Reviewed and implemented on 2026-09-25 against `Bridgit-DAO/interface-gov-hub`, branch `development`, commit `c3c408b34ec6f7b445406243789f5daae9c61dc7`. Local work branch: `codex/community-intelligence`.

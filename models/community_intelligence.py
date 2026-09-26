@@ -155,3 +155,17 @@ class CIOpportunity(db.Model):
         db.UniqueConstraint('layer_id', 'user_id', 'fingerprint', name='uq_ci_opportunity_owner'),
         db.CheckConstraint("status IN ('saved','exploring','dismissed')"),
     )
+
+
+class CIAccessToken(db.Model):
+    """Revocable delegated credential. Only its SHA-256 digest is stored."""
+    __tablename__ = 'ci_access_token'
+    id = db.Column(db.String(36), primary_key=True, default=uuid)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    digest = db.Column(db.String(64), nullable=False, unique=True)
+    scopes = db.Column(db.JSON, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)

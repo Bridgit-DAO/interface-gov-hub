@@ -99,6 +99,10 @@ def create_app(database_uri=None, *, testing=False):
         x.strip() for x in os.environ.get('GOVHUB_COMMUNITY_INTELLIGENCE_LAYERS', '').split(',') if x.strip()
     )
 
+    app.config['COMMUNITY_API_ORIGINS'] = tuple(
+        x.strip() for x in os.environ.get('GOVHUB_COMMUNITY_API_ORIGINS', '').split(',') if x.strip()
+    )
+
     # Session security
     app.config['SESSION_COOKIE_SECURE'] = not (IS_DEVELOPMENT or testing)
     app.config['SESSION_COOKIE_HTTPONLY'] = True
