@@ -94,6 +94,11 @@ def create_app(database_uri=None, *, testing=False):
     app.config['CANOPI_PUBLIC_URL'] = CANOPI_PUBLIC_URL
     app.config['CANOPI_INTERNAL_API_URL'] = CANOPI_INTERNAL_API_URL
 
+    # Opt-in pilot allowlist, empty by default. No wildcard enables all layers.
+    app.config['COMMUNITY_INTELLIGENCE_LAYERS'] = tuple(
+        x.strip() for x in os.environ.get('GOVHUB_COMMUNITY_INTELLIGENCE_LAYERS', '').split(',') if x.strip()
+    )
+
     # Session security
     app.config['SESSION_COOKIE_SECURE'] = not (IS_DEVELOPMENT or testing)
     app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -264,6 +269,10 @@ def create_app(database_uri=None, *, testing=False):
     app.register_blueprint(waitlists_bp)
     app.register_blueprint(referral_links_bp)
     app.register_blueprint(layer_programs_bp)
+    from routes.community_intelligence import bp as community_intelligence_bp
+    from cli.community_intelligence import register as register_community_cli
+    app.register_blueprint(community_intelligence_bp)
+    register_community_cli(app)
     app.register_blueprint(votes_bp)
     app.register_blueprint(votes_pages_bp)
     app.register_blueprint(artifacts_bp)
@@ -319,10 +328,14 @@ def create_app(database_uri=None, *, testing=False):
     register_request_handlers(app, deployment_mode=DEPLOYMENT_MODE, base_domain=BASE_DOMAIN, reserved_subdomains=RESERVED_SUBDOMAINS, base_domains=BASE_DOMAINS)
 
     # Upload config
-    UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads'
-    ROLE_IMAGE_UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads/role_images'
-    ENTITY_IMAGE_UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads/entity_images'
-    PROFILE_IMAGE_UPLOAD_FOLDER = '/home/ubuntu/data-tracker/uploads/profile_images'
+    default_upload_root = (
+        os.path.join(os.path.dirname(app.config['DB_PATH']), 'uploads')
+        if testing or IS_DEVELOPMENT else '/home/ubuntu/data-tracker/uploads'
+    )
+    UPLOAD_FOLDER = os.environ.get('GOVHUB_UPLOAD_ROOT', default_upload_root)
+    ROLE_IMAGE_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'role_images')
+    ENTITY_IMAGE_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'entity_images')
+    PROFILE_IMAGE_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'profile_images')
 
     app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB

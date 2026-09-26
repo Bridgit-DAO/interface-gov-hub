@@ -70,3 +70,7 @@ __all__ = [
     'ScopedEmailDelivery',
     'LayerPrefix',
 ]
+
+from models.community_intelligence import (
+    CIOrganization, CIMembership, CIProgram, CISource, CIClaim, CIAudit,
+)

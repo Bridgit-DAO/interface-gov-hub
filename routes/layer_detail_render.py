@@ -93,6 +93,13 @@ def _build_layer_tabs_markup(effective, admin_tab_html='', admin_tab_pane_html='
             '</div></div>',
         ),
     ]
+    from services.community_intelligence import enabled
+    if layer and enabled(layer.id):
+        tab_defs.append((
+            'community-intelligence', 'Community Intelligence', None, False, 'fa-lightbulb', 'community',
+            '<p>Contribute evidence, review knowledge and explore collaboration.</p>'
+            f'<a class="btn btn-primary" href="/layers/{layer.id}/community/">Open Community Intelligence</a>',
+        ))
     groups_nav: dict = {g: [] for g in ('home', 'core', 'decision', 'community', 'admin')}
     pane_parts = []
     enabled_ids = []

@@ -1,0 +1,17 @@
+# Minimal Flask runtime and test/extraction dependencies for this local increment.
+# The root requirements.txt also contains the vendored Django/IETF dependency set.
+Flask>=3.1,<4
+Flask-SQLAlchemy>=3.1,<4
+python-dotenv>=1,<2
+requests>=2.32,<3
+Markdown>=3.8,<4
+bleach>=6,<7
+PyJWT[crypto]>=2.8,<3
+cryptography>=42
+Pillow>=11
+beautifulsoup4>=4.13,<5
+python-dateutil>=2.9,<3
+pyotp>=2.9,<3
+PyMuPDF>=1.26,<2
+python-docx>=1.2,<2
+pytest>=8,<10
