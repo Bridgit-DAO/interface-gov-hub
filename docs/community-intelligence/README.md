@@ -4,6 +4,10 @@ Reviewed and implemented on 2026-09-25 against `Bridgit-DAO/interface-gov-hub`, 
 
 This is a working local foundation, **not the completed Community Intelligence pilot**. It implements source submission, queued extraction, steward review/correction, access-controlled cited retrieval, lifecycle controls, removal, and simple need/offer suggestions. Group AI conversations, human-confirmed action/proposal handoff, live Hermes, OCR and continuous connectors remain unfinished.
 
+## Coordination update
+
+The next increment now adds fixed-audience discussions, rule-based sourced facilitation, owner-accepted actions and private proposal-draft handoff. See [STAGE-2.md](STAGE-2.md) for its current behavior, policy and tests. The foundation description below records the original increment; references there to rooms/actions being deferred are superseded by that update. Live Hermes, OCR and continuous connectors remain deferred.
+
 ## Briefing review
 
 The briefing correctly treats ownership, permissions, source provenance, and durable retirement as foundational. Its major unresolved assumptions were the organization identity model, equivalence of existing claims/programs, installed Hermes interfaces, and deployment infrastructure. Inspection resolved the application structure but did not establish production runtime state or credentials.

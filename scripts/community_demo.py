@@ -55,8 +55,9 @@ def main():
                     for sid in ids:
                         process_source(sid)
         threading.Thread(target=worker, daemon=True).start()
-        print(f'LOCAL_DEMO_URL=http://127.0.0.1:5000/community-demo/{token}/', flush=True)
-        app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+        port = int(os.environ.get('COMMUNITY_DEMO_PORT', '5000'))
+        print(f'LOCAL_DEMO_URL=http://127.0.0.1:{port}/community-demo/{token}/', flush=True)
+        app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
 
 
 if __name__ == '__main__':

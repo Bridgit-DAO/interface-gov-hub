@@ -31,7 +31,7 @@ def boundary():
 def no_cache(response):
     # Discard a prepared read if its evidence or audience changed during work.
     # Responses are not streamed or persisted; all evidence is checked at delivery.
-    if response.status_code < 400 and (request.method == 'GET' or request.endpoint == 'community_intelligence.answer'):
+    if response.status_code < 400 and (request.method == 'GET' or request.endpoint == 'community_intelligence.answer' or getattr(g, 'ci_read_rooms', None)):
         uid = g.ci_user['id']
         layer_id = request.view_args['layer_id']
         dependencies = getattr(g, 'ci_dependencies', {})
@@ -46,6 +46,12 @@ def no_cache(response):
             if not source or source.revision != source_revision or not program or program.revision != program_revision:
                 valid = False
                 break
+        from services import community_rooms as rooms
+        from models.community_intelligence import CIRoom
+        for room_id in getattr(g, 'ci_read_rooms', ()):
+            room = db.session.get(CIRoom, room_id)
+            if not room or uid not in room.members or rooms.evidence_for(room, uid) is None:
+                valid = False
         if not valid:
             response.close()
             response = jsonify(error='Knowledge or access changed during this request. Refresh and try again.')
@@ -87,7 +93,7 @@ def overview(layer_id):
                           role=m.role) for m in memberships]
     programs = CIProgram.query.filter(CIProgram.layer_id == layer_id,
                                      CIProgram.organization_id.in_([m.organization_id for m in memberships])).all()
-    return jsonify(organizations=organizations,
+    return jsonify(viewer_id=uid, organizations=organizations,
                    programs=[dict(id=p.id, name=p.name, organization_id=p.organization_id,
                                   lifecycle=p.lifecycle, revision=p.revision) for p in programs],
                    sources=[ci.source_dict(s, uid) for s in sources],
@@ -252,3 +258,87 @@ def answer(layer_id):
         abort(400, description='historical must be a boolean.')
     return jsonify(ci.answer(layer_id, g.ci_user['id'], ci.text_field(data, 'question', 500),
                               history=data.get('historical', False)))
+
+
+@bp.get(API + '/rooms/')
+def rooms_list(layer_id):
+    from models.community_intelligence import CIRoom
+    from services import community_rooms as rooms
+    # Audience filtering happens in SQL before limit/count/title serialization.
+    from sqlalchemy import exists, func, select
+    members = func.json_each(CIRoom.members).table_valued('value').alias('room_member')
+    audience = exists(select(1).select_from(members).where(members.c.value == g.ci_user['id']))
+    found = CIRoom.query.filter(CIRoom.layer_id == layer_id, audience).order_by(CIRoom.created_at.desc()).limit(100).all()
+    return jsonify(rooms=[rooms.describe(r, g.ci_user['id']) for r in found])
+
+
+@bp.post(API + '/rooms/')
+def rooms_create(layer_id):
+    from services import community_rooms as rooms
+    room = rooms.create_room(layer_id, g.ci_user['id'], body())
+    db.session.commit()
+    return jsonify(id=room.id), 201
+
+
+@bp.get(API + '/rooms/<room_id>/')
+def rooms_get(layer_id, room_id):
+    from services import community_rooms as rooms
+    room = rooms.room_for(layer_id, g.ci_user['id'], room_id)
+    return jsonify(rooms.describe(room, g.ci_user['id'], full=True))
+
+
+@bp.post(API + '/rooms/<room_id>/messages/')
+def rooms_message(layer_id, room_id):
+    from services import community_rooms as rooms
+    room = rooms.room_for(layer_id, g.ci_user['id'], room_id)
+    message = rooms.post_message(room, g.ci_user['id'], body())
+    db.session.commit()
+    return jsonify(id=message.id), 201
+
+
+@bp.post(API + '/rooms/<room_id>/facilitate/')
+def rooms_facilitate(layer_id, room_id):
+    from services import community_rooms as rooms
+    room = rooms.room_for(layer_id, g.ci_user['id'], room_id)
+    message = rooms.facilitate(room, g.ci_user['id'], body())
+    db.session.commit()
+    return jsonify(id=message.id), 201
+
+
+@bp.post(API + '/rooms/<room_id>/actions/')
+def rooms_action(layer_id, room_id):
+    from services import community_rooms as rooms
+    room = rooms.room_for(layer_id, g.ci_user['id'], room_id)
+    action = rooms.propose_action(room, g.ci_user['id'], body())
+    db.session.commit()
+    return jsonify(id=action.id), 201
+
+
+@bp.patch(API + '/rooms/<room_id>/actions/<action_id>/')
+def rooms_accept_action(layer_id, room_id, action_id):
+    from services import community_rooms as rooms
+    from models.community_intelligence import CIAction
+    room = rooms.room_for(layer_id, g.ci_user['id'], room_id)
+    rooms.lock_evidence(rooms.require_current(room, g.ci_user['id']))
+    action = CIAction.query.filter_by(id=action_id, room_id=room.id).first_or_404()
+    if action.owner_id != g.ci_user['id']:
+        abort(403, description='Only the proposed owner can accept or decline this action.')
+    data = body()
+    if data.get('status') not in ('accepted', 'declined'):
+        abort(400, description='Choose accepted or declined.')
+    ci.advance(CIAction, action, data.get('revision'))
+    if action.status != 'proposed':
+        abort(409, description='This action already has an owner response.')
+    action.status = data['status']
+    action.accepted_at = ci.datetime.utcnow() if action.status == 'accepted' else None
+    db.session.commit()
+    return jsonify(ok=True, revision=action.revision)
+
+
+@bp.get(API + '/rooms/<room_id>/proposal-draft/')
+def rooms_draft(layer_id, room_id):
+    from services import community_rooms as rooms
+    room = rooms.room_for(layer_id, g.ci_user['id'], room_id)
+    text = rooms.proposal_draft(room, g.ci_user['id'])
+    return send_file(io.BytesIO(text.encode()), mimetype='text/markdown', as_attachment=True,
+                     download_name='community-proposal-draft.md', conditional=False)

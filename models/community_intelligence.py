@@ -93,3 +93,48 @@ class CIAudit(db.Model):
     action = db.Column(db.String(60), nullable=False)
     revision = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class CIRoom(db.Model):
+    """Fixed audience; derived content is readable only while every dependency is valid."""
+    __tablename__ = 'ci_room'
+    id = db.Column(db.String(36), primary_key=True, default=uuid)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    created_by = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    members = db.Column(db.JSON, nullable=False)  # immutable user IDs, no room-expansion API
+    evidence = db.Column(db.JSON, nullable=False)  # claim/source/program IDs and exact revisions
+    request_key = db.Column(db.String(64), nullable=False)
+    revision = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('layer_id', 'created_by', 'request_key', name='uq_ci_room_request'),)
+
+
+class CIRoomMessage(db.Model):
+    __tablename__ = 'ci_room_message'
+    id = db.Column(db.String(36), primary_key=True, default=uuid)
+    room_id = db.Column(db.String(36), db.ForeignKey('ci_room.id'), nullable=False, index=True)
+    author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    kind = db.Column(db.String(20), nullable=False, default='human')
+    body = db.Column(db.Text, nullable=False)
+    request_key = db.Column(db.String(64), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('room_id', 'author_id', 'request_key', name='uq_ci_message_request'),)
+
+
+class CIAction(db.Model):
+    __tablename__ = 'ci_action'
+    id = db.Column(db.String(36), primary_key=True, default=uuid)
+    room_id = db.Column(db.String(36), db.ForeignKey('ci_room.id'), nullable=False, index=True)
+    text = db.Column(db.Text, nullable=False)
+    proposed_by = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    owner_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='proposed')
+    revision = db.Column(db.Integer, nullable=False, default=1)
+    request_key = db.Column(db.String(64), nullable=False)
+    accepted_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        db.UniqueConstraint('room_id', 'proposed_by', 'request_key', name='uq_ci_action_request'),
+        db.CheckConstraint("status IN ('proposed','accepted','declined')"),
+    )

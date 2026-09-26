@@ -225,6 +225,13 @@ def review(source, user_id, data):
 def withdraw(source, user_id, revision):
     advance(CISource, source, revision)
     CIClaim.query.filter_by(source_id=source.id).delete(synchronize_session=False)
+    # Remove persisted discussion copies that may quote this source, too.
+    from models.community_intelligence import CIRoom, CIRoomMessage, CIAction
+    for room in CIRoom.query.filter_by(layer_id=source.layer_id).all():
+        if any(e['source_id'] == source.id for e in room.evidence):
+            CIRoomMessage.query.filter_by(room_id=room.id).delete(synchronize_session=False)
+            CIAction.query.filter_by(room_id=room.id).delete(synchronize_session=False)
+            room.title = 'Discussion evidence removed'
     source.original, source.warning, source.error = None, None, None
     source.title, source.visibility, source.state = 'Removed contribution', 'private', 'withdrawn'
     audit(source.organization_id, user_id, source.id, 'contribution.withdrawn', source.revision)
