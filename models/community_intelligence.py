@@ -138,3 +138,20 @@ class CIAction(db.Model):
         db.UniqueConstraint('room_id', 'proposed_by', 'request_key', name='uq_ci_action_request'),
         db.CheckConstraint("status IN ('proposed','accepted','declined')"),
     )
+
+
+class CIOpportunity(db.Model):
+    """Personal workflow state; stores dependencies, never copied source text."""
+    __tablename__ = 'ci_opportunity'
+    id = db.Column(db.String(36), primary_key=True, default=uuid)
+    layer_id = db.Column(db.String(36), db.ForeignKey('layer.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
+    fingerprint = db.Column(db.String(64), nullable=False)
+    evidence = db.Column(db.JSON, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='saved')
+    revision = db.Column(db.Integer, nullable=False, default=1)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        db.UniqueConstraint('layer_id', 'user_id', 'fingerprint', name='uq_ci_opportunity_owner'),
+        db.CheckConstraint("status IN ('saved','exploring','dismissed')"),
+    )

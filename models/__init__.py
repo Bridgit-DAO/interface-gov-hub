@@ -72,5 +72,5 @@ __all__ = [
 ]
 
 from models.community_intelligence import (
-    CIOrganization, CIMembership, CIProgram, CISource, CIClaim, CIAudit, CIRoom, CIRoomMessage, CIAction,
+    CIOrganization, CIMembership, CIProgram, CISource, CIClaim, CIAudit, CIRoom, CIRoomMessage, CIAction, CIOpportunity,
 )

@@ -295,7 +295,8 @@ def opportunities(layer_id, user_id):
             if (offer[0].kind != 'offer' or need[1].organization_id == offer[1].organization_id
                     or need[0].topic.casefold() != offer[0].topic.casefold()):
                 continue
-            out.append(dict(id=f'{need[0].id}:{offer[0].id}', title=f'Explore {need[0].topic}',
+            from services.community_opportunities import snapshots
+            out.append(dict(evidence=snapshots([need, offer]), id=f'{need[0].id}:{offer[0].id}', title=f'Explore {need[0].topic}',
                             status='rule-based suggestion', audience='layer',
                             explanation='A reviewed need and offer share a steward-selected topic.',
                             unknowns=['Current capacity and willingness', 'Timing, geography and conditions'],

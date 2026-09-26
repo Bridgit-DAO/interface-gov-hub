@@ -31,7 +31,7 @@ def boundary():
 def no_cache(response):
     # Discard a prepared read if its evidence or audience changed during work.
     # Responses are not streamed or persisted; all evidence is checked at delivery.
-    if response.status_code < 400 and (request.method == 'GET' or request.endpoint == 'community_intelligence.answer' or getattr(g, 'ci_read_rooms', None)):
+    if response.status_code < 400 and (request.method == 'GET' or request.endpoint == 'community_intelligence.answer' or getattr(g, 'ci_read_rooms', None) or getattr(g, 'ci_read_opportunities', None)):
         uid = g.ci_user['id']
         layer_id = request.view_args['layer_id']
         dependencies = getattr(g, 'ci_dependencies', {})
@@ -51,6 +51,11 @@ def no_cache(response):
         for room_id in getattr(g, 'ci_read_rooms', ()):
             room = db.session.get(CIRoom, room_id)
             if not room or uid not in room.members or rooms.evidence_for(room, uid) is None:
+                valid = False
+        from models.community_intelligence import CIOpportunity
+        for item_id in getattr(g, 'ci_read_opportunities', ()):
+            item = db.session.get(CIOpportunity, item_id)
+            if not item or item.user_id != uid or rooms.evidence_for(item, uid) is None:
                 valid = False
         if not valid:
             response.close()
@@ -342,3 +347,34 @@ def rooms_draft(layer_id, room_id):
     text = rooms.proposal_draft(room, g.ci_user['id'])
     return send_file(io.BytesIO(text.encode()), mimetype='text/markdown', as_attachment=True,
                      download_name='community-proposal-draft.md', conditional=False)
+
+
+@bp.get(API + '/opportunities/')
+def tracked_opportunities(layer_id):
+    from models.community_intelligence import CIOpportunity
+    from services import community_opportunities as opportunities
+    uid = g.ci_user['id']
+    items = CIOpportunity.query.filter_by(layer_id=layer_id, user_id=uid).order_by(
+        CIOpportunity.updated_at.desc(), CIOpportunity.id).limit(200).all()
+    return jsonify(opportunities=[opportunities.describe(item, uid) for item in items])
+
+
+@bp.post(API + '/opportunities/')
+def save_opportunity(layer_id):
+    from services import community_opportunities as opportunities
+    item = opportunities.save(layer_id, g.ci_user['id'], body())
+    result = opportunities.describe(item, g.ci_user['id'])
+    db.session.commit()
+    return jsonify(result), 201
+
+
+@bp.patch(API + '/opportunities/<opportunity_id>/')
+def update_opportunity(layer_id, opportunity_id):
+    from models.community_intelligence import CIOpportunity
+    from services import community_opportunities as opportunities
+    item = CIOpportunity.query.filter_by(id=opportunity_id, layer_id=layer_id,
+                                         user_id=g.ci_user['id']).first_or_404()
+    opportunities.change(item, g.ci_user['id'], body())
+    result = opportunities.describe(item, g.ci_user['id'])
+    db.session.commit()
+    return jsonify(result)
