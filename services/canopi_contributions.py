@@ -158,6 +158,7 @@ def intake_canopi_patch(
         proposed_text=normalized['proposed_text'],
         context_anchor=normalized.get('context_anchor'),
         scope=normalized['scope'],
+        patch_mode=normalized.get('patch_mode') or 'replace',
         rationale=normalized.get('rationale'),
         reference_url=normalized.get('reference_url'),
         source_channel='canopi',
