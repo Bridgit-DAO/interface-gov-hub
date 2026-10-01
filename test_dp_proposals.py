@@ -223,6 +223,44 @@ def test_validate_create_payload_trims_and_aligns_anchor():
     assert payload['context_anchor']['textQuote']['exact'] == 'Gamma three.'
 
 
+def test_validate_create_payload_accepts_insert_after_and_aliases():
+    from services.dp_proposals import validate_create_payload
+
+    base = {'original_text': '- First item', 'proposed_text': '- Second item'}
+    for raw in ('insert_after', 'insert-below', 'insert_below'):
+        payload, err = validate_create_payload({**base, 'patch_mode': raw})
+        assert err is None, (raw, err)
+        assert payload['patch_mode'] == 'insert_after'
+    payload, err = validate_create_payload({**base, 'patch_mode': 'insert'})
+    assert err is None and payload['patch_mode'] == 'insert'
+    payload, err = validate_create_payload({**base, 'patch_mode': 'sideways'})
+    assert payload is None and 'insert_after' in err
+
+
+def test_apply_patch_to_body_insert_modes():
+    from services.dp_proposals import apply_patch_to_body
+
+    body = 'Intro.\n- First item\nOutro.'
+    kw = dict(original_text='- First item', proposed_text='- Second item')
+    assert apply_patch_to_body(body, patch_mode='insert', **kw) == 'Intro.\n- Second item\n- First item\nOutro.'
+    assert apply_patch_to_body(body, patch_mode='insert_after', **kw) == 'Intro.\n- First item\n- Second item\nOutro.'
+    para = 'One.\n\nTwo.\n\nThree.'
+    out = apply_patch_to_body(para, original_text='Two.', proposed_text='Inserted.', patch_mode='insert_after')
+    assert out == 'One.\n\nTwo.\n\nInserted.\n\nThree.'
+    out = apply_patch_to_body(para, original_text='Two.', proposed_text='Inserted.', patch_mode='insert')
+    assert out == 'One.\n\nInserted.\n\nTwo.\n\nThree.'
+    assert apply_patch_to_body('abc', original_text='zzz', proposed_text='x', patch_mode='insert_after') is None
+
+
+def test_status_label_and_to_dict_for_insert_after():
+    from models import DpProposal
+
+    row = DpProposal(status='pending', patch_mode='insert_after')
+    assert row.status_label() == 'Insert after'
+    assert DpProposal(status='pending', patch_mode='insert').status_label() == 'Insert above'
+    assert DpProposal(status='pending', patch_mode='insert-below').status_label() == 'Insert after'
+
+
 def test_list_proposals_requires_feature():
     from app import app
 
@@ -613,6 +651,46 @@ def test_patch_diff_endpoint():
         assert '<mark class="dp-diff-ins">slow</mark>' in data['html']
         assert data['added'] == 4
         assert data['removed'] == 5
+
+    with app.app_context():
+        db.session.delete(DpProposal.query.get(patch_id))
+        db.session.commit()
+
+
+def test_patch_diff_endpoint_insert_after():
+    from app import app
+    from extensions import db
+    from models import DpProposal, User
+
+    _enable_dp_proposals(app)
+    with app.app_context():
+        sub = _find_approved_dp_submission()
+        user = User.query.first()
+        if not sub or not user:
+            return
+        row = DpProposal(
+            submission_id=sub.id,
+            scope='dp',
+            status='pending',
+            patch_mode='insert_after',
+            anchor_hash='test-diff-insert-after-hash',
+            original_text='- First item',
+            proposed_text='- Second item',
+            content_hash_at_create=sub.content_hash,
+            author_user_id=user.id,
+        )
+        db.session.add(row)
+        db.session.commit()
+        patch_id = row.id
+
+    with app.test_client() as client:
+        r = client.get(f'/api/doc/patch/{patch_id}/diff/')
+        assert r.status_code == 200, r.get_data(as_text=True)
+        data = r.get_json()
+        assert data['patch_mode'] == 'insert_after'
+        assert 'Text to insert after selection' in data['html']
+        assert 'dp-diff-del' not in data['html']
+        assert data['removed'] == 0
 
     with app.app_context():
         db.session.delete(DpProposal.query.get(patch_id))
