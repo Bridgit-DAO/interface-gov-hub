@@ -72,22 +72,34 @@ def patch_diff_route(patch_id):
 
     original = proposal.original_text or ''
     proposed = proposal.proposed_text or ''
-    mode = (getattr(proposal, 'patch_mode', None) or 'replace').strip().lower()
-    if mode == 'insert':
+    from services.patch_modes import normalize_patch_mode
+
+    mode = normalize_patch_mode(getattr(proposal, 'patch_mode', None))
+    if mode in ('insert', 'insert_after'):
         # Insert display: show insertion text + unchanged anchor (not a replace diff).
-        insert_html = (
-            f'<div class="dp-proposal-insert-preview">'
-            f'<div class="small text-muted mb-1">Text to insert above selection</div>'
-            f'<pre class="dp-proposal-pre mb-2">{html_mod.escape(proposed)}</pre>'
-            f'<div class="small text-muted mb-1">Selected passage (unchanged)</div>'
-            f'<pre class="dp-proposal-pre mb-0">{html_mod.escape(original)}</pre>'
-            f'</div>'
-        )
+        if mode == 'insert_after':
+            insert_html = (
+                f'<div class="dp-proposal-insert-preview">'
+                f'<div class="small text-muted mb-1">Selected list item (unchanged)</div>'
+                f'<pre class="dp-proposal-pre mb-2">{html_mod.escape(original)}</pre>'
+                f'<div class="small text-muted mb-1">Text to insert after selection</div>'
+                f'<pre class="dp-proposal-pre mb-0">{html_mod.escape(proposed)}</pre>'
+                f'</div>'
+            )
+        else:
+            insert_html = (
+                f'<div class="dp-proposal-insert-preview">'
+                f'<div class="small text-muted mb-1">Text to insert above selection</div>'
+                f'<pre class="dp-proposal-pre mb-2">{html_mod.escape(proposed)}</pre>'
+                f'<div class="small text-muted mb-1">Selected passage (unchanged)</div>'
+                f'<pre class="dp-proposal-pre mb-0">{html_mod.escape(original)}</pre>'
+                f'</div>'
+            )
         return jsonify({
             'html': insert_html,
             'added': len(proposed.split()) if proposed else 0,
             'removed': 0,
-            'patch_mode': 'insert',
+            'patch_mode': mode,
         })
     if not original:
         return jsonify({'html': html_mod.escape(proposed), 'added': 0, 'removed': 0, 'patch_mode': mode})

@@ -213,12 +213,14 @@ def render_dp_proposal_reader_assets(
             <div id="dpComposePanePropose">
               <div class="btn-group btn-group-sm mb-3" role="group" aria-label="Patch mode" id="dpPatchModeToggle">
                 <button type="button" class="btn btn-primary active" id="dpPatchModeReplace" data-patch-mode="replace">{html_mod.escape(labels.get("patch_mode_replace", "Replace"))}</button>
-                <button type="button" class="btn btn-outline-primary" id="dpPatchModeInsert" data-patch-mode="insert">{html_mod.escape(labels.get("patch_mode_insert", "Insert"))}</button>
+                <button type="button" class="btn btn-outline-primary" id="dpPatchModeInsert" data-patch-mode="insert">{html_mod.escape(labels.get("patch_mode_insert", "Insert above"))}</button>
+                <button type="button" class="btn btn-outline-primary" id="dpPatchModeInsertAfter" data-patch-mode="insert_after">{html_mod.escape(labels.get("patch_mode_insert_after", "Insert after"))}</button>
               </div>
               <p class="text-muted small" id="dpProposalOriginalHint">Original sentence(s) – expanded from your selection.</p>
               <textarea id="dpProposalOriginal" class="form-control font-monospace dp-proposal-pre mb-3" rows="5" readonly></textarea>
               <label class="form-label" for="dpProposalProposed" id="dpProposalProposedLabel">{html_mod.escape(labels.get("proposed_label", "Patched text"))}</label>
               <p class="text-muted small d-none" id="dpProposalInsertHelper">{html_mod.escape(labels.get("insert_helper", "This will be inserted above the selected passage. The selected passage is unchanged."))}</p>
+              <p class="text-muted small d-none" id="dpProposalInsertAfterHelper">{html_mod.escape(labels.get("insert_after_helper", "This will be inserted after the selected list item. The anchor line is unchanged."))}</p>
               <textarea id="dpProposalProposed" class="form-control font-monospace dp-proposal-pre mb-3" rows="5"></textarea>
               <div class="d-flex flex-wrap align-items-center gap-2 mb-2" id="dpProposalReplaceAssistRow">
                 <button type="button" class="btn btn-sm btn-outline-primary gh-ai-assist-trigger"

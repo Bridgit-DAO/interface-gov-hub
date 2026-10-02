@@ -167,15 +167,27 @@ def _render_diff_block(patch: DpProposal, labels: Dict[str, str]) -> str:
     """Inline red/green diff, matching the reader's patch modal."""
     original = patch.original_text or ''
     proposed = patch.proposed_text or ''
-    mode = (getattr(patch, 'patch_mode', None) or 'replace').strip().lower()
+    from services.patch_modes import normalize_patch_mode
+
+    mode = normalize_patch_mode(getattr(patch, 'patch_mode', None))
     if mode == 'insert':
         insert_label = html_mod.escape(labels.get('insert_label', 'Text to insert above selection'))
         return (
             '<div class="gh-patch-diff">'
-            f'<div class="small text-muted mb-1"><span class="badge bg-violet text-bg-secondary me-1">Insert</span>{insert_label}</div>'
+            f'<div class="small text-muted mb-1"><span class="badge bg-violet text-bg-secondary me-1">Insert above</span>{insert_label}</div>'
             f'<pre class="dp-proposal-pre gh-patch-pre mb-2">{html_mod.escape(proposed)}</pre>'
             '<div class="small text-muted mb-1">Selected passage (unchanged)</div>'
             f'<pre class="dp-proposal-pre gh-patch-pre mb-0">{html_mod.escape(original)}</pre>'
+            '</div>'
+        )
+    if mode == 'insert_after':
+        insert_label = html_mod.escape(labels.get('insert_after_label', 'Text to insert after selection'))
+        return (
+            '<div class="gh-patch-diff">'
+            f'<div class="small text-muted mb-1"><span class="badge bg-violet text-bg-secondary me-1">Insert after</span>{insert_label}</div>'
+            '<div class="small text-muted mb-1">Selected list item (unchanged)</div>'
+            f'<pre class="dp-proposal-pre gh-patch-pre mb-2">{html_mod.escape(original)}</pre>'
+            f'<pre class="dp-proposal-pre gh-patch-pre mb-0">{html_mod.escape(proposed)}</pre>'
             '</div>'
         )
     label = html_mod.escape(labels.get('proposed_label', 'Patched text'))

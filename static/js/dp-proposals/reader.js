@@ -49,6 +49,23 @@
   var pendingSelection = null;
   var composeMode = 'propose';
   var patchMode = 'replace';
+
+  function normalizePatchMode(mode) {
+    var m = String(mode || 'replace').toLowerCase().replace(/-/g, '_');
+    if (m === 'insert_after' || m === 'insertbelow' || m === 'insert_below') return 'insert_after';
+    if (m === 'insert') return 'insert';
+    return 'replace';
+  }
+
+  function isInsertPatchMode(mode) {
+    var m = normalizePatchMode(mode);
+    return m === 'insert' || m === 'insert_after';
+  }
+
+  function isListItemAnchor(text) {
+    var t = String(text || '').trim();
+    return /^[-*]\s+/.test(t) || /^\d+\.\s+/.test(t);
+  }
   var commentScopeMode = 'document';
   var COMPOSE_MODE_KEY = 'gh_compose_mode';
   var COMMENT_SCOPE_KEY = 'gh_comment_scope';
@@ -418,17 +435,32 @@
    * sentence-truncated (the API diffs the untrimmed original/proposed text).
    */
   function renderProposalBody(original, proposed, diffOn, patchId, mode) {
-    var isInsert = mode === 'insert';
-    if (isInsert) {
+    var normalizedMode = normalizePatchMode(mode);
+    if (normalizedMode === 'insert' || normalizedMode === 'insert_after') {
       var insertHtml = display && display.formatPreHtml
         ? display.formatPreHtml(proposed || '')
         : esc(proposed || '');
       var anchorHtml = display && display.formatPreHtml
         ? display.formatPreHtml(original || '')
         : esc(original || '');
+      var insertLabelKey = normalizedMode === 'insert_after' ? 'insert_after_label' : 'insert_label';
+      var insertFallback = normalizedMode === 'insert_after'
+        ? 'Text to insert after selection'
+        : 'Text to insert above selection';
+      if (normalizedMode === 'insert_after') {
+        return (
+          '<div class="dp-proposal-card-label">Selected list item (unchanged)</div>' +
+          '<div class="dp-proposal-card-original dp-proposal-pre-block dp-proposal-plain-original">' +
+          anchorHtml + '</div>' +
+          '<div class="dp-proposal-card-label mt-3">' +
+          esc(label(insertLabelKey, insertFallback)) +
+          '</div>' +
+          '<div class="dp-proposal-card-proposed dp-proposal-pre-block">' + insertHtml + '</div>'
+        );
+      }
       return (
         '<div class="dp-proposal-card-label">' +
-        esc(label('insert_label', 'Text to insert above selection')) +
+        esc(label(insertLabelKey, insertFallback)) +
         '</div>' +
         '<div class="dp-proposal-card-proposed dp-proposal-pre-block">' + insertHtml + '</div>' +
         '<div class="dp-proposal-card-label mt-3">Selected passage (unchanged)</div>' +
@@ -512,16 +544,34 @@
     return main;
   }
 
+  function patchModeBadgeHtml(mode) {
+    var normalized = normalizePatchMode(mode);
+    if (normalized === 'insert') {
+      return '<span class="badge bg-info text-dark me-1">Insert above</span>';
+    }
+    if (normalized === 'insert_after') {
+      return '<span class="badge bg-primary me-1">Insert after</span>';
+    }
+    if (normalized === 'replace') {
+      return '<span class="badge bg-secondary me-1">Replace</span>';
+    }
+    return '';
+  }
+
   function renderProposalHeaderHtml(p) {
     var author =
       '<small class="text-muted">' + esc(p.author_name || 'Anonymous') + '</small>';
     var applicability = applicabilityBadgeHtml(p);
+    var modeBadge = patchModeBadgeHtml(p.patch_mode);
     if (p.rationale) {
       return '<div class="d-flex justify-content-end align-items-start gap-2 dp-proposal-list-header">' +
-        applicability + author + '</div>';
+        modeBadge + applicability + author + '</div>';
     }
     return '<div class="d-flex justify-content-between align-items-start gap-2 dp-proposal-list-header">' +
+      '<div class="d-flex flex-wrap align-items-center gap-1">' +
       '<span class="badge ' + statusBadgeClass(p.status) + '">' + esc(p.status_label) + '</span>' +
+      modeBadge +
+      '</div>' +
       applicability + author + '</div>';
   }
 
@@ -1524,8 +1574,7 @@
 
   function readPatchModeFromStorage() {
     try {
-      var v = sessionStorage.getItem(PATCH_MODE_KEY);
-      return v === 'insert' ? 'insert' : 'replace';
+      return normalizePatchMode(sessionStorage.getItem(PATCH_MODE_KEY));
     } catch (_e) {
       return 'replace';
     }
@@ -1533,14 +1582,16 @@
 
   function setPatchMode(mode, opts) {
     opts = opts || {};
-    patchMode = mode === 'insert' ? 'insert' : 'replace';
+    patchMode = normalizePatchMode(mode);
     try {
       sessionStorage.setItem(PATCH_MODE_KEY, patchMode);
     } catch (_e) { /* ignore */ }
     var btnReplace = document.getElementById('dpPatchModeReplace');
     var btnInsert = document.getElementById('dpPatchModeInsert');
+    var btnInsertAfter = document.getElementById('dpPatchModeInsertAfter');
     var label = document.getElementById('dpProposalProposedLabel');
     var helper = document.getElementById('dpProposalInsertHelper');
+    var helperAfter = document.getElementById('dpProposalInsertAfterHelper');
     var assistRow = document.getElementById('dpProposalReplaceAssistRow');
     var labels = (meta && meta.labels) || {};
     if (btnReplace) {
@@ -1553,18 +1604,28 @@
       btnInsert.classList.toggle('btn-outline-primary', patchMode !== 'insert');
       btnInsert.classList.toggle('active', patchMode === 'insert');
     }
+    if (btnInsertAfter) {
+      btnInsertAfter.classList.toggle('btn-primary', patchMode === 'insert_after');
+      btnInsertAfter.classList.toggle('btn-outline-primary', patchMode !== 'insert_after');
+      btnInsertAfter.classList.toggle('active', patchMode === 'insert_after');
+    }
     if (label) {
-      label.textContent = patchMode === 'insert'
-        ? (labels.insert_label || 'Text to insert above selection')
-        : (labels.proposed_label || 'Patched text');
+      if (patchMode === 'insert') {
+        label.textContent = labels.insert_label || 'Text to insert above selection';
+      } else if (patchMode === 'insert_after') {
+        label.textContent = labels.insert_after_label || 'Text to insert after selection';
+      } else {
+        label.textContent = labels.proposed_label || 'Patched text';
+      }
     }
     if (helper) helper.classList.toggle('d-none', patchMode !== 'insert');
-    if (assistRow) assistRow.classList.toggle('d-none', patchMode === 'insert');
+    if (helperAfter) helperAfter.classList.toggle('d-none', patchMode !== 'insert_after');
+    if (assistRow) assistRow.classList.toggle('d-none', isInsertPatchMode(patchMode));
     if (opts.syncProposed && pendingSelection) {
       var prop = document.getElementById('dpProposalProposed');
       var submit = document.getElementById('dpProposalSubmitBtn');
       if (prop) {
-        if (patchMode === 'insert') {
+        if (isInsertPatchMode(patchMode)) {
           prop.value = '';
         } else if (!prop.value) {
           prop.value = pendingSelection.original;
@@ -1573,7 +1634,7 @@
           var o = (document.getElementById('dpProposalOriginal') || {}).value || '';
           o = String(o).replace(/^\s+|\s+$/g, '');
           var v = prop.value.replace(/^\s+|\s+$/g, '');
-          if (patchMode === 'insert') {
+          if (isInsertPatchMode(patchMode)) {
             submit.disabled = !v;
           } else {
             submit.disabled = !v || v === o;
@@ -1990,6 +2051,8 @@
     var text = preview.value.trim();
     if (mode === 'insert' && targetEl.value.trim()) {
       targetEl.value = targetEl.value.replace(/\s+$/g, '') + '\n\n' + text;
+    } else if (mode === 'insert_after' && targetEl.value.trim()) {
+      targetEl.value = targetEl.value.replace(/\s+$/g, '') + '\n' + text;
     } else {
       targetEl.value = text;
     }
@@ -2077,6 +2140,7 @@
     }
     var btnReplace = document.getElementById('dpPatchModeReplace');
     var btnInsert = document.getElementById('dpPatchModeInsert');
+    var btnInsertAfter = document.getElementById('dpPatchModeInsertAfter');
     if (btnReplace) {
       btnReplace.addEventListener('click', function () {
         setPatchMode('replace', { syncProposed: true });
@@ -2085,6 +2149,11 @@
     if (btnInsert) {
       btnInsert.addEventListener('click', function () {
         setPatchMode('insert', { syncProposed: true });
+      });
+    }
+    if (btnInsertAfter) {
+      btnInsertAfter.addEventListener('click', function () {
+        setPatchMode('insert_after', { syncProposed: true });
       });
     }
     bindCommentScopeToggle();
@@ -2110,11 +2179,13 @@
     if (!isDocumentComment && (!orig || !prop || !submit || !pendingSelection)) {
       return false;
     }
-    setPatchMode(readPatchModeFromStorage());
+    var suggestedMode = pendingSelection && isListItemAnchor(pendingSelection.original)
+      ? 'insert_after'
+      : readPatchModeFromStorage();
+    setPatchMode(suggestedMode);
     if (pendingSelection && orig && prop) {
       orig.value = pendingSelection.original;
-      // Insert starts empty; Replace prefills with selection for editing.
-      prop.value = patchMode === 'insert' ? '' : pendingSelection.original;
+      prop.value = isInsertPatchMode(patchMode) ? '' : pendingSelection.original;
       if (passageComment) passageComment.value = pendingSelection.original;
     } else if (passageComment) {
       passageComment.value = '';
@@ -2129,7 +2200,7 @@
         prop.oninput = function () {
           var o = orig.value.replace(/^\s+|\s+$/g, '');
           var v = prop.value.replace(/^\s+|\s+$/g, '');
-          if (patchMode === 'insert') {
+          if (isInsertPatchMode(patchMode)) {
             submit.disabled = !v;
           } else {
             submit.disabled = !v || v === o;
@@ -2404,15 +2475,17 @@
     var submit = document.getElementById('dpProposalSubmitBtn');
     if (!orig || !prop || !pendingSelection) return;
     submit.disabled = true;
-    var mode = patchMode === 'insert' ? 'insert' : 'replace';
+    var mode = normalizePatchMode(patchMode);
     var trimmed;
-    if (mode === 'insert') {
+    if (isInsertPatchMode(mode)) {
       trimmed = {
         original: orig.value.replace(/^\s+|\s+$/g, ''),
         proposed: prop.value.replace(/^\s+|\s+$/g, ''),
       };
       if (!trimmed.original || !trimmed.proposed) {
-        err.textContent = 'Enter text to insert above the selected passage.';
+        err.textContent = mode === 'insert_after'
+          ? 'Enter text to insert after the selected list item.'
+          : 'Enter text to insert above the selected passage.';
         err.classList.remove('d-none');
         submit.disabled = false;
         return;

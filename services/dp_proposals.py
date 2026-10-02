@@ -310,10 +310,12 @@ def validate_create_payload(data: Any) -> Tuple[Optional[dict], Optional[str]]:
     if not isinstance(data, dict):
         return None, 'JSON body required'
     from models.dp_proposal import DP_PROPOSAL_PATCH_MODES
+    from services.patch_modes import normalize_patch_mode
 
-    patch_mode = (data.get('patch_mode') or 'replace').strip().lower()
-    if patch_mode not in DP_PROPOSAL_PATCH_MODES:
-        return None, 'patch_mode must be replace or insert'
+    raw_mode = (data.get('patch_mode') or 'replace').strip().lower()
+    patch_mode = normalize_patch_mode(raw_mode)
+    if raw_mode.replace('-', '_') not in DP_PROPOSAL_PATCH_MODES | {'insert_below', 'insertbelow'}:
+        return None, 'patch_mode must be replace, insert, or insert_after'
 
     original = normalize_proposal_text(data.get('original_text') or '')
     proposed = normalize_proposal_text(data.get('proposed_text') or '')
@@ -330,7 +332,7 @@ def validate_create_payload(data: Any) -> Tuple[Optional[dict], Optional[str]]:
             return None, 'proposed_text is required'
         if original == proposed:
             return None, 'proposed_text must differ from original_text'
-    # insert: keep full selection as anchor; skip differ + focused_passage_core
+    # insert / insert_after: keep full selection as anchor; skip differ + focused_passage_core
 
     context_anchor = align_context_anchor_to_original(
         data.get('context_anchor'),
@@ -362,7 +364,7 @@ def apply_patch_to_body(
     proposed_text: str,
     patch_mode: str = 'replace',
 ) -> Optional[str]:
-    """Apply a replace or insert-before-anchor splice to a document body.
+    """Apply a replace, insert-above, or insert-after splice to a document body.
 
     Returns None if the anchor passage is not found. Accept/merge today is
     status-only; this helper is the shared apply path for revision compose
@@ -376,9 +378,19 @@ def apply_patch_to_body(
     idx = haystack.find(needle)
     if idx < 0:
         return None
-    mode = (patch_mode or 'replace').strip().lower()
+    from services.patch_modes import is_list_item_anchor, normalize_patch_mode
+
+    mode = normalize_patch_mode(patch_mode)
+    # normalize_proposal_text strips edges, so keep the inserted block on its own
+    # line(s) instead of gluing it to the anchor: list items stack on one newline,
+    # everything else is separated by a blank line.
+    both_list = is_list_item_anchor(needle) and is_list_item_anchor(insertion)
+    sep = '\n' if both_list else '\n\n'
+    end = idx + len(needle)
     if mode == 'insert':
-        return haystack[:idx] + insertion + haystack[idx:]
+        return haystack[:idx] + insertion + sep + haystack[idx:]
+    if mode == 'insert_after':
+        return haystack[:end] + sep + insertion + haystack[end:]
     return haystack[:idx] + insertion + haystack[idx + len(needle):]
 
 
@@ -883,9 +895,9 @@ def create_dp_proposal(
     external_id: Optional[str] = None,
     canopi_overlay_id: Optional[str] = None,
 ) -> DpProposal:
-    mode = (patch_mode or 'replace').strip().lower()
-    if mode not in ('replace', 'insert'):
-        mode = 'replace'
+    from services.patch_modes import normalize_patch_mode
+
+    mode = normalize_patch_mode(patch_mode)
     anchor_hash = compute_anchor_hash(
         submission.id,
         submission.content_hash,

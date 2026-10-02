@@ -14,7 +14,8 @@ DP_PROPOSAL_STATUSES = frozenset({
 })
 
 DP_PROPOSAL_SCOPES = frozenset({'dp', 'document'})
-DP_PROPOSAL_PATCH_MODES = frozenset({'replace', 'insert'})
+
+from services.patch_modes import DP_PROPOSAL_PATCH_MODES  # noqa: E402
 
 
 class DpProposal(db.Model):
@@ -57,9 +58,11 @@ class DpProposal(db.Model):
     )
 
     def status_label(self) -> str:
-        mode = (self.patch_mode or 'replace').strip().lower()
-        if self.status == 'pending' and mode == 'insert':
-            return 'Insert'
+        from services.patch_modes import patch_mode_status_label
+
+        insert_label = patch_mode_status_label(self.patch_mode, self.status)
+        if insert_label:
+            return insert_label
         labels = {
             'pending': 'Patch',
             'accepted': 'Merged',
@@ -77,9 +80,9 @@ class DpProposal(db.Model):
         reviewer_name = None
         if self.reviewed_by:
             reviewer_name = self.reviewed_by.displayName or self.reviewed_by.username
-        mode = (self.patch_mode or 'replace').strip().lower()
-        if mode not in DP_PROPOSAL_PATCH_MODES:
-            mode = 'replace'
+        from services.patch_modes import normalize_patch_mode
+
+        mode = normalize_patch_mode(self.patch_mode)
         data = {
             'id': self.id,
             'submission_id': self.submission_id,

@@ -30,9 +30,12 @@ PATCH_LABELS: Dict[str, str] = {
     'hover_section': 'Patches',
     'proposed_label': 'Patched text',
     'insert_label': 'Text to insert above selection',
+    'insert_after_label': 'Text to insert after selection',
     'insert_helper': 'This will be inserted above the selected passage. The selected passage is unchanged.',
+    'insert_after_helper': 'This will be inserted after the selected list item. The anchor line is unchanged.',
     'patch_mode_replace': 'Replace',
-    'patch_mode_insert': 'Insert',
+    'patch_mode_insert': 'Insert above',
+    'patch_mode_insert_after': 'Insert after',
     'location_not_found': 'location not found in document',
 }
 
